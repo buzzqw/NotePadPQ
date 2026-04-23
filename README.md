@@ -105,7 +105,7 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira su Linu
 Il modo più semplice per installare NotePadPQ e tutte le sue dipendenze è utilizzare lo script di setup automatico:
 
 ```bash
-git clone [https://github.com/buzzqw/NotePadPQ.git](https://github.com/buzzqw/NotePadPQ.git)
+git clone https://github.com/buzzqw/NotePadPQ.git
 cd NotePadPQ
 bash setup.sh
 ```

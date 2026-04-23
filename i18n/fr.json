@@ -15,6 +15,7 @@
     "document": "Document",
     "tools": "Outils",
     "plugins": "Extensions",
+    "format": "Formater le Texte"
     "help": "Aide"
   },
   "action": {
@@ -174,6 +175,12 @@
     "column_stats":      "Statistiques de colonne…",
     "action": "overwrite": "Écraser",
     "compare_changes": "Comparer les modifications",
+    "wrap_env": "Entourer d'un Environnement...",
+    "align_table": "Aligner le Tableau",
+    "spell_check": "Vérification Orthographique",
+    "markup_bold": "Gras",
+    "markup_italic": "Italique",
+    "markup_strike": "Barré"
     "view_document_map": "Carte du document"
   },
   "label": {

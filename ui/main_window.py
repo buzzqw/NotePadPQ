@@ -416,7 +416,7 @@ class MainWindow(QMainWindow):
         self._sep(m)
 
         # Formatta submenu
-        sub_fmt = m.addMenu(tr("action.indent"))  # "Formatta" — riuso label
+        sub_fmt = m.addMenu(tr("menu.format"))
         self._menus["format"] = sub_fmt
         sub_fmt.addAction(self._act("join_lines",    "",         self.action_join_lines))
         sub_fmt.addAction(self._act("line_break",    "",         self.action_line_break))
@@ -431,10 +431,13 @@ class MainWindow(QMainWindow):
         sub_fmt.addAction(self._act("markup_bold",   "Ctrl+B",       lambda: self._apply_markup("bold")))
         sub_fmt.addAction(self._act("markup_italic", "Ctrl+I",       lambda: self._apply_markup("italic")))
         sub_fmt.addAction(self._act("markup_strike", "Ctrl+Shift+X", lambda: self._apply_markup("strike")))
+        sub_fmt.addAction(self._act("wrap_env",      "Alt+E",        self.action_wrap_env))
         sub_fmt.addSeparator()
         sub_fmt.addAction(self._act("toggle_comment","Ctrl+E",   self.action_toggle_comment))
         sub_fmt.addAction(self._act("comment_line",  "",         self.action_comment_lines))
         sub_fmt.addAction(self._act("uncomment_line","",         self.action_uncomment_lines))
+        sub_fmt.addSeparator()
+        sub_fmt.addAction(self._act("align_table",   "Alt+T",    self.action_align_table))
         sub_fmt.addSeparator()
         sub_fmt.addAction(self._act("indent",        "Ctrl+Shit+I",   self.action_indent))
         sub_fmt.addAction(self._act("unindent",      "Ctrl+U",   self.action_unindent))
@@ -587,6 +590,7 @@ class MainWindow(QMainWindow):
         m.addAction(self._actions["view_word_wrap"])  # stessa action di Visualizza → checkbox sincronizzato
         m.addAction(self._act("line_break",      "", self.action_line_break,     checkable=False))
         m.addAction(self._act("auto_indent",     "", self._toggle_auto_indent,   checkable=True, checked=True))
+        m.addAction(self._act("spell_check",     "F4", self._toggle_spellcheck,  checkable=True, checked=False))
         self._sep(m)
 
         # Tipo indentazione submenu
@@ -1201,7 +1205,7 @@ class MainWindow(QMainWindow):
                         editor._watcher.addPath(str(path))
                     # Abbassa la bandiera di sicurezza
                     editor._is_saving = False
-                
+           
                 # 1000 ms (1 secondo) dà al SO tutto il tempo di smaltire gli eventi file pendenti
                 QTimer.singleShot(1000, restore_watcher)
             else:
@@ -2270,7 +2274,140 @@ class MainWindow(QMainWindow):
             editor.insert(f"{prefix}{suffix}")
             editor.setCursorPosition(line, col + len(prefix))
         
-        editor.setFocus()    
+        editor.setFocus()
+    
+    def action_wrap_env(self) -> None:
+        """Avvolge il testo selezionato in un ambiente LaTeX o tag HTML."""
+        editor = self._current_editor()
+        if not editor:
+            return
+
+        from editor.lexers import get_language_name
+        lang = get_language_name(editor).lower()
+        
+        # Identifica se usare la sintassi LaTeX o HTML
+        is_html_md = "html" in lang or "markdown" in lang
+        is_tex = not is_html_md # Fallback predefinito a LaTeX per gli altri file
+
+        # Chiede all'utente il nome dell'ambiente
+        env_name, ok = QInputDialog.getText(
+            self, "Avvolgi in Ambiente",
+            "Nome ambiente (es. itemize, center, div):"
+        )
+        
+        if ok and env_name.strip():
+            env = env_name.strip()
+            
+            if editor.hasSelectedText():
+                # Se c'è testo selezionato, lo indenta e lo avvolge
+                text = editor.selectedText()
+                # Aggiunge 4 spazi di indentazione a ogni riga del testo
+                indented = "\n".join("    " + line for line in text.split("\n"))
+                
+                if is_tex:
+                    res = f"\\begin{{{env}}}\n{indented}\n\\end{{{env}}}"
+                else:
+                    res = f"<{env}>\n{indented}\n</{env}>"
+                    
+                editor.replaceSelectedText(res)
+            else:
+                # Se non c'è selezione, crea l'ambiente vuoto e mette il cursore in mezzo
+                line, col = editor.getCursorPosition()
+                if is_tex:
+                    editor.insert(f"\\begin{{{env}}}\n    \n\\end{{{env}}}")
+                else:
+                    editor.insert(f"<{env}>\n    \n</{env}>")
+                
+                # Posiziona il cursore nella riga vuota indentata
+                editor.setCursorPosition(line + 1, 4)
+            
+            editor.setFocus()
+            
+    def action_align_table(self) -> None:
+        """Allinea automaticamente le colonne di una tabella in LaTeX (&) o Markdown (|)."""
+        editor = self._current_editor()
+        if not editor or not editor.hasSelectedText():
+            self.statusBar().showMessage("⚠️ Seleziona prima le righe della tabella da allineare!", 3000)
+            return
+
+        from editor.lexers import get_language_name
+        lang = get_language_name(editor).lower()
+        
+        # Capisce se stiamo lavorando in Markdown o LaTeX
+        is_md = "markdown" in lang
+        sep = "|" if is_md else "&"
+
+        text = editor.selectedText()
+        lines = text.splitlines()
+        if not lines:
+            return
+
+        # 1. Suddivide le righe nelle loro singole celle
+        parsed_rows = []
+        for line in lines:
+            end_marker = ""
+            
+            # Preserva la fine riga tipica di LaTeX (\\)
+            if sep == "&":
+                line_stripped = line.rstrip()
+                if line_stripped.endswith(r"\\"):
+                    end_marker = r" \\"
+                    line = line_stripped[:-2] # Taglia via i due backslash per analizzare la cella nuda
+            
+            # Spezza la riga e pulisce gli spazi attorno al testo
+            cells = [c.strip() for c in line.split(sep)]
+            parsed_rows.append((cells, end_marker))
+
+        # 2. Calcola quanto deve essere larga al massimo ogni colonna
+        max_cols = max((len(c) for c, _ in parsed_rows), default=0)
+        col_widths = [0] * max_cols
+        for cells, _ in parsed_rows:
+            for i, cell in enumerate(cells):
+                col_widths[i] = max(col_widths[i], len(cell))
+
+        # 3. Ricostruisce le righe della tabella aggiungendo gli spazi vuoti necessari
+        new_lines = []
+        for cells, end_marker in parsed_rows:
+            padded_cells = []
+            for i, cell in enumerate(cells):
+                # Gestione speciale per la riga di divisione del Markdown (es: |---|---|)
+                if is_md and set(cell) <= {"-", ":"}:
+                    if len(cell) > 0:
+                        padded_cells.append(cell.ljust(col_widths[i], "-"))
+                    else:
+                        padded_cells.append("")
+                else:
+                    padded_cells.append(cell.ljust(col_widths[i]))
+            
+            # Ricuce i pezzi mettendo il separatore in mezzo
+            joined_line = f" {sep} ".join(padded_cells)
+            
+            # Pulizia dei bordi esterni (utile specialmente per Markdown)
+            joined_line = joined_line.strip()
+            
+            if end_marker:
+                joined_line += end_marker
+                
+            new_lines.append(joined_line)
+
+        # 4. Sostituisce il pasticcio nell'editor con la tabella perfettamente allineata!
+        aligned_text = "\n".join(new_lines)
+        editor.replaceSelectedText(aligned_text)
+        self.statusBar().showMessage("✨ Tabella allineata con successo!", 3000)
+
+    def _toggle_spellcheck(self, checked: bool) -> None:
+        """Attiva o disattiva il controllo ortografico per tutti i tab aperti."""
+        from i18n.i18n import I18n
+        # Usa la lingua corrente di NotePadPQ (es. 'it', 'en') per il dizionario
+        lang = I18n.instance().current_language() 
+        
+        for ed in self._tab_manager.all_editors():
+            if hasattr(ed, "set_spellcheck_enabled"):
+                ed.set_spellcheck_enabled(checked, lang)
+                
+        self.statusBar().showMessage(
+            f"Controllo ortografico ({lang}): " + ("attivato" if checked else "disattivato"), 3000
+        )    
 
 
 # ─── Test standalone ──────────────────────────────────────────────────────────

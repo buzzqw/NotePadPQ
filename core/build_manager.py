@@ -316,6 +316,26 @@ class BuildManager(QObject):
                 if hasattr(win, "action_save"):
                     win.action_save()
 
+        # --- INIZIO MAGIC COMMENTS (TeXstudio style) ---
+        # Controlliamo le prime righe per trovare il file root
+        content = editor.get_content()
+        lines = content.splitlines()[:10]  # Analizza solo le prime 10 righe
+        
+        for line in lines:
+            # Regex per cercare commenti stile TeXstudio: % !TEX root = nomefile.tex
+            match = re.search(r'%\s*!TEX\s+root\s*=\s*(.+)', line)
+            if match:
+                root_file_str = match.group(1).strip()
+                # Il percorso può essere assoluto o relativo al file corrente
+                possible_root = file_path.parent / root_file_str
+                if possible_root.exists():
+                    self.build_output.emit(f"🪄 [Magic Comment rilevato: Compilo file root -> {possible_root.name}]")
+                    file_path = possible_root.resolve()
+                else:
+                    self.build_output.emit(f"⚠️ [Magic Comment ignorato: Il file root specificato '{root_file_str}' non esiste in {file_path.parent}]")
+                break # Esce dal ciclo for dopo il primo hit
+        # --- FINE MAGIC COMMENTS ---
+
         # Trova il profilo
         profile_name = self.get_profile_for_file(file_path)
         if not profile_name:

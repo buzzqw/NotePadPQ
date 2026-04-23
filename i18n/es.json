@@ -15,6 +15,7 @@
     "document": "Documento",
     "tools": "Herramientas",
     "plugins": "Plugins",
+    "format": "Formato de Texto"
     "help": "Ayuda"
   },
   "action": {
@@ -174,6 +175,12 @@
     "column_stats":      "Estadísticas de columna…",
     "overwrite": "Sobrescribir",
     "compare_changes": "Comparar cambios",
+    "wrap_env": "Envolver en Entorno...",
+    "align_table": "Alinear Tabla",
+    "spell_check": "Corrector Ortográfico",
+    "markup_bold": "Negrita",
+    "markup_italic": "Cursiva",
+    "markup_strike": "Tachado"
     "view_document_map": "Mapa del documento"
   },
   "label": {

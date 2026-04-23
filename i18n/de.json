@@ -15,6 +15,7 @@
     "document": "Dokument",
     "tools": "Werkzeuge",
     "plugins": "Erweiterungen",
+    "format": "Text formatieren"
     "help": "Hilfe"
   },
   "action": {
@@ -174,6 +175,12 @@
     "column_stats":      "Spaltenstatistiken…",
     "overwrite": "Überschreiben",
     "compare_changes": "Änderungen vergleichen",
+    "wrap_env": "In Umgebung einbetten...",
+    "align_table": "Tabelle ausrichten",
+    "spell_check": "Rechtschreibprüfung",
+    "markup_bold": "Fett",
+    "markup_italic": "Kursiv",
+    "markup_strike": "Durchgestrichen"
     "view_document_map": "Dokumentstruktur"
   },
   "label": {

@@ -15,6 +15,7 @@
     "document": "Documento",
     "tools": "Strumenti",
     "plugins": "Plugin",
+    "format": "Formatta Testo",
     "help": "Aiuto"
   },
   "action": {
@@ -174,6 +175,12 @@
     "column_stats":      "Statistiche colonna…",
     "view_document_map": "Document Map",
     "compare_changes": "Confronta differenze",
+    "wrap_env": "Avvolgi in Ambiente...",
+    "align_table": "Allinea Tabella",
+    "spell_check": "Controllo Ortografico",
+    "markup_bold": "Grassetto",
+    "markup_italic": "Corsivo",
+    "markup_strike": "Barrato",
     "overwrite": "Sovrascrivi"
   },
   "label": {

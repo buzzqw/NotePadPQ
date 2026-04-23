@@ -15,6 +15,7 @@
     "document": "Document",
     "tools": "Tools",
     "plugins": "Plugins",
+    "format": "Format Text"
     "help": "Help"
   },
   "action": {
@@ -174,6 +175,12 @@
     "column_stats":      "Column Statistics…",
     "overwrite": "Overwrite",
     "compare_changes": "Compare changes",
+    "wrap_env": "Wrap in Environment...",
+    "align_table": "Align Table",
+    "spell_check": "Spell Check",
+    "markup_bold": "Bold",
+    "markup_italic": "Italic",
+    "markup_strike": "Strikethrough"
     "view_document_map": "Document Map"
   },
   "label": {

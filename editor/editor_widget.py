@@ -81,6 +81,7 @@ INDICATOR_MARK2     = 2
 INDICATOR_MARK3     = 3
 INDICATOR_MARK4     = 4
 INDICATOR_SMART_HL  = 5   # Smart Highlight: parola sotto cursore
+INDICATOR_SPELL     = 6   # Sottolineatura a zig-zag rossa per errori ortografici
 
 # ─── EditorWidget ─────────────────────────────────────────────────────────────
 
@@ -115,6 +116,16 @@ class EditorWidget(QsciScintilla):
         self._smart_hl_timer.setSingleShot(True)
         self._smart_hl_timer.setInterval(400)
         self._smart_hl_timer.timeout.connect(self._do_smart_highlight)
+
+        # --- INIZIO TIMER SPELL CHECKER ---
+        self._spell_checker = None
+        self._spell_timer = QTimer(self)
+        self._spell_timer.setSingleShot(True)
+        self._spell_timer.setInterval(1000) # Aspetta 1 secondo di inattività prima di controllare
+        self._spell_timer.timeout.connect(self._do_spell_check)
+        self.textChanged.connect(self._spell_timer.start) # Si riavvia a ogni tasto premuto
+        # --- FINE TIMER SPELL CHECKER ---
+        
 
         self._setup_base()
         self._setup_margins()
@@ -240,6 +251,22 @@ class EditorWidget(QsciScintilla):
         )
         self.setIndicatorForegroundColor(QColor(100, 180, 255, 100), INDICATOR_SMART_HL)
         self.setIndicatorDrawUnder(True, INDICATOR_SMART_HL)
+        
+        # Indicatore Smart Highlight: box arrotondato tenue sotto il testo
+        self.indicatorDefine(
+            QsciScintilla.IndicatorStyle.RoundBoxIndicator, INDICATOR_SMART_HL
+        )
+        self.setIndicatorForegroundColor(QColor(100, 180, 255, 100), INDICATOR_SMART_HL)
+        self.setIndicatorDrawUnder(True, INDICATOR_SMART_HL)
+
+        # --- INIZIO SPELL CHECKER ---
+        # Indicatore errori ortografici (ondina rossa SOTTO il testo)
+        self.indicatorDefine(
+            QsciScintilla.IndicatorStyle.SquiggleIndicator, INDICATOR_SPELL
+        )
+        self.setIndicatorForegroundColor(QColor(255, 0, 0), INDICATOR_SPELL)
+        self.setIndicatorDrawUnder(True, INDICATOR_SPELL)
+        # --- FINE SPELL CHECKER ---
 
     def _setup_caret(self) -> None:
         """Configura il cursore (caret)."""
@@ -267,6 +294,8 @@ class EditorWidget(QsciScintilla):
         self.cursorPositionChanged.connect(
             lambda *_: self._smart_hl_timer.start()
         )
+        
+        self.userListActivated.connect(self._on_user_list_selection)
 
     # ── Slot interni ──────────────────────────────────────────────────────────
 
@@ -638,9 +667,21 @@ class EditorWidget(QsciScintilla):
                     mm._actions.append({"type": "backspace"})
                 elif key == Qt.Key.Key_Delete:
                     mm._actions.append({"type": "delete"})
+        # ... (codice macro esistente) ...
         except Exception:
             pass
         super().keyPressEvent(event)
+
+        # --- INIZIO AUTOCOMPLETAMENTO BIBTEX ---
+        if event.text() == '{':
+            from editor.lexers import get_language_name
+            lang = get_language_name(self).lower()
+            if "latex" in lang or "tex" in lang:
+                line, index = self.getCursorPosition()
+                text_before = self.text(line)[:index]
+                if text_before.endswith(r"\cite{"):
+                    self._show_bibtex_autocomplete()
+        # --- FINE AUTOCOMPLETAMENTO BIBTEX ---
 
     def wheelEvent(self, event) -> None:
         """Ctrl+Scroll → zoom."""
@@ -731,6 +772,93 @@ class EditorWidget(QsciScintilla):
             bookmarks.append(line)
             line = self.markerFindNext(line + 1, 1 << MARKER_BOOKMARK)
         return bookmarks
+        
+    # ── Controllo Ortografico ──────────────────────────────────────────────────
+
+    def set_spellcheck_enabled(self, enabled: bool, lang: str = "it") -> None:
+        """Attiva o disattiva il controllo ortografico per questo editor."""
+        if enabled:
+            try:
+                from spellchecker import SpellChecker
+                # Carica il dizionario (ci mette una frazione di secondo)
+                self._spell_checker = SpellChecker(language=lang)
+                self._do_spell_check() # Fa un primo controllo immediato
+            except ImportError:
+                self._spell_checker = None
+                print("[SpellCheck] Installa la libreria con: pip install pyspellchecker")
+        else:
+            self._spell_checker = None
+            # Pulisce tutte le ondine rosse
+            self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SPELL)
+
+    def _do_spell_check(self) -> None:
+        """Trova le parole sconosciute e disegna l'ondina rossa."""
+        if not self._spell_checker:
+            return
+
+        text = self.text()
+        # Pulisce gli errori precedenti per non fare sovrapposizioni
+        self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SPELL)
+
+        import re
+        # Cerca parole di sole lettere, ignorando i comandi LaTeX che iniziano per "\"
+        # Include lettere accentate italiane
+        pattern = r'(?<!\\)\b[A-Za-zàèìòùé]+\b'
+
+        words_found = []
+        matches = []
+
+        for m in re.finditer(pattern, text):
+            word = m.group(0)
+            # Filtra parole troppo corte o interamente maiuscole (sigle)
+            if len(word) > 2 and not word.isupper():
+                words_found.append(word)
+                matches.append(m)
+
+        # Chiede al dizionario quali di queste parole sono sbagliate (è molto veloce!)
+        unknown = self._spell_checker.unknown(words_found)
+
+        # Disegna l'ondina rossa sotto le parole sbagliate
+        for m in matches:
+            if m.group(0) in unknown:
+                start = m.start()
+                end = m.end()
+                line_s, col_s = self._offset_to_line_col(start)
+                line_e, col_e = self._offset_to_line_col(end)
+                self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SPELL)    
+        
+    # ── Autocompletamento BibTeX ──────────────────────────────────────────────
+
+    def _show_bibtex_autocomplete(self) -> None:
+        """Cerca file .bib nella cartella e mostra le chiavi nel menu a tendina."""
+        if not self.file_path or not self.file_path.parent.exists():
+            return
+            
+        import re
+        bib_keys = []
+        
+        # Cerca tutti i file .bib nella cartella corrente
+        for bib_file in self.file_path.parent.glob("*.bib"):
+            try:
+                content = bib_file.read_text(encoding="utf-8", errors="ignore")
+                # Trova tutto ciò che assomiglia a @tipo{CHIAVE,
+                matches = re.findall(r'@[a-zA-Z]+\s*\{\s*([^,]+),', content)
+                bib_keys.extend(matches)
+            except Exception:
+                pass
+        
+        if bib_keys:
+            # Rimuove i duplicati e ordina alfabeticamente
+            bib_keys = sorted(list(set(bib_keys)))
+            # Mostra la lista usando l'ID 1 (per distinguerlo da altri popup)
+            self.showUserList(1, bib_keys)
+
+    def _on_user_list_selection(self, list_id: int, text: str) -> None:
+        """Inserisce la chiave selezionata nel testo."""
+        if list_id == 1:
+            self.insert(text)
+
+    # ── Metodi per compatibilità ─────────────────────────────────────────────    
 
     # ── Metodi per compatibilità ─────────────────────────────────────────────
 

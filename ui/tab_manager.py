@@ -15,6 +15,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from typing import Optional, List
+from functools import partial
 
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QFileSystemWatcher
 from PyQt6.QtGui import QIcon
@@ -314,7 +315,8 @@ class TabManager(QTabWidget):
             # Diciamo alla sentinella di guardare il percorso del file
             editor._watcher.addPath(str(path))
             # Se la sentinella vede un cambiamento, avvisa la finestra principale
-            editor._watcher.fileChanged.connect(lambda p: self.window()._on_file_changed_externally(editor))
+            # Usiamo partial invece di lambda per evitare bug di binding!
+            editor._watcher.fileChanged.connect(partial(self.window()._on_file_changed_externally, editor))
         
         return editor
 

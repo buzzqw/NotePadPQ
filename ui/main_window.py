@@ -439,7 +439,7 @@ class MainWindow(QMainWindow):
         sub_fmt.addSeparator()
         sub_fmt.addAction(self._act("align_table",   "Alt+T",    self.action_align_table))
         sub_fmt.addSeparator()
-        sub_fmt.addAction(self._act("indent",        "Ctrl+Shit+I",   self.action_indent))
+        sub_fmt.addAction(self._act("indent",        "Ctrl+Shift+I",   self.action_indent))
         sub_fmt.addAction(self._act("unindent",      "Ctrl+U",   self.action_unindent))
         sub_fmt.addAction(self._act("indent_smart",  "",         self.action_indent_smart))
         sub_fmt.addSeparator()
@@ -484,9 +484,9 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("replace",         "Ctrl+H",       self.action_replace))
         self._sep(m)
         # Ricerca incrementale inline (non sostituisce il dialog)
-        act_inc = self._act("incremental_search", "Ctrl+F2", self._toggle_incremental_search,
-                            checkable=True, checked=False)
-        m.addAction(act_inc)
+        #act_inc = self._act("incremental_search", "Ctrl+F2", self._toggle_incremental_search,
+        #                    checkable=True, checked=False)
+        #m.addAction(act_inc)
         self._sep(m)
         m.addAction(self._act("find_in_files",      "Ctrl+Shift+F", self.action_find_in_files))
         m.addAction(self._act("find_in_all_docs",   "",             self.action_find_in_all_docs))

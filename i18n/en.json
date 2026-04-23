@@ -15,7 +15,7 @@
     "document": "Document",
     "tools": "Tools",
     "plugins": "Plugins",
-    "format": "Format Text"
+    "format": "Format Text",
     "help": "Help"
   },
   "action": {
@@ -180,7 +180,7 @@
     "spell_check": "Spell Check",
     "markup_bold": "Bold",
     "markup_italic": "Italic",
-    "markup_strike": "Strikethrough"
+    "markup_strike": "Strikethrough",
     "view_document_map": "Document Map"
   },
   "label": {

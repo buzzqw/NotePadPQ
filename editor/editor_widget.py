@@ -297,6 +297,16 @@ class EditorWidget(QsciScintilla):
         
         self.userListActivated.connect(self._on_user_list_selection)
 
+        # --- INIZIO HOVER IMMAGINI ---
+        try:
+            # Imposta quanto tempo il mouse deve stare fermo prima di attivarsi (400 ms)
+            self.SendScintilla(self.SCI_SETMOUSEDWELLTIME, 400)
+            self.SCN_DWELLSTART.connect(self._on_dwell_start)
+            self.SCN_DWELLEND.connect(self._on_dwell_end)
+        except Exception as e:
+            print(f"[Editor] Hover immagini non attivato: {e}")
+        # --- FINE HOVER IMMAGINI ---
+
     # ── Slot interni ──────────────────────────────────────────────────────────
 
     def _on_modification_changed(self, modified: bool) -> None:
@@ -646,6 +656,7 @@ class EditorWidget(QsciScintilla):
 
     def keyPressEvent(self, event) -> None:
         """Intercetta Insert per toggle overwrite e registra macro."""
+        self._hide_hover_popup() # <--- AGGIUNGI QUESTA RIGA QUI
         if event.key() == Qt.Key.Key_Insert and not event.modifiers():
             self.toggle_overwrite()
             return
@@ -685,6 +696,7 @@ class EditorWidget(QsciScintilla):
 
     def wheelEvent(self, event) -> None:
         """Ctrl+Scroll → zoom."""
+        self._hide_hover_popup()
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             delta = event.angleDelta().y()
             if delta > 0:
@@ -857,8 +869,156 @@ class EditorWidget(QsciScintilla):
         """Inserisce la chiave selezionata nel testo."""
         if list_id == 1:
             self.insert(text)
+            
+    # ── Tooltip Immagini (Hover) ──────────────────────────────────────────────
 
-    # ── Metodi per compatibilità ─────────────────────────────────────────────    
+    def _hide_hover_popup(self) -> None:
+        """Distrugge il popup dell'immagine se esiste."""
+        if hasattr(self, '_hover_popup') and self._hover_popup:
+            self._hover_popup.hide()
+            self._hover_popup.deleteLater()
+            self._hover_popup = None
+
+    def _on_dwell_end(self, position: int, x: int, y: int) -> None:
+        """Il mouse si è spostato, nascondi l'immagine."""
+        self._hide_hover_popup()
+
+    def _on_dwell_start(self, position: int, x: int, y: int) -> None:
+        """Il mouse è fermo su una posizione, mostra l'immagine o l'equazione renderizzata."""
+        if position < 0 or not self.file_path:
+            return
+
+        self._hide_hover_popup()
+
+        import re
+        from PyQt6.QtCore import Qt, QPoint
+        from PyQt6.QtGui import QPixmap, QImage
+        from PyQt6.QtWidgets import QLabel
+        from editor.lexers import get_language_name
+
+        # Ottieni le informazioni sul testo e sulla posizione
+        line_idx = self.SendScintilla(self.SCI_LINEFROMPOSITION, position)
+        line_start = self.SendScintilla(self.SCI_POSITIONFROMLINE, line_idx)
+        relative_pos = position - line_start
+        text = self.text(line_idx)
+        lang = get_language_name(self).lower()
+
+        # ---------------------------------------------------------
+        # PARTE 1: RICERCA IMMAGINI (File locali, inclusi PDF)
+        # ---------------------------------------------------------
+        img_patterns = [
+            r'\\includegraphics(?:\[.*?\])?\{([^}]+)\}',  # LaTeX
+            r'!\[.*?\]\((.*?)\)',                         # Markdown
+            r'<img\s+[^>]*src="([^"]+)"'                  # HTML
+        ]
+
+        img_path_str = None
+        for p in img_patterns:
+            for m in re.finditer(p, text):
+                if m.start() <= relative_pos <= m.end():
+                    img_path_str = m.group(1)
+                    break
+            if img_path_str:
+                break
+
+        if img_path_str:
+            base_dir = self.file_path.parent
+            img_path = base_dir / img_path_str
+
+            if not img_path.exists():
+                for ext in ['.png', '.jpg', '.jpeg', '.pdf']:
+                    if (base_dir / f"{img_path_str}{ext}").exists():
+                        img_path = base_dir / f"{img_path_str}{ext}"
+                        break
+
+            if img_path.exists():
+                pixmap = None
+                if img_path.suffix.lower() == '.pdf':
+                    try:
+                        import fitz
+                        doc = fitz.open(str(img_path))
+                        page = doc.load_page(0)
+                        pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+                        img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
+                        pixmap = QPixmap.fromImage(img)
+                    except Exception as e:
+                        print(f"[Hover] Errore lettura PDF: {e}")
+                else:
+                    pixmap = QPixmap(str(img_path))
+
+                if pixmap and not pixmap.isNull():
+                    if pixmap.width() > 350 or pixmap.height() > 250:
+                        pixmap = pixmap.scaled(350, 250, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    
+                    self._create_tooltip_popup(pixmap, x, y)
+                    return
+
+        # ---------------------------------------------------------
+        # PARTE 2: RICERCA FORMULE MATEMATICHE (LaTeX Math)
+        # ---------------------------------------------------------
+        # Funziona solo se il linguaggio è TeX o Markdown
+        if not ("latex" in lang or "tex" in lang or "markdown" in lang):
+            return
+
+        # Cerca formule in linea ($...$) e display equation ($$...$$ o \[...\])
+        math_patterns = [
+            r'\$\$([^\$]+)\$\$',         # $$...$$
+            r'\\\[(.*?)\\\]',            # \[...\]
+            r'\$([^\$]+)\$',             # $...$
+            r'\\begin\{equation\}(.*?)\\end\{equation\}', # begin{equation}
+        ]
+
+        formula_text = None
+        for p in math_patterns:
+            for m in re.finditer(p, text):
+                if m.start() <= relative_pos <= m.end():
+                    formula_text = m.group(1).strip()
+                    break
+            if formula_text:
+                break
+
+        if formula_text:
+            try:
+                import io
+                import matplotlib as mpl
+                # Configura matplotlib per non usare finestre GUI
+                mpl.use('Agg')
+                import matplotlib.pyplot as plt
+
+                # Pulisci la formula per matplotlib (aggiunge il $ per il parser interno)
+                formula_to_render = f"${formula_text}$"
+
+                # Crea un'immagine vuota con solo testo renderizzato in math-mode
+                fig = plt.figure(figsize=(0.01, 0.01))
+                # Colore sfondo dark per abbinarsi all'editor, colore testo chiaro
+                fig.text(0, 0, formula_to_render, fontsize=16, color='#e0e0e0', ha='center', va='center')
+                
+                # Salva l'immagine in un buffer di memoria invece che sul disco
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', pad_inches=0.1, transparent=True)
+                plt.close(fig)
+                
+                buf.seek(0)
+                pixmap = QPixmap()
+                pixmap.loadFromData(buf.read())
+                
+                if not pixmap.isNull():
+                    self._create_tooltip_popup(pixmap, x, y)
+            except Exception as e:
+                print(f"[Math Hover] Impossibile renderizzare la formula: {e}")
+
+
+    # -- Helper per creare il popup finale
+    def _create_tooltip_popup(self, pixmap, x, y):
+        from PyQt6.QtCore import Qt, QPoint
+        from PyQt6.QtWidgets import QLabel
+        self._hover_popup = QLabel(self, Qt.WindowType.ToolTip)
+        self._hover_popup.setPixmap(pixmap)
+        self._hover_popup.setStyleSheet("border: 2px solid #555; background-color: #1e1e1e; border-radius: 4px;")
+        global_pos = self.mapToGlobal(QPoint(x, y))
+        self._hover_popup.move(global_pos.x() + 15, global_pos.y() + 15)
+        self._hover_popup.show()        
+
 
     # ── Metodi per compatibilità ─────────────────────────────────────────────
 

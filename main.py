@@ -58,10 +58,11 @@ def main():
     # Deve essere creato DOPO QApplication (QLocalSocket ne ha bisogno)
     # ma PRIMA di caricare la MainWindow.
     _si = SingleInstance("NotePadPQ")
-    if _si.is_secondary():
-        # Manda i file alla prima istanza e chiudi
-        files_to_send = [str(Path(p).resolve()) for p in sys.argv[1:] if Path(p).exists()]
-        _si.send_files(files_to_send)
+    files_to_send = [str(Path(p).resolve()) for p in sys.argv[1:] if Path(p).exists()]
+    
+    if _si.send_args_if_secondary(files_to_send):
+        # Se la prima istanza è accesa, riceverà i file in un lampo.
+        # Noi possiamo spegnerci silenziosamente.
         sys.exit(0)
     # ─────────────────────────────────────────────────────────────────────────
 

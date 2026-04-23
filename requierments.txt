@@ -1,0 +1,14 @@
+# ==========================================
+# NotePadPQ - Dipendenze Python
+# ==========================================
+
+# --- Core (Obbligatorie) ---
+PyQt6>=6.0.0
+PyQt6-QScintilla>=2.13.0
+
+# --- Anteprima e PDF (Opzionali ma super consigliate) ---
+pymupdf>=1.20.0        # Per l'anteprima PDF, SyncTeX e il ritaglio intelligente (forbici)
+markdown>=3.3.0        # Per il rendering live dell'anteprima Markdown
+PyQt6-WebEngine>=6.0.0 # Per il rendering avanzato HTML (motore Chromium interno)
+python-docutils>=0.18  # Per l'anteprima dei file reStructuredText (.rst)
+pygments>=2.10.0       # Per il syntax highlighting esteso

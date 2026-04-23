@@ -118,7 +118,7 @@ python main.py
 ### Dipendenze manuali
 Se preferisci non usare lo script:
 ```bash
-pip install PyQt6 PyQt6-QScintilla pymupdf markdown pygments python-docutils PyQt6-WebEngine
+pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown pygments pymupdf docutils pyspellchecker matplotlib sympy PyGithub python-gitlab keyring
 ```
 
 ---
@@ -157,10 +157,16 @@ NotePadPQ is an advanced, free and open source text editor built with **Python 3
 
 ### Automated Setup (Recommended)
 ```bash
-git clone [https://github.com/buzzqw/NotePadPQ.git](https://github.com/buzzqw/NotePadPQ.git)
+git clone https://github.com/buzzqw/NotePadPQ.git
 cd NotePadPQ
 bash setup.sh
 python main.py
+```
+
+Or manually
+
+```bash
+pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown pygments pymupdf docutils pyspellchecker matplotlib sympy PyGithub python-gitlab keyring
 ```
 
 ---
@@ -172,8 +178,6 @@ NotePadPQ is developed in spare time with passion. If you find it useful, consid
 <div align="center">
 
 [![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/donate/?business=azanzani%40gmail.com&currency_code=EUR)
-
-**PayPal:** azanzani@gmail.com
 
 </div>
 

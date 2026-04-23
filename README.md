@@ -1,4 +1,4 @@
-<img width="1920" alt="NotePadPQ" src="NotePadPQ.jpg" />
+<img width="1920" alt="NotePadPQ" src="NotePadPQ.png" />
 
 <div align="center">
 

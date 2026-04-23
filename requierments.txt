@@ -12,3 +12,7 @@ markdown>=3.3.0        # Per il rendering live dell'anteprima Markdown
 PyQt6-WebEngine>=6.0.0 # Per il rendering avanzato HTML (motore Chromium interno)
 python-docutils>=0.18  # Per l'anteprima dei file reStructuredText (.rst)
 pygments>=2.10.0       # Per il syntax highlighting esteso
+
+
+# --- Strumenti di Scrittura ---
+pyspellchecker>=0.7.0  # Per il controllo ortografico (F4)

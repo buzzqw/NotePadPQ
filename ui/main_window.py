@@ -38,7 +38,7 @@ from core.platform import IS_WINDOWS, get_config_dir
 class MainWindow(QMainWindow):
 
     APP_NAME    = "NotePadPQ"
-    APP_VERSION = "0.2.0"
+    APP_VERSION = "0.2.1"
 
     def __init__(self):
         super().__init__()
@@ -1816,10 +1816,48 @@ class MainWindow(QMainWindow):
         )
 
     def action_check_updates(self) -> None:
-        QMessageBox.information(
-            self, tr("action.check_updates"),
-            tr("msg.no_updates")
-        )
+        import urllib.request
+        import json
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtCore import QUrl
+
+        # URL delle API di GitHub per l'ultima release del tuo progetto
+        api_url = "https://api.github.com/repos/buzzqw/NotePadPQ/releases/latest"
+        
+        try:
+            # Effettuiamo la richiesta (mettiamo un timeout breve per non bloccare l'editor)
+            req = urllib.request.Request(api_url, headers={"User-Agent": "NotePadPQ"})
+            with urllib.request.urlopen(req, timeout=5.0) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                
+                # Otteniamo il tag della versione su GitHub (es. "v0.2.1") e rimuoviamo la "v"
+                latest_version = data.get("tag_name", "").lstrip("v")
+                release_url = data.get("html_url", "https://github.com/buzzqw/NotePadPQ/releases")
+                
+                current_version = self.APP_VERSION
+                
+                # Confronto basilare tra stringhe di versione
+                if latest_version > current_version:
+                    reply = QMessageBox.question(
+                        self, tr("action.check_updates"),
+                        f"È disponibile una nuova versione di NotePadPQ!\n\n"
+                        f"Versione corrente: {current_version}\n"
+                        f"Nuova versione: {latest_version}\n\n"
+                        f"Vuoi aprire la pagina per scaricare l'aggiornamento?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        QDesktopServices.openUrl(QUrl(release_url))
+                else:
+                    QMessageBox.information(
+                        self, tr("action.check_updates"),
+                        f"Stai usando l'ultima versione disponibile ({current_version}).\nNessun aggiornamento necessario."
+                    )
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Errore di Rete",
+                f"Impossibile controllare gli aggiornamenti al momento.\nVerifica la tua connessione o riprova più tardi.\n\nDettaglio: {str(e)}"
+            )
 
     def action_donate(self) -> None:
         """Apre la pagina di donazione PayPal nel browser."""

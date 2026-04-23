@@ -1,3 +1,5 @@
+<img width="1920" height="1046" alt="NotePadPQ" src="https://github.com/user-attachments/assets/3fdb606b-aebf-4a1e-b852-2c1ed6ab364f" />
+
 <div align="center">
 
 <img src="icons/NotePadPQ_128.png" alt="NotePadPQ Logo" width="96"/>
@@ -404,3 +406,6 @@ Fatto con ❤️ in Italia · Made with ❤️ in Italy
 **[⬆ Torna su / Back to top](#notePadPQ)**
 
 </div>
+
+
+<img width="1920" height="794" alt="notepadpq2" src="https://github.com/user-attachments/assets/6c717fa9-64aa-4f2b-81ed-0fcab9c190bd" />

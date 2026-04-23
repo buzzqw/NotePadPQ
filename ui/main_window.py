@@ -38,7 +38,7 @@ from core.platform import IS_WINDOWS, get_config_dir
 class MainWindow(QMainWindow):
 
     APP_NAME    = "NotePadPQ"
-    APP_VERSION = "0.2.1"
+    APP_VERSION = "0.2.2"
 
     def __init__(self):
         super().__init__()

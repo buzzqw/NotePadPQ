@@ -52,7 +52,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("NotePadPQ")
     app.setOrganizationName("NotePadPQ")
-    app.setApplicationVersion("0.2.1")
+    app.setApplicationVersion("0.2.2")
 
     # ── Single instance ───────────────────────────────────────────────────────
     # Deve essere creato DOPO QApplication (QLocalSocket ne ha bisogno)

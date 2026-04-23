@@ -1,6 +1,6 @@
 # NotePadPQ — Manuale d'uso
 
-> Versione 0.2.0 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
+> Versione 0.2.1 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
 > Piattaforme: Linux (Arch), FreeBSD, Windows, macOS
 
 ---
@@ -125,6 +125,11 @@ Accessibile da **Modifica → Formatta**:
 | Rimuovi spazi finali | — |
 | Tab → spazi | — |
 | Spazi → tab | — |
+| Grassetto (Markdown/LaTeX) | `Ctrl+B` |
+| Corsivo (Markdown/LaTeX) | `Ctrl+I` |
+| Barrato (Markdown/LaTeX) | `Ctrl+Shift+X` |
+| Avvolgi in Ambiente / Tag HTML | `Alt+E` |
+| Allinea Tabella (Markdown/LaTeX) | `Alt+T` |
 
 > **Nota — A capo automatico vs. Spezza righe:**  
 > **Visualizza / Documento → A capo automatico** (`Alt+Z`) è una visualizzazione: il testo appare mandato a capo a schermo senza modificare il file.  
@@ -185,7 +190,7 @@ Cerca (e opzionalmente sostituisce) in tutti i file aperti nei tab.
 
 ### Ricerca incrementale inline
 
-`Ctrl+F2` — apre una barra inline piccola in fondo all'editor per cercare senza aprire il dialog. Premi `Esc` per chiuderla.
+`Ctrl+Shift+F2` — apre una barra inline piccola in fondo all'editor per cercare senza aprire il dialog. Premi `Esc` per chiuderla.
 
 ---
 
@@ -276,6 +281,11 @@ Apre il pannello Anteprima affiancato all'editor. Supporta:
 
 L'anteprima si aggiorna automaticamente con un delay configurabile (default 500ms). Non si aggiorna se il pannello è nascosto (risparmio CPU).
 
+### Anteprima istantanea al passaggio del mouse (Hover/Dwell)
+Lasciando il cursore del mouse fermo per mezzo secondo su elementi specifici del codice, NotePadPQ mostrerà un popup fluttuante:
+- **Immagini e PDF:** Posiziona il mouse sui percorsi in `\includegraphics{...}`, `![...](...)` o `<img src="...">` per vedere l'anteprima dell'immagine. Supporta anche il rendering vettoriale diretto dei `.pdf`!
+- **Formule Matematiche:** Nei file LaTeX e Markdown, posiziona il mouse sopra una formula (es. `$E=mc^2$`, `$$...$$`, `\[...\]`) per vedere l'equazione renderizzata istantaneamente ad alta qualità con sfondo scuro.
+
 ---
 
 ## 8. Documento
@@ -287,6 +297,7 @@ L'anteprima si aggiorna automaticamente con un delay configurabile (default 500m
 - **Sola lettura** — blocca le modifiche
 - **Scrivi BOM** — aggiunge Byte Order Mark per UTF-8/UTF-16
 - **A capo automatico** — identica alla voce in Visualizza (stessa azione)
+- **Controllo Ortografico (F4)** — Attiva la sottolineatura a zig-zag rossa per le parole errate. Il dizionario (Italiano, Inglese, ecc.) si adatta automaticamente alla lingua dell'interfaccia. Ignora intelligentemente i comandi LaTeX e le sigle maiuscole.
 
 ### Tipo di file (syntax highlighting)
 
@@ -312,6 +323,10 @@ Linguaggi supportati: Bash/Shell, C/C++, C#, CMake, CSS, Diff, Go, HTML, INI/Con
 | Spazi → Tab | Converte i gruppi di spazi in tabulazioni |
 | Piega tutto | Chiude tutti i blocchi piegabili |
 | Espandi tutto | Apre tutti i blocchi piegabili |
+
+
+### Autocompletamento BibTeX
+Nei file LaTeX (`.tex`), digitando `\cite{` l'editor cercherà automaticamente tutti i file `.bib` presenti nella stessa cartella e aprirà un menu a tendina con le chiavi bibliografiche disponibili.
 
 ---
 
@@ -626,6 +641,10 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+I` | Indenta |
 | `Ctrl+U` | Deindenta |
 | `Ctrl+Alt+U` | Inverti maiuscolo/minuscolo |
+| `Ctrl+B` / `I` | Grassetto / Corsivo (Markup) |
+| `Ctrl+Shift+X` | Barrato (Markup) |
+| `Alt+E` | Avvolgi in Ambiente |
+| `Alt+T` | Allinea Tabella |
 
 ### Cerca
 
@@ -635,7 +654,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+H` | Apri dialog Sostituisci |
 | `F3` | Trova successivo |
 | `Shift+F3` | Trova precedente |
-| `Ctrl+F2` | Ricerca incrementale inline / Toggle bookmark |
+| `Ctrl+Shift+F2` | Ricerca incrementale inline / Toggle bookmark |
 | `Ctrl+G` | Vai alla riga |
 | `Ctrl+]` | Vai alla parentesi corrispondente |
 
@@ -704,4 +723,4 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 
 ---
 
-*Manuale aggiornato — NotePadPQ 0.1.0*
+*Manuale aggiornato — NotePadPQ 0.2.1*

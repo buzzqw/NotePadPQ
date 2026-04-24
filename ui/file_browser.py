@@ -14,6 +14,7 @@ from PyQt6.QtGui import QFileSystemModel, QAction
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeView,
     QToolButton, QLineEdit, QFileDialog, QMenu, QAbstractItemView,
+    QInputDialog, QMessageBox,
 )
 
 
@@ -131,28 +132,105 @@ class FileBrowser(QWidget):
 
     def _on_context_menu(self, pos) -> None:
         index = self._tree.indexAt(pos)
-        if not index.isValid():
-            return
-        path = Path(self._model.filePath(index))
+        path = Path(self._model.filePath(index)) if index.isValid() else None
+        folder = path.parent if (path and path.is_file()) else (path or self._root)
         menu = QMenu(self)
 
-        if path.is_file():
+        if path and path.is_file():
             act_open = QAction("Apri", self)
             act_open.triggered.connect(lambda: self.file_open_requested.emit(path))
             menu.addAction(act_open)
             menu.addSeparator()
 
-        act_set_root = QAction("Imposta come cartella radice", self)
-        act_set_root.triggered.connect(
-            lambda: self._set_root(path if path.is_dir() else path.parent)
-        )
-        menu.addAction(act_set_root)
+        # Nuovo file / Nuova cartella
+        act_new_file = QAction("Nuovo file…", self)
+        act_new_file.triggered.connect(lambda: self._new_file(folder))
+        menu.addAction(act_new_file)
+
+        act_new_folder = QAction("Nuova cartella…", self)
+        act_new_folder.triggered.connect(lambda: self._new_folder(folder))
+        menu.addAction(act_new_folder)
+
+        if path:
+            menu.addSeparator()
+            act_rename = QAction("Rinomina…", self)
+            act_rename.triggered.connect(lambda: self._rename(path))
+            menu.addAction(act_rename)
+
+            act_delete = QAction("Elimina", self)
+            act_delete.triggered.connect(lambda: self._delete(path))
+            menu.addAction(act_delete)
+
+            menu.addSeparator()
+            act_set_root = QAction("Imposta come cartella radice", self)
+            act_set_root.triggered.connect(
+                lambda: self._set_root(path if path.is_dir() else path.parent)
+            )
+            menu.addAction(act_set_root)
 
         act_reveal = QAction("Mostra nel file manager", self)
-        act_reveal.triggered.connect(lambda: self._reveal(path))
+        act_reveal.triggered.connect(lambda: self._reveal(path or self._root))
         menu.addAction(act_reveal)
 
         menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    # ── Operazioni filesystem ─────────────────────────────────────────────────
+
+    def _new_file(self, folder: Path) -> None:
+        name, ok = QInputDialog.getText(self, "Nuovo file", "Nome del file:")
+        if not ok or not name.strip():
+            return
+        target = folder / name.strip()
+        try:
+            target.touch(exist_ok=False)
+            self.file_open_requested.emit(target)
+        except FileExistsError:
+            QMessageBox.warning(self, "Errore", f"Il file '{name}' esiste già.")
+        except Exception as e:
+            QMessageBox.critical(self, "Errore", str(e))
+
+    def _new_folder(self, folder: Path) -> None:
+        name, ok = QInputDialog.getText(self, "Nuova cartella", "Nome della cartella:")
+        if not ok or not name.strip():
+            return
+        target = folder / name.strip()
+        try:
+            target.mkdir(parents=False, exist_ok=False)
+        except FileExistsError:
+            QMessageBox.warning(self, "Errore", f"La cartella '{name}' esiste già.")
+        except Exception as e:
+            QMessageBox.critical(self, "Errore", str(e))
+
+    def _rename(self, path: Path) -> None:
+        new_name, ok = QInputDialog.getText(
+            self, "Rinomina", "Nuovo nome:", text=path.name
+        )
+        if not ok or not new_name.strip() or new_name.strip() == path.name:
+            return
+        target = path.parent / new_name.strip()
+        try:
+            path.rename(target)
+        except Exception as e:
+            QMessageBox.critical(self, "Errore rinomina", str(e))
+
+    def _delete(self, path: Path) -> None:
+        kind = "la cartella" if path.is_dir() else "il file"
+        reply = QMessageBox.question(
+            self,
+            "Conferma eliminazione",
+            f"Eliminare {kind} '{path.name}'?\nL'operazione non è reversibile.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            if path.is_dir():
+                import shutil
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        except Exception as e:
+            QMessageBox.critical(self, "Errore eliminazione", str(e))
 
     def _reveal(self, path: Path) -> None:
         from PyQt6.QtGui import QDesktopServices

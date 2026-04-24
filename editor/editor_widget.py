@@ -92,9 +92,13 @@ class LineEnding(Enum):
 MARGIN_LINE_NUMBERS = 0
 MARGIN_FOLD         = 1
 MARGIN_SYMBOLS      = 2
+MARGIN_GIT          = 3   # Git gutter (righe aggiunte/modificate/rimosse)
 
-# Marker Scintilla per bookmark (sul margine simboli)
-MARKER_BOOKMARK = 0   # indice marker — visualizzato come cerchio blu
+# Marker Scintilla
+MARKER_BOOKMARK = 0   # cerchio blu per bookmark
+MARKER_GIT_ADD  = 1   # rettangolo verde  — riga aggiunta vs HEAD
+MARKER_GIT_MOD  = 2   # rettangolo arancione — riga modificata vs HEAD
+MARKER_GIT_DEL  = 3   # rettangolo rosso  — riga rimossa vs HEAD
 
 # Indicatori di evidenziazione (Find/Replace usa 0-7)
 INDICATOR_FIND      = 0
@@ -192,10 +196,13 @@ class EditorWidget(QsciScintilla):
         # a/da encoding del file è gestita da file_manager.py
         self.setUtf8(True)
 
-        # Selezione rettangolare con Alt+Drag
+        # Selezione rettangolare con Alt+Drag e Alt+Shift+frecce
         self.SendScintilla(
             QsciScintilla.SCI_SETMOUSESELECTIONRECTANGULARSWITCH, True
         )
+        # SCVS_RECTANGULARSELECTION = 1 — abilita la selezione rettangolare
+        # anche da tastiera (Alt+Shift+frecce), come in Notepad++ e TeXstudio
+        self.SendScintilla(QsciScintilla.SCI_SETVIRTUALSPACEOPTIONS, 1)
 
         # Brace matching
         self.setBraceMatching(QsciScintilla.BraceMatch.SloppyBraceMatch)
@@ -233,12 +240,24 @@ class EditorWidget(QsciScintilla):
         self.setMarginWidth(MARGIN_SYMBOLS, 14)
         self.setMarginSensitivity(MARGIN_SYMBOLS, True)
 
-        # Definisci marker bookmark: cerchio pieno blu
+        # Marker bookmark: cerchio pieno
         self.markerDefine(QsciScintilla.MarkerSymbol.Circle, MARKER_BOOKMARK)
         self.setMarkerBackgroundColor(QColor("#4ec9b0"), MARKER_BOOKMARK)
         self.setMarkerForegroundColor(QColor("#1e1e1e"), MARKER_BOOKMARK)
-        # Click sul margine simboli → toggle bookmark
         self.marginClicked.connect(self._on_margin_clicked)
+
+        # Margine Git Gutter (larghezza 4px, nascosto finché non ci sono diff)
+        self.setMarginType(MARGIN_GIT, QsciScintilla.MarginType.SymbolMarginDefaultForegroundColor)
+        self.setMarginWidth(MARGIN_GIT, 0)
+        self.setMarginSensitivity(MARGIN_GIT, False)
+
+        # Marker Git Gutter: rettangoli colorati a tutta altezza
+        self.markerDefine(QsciScintilla.MarkerSymbol.FullRectangle, MARKER_GIT_ADD)
+        self.setMarkerBackgroundColor(QColor("#2ea043"), MARKER_GIT_ADD)
+        self.markerDefine(QsciScintilla.MarkerSymbol.FullRectangle, MARKER_GIT_MOD)
+        self.setMarkerBackgroundColor(QColor("#d29922"), MARKER_GIT_MOD)
+        self.markerDefine(QsciScintilla.MarkerSymbol.FullRectangle, MARKER_GIT_DEL)
+        self.setMarkerBackgroundColor(QColor("#f85149"), MARKER_GIT_DEL)
 
     def _setup_indicators(self) -> None:
         """Configura gli indicatori per Find/Replace e Mark."""
@@ -522,6 +541,28 @@ class EditorWidget(QsciScintilla):
 
     def set_show_indentation_guides(self, visible: bool) -> None:
         self.setIndentationGuides(visible)
+
+    def set_edge_column(self, col: int) -> None:
+        """Mostra/nasconde la riga guida verticale alla colonna indicata (0 = disabilitata)."""
+        if col > 0:
+            self.setEdgeMode(QsciScintilla.EdgeMode.EdgeLine)
+            self.setEdgeColumn(col)
+            self.setEdgeColor(QColor("#3a3a3a"))
+        else:
+            self.setEdgeMode(QsciScintilla.EdgeMode.EdgeNone)
+
+    def update_git_gutter(self, added: set, modified: set, deleted: set) -> None:
+        """Aggiorna i marker del git gutter. Tutti i set contengono indici riga 0-based."""
+        self.markerDeleteAll(MARKER_GIT_ADD)
+        self.markerDeleteAll(MARKER_GIT_MOD)
+        self.markerDeleteAll(MARKER_GIT_DEL)
+        for line in added:
+            self.markerAdd(line, MARKER_GIT_ADD)
+        for line in modified:
+            self.markerAdd(line, MARKER_GIT_MOD)
+        for line in deleted:
+            self.markerAdd(line, MARKER_GIT_DEL)
+        self.setMarginWidth(MARGIN_GIT, 4 if (added or modified or deleted) else 0)
 
     def set_show_line_numbers(self, visible: bool) -> None:
         if visible:            

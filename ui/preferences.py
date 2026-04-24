@@ -148,6 +148,16 @@ class PreferencesDialog(QDialog):
 
         vl.addWidget(grp_view)
 
+        # Edge column (riga guida verticale)
+        grp_edge = QGroupBox("Riga guida verticale")
+        el = QFormLayout(grp_edge)
+        self._edge_column = QSpinBox()
+        self._edge_column.setRange(0, 300)
+        self._edge_column.setSpecialValueText("Disabilitata")
+        self._edge_column.setSuffix(" col")
+        el.addRow("Colonna (0 = disabilitata):", self._edge_column)
+        vl.addWidget(grp_edge)
+
         # Gruppo pannelli all'avvio
         grp_startup = QGroupBox("Pannelli all'avvio")
         sv = QVBoxLayout()
@@ -281,6 +291,20 @@ class PreferencesDialog(QDialog):
         al.addRow("Cartella backup:", backup_dir_row)
 
         vl.addWidget(grp_autobackup)
+
+        # Auto-save periodico (salva il file originale)
+        grp_autosave = QGroupBox("Auto-salvataggio")
+        asl = QFormLayout(grp_autosave)
+
+        self._autosave_enabled = QCheckBox("Salva automaticamente i file modificati")
+        asl.addRow("", self._autosave_enabled)
+
+        self._autosave_interval = QSpinBox()
+        self._autosave_interval.setRange(1, 60)
+        self._autosave_interval.setSuffix(" minuti")
+        asl.addRow("Intervallo:", self._autosave_interval)
+
+        vl.addWidget(grp_autosave)
 
         vl.addStretch()
         return w
@@ -421,6 +445,7 @@ class PreferencesDialog(QDialog):
         self._show_eol.setChecked(s.get("editor/show_eol", False))
         self._word_wrap.setChecked(s.get("editor/word_wrap", False))
         self._show_minimap.setChecked(s.get("editor/show_minimap", False))
+        self._edge_column.setValue(s.get("editor/edge_column", 0))
 
         # Aspetto
         theme_name = s.get("theme/active", "Dark")
@@ -454,6 +479,8 @@ class PreferencesDialog(QDialog):
         self._autobackup_enabled.setChecked(s.get("file/autobackup_enabled", False))
         self._autobackup_interval.setValue(s.get("file/autobackup_interval", 5))
         self._autobackup_dir.setText(s.get("file/autobackup_dir", ""))
+        self._autosave_enabled.setChecked(s.get("file/autosave_enabled", False))
+        self._autosave_interval.setValue(s.get("file/autosave_interval", 2))
 
         # Autocompletamento
         self._ac_enabled.setChecked(s.get("autocomplete/enabled", True))
@@ -520,6 +547,7 @@ class PreferencesDialog(QDialog):
         s.set("editor/show_eol",          self._show_eol.isChecked())
         s.set("editor/word_wrap",         self._word_wrap.isChecked())
         s.set("editor/show_minimap",      self._show_minimap.isChecked())
+        s.set("editor/edge_column",       self._edge_column.value())
 
         # Aspetto — applica tema a caldo
         theme_name = self._theme_combo.currentText()
@@ -557,6 +585,8 @@ class PreferencesDialog(QDialog):
         s.set("file/autobackup_enabled",  self._autobackup_enabled.isChecked())
         s.set("file/autobackup_interval", self._autobackup_interval.value())
         s.set("file/autobackup_dir",      self._autobackup_dir.text().strip())
+        s.set("file/autosave_enabled",    self._autosave_enabled.isChecked())
+        s.set("file/autosave_interval",   self._autosave_interval.value())
 
         # Autocompletamento
         s.set("autocomplete/enabled",   self._ac_enabled.isChecked())

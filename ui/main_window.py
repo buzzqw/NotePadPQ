@@ -89,6 +89,8 @@ class MainWindow(QMainWindow):
         self._setup_connections()
         self._setup_i18n()
         self._setup_autobackup()
+        self._setup_autosave()
+        self._setup_git_gutter()
         self._setup_clock()
 
         self.setAcceptDrops(True)
@@ -255,6 +257,98 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
+    # ── Auto-save ─────────────────────────────────────────────────────────────
+
+    def _setup_autosave(self) -> None:
+        """Avvia il timer auto-save se abilitato nelle preferenze."""
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.timeout.connect(self._do_autosave)
+        self._apply_autosave_settings()
+
+    def _apply_autosave_settings(self) -> None:
+        from config.settings import Settings
+        s = Settings.instance()
+        enabled  = s.get("file/autosave_enabled", False)
+        interval = s.get("file/autosave_interval", 2)
+        self._autosave_timer.stop()
+        if enabled:
+            self._autosave_timer.start(interval * 60 * 1000)
+
+    def _do_autosave(self) -> None:
+        """Salva silenziosamente tutti i file modificati che hanno già un path su disco."""
+        for editor in self._tab_manager.all_editors():
+            if editor.isModified() and editor.file_path:
+                try:
+                    self.action_save()
+                except Exception:
+                    pass
+
+    # ── Git Gutter ────────────────────────────────────────────────────────────
+
+    def _setup_git_gutter(self) -> None:
+        from config.settings import Settings
+        if Settings.instance().get("editor/git_gutter", True):
+            try:
+                from ui.git_gutter import GitGutter
+                self._git_gutter = GitGutter(self)
+            except Exception:
+                pass
+
+    # ── Command Palette ───────────────────────────────────────────────────────
+
+    def action_command_palette(self) -> None:
+        from ui.command_palette import CommandPaletteDialog
+        dlg = CommandPaletteDialog(self)
+        dlg.exec()
+
+    # ── Diff vs Saved ─────────────────────────────────────────────────────────
+
+    def action_diff_vs_saved(self) -> None:
+        """Confronta il buffer corrente con la versione salvata su disco."""
+        editor = self._tab_manager.current_editor()
+        if not editor or not editor.file_path or not editor.file_path.exists():
+            self.statusBar().showMessage("Nessun file salvato da confrontare.", 3000)
+            return
+        try:
+            disk_content = editor.file_path.read_text(encoding=editor.encoding or "utf-8",
+                                                       errors="replace")
+        except Exception as e:
+            self.statusBar().showMessage(f"Errore lettura file: {e}", 4000)
+            return
+
+        current_content = editor.get_content()
+        if current_content == disk_content:
+            self.statusBar().showMessage("Il buffer è identico alla versione su disco.", 3000)
+            return
+
+        # Usa il plugin Compare se disponibile, altrimenti apri il file su disco in un nuovo tab
+        try:
+            from plugins.compare_plugin import ComparePlugin
+            plugin = ComparePlugin.instance() if hasattr(ComparePlugin, "instance") else None
+        except ImportError:
+            plugin = None
+
+        if plugin and hasattr(plugin, "compare_texts"):
+            plugin.compare_texts(
+                disk_content, current_content,
+                label_a=f"{editor.file_path.name} (disco)",
+                label_b=f"{editor.file_path.name} (buffer)",
+            )
+        else:
+            # Fallback: apri la versione su disco in un nuovo tab affiancato
+            import tempfile, os
+            suffix = editor.file_path.suffix
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=suffix, delete=False,
+                encoding="utf-8", prefix="saved_"
+            ) as tmp:
+                tmp.write(disk_content)
+                tmp_path = Path(tmp.name)
+            self.open_files([tmp_path])
+            self.statusBar().showMessage(
+                "Versione su disco aperta in un nuovo tab per il confronto manuale.", 4000
+            )
+
     def _setup_i18n(self) -> None:
         """Applica le traduzioni iniziali a tutti i widget."""
         self._rebuild_menus()
@@ -337,7 +431,8 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("save_all",  "Shift+Ctrl+S", self.action_save_all))
 
         self._sep(m)
-        m.addAction(self._act("reload",    "Shift+Ctrl+R", self.action_reload))
+        m.addAction(self._act("reload",         "Shift+Ctrl+R", self.action_reload))
+        m.addAction(self._act("diff_vs_saved",  "",             self.action_diff_vs_saved))
 
         # Ripristina come — submenu
         sub_restore = m.addMenu(tr("action.restore_as"))
@@ -502,6 +597,8 @@ class MainWindow(QMainWindow):
         m = mb.addMenu(tr("menu.search"))
         self._menus["search"] = m
 
+        m.addAction(self._act("command_palette", "Ctrl+Shift+P", self.action_command_palette))
+        self._sep(m)
         m.addAction(self._act("find",            "Ctrl+F",       self.action_find))
         m.addAction(self._act("find_next",       "F3",           self.action_find_next))
         m.addAction(self._act("find_prev",       "Shift+F3",     self.action_find_prev))
@@ -1040,6 +1137,9 @@ class MainWindow(QMainWindow):
             editor.set_show_whitespace(self._actions["view_whitespace"].isChecked())
         if "view_eol" in self._actions:
             editor.set_show_eol(self._actions["view_eol"].isChecked())
+        # Applica edge column dalla impostazione corrente
+        from config.settings import Settings
+        editor.set_edge_column(Settings.instance().get("editor/edge_column", 0))
         # --- FINE AGGIUNTA ---
 
         # Aggiorna checkmark nel menu tipo file

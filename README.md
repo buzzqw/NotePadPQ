@@ -12,10 +12,9 @@
 [![PyQt6](https://img.shields.io/badge/PyQt6-6.x-green?logo=qt)](https://riverbankcomputing.com/software/pyqt/)
 [![License](https://img.shields.io/badge/License-EUPL%201.2-blue.svg)](EUPL-1.2%20EN.txt)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)]()
-[![Version](https://img.shields.io/badge/Version-0.2.0-orange)]()
+[![Version](https://img.shields.io/badge/Version-0.2.3-orange)]()
 
-
-[🇮🇹 Italiano](#-italiano) · [🇬🇧 English](#-english) · [💖 Dona / Donate](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=azanzani@gmail.com&item_name=Support+NotePadPQ+Project)
+[🇮🇹 Italiano](#-italiano) · [🇬🇧 English](#-english) · [💖 Dona / Donate](https://www.paypal.com/donate/?business=azanzani%40gmail.com&currency_code=EUR)
 
 </div>
 
@@ -27,99 +26,127 @@
 
 NotePadPQ è un editor di testo avanzato, libero e open source, pensato per sviluppatori, scrittori tecnici e appassionati. Ispirato alla potenza di Notepad++ ma costruito con tecnologie moderne e multipiattaforma, offre un'interfaccia pulita e un set di funzionalità professionale — senza rinunciare alla leggerezza.
 
-Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira su Linux, Windows e macOS.
+Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativamente su Linux, Windows e macOS.
 
 ---
 
 ## ✨ Funzionalità principali
 
 ### 📝 Editor avanzato
-- **Syntax highlighting** per decine di linguaggi: Python, JavaScript, TypeScript, C/C++, Java, C#, Bash, SQL, LaTeX, Markdown, HTML, PHP, Ruby, Rust, Go e molti altri.
-- **Code folding** — collassa blocchi di codice, classi e funzioni.
-- **Numeri di riga**, indicatore di colonna, minimap laterale.
-- **Word wrap** configurabile (Alt+Z).
-- **Autocompletamento** intelligente: parole nel documento, snippet per linguaggio, dizionari API, supporto LSP (Language Server Protocol).
+- **Syntax highlighting** per oltre 30 linguaggi: Python, JavaScript, TypeScript, C/C++, Java, C#, Bash, SQL, LaTeX, Markdown, HTML, CSS, XML, JSON, YAML, Ruby, Perl, Lua, Pascal, Fortran, Verilog e molti altri.
+- **Code folding** — collassa blocchi di codice, classi e funzioni direttamente nel margine.
+- **Smart Highlight** — al posizionamento del cursore su una parola, tutte le sue occorrenze vengono evidenziate automaticamente in tutto il documento, in modo fluido e senza rallentare la digitazione.
+- **Numeri di riga dinamici** — la larghezza si adatta automaticamente alla dimensione del file.
+- **Minimap** laterale per navigazione rapida nei file lunghi.
+- **Word wrap** configurabile (`Alt+Z`).
+- **Autocompletamento** intelligente: parole nel documento, snippet per linguaggio, dizionari API, supporto LSP.
 - **Auto-chiusura** di parentesi, virgolette e tag.
 - **Mostra spazi/tab** e caratteri di fine riga.
-- **Margine dinamico**: La larghezza della colonna dei numeri di riga si adatta automaticamente alla dimensione del file per garantire una visibilità perfetta anche con file di grandi dimensioni.
-- **Scorciatoie Markup**: `Ctrl+B` (Grassetto), `Ctrl+I` (Corsivo) e `Ctrl+Shift+X` (Barrato) funzionano nativamente in Markdown (`**`, `*`, `~~`) e LaTeX (`\textbf`, `\textit`, `\sout`).
+- **Scorciatoie Markup**: `Ctrl+B` (Grassetto), `Ctrl+I` (Corsivo), `Ctrl+Shift+X` (Barrato) — funzionano in Markdown (`**`, `*`, `~~`) e LaTeX (`\textbf`, `\textit`, `\sout`).
 
 ### 🗂️ Gestione tab e split view
 - **Tab multipli** con drag & drop, indicatore di modifica, ripristino sessione all'avvio.
-- **Split view** orizzontale e verticale (Ctrl+Alt+2 / Ctrl+Alt+3).
-- Rotazione e sincronizzazione del cursore tra i pannelli.
+- **Split view** orizzontale e verticale (`Ctrl+Alt+2` / `Ctrl+Alt+3`).
 - **Clona tab** per lavorare sulla stessa vista in due posizioni.
 
 ### 🔍 Ricerca e sostituzione
-- Trova / Sostituisci con **espressioni regolari**.
-- **Cerca in tutti i file** aperti contemporaneamente.
-- **Cerca nei file** su disco (con filtro estensione).
-- **Ricerca incrementale** inline (Ctrl+F2).
-- **Vai alla riga** (Ctrl+G) e vai alla parentesi corrispondente.
-- **Bookmark** su righe: aggiungi, naviga, rimuovi (F2 / Shift+F2).
-- **Mark con colori** (5 colori distinti) per evidenziare blocchi (Ctrl+1..5).
+- Trova/Sostituisci con **espressioni regolari** (sintassi Python completa).
+- **Cerca in tutti i file** aperti nei tab contemporaneamente.
+- **Cerca nei file** su disco con filtro estensione e ricerca ricorsiva.
+- **Ricerca incrementale** inline (`Ctrl+Shift+F2`).
+- **Vai alla riga** (`Ctrl+G`) e vai alla parentesi corrispondente.
+- **Bookmark** su righe: aggiungi (`Ctrl+F2`), naviga (`F2` / `Shift+F2`), rimuovi.
+- **Mark con 5 colori** distinti per evidenziare blocchi (`Ctrl+1..5`).
 
 ### 🛠️ Strumenti di editing
-- **Multi-cursore**: seleziona occorrenza successiva/tutte (Ctrl+D / Ctrl+Shift+D), cursori sopra/sotto (Ctrl+Alt+↑↓), numeri incrementali.
+- **Multi-cursore**: seleziona occorrenza successiva (`Ctrl+D`), tutte le occorrenze (`Ctrl+Shift+D`), aggiungi cursore sopra/sotto (`Ctrl+Alt+↑↓`), inserisci numeri incrementali.
 - **Macro**: registra, salva, carica ed esegui N volte.
 - **Conversione caso**: MAIUSCOLO, minuscolo, Title Case, Invert Case.
-- **Commenta/decommenta** righe (Ctrl+E) con rilevamento automatico del linguaggio.
-- **Indentazione**: indent/unindent, smart indent, tabs→spazi e viceversa.
-- **Rimuovi spazi in coda**, aggiungi newline a fine file.
-- **Unisci righe**, conta parole, color picker integrato e tester regex interattivo.
+- **Commenta/decommenta** righe (`Ctrl+E`) con rilevamento automatico del linguaggio.
+- **Indentazione** smart, tabs↔spazi.
+- **Allineamento tabelle** Markdown/LaTeX, **avvolgimento** in ambienti/tag.
+- Color picker, tester regex interattivo, convertitore numerico (dec/hex/bin/oct).
 
-### 🏗️ Pannello Build (compilazione)
+### 🏗️ Pannello Build
 - **Profili di build** configurabili per linguaggio (LaTeX, Python, C/C++, Markdown, ecc.).
-- **Output in tempo reale** con lista errori cliccabile (click → vai alla riga dell'errore).
-- **Rilevamento PDF intelligente**: Il pulsante di anteprima PDF si abilita istantaneamente all'apertura del file se viene trovato un documento già compilato sul disco.
+- **Output in tempo reale** con lista errori cliccabile — click su un errore salta direttamente alla riga.
+- **Rilevamento PDF automatico**: il pulsante anteprima si abilita istantaneamente se è presente un PDF già compilato.
 - **Salvataggio automatico** prima della compilazione.
 
 ### 👁️ Pannello Anteprima
-- **Anteprima live** di **Markdown**, **HTML**, **reStructuredText**, **LaTeX**, **PDF**.
-- **Sincronizzazione cursore editor** ↔ anteprima (SyncTeX supportato).
-- **Ritaglio intelligente (Smart Crop)**: Funzione per eliminare automaticamente i margini bianchi dei PDF tramite l'icona `✂`.
-- **Ritaglio manuale**: 4 contatori indipendenti per un controllo millimetrico del taglio sui quattro lati.
-- **Navigazione fluida**: Supporto per lo scorrimento tra le pagine con la rotella del mouse e zoom rapido con `Ctrl + Rotella`.
-- **Auto-posizionamento**: Passaggio automatico tra le pagine (dall'ultima riga della pagina precedente alla prima della successiva).
+- **Anteprima live** di Markdown, HTML, reStructuredText, LaTeX (struttura), PDF.
+- **Hover preview**: passa il mouse su `\includegraphics{...}`, `![img](...)` o `<img src="...">` per vedere l'anteprima dell'immagine in un popup — supporta anche i PDF vettoriali.
+- **Rendering equazioni** matematiche inline con hover (file LaTeX/Markdown con `$...$`, `$$...$$`, `\[...\]`).
+- **SyncTeX**: sincronizzazione bidirezionale cursore editor ↔ posizione nel PDF.
+- **Smart Crop**: elimina automaticamente i margini bianchi dei PDF (`✂`).
+- Zoom con `Ctrl+Rotella`, navigazione pagine con la rotella.
+
+### 💻 Terminale integrato
+- Terminale completo basato su **PTY nativo** nel pannello inferiore (`` Ctrl+` ``).
+- Supporta qualsiasi programma interattivo: vim, python REPL, ssh, git, compilatori.
+- Nessuna dipendenza esterna — funziona su tutti i sistemi supportati.
 
 ### 🔌 Sistema Plugin
+
 | Plugin | Funzione |
 |--------|----------|
 | **Clipboard History** | Cronologia degli appunti con selezione rapida |
-| **Compare & Merge** | Confronto visuale tra due file o versioni |
+| **Compare & Merge** | Confronto visuale side-by-side tra due file o versioni |
 | **Encrypt/Decrypt** | Cifratura/decifratura testo con AES |
 | **FTP Browser** | Navigazione e modifica file su server FTP |
-| **Git Integration** | Stato repo, commit, diff direttamente dall'editor |
+| **Git Integration** | Stato repo, commit, diff, branch, PR/MR direttamente dall'editor |
 | **Hex Viewer** | Visualizzazione esadecimale dei file binari |
 
 ### 🌍 Interfaccia e UI
-- **Orologio Live**: Un orologio integrato nella barra dei menu che mostra data e ora localizzate in base alla lingua.
-- **Interfaccia multilingua**: 5 lingue supportate (IT, EN, DE, FR, ES) cambiabili a caldo.
-- **Temi e icone**: Editor di temi integrato e set di icone selezionabili (Lucide, Material, Sistema) con download automatico.
+- **Multilingua**: 5 lingue (Italiano, English, Deutsch, Français, Español) cambiabili a caldo.
+- **Temi**: editor di temi integrato con anteprima live; importa/esporta in JSON.
+- **Set icone**: Lucide, Material, Sistema — download automatico al primo utilizzo.
+- **Orologio live** nella barra dei menu con data e ora localizzate.
+- **Sessioni**: ripristino automatico all'avvio di tutti i file, posizioni cursore e layout pannelli.
+- **Istanza singola**: aprire un file da file manager lo invia alla finestra già aperta.
 
 ---
 
 ## 🚀 Installazione
 
-### Installazione rapida (Linux)
-Il modo più semplice per installare NotePadPQ e tutte le sue dipendenze è utilizzare lo script di setup automatico:
+### Setup automatico (consigliato)
 
 ```bash
 git clone https://github.com/buzzqw/NotePadPQ.git
 cd NotePadPQ
 bash setup.sh
-```
-
-### Avvio
-```bash
 python main.py
 ```
 
-### Dipendenze manuali
-Se preferisci non usare lo script:
+Lo script rileva il sistema operativo (Arch Linux, apt, dnf, Windows) e installa le dipendenze base in modo nativo.
+
+### Installazione manuale
+
+**Dipendenze base** (sempre richieste):
 ```bash
-pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown pygments pymupdf docutils pyspellchecker matplotlib sympy PyGithub python-gitlab keyring
+pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pyspellchecker PyGithub python-gitlab keyring
 ```
+
+**Dipendenze LaTeX** (opzionali — solo se usi NotePadPQ per scrivere/compilare LaTeX):
+```bash
+pip install pymupdf matplotlib sympy
+# synctex: incluso in TeX Live (pacchetto di sistema)
+```
+
+> Se hai già TeX Live installato per compilare LaTeX, hai già tutto il necessario. Le funzionalità LaTeX avanzate (anteprima PDF hover, rendering equazioni, SyncTeX) si attivano automaticamente se le librerie sono presenti.
+
+### Avvio
+
+```bash
+python main.py                    # apre con sessione precedente
+python main.py file1.py file2.md  # apre i file specificati
+```
+
+---
+
+## 🖥️ Screenshot
+
+<img width="1920" alt="notepadpq2" src="notepadpq2.png" />
 
 ---
 
@@ -127,35 +154,68 @@ pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown pygments pym
 
 ## What is NotePadPQ?
 
-NotePadPQ is an advanced, free and open source text editor built with **Python 3**, **PyQt6**, and **QScintilla**. It offers a professional feature set inspired by classic editors but with modern cross-platform capabilities.
+NotePadPQ is an advanced, free and open source text editor built with **Python 3**, **PyQt6**, and **QScintilla**. Inspired by Notepad++ but cross-platform and modern, it offers a professional feature set without sacrificing performance.
+
+Runs natively on Linux, Windows, and macOS.
 
 ---
 
 ## ✨ Key Features
 
 ### 📝 Advanced Editor
-- **Syntax highlighting** for dozens of languages.
-- **Dynamic Margin**: Line number column width adjusts automatically based on file size.
-- **Markup Shortcuts**: Native support for `Ctrl+B`, `Ctrl+I`, and `Ctrl+Shift+X` in Markdown and LaTeX.
+- **Syntax highlighting** for 30+ languages.
+- **Smart Highlight** — all occurrences of the word under the cursor are highlighted automatically, with no typing lag.
+- **Dynamic line numbers** — column width adapts to file size automatically.
+- **Code folding**, minimap, word wrap, auto-indent, auto-close brackets.
+- **Markup shortcuts**: `Ctrl+B`, `Ctrl+I`, `Ctrl+Shift+X` work natively in Markdown and LaTeX.
+- **LSP support**, API dictionaries, snippet completion.
+
+### 🔍 Search & Replace
+- Full regex search (Python syntax) with capture group replacement.
+- Search across all open tabs, search in files on disk.
+- Inline incremental search (`Ctrl+Shift+F2`), Go to line (`Ctrl+G`).
+- **5-color Mark** system for highlighting blocks of text (`Ctrl+1..5`).
+- **Bookmarks** with keyboard navigation (`F2` / `Shift+F2`).
 
 ### 🏗️ Build Panel
-- **Smart PDF Detection**: The PDF preview button enables instantly if a compiled document is found on disk.
-- **Clickable Errors**: Jump directly to the source code from the build output.
+- Configurable build profiles per language (LaTeX, Python, C/C++, Markdown, etc.).
+- Real-time output with **clickable error list** — click an error to jump to the line.
+- Automatic PDF detection after successful LaTeX compilation.
 
 ### 👁️ Preview Panel
-- **Smart Crop**: Automatically trim PDF white margins using the `✂` icon.
-- **Manual Cropping**: 4 independent counters for precise control on all sides.
-- **Smooth Navigation**: Full scroll-wheel support for page switching and `Ctrl + Wheel` zooming.
+- **Live preview** for Markdown, HTML, reStructuredText, LaTeX, PDF.
+- **Hover preview**: mouse over image paths to see a floating thumbnail — including vector PDF.
+- **Math equation rendering** on hover in LaTeX/Markdown files.
+- **SyncTeX**: bidirectional sync between editor cursor and PDF position.
+- **Smart Crop**: auto-trim PDF white margins.
 
-### 🌍 Interface & UI
-- **Live Clock**: Integrated localized clock in the menu bar.
-- **Session Management**: Restores last opened files and UI state on startup.
+### 💻 Integrated Terminal
+- Full terminal based on native PTY (`` Ctrl+` ``).
+- Supports any interactive program: vim, Python REPL, ssh, compilers.
+
+### 🔌 Plugin System
+| Plugin | Function |
+|--------|----------|
+| **Clipboard History** | Multi-entry clipboard with quick selection |
+| **Compare & Merge** | Visual side-by-side file comparison |
+| **Encrypt/Decrypt** | AES text encryption |
+| **FTP Browser** | Browse and edit files on FTP servers |
+| **Git Integration** | Full Git panel: status, log, diff, branch, PR/MR |
+| **Hex Viewer** | Hexadecimal view of binary files |
+
+### 🌍 Interface
+- **5 languages**: Italian, English, German, French, Spanish — switch at runtime.
+- **Theme editor** with live preview, import/export JSON.
+- **Icon sets**: Lucide, Material, System — auto-downloaded on first use.
+- **Session restore**: all files, cursor positions, and panel layout restored at startup.
+- **Single instance**: opening files from the file manager sends them to the running window.
 
 ---
 
 ## 🚀 Installation
 
-### Automated Setup (Recommended)
+### Automated Setup (recommended)
+
 ```bash
 git clone https://github.com/buzzqw/NotePadPQ.git
 cd NotePadPQ
@@ -163,17 +223,26 @@ bash setup.sh
 python main.py
 ```
 
-Or manually
+### Manual Installation
 
+**Core dependencies** (always required):
 ```bash
-pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown pygments pymupdf docutils pyspellchecker matplotlib sympy PyGithub python-gitlab keyring
+pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pyspellchecker PyGithub python-gitlab keyring
 ```
+
+**LaTeX optional** (only if you write/compile LaTeX):
+```bash
+pip install pymupdf matplotlib sympy
+# synctex: included in TeX Live
+```
+
+> If you already have TeX Live for LaTeX compilation, all advanced LaTeX features (PDF hover preview, equation rendering, SyncTeX) activate automatically.
 
 ---
 
 ## 💖 Support the project
 
-NotePadPQ is developed in spare time with passion. If you find it useful, consider a donation.
+NotePadPQ is developed in spare time with passion. If you find it useful, consider a small donation — it helps keep the project alive.
 
 <div align="center">
 
@@ -190,5 +259,3 @@ Fatto con ❤️ in Italia · Made with ❤️ in Italy
 **[⬆ Torna su / Back to top](#notepadpq)**
 
 </div>
-
-<img width="1920" alt="notepadpq2" src="notepadpq2.png" />

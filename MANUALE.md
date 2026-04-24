@@ -1,7 +1,7 @@
 # NotePadPQ — Manuale d'uso
 
-> Versione 0.2.1 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
-> Piattaforme: Linux (Arch), FreeBSD, Windows, macOS
+> Versione 0.2.3 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
+> Piattaforme: Linux, Windows, macOS
 
 ---
 
@@ -23,8 +23,9 @@
 14. [Sessioni e ripristino](#14-sessioni-e-ripristino)
 15. [Preferenze](#15-preferenze)
 16. [Istanza singola](#16-istanza-singola)
-17. [Espressioni regolari — riferimento completo](#17-espressioni-regolari--riferimento-completo)
-18. [Scorciatoie da tastiera — riepilogo](#18-scorciatoie-da-tastiera--riepilogo)
+17. [Supporto LaTeX](#17-supporto-latex)
+18. [Espressioni regolari — riferimento completo](#18-espressioni-regolari--riferimento-completo)
+19. [Scorciatoie da tastiera — riepilogo](#19-scorciatoie-da-tastiera--riepilogo)
 
 ---
 
@@ -61,18 +62,15 @@ L'interfaccia è composta da:
 | Ricarica da disco | `Shift+Ctrl+R` |
 | Proprietà file | `Shift+Ctrl+V` |
 | Stampa | `Ctrl+P` |
-| Anteprima di stampa | — |
-| Esporta PDF | — |
 | Chiudi tab | `Ctrl+W` |
-| Chiudi altri tab | — |
 | Chiudi tutti | `Shift+Ctrl+W` |
 | Esci | `Ctrl+Q` |
 
 ### File recenti
-**File → File recenti** mostra gli ultimi file aperti. Clicca per riaprirli. Il numero massimo di file nella cronologia è configurabile nelle Preferenze.
+**File → File recenti** mostra gli ultimi file aperti. Clicca per riaprirli. Il numero massimo è configurabile nelle Preferenze.
 
 ### Nuovo da modello
-**File → Nuovo da modello** crea un file con intestazione per: Python, HTML, LaTeX, Markdown, Bash, C/C++, JavaScript.
+**File → Nuovo da modello** crea un file con intestazione pronta per: Python, HTML, LaTeX, Markdown, Bash, C/C++, JavaScript.
 
 ### Drag & Drop
 Trascina uno o più file direttamente sulla finestra o sull'editor per aprirli.
@@ -136,7 +134,7 @@ Accessibile da **Modifica → Formatta**:
 > **Modifica → Formatta → Spezza righe lunghe** inserisce fisicamente `\n` nel testo — il file viene modificato. Usare con attenzione.
 
 ### Auto-chiusura parentesi
-**Modifica → Auto-chiusura parentesi** (toggleable) — chiude automaticamente `(`, `[`, `{`, `"`, `'` quando li digiti.
+**Modifica → Auto-chiusura parentesi** (toggle) — chiude automaticamente `(`, `[`, `{`, `"`, `'` quando li digiti.
 
 ---
 
@@ -151,7 +149,7 @@ Apri con `Ctrl+F`. Il dialog ha 4 tab.
 | Opzione | Effetto |
 |---|---|
 | Maiuscole/minuscole | Distingue `Foo` da `foo` |
-| Parola intera | Trova solo `ciao` e non `ciaoc` |
+| Parola intera | Trova solo `ciao` e non `ciaocom` |
 | Espressione regolare | Abilita la sintassi regex Python |
 | Cerca circolare | Riparte dall'inizio/fine al termine del documento |
 | Nella selezione | Cerca solo nel testo selezionato |
@@ -160,15 +158,14 @@ Apri con `Ctrl+F`. Il dialog ha 4 tab.
 
 - **Trova successivo** — trova la prossima occorrenza (`F3`)
 - **Trova precedente** — trova l'occorrenza precedente (`Shift+F3`)
-- **Segna tutto** — evidenzia tutte le occorrenze con un bordo arancione sotto il testo
-- **Conta** — popola la lista in basso con tutte le occorrenze e mostra il totale
+- **Segna tutto** — evidenzia tutte le occorrenze con un bordo arancione
+- **Conta** — popola la lista con tutte le occorrenze e mostra il totale
 
-**Lista occorrenze** (in basso nel tab):  
-Viene popolata automaticamente mentre digiti (dopo 2 caratteri) e dal pulsante Conta.  
-I numeri di riga sono allineati a destra. Doppio clic su una riga → salta a quella posizione nel documento.
+**Lista occorrenze:**  
+Si popola automaticamente durante la digitazione (dopo 2 caratteri) e tramite il pulsante Conta. Doppio clic su una riga salta alla posizione corrispondente nel documento.
 
-**Manuale regex** (appare quando "Espressione regolare" è attivo):  
-Pannello a font monospace con tutta la sintassi organizzata per sezioni — vedi anche [sezione 17](#17-espressioni-regolari--riferimento-completo).
+**Manuale regex:**  
+Appare automaticamente quando si attiva "Espressione regolare" — vedi anche [sezione 18](#18-espressioni-regolari--riferimento-completo).
 
 ### Tab "Sostituisci"
 
@@ -177,12 +174,11 @@ Stesse opzioni del tab Cerca più:
 - **Sostituisci** — sostituisce l'occorrenza selezionata e passa alla successiva
 - **Sostituisci tutto** — sostituisce tutte le occorrenze nel documento
 
-Nel campo "Sostituisci con" puoi usare `\1`, `\2`, ... per riferirsi ai gruppi catturati dall'espressione regolare.
+Nel campo "Sostituisci con" puoi usare `\1`, `\2`, ... per riferirsi ai gruppi catturati dalla regex.
 
 ### Tab "Cerca nei file"
 
-Cerca in tutti i file di una directory (con filtro estensioni e opzione ricorsiva).  
-I risultati mostrano file e righe — doppio clic apre il file alla riga corrispondente.
+Cerca in tutti i file di una directory, con filtro estensioni e opzione ricorsiva. I risultati mostrano file e righe — doppio clic apre il file alla riga corrispondente.
 
 ### Tab "Cerca in tutti i documenti"
 
@@ -190,7 +186,7 @@ Cerca (e opzionalmente sostituisce) in tutti i file aperti nei tab.
 
 ### Ricerca incrementale inline
 
-`Ctrl+Shift+F2` — apre una barra inline piccola in fondo all'editor per cercare senza aprire il dialog. Premi `Esc` per chiuderla.
+`Ctrl+Shift+F2` — apre una barra inline in fondo all'editor per cercare senza aprire il dialog. Premi `Esc` per chiuderla.
 
 ---
 
@@ -214,8 +210,11 @@ Accessibile da **Cerca → Evidenzia in [colore]** o con le scorciatoie:
 
 I mark sono indipendenti tra loro: puoi avere contemporaneamente testo rosso, verde e blu. Gli indicatori disegnano un bordo colorato **sotto** il testo — il testo rimane sempre completamente leggibile indipendentemente dal tema.
 
-**Smart Highlight** (automatico):  
-Quando sposti il cursore su una parola, tutte le sue occorrenze vengono evidenziate automaticamente con un box grigio-blu tenue. È separato dai 5 colori manuali e non interferisce con essi.
+### Smart Highlight (automatico)
+
+Quando il cursore si ferma su una parola per più di 300ms, tutte le sue occorrenze vengono evidenziate automaticamente con un box grigio-blu tenue. Il sistema è ottimizzato per non interferire con la digitazione: non scatta mai mentre si scrive, si aggiorna solo quando la parola sotto il cursore cambia, e usa un singolo passaggio sul testo senza rallentare l'editor anche su documenti di grandi dimensioni.
+
+È separato dai 5 colori manuali e non interferisce con essi.
 
 ---
 
@@ -268,23 +267,27 @@ Anche `Ctrl+Rotella mouse` direttamente nell'editor.
 `F11` — alterna la modalità a schermo intero.
 
 ### Minimap
-Colonna stretta sul lato dell'editor che mostra una versione rimpicciolita dell'intero documento. Clicca per navigare velocemente.
+Colonna stretta sul lato dell'editor che mostra una versione rimpicciolita dell'intero documento. Clicca per navigare velocemente a qualsiasi punto del file.
 
 ### Anteprima (`F12`)
 Apre il pannello Anteprima affiancato all'editor. Supporta:
 
 - **Markdown** — rendering HTML in background, non blocca l'editor durante la digitazione
-- **HTML** — preview diretta
+- **HTML** — preview diretta nel widget web integrato
 - **LaTeX** — albero della struttura navigabile (sezioni, label, figure, tabelle)
 - **reStructuredText** — rendering via docutils
 - **PDF** — visualizzazione con PyMuPDF, navigazione pagine, zoom, SyncTeX
 
 L'anteprima si aggiorna automaticamente con un delay configurabile (default 500ms). Non si aggiorna se il pannello è nascosto (risparmio CPU).
 
-### Anteprima istantanea al passaggio del mouse (Hover/Dwell)
-Lasciando il cursore del mouse fermo per mezzo secondo su elementi specifici del codice, NotePadPQ mostrerà un popup fluttuante:
-- **Immagini e PDF:** Posiziona il mouse sui percorsi in `\includegraphics{...}`, `![...](...)` o `<img src="...">` per vedere l'anteprima dell'immagine. Supporta anche il rendering vettoriale diretto dei `.pdf`!
-- **Formule Matematiche:** Nei file LaTeX e Markdown, posiziona il mouse sopra una formula (es. `$E=mc^2$`, `$$...$$`, `\[...\]`) per vedere l'equazione renderizzata istantaneamente ad alta qualità con sfondo scuro.
+### Anteprima hover (passaggio del mouse)
+
+Tenendo il cursore fermo per mezzo secondo su determinati elementi, NotePadPQ mostra un popup fluttuante:
+
+- **Immagini** — posiziona il mouse su `\includegraphics{...}`, `![...](...)` o `<img src="...">` per vedere l'anteprima dell'immagine. Supporta PNG, JPG e anche la prima pagina dei file PDF vettoriali.
+- **Formule matematiche** — nei file LaTeX e Markdown, passa il mouse sopra una formula (`$E=mc^2$`, `$$...$$`, `\[...\]`, `\begin{equation}...\end{equation}`) per vederla renderizzata ad alta risoluzione con sfondo scuro.
+
+> Queste funzionalità richiedono le librerie opzionali `pymupdf` (per i PDF) e `matplotlib` (per le equazioni) — vedi [sezione 17](#17-supporto-latex).
 
 ---
 
@@ -296,22 +299,22 @@ Lasciando il cursore del mouse fermo per mezzo secondo su elementi specifici del
 - **Larghezza indentazione** — numero di spazi
 - **Sola lettura** — blocca le modifiche
 - **Scrivi BOM** — aggiunge Byte Order Mark per UTF-8/UTF-16
-- **A capo automatico** — identica alla voce in Visualizza (stessa azione)
-- **Controllo Ortografico (F4)** — Attiva la sottolineatura a zig-zag rossa per le parole errate. Il dizionario (Italiano, Inglese, ecc.) si adatta automaticamente alla lingua dell'interfaccia. Ignora intelligentemente i comandi LaTeX e le sigle maiuscole.
+- **A capo automatico** — identica alla voce in Visualizza
+- **Controllo Ortografico (`F4`)** — attiva la sottolineatura a zig-zag rossa per le parole errate. Il dizionario si adatta alla lingua dell'interfaccia. Ignora i comandi LaTeX (`\comando`) e le sigle interamente maiuscole.
 
 ### Tipo di file (syntax highlighting)
 
-**Documento → Imposta tipo di file** — seleziona manualmente il linguaggio. NotePadPQ rileva automaticamente il tipo dal suffisso del file.
+**Documento → Imposta tipo di file** — seleziona manualmente il linguaggio di colorazione. NotePadPQ rileva automaticamente il tipo dal suffisso del file e dallo shebang (`#!/usr/bin/env python3`).
 
-Linguaggi supportati: Bash/Shell, C/C++, C#, CMake, CSS, Diff, Go, HTML, INI/Config, Java, JavaScript, JSON, LaTeX, Lua, Makefile, Markdown, PHP, Python, Ruby, Rust, SQL, Testo normale, TypeScript, XML, YAML.
+Linguaggi supportati: Bash/Shell, Batch, C/C++, C#, CMake, CSS, Diff, Fortran, HTML, INI/Config, Java, JavaScript, JSON, LaTeX, Lua, Makefile, Markdown, Pascal, Perl, PostScript, Properties, Python, reStructuredText, Ruby, SPICE, SQL, TypeScript, Verilog, VHDL, XML, YAML, Testo normale.
 
 ### Codifica (encoding)
 
-**Documento → Imposta codifica** — cambia l'encoding per il prossimo salvataggio.
+**Documento → Imposta codifica** — cambia l'encoding per il prossimo salvataggio. Encoding supportati: UTF-8, UTF-8 BOM, Latin-1, CP1252, UTF-16 LE/BE, GB2312.
 
 ### Terminatori di riga
 
-**Documento → Imposta terminatori** — LF (Unix), CRLF (Windows), CR (Mac).
+**Documento → Imposta terminatori** — LF (Unix), CRLF (Windows), CR (Mac). Puoi anche convertire i terminatori del documento corrente alla nuova modalità.
 
 ### Operazioni documento
 
@@ -324,10 +327,6 @@ Linguaggi supportati: Bash/Shell, C/C++, C#, CMake, CSS, Diff, Go, HTML, INI/Con
 | Piega tutto | Chiude tutti i blocchi piegabili |
 | Espandi tutto | Apre tutti i blocchi piegabili |
 
-
-### Autocompletamento BibTeX
-Nei file LaTeX (`.tex`), digitando `\cite{` l'editor cercherà automaticamente tutti i file `.bib` presenti nella stessa cartella e aprirà un menu a tendina con le chiavi bibliografiche disponibili.
-
 ---
 
 ## 9. Strumenti
@@ -336,17 +335,32 @@ Nei file LaTeX (`.tex`), digitando `\cite{` l'editor cercherà automaticamente t
 Apre il dialog di configurazione — vedi [sezione 15](#15-preferenze).
 
 ### Build / Compilazione
-Esegue il comando associato al tipo di file corrente e mostra l'output nel pannello "Output compilazione" — tasti `F6` (Compila), `F7` (Build), pulsante Stop.
+Esegue il comando associato al tipo di file corrente e mostra l'output nel pannello "Output compilazione".
+
+| Azione | Scorciatoia |
+|---|---|
+| Compila | `F6` |
+| Build | `F7` |
+| Stop compilazione | pulsante Stop nel pannello |
 
 ### Macro
-Registra e riproduce sequenze di tasti: Avvia/Ferma registrazione, Riproduci, Riproduci N volte, Salva/Carica su file.
+
+Registra e riproduce sequenze di tasti:
+
+| Azione | Funzione |
+|---|---|
+| Avvia/Ferma registrazione | Registra ogni tasto premuto nell'editor |
+| Riproduci | Esegue la macro una volta |
+| Riproduci N volte | Esegue la macro N volte consecutive |
+| Salva su file | Salva la macro come file `.json` |
+| Carica da file | Carica una macro salvata |
 
 ### Altri strumenti
 
 | Strumento | Funzione |
 |---|---|
 | **Color Picker** | Selettore colore con codici HEX/RGB/HSL inseribili nell'editor |
-| **Tester Regex** | Dialog interattivo per testare espressioni regolari sul testo |
+| **Tester Regex** | Dialog interattivo per testare espressioni regolari su testo di prova |
 | **Convertitore numerico** | Conversione tra decimale, esadecimale, binario, ottale |
 | **Statistiche colonna** | Analisi statistica dei valori numerici nella colonna corrente |
 | **Editor scorciatoie** | Personalizzazione dei tasti di scelta rapida |
@@ -356,7 +370,7 @@ Registra e riproduce sequenze di tasti: Avvia/Ferma registrazione, Riproduci, Ri
 
 ## 10. Plugin
 
-I plugin vengono caricati automaticamente dalla cartella `plugins/`. Per installarli, copiali nella cartella `plugins/` oppure mettili in `plugins_to_copy/` e riesegui `setup.sh`.
+I plugin vengono caricati automaticamente dalla cartella `plugins/`. Per installarli, copiali in `plugins/` oppure inseriscili in `plugins_to_copy/` e riesegui `setup.sh`.
 
 | Plugin | Funzione |
 |---|---|
@@ -381,7 +395,7 @@ Il pannello Git (`Plugin → Git Panel`) si aggiorna automaticamente al cambio d
 
 **Config** — nome e email correnti, `git config --local` completa, pulsante per il dialog credenziali.
 
-**Azioni rapide** (barra superiore): Pull (con opzione --rebase), Push (con opzione --force-with-lease), Commit (dialog con selezione file e opzione amend), Stash, Fetch.
+**Azioni rapide** (barra superiore): Pull (con opzione `--rebase`), Push (con opzione `--force-with-lease`), Commit (dialog con selezione file e opzione amend), Stash, Fetch.
 
 **Configurazione credenziali** (`Plugin → Git: Configura utente & token` oppure tab Config):
 
@@ -389,7 +403,7 @@ Il pannello Git (`Plugin → Git Panel`) si aggiorna automaticamente al cambio d
 - Token GitHub — salvato in keyring o `~/.config/notepadpq/git_tokens.json`
 - Token GitLab — con supporto URL self-hosted
 
-Con i token configurati è possibile creare Pull Request (GitHub) e Merge Request (GitLab) direttamente dal pannello (richiede `pip install PyGithub` o `pip install python-gitlab`).
+Con i token configurati è possibile creare Pull Request (GitHub) e Merge Request (GitLab) direttamente dal pannello. Richiede `PyGithub` e/o `python-gitlab` (installati dallo script di setup).
 
 ---
 
@@ -403,7 +417,7 @@ Pannello sinistro con la struttura di directory. Doppio clic su un file per apri
 ### Function List (`Ctrl+Shift+F`)
 Pannello con la lista di funzioni, classi e metodi del file corrente. Si aggiorna automaticamente durante la digitazione.
 
-- **Aggiornamento lazy** — se il pannello è nascosto, il refresh viene posticipato al momento in cui lo apri (nessun consumo CPU inutile)
+- **Aggiornamento lazy** — se il pannello è nascosto, il refresh viene posticipato al momento dell'apertura (nessun consumo CPU inutile)
 - **Filtro** — ricerca incrementale per nome funzione
 - **Ordinamento** — ordine di apparizione nel file (default) o alfabetico (pulsante A↓)
 - **Doppio clic** — salta direttamente alla riga nel file
@@ -412,10 +426,14 @@ Pannello con la lista di funzioni, classi e metodi del file corrente. Si aggiorn
 Linguaggi con parser dedicato: Python, JavaScript/TypeScript, C/C++, Java, Bash, SQL, LaTeX, Markdown.
 
 ### Output compilazione
-Pannello inferiore con l'output testuale del comando build. La lista errori è cliccabile: click su un errore → salta alla riga nel file sorgente. Dopo una compilazione LaTeX riuscita, il pulsante **📄 PDF** apre il documento generato nel pannello Anteprima.
+Pannello inferiore con l'output testuale del comando build. La lista errori è cliccabile: click su un errore salta alla riga nel file sorgente. Dopo una compilazione LaTeX riuscita, il pulsante **📄 PDF** apre il documento nel pannello Anteprima.
 
-### Terminale integrato
-Tab nel pannello inferiore. Terminale completo basato su PTY nativo — supporta qualsiasi programma interattivo (vim, python REPL, ssh, ecc.).
+### Terminale integrato (`` Ctrl+` ``)
+Terminale completo nel pannello inferiore, basato su PTY nativo. Non richiede configurazione aggiuntiva — funziona su tutti i sistemi supportati.
+
+- Supporta qualsiasi programma interattivo: vim, python REPL, ssh, compilatori, git
+- Gestione completa del colore ANSI e dei caratteri speciali
+- Schede multiple nel pannello inferiore
 
 ---
 
@@ -432,7 +450,7 @@ Il multi-cursore permette di modificare simultaneamente più punti del testo.
 | Inserisci numeri incrementali | `Ctrl+Shift+Alt+C` |
 | Rimuovi cursori extra | `Esc` |
 
-**Uso tipico:** seleziona una parola → `Ctrl+D` ripetuto per aggiungere le occorrenze successive → digita per sostituire tutte simultaneamente.
+**Uso tipico:** seleziona una parola → premi `Ctrl+D` più volte per aggiungere le occorrenze successive → digita per sostituirle tutte simultaneamente.
 
 ---
 
@@ -469,7 +487,7 @@ Al prossimo avvio i file vengono riaperti automaticamente (se abilitato in Prefe
 
 ## 15. Preferenze
 
-Apri con `Ctrl+Alt+P` oppure **Strumenti → Preferenze**. Le modifiche possono essere applicate immediatamente con il pulsante **Applica** senza chiudere il dialog.
+Apri con `Ctrl+Alt+P` oppure **Strumenti → Preferenze**. Le modifiche possono essere applicate immediatamente con **Applica** senza chiudere il dialog.
 
 ### Scheda Editor
 - Font e dimensione
@@ -483,7 +501,7 @@ Apri con `Ctrl+Alt+P` oppure **Strumenti → Preferenze**. Le modifiche possono 
 - **Tema attivo** — selezionabile dal combo; il cambio si applica immediatamente a tutti gli editor aperti
 - **Editor tema** — modifica i colori del tema corrente con anteprima in tempo reale
 - **Importa / Esporta tema** — formato JSON, per condividere temi tra installazioni
-- **Set di icone toolbar** — Lucide (lineari, moderne), Material (Google, piene), Sistema (icone native OS). Se il set non è presente localmente, viene scaricato automaticamente da internet al momento della selezione. Il download mostra una barra di avanzamento con il nome di ogni icona scaricata e un riepilogo finale.
+- **Set di icone toolbar** — Lucide (lineari, moderne), Material (Google, piene), Sistema (icone native OS). Se il set non è presente localmente, viene scaricato automaticamente da internet al momento della selezione.
 
 ### Scheda File
 - Encoding predefinito (UTF-8, UTF-8 BOM, Latin-1, CP1252, UTF-16, GB2312)
@@ -521,18 +539,55 @@ NotePadPQ gestisce l'istanza singola tramite socket locale. Se è già aperto e 
 
 La finestra esistente viene portata automaticamente in primo piano anche se era minimizzata.
 
-Questo comportamento si attiva anche da riga di comando:
-
 ```bash
-# Se NotePadPQ è già aperto, questo comando apre il file nella sessione esistente
+# Se NotePadPQ è già aperto, questo apre il file nella sessione esistente
 python main.py nuovo_file.py
 ```
 
-Non è necessaria nessuna configurazione: funziona automaticamente su Linux, Windows e macOS.
+Funziona automaticamente su Linux, Windows e macOS senza alcuna configurazione.
 
 ---
 
-## 17. Espressioni regolari — riferimento completo
+## 17. Supporto LaTeX
+
+NotePadPQ ha un supporto LaTeX completo, ma le funzionalità **avanzate** richiedono librerie opzionali che non vengono installate automaticamente dallo script di setup. L'idea è che chi usa NotePadPQ per scrivere LaTeX abbia già TeX Live installato e le librerie accessorie.
+
+### Funzionalità sempre disponibili (nessuna dipendenza extra)
+- **Syntax highlighting** LaTeX completo
+- **Code folding** di ambienti (`\begin{...}` / `\end{...}`)
+- **Autocompletamento BibTeX**: digitando `\cite{` in un file `.tex`, l'editor cerca tutti i file `.bib` nella stessa cartella e mostra un menu con le chiavi disponibili
+- **Build panel**: profili di compilazione configurabili (pdflatex, xelatex, lualatex, latexmk, ecc.)
+- **Errori cliccabili**: click su un errore nell'output di compilazione salta alla riga nel sorgente
+- **Scorciatoie markup**: `Ctrl+B` → `\textbf{...}`, `Ctrl+I` → `\textit{...}`, `Ctrl+Shift+X` → `\sout{...}`
+- **Struttura documento** (Function List): sezioni, label, figure, tabelle del file `.tex`
+
+### Funzionalità che richiedono librerie opzionali
+
+| Funzionalità | Libreria necessaria | Installazione |
+|---|---|---|
+| Anteprima PDF (hover su `\includegraphics`) | `pymupdf` | `pip install pymupdf` |
+| Anteprima PDF nel pannello Anteprima | `pymupdf` | `pip install pymupdf` |
+| Rendering equazioni hover (`$...$`, `$$...$$`) | `matplotlib` | `pip install matplotlib` |
+| Calcolo simbolico | `sympy` | `pip install sympy` |
+| SyncTeX (cursore editor ↔ posizione PDF) | `synctex` | incluso in TeX Live |
+
+**Installazione rapida:**
+```bash
+pip install pymupdf matplotlib sympy
+```
+
+Su **Arch Linux**:
+```bash
+sudo pacman -S python-pymupdf python-matplotlib python-sympy texlive-bin
+```
+
+> Se stai già usando TeX Live per compilare LaTeX, `synctex` è già disponibile. Le librerie Python puoi installarle separatamente senza toccare il resto del setup.
+
+Le funzionalità opzionali si attivano automaticamente se le librerie sono presenti — non è necessaria nessuna configurazione aggiuntiva.
+
+---
+
+## 18. Espressioni regolari — riferimento completo
 
 Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia presente l'opzione "Espressione regolare". Il manuale inline appare automaticamente nel dialog Cerca quando si attiva la spunta.
 
@@ -614,7 +669,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 
 ---
 
-## 18. Scorciatoie da tastiera — riepilogo
+## 19. Scorciatoie da tastiera — riepilogo
 
 ### File
 
@@ -641,9 +696,10 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+I` | Indenta |
 | `Ctrl+U` | Deindenta |
 | `Ctrl+Alt+U` | Inverti maiuscolo/minuscolo |
-| `Ctrl+B` / `I` | Grassetto / Corsivo (Markup) |
+| `Ctrl+B` | Grassetto (Markup) |
+| `Ctrl+I` | Corsivo (Markup) |
 | `Ctrl+Shift+X` | Barrato (Markup) |
-| `Alt+E` | Avvolgi in Ambiente |
+| `Alt+E` | Avvolgi in Ambiente / Tag |
 | `Alt+T` | Allinea Tabella |
 
 ### Cerca
@@ -654,7 +710,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+H` | Apri dialog Sostituisci |
 | `F3` | Trova successivo |
 | `Shift+F3` | Trova precedente |
-| `Ctrl+Shift+F2` | Ricerca incrementale inline / Toggle bookmark |
+| `Ctrl+Shift+F2` | Ricerca incrementale inline |
 | `Ctrl+G` | Vai alla riga |
 | `Ctrl+]` | Vai alla parentesi corrispondente |
 
@@ -690,6 +746,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+Shift+E` | File Browser |
 | `Ctrl+Shift+F` | Function List |
 | `` Ctrl+` `` | Terminale |
+| `F4` | Controllo ortografico |
 
 ### Multi-cursore
 
@@ -717,10 +774,10 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | Scorciatoia | Azione |
 |---|---|
 | `Ctrl+Alt+P` | Preferenze |
-| `Ctrl+Ins` | Modalità sovrascrittura |
+| `Insert` | Modalità sovrascrittura |
 | `F6` | Compila |
 | `F7` | Build |
 
 ---
 
-*Manuale aggiornato — NotePadPQ 0.2.1*
+*Manuale aggiornato — NotePadPQ 0.2.3*

@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QObject, QEvent
 from PyQt6.QtGui import (
     QAction, QIcon, QKeySequence, QCloseEvent, QDragEnterEvent, QDropEvent, QPageSize
 )
@@ -34,6 +34,30 @@ from i18n.i18n import tr, I18n
 from core.platform import IS_WINDOWS, get_config_dir
 
 # ─── MainWindow ───────────────────────────────────────────────────────────────
+
+
+class TripleClickFilter(QObject):
+    """Riconosce 3 click rapidi su un widget e lancia un'azione."""
+    def __init__(self, parent, callback):
+        super().__init__(parent)
+        self.callback = callback
+        self.clicks = 0
+        self.timer = QTimer()
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.reset)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self.clicks += 1
+            if self.clicks == 1:
+                self.timer.start(600) # Finestra di 600ms per fare i 3 click
+            elif self.clicks == 3:
+                self.callback()
+                self.reset()
+        return super().eventFilter(obj, event)
+
+    def reset(self):
+        self.clicks = 0
 
 class MainWindow(QMainWindow):
 
@@ -1802,8 +1826,15 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def action_about(self) -> None:
-        QMessageBox.about(
-            self, tr("action.about"),
+        from PyQt6.QtWidgets import QMessageBox, QLabel
+        from PyQt6.QtCore import Qt
+
+        # Creiamo l'istanza del messaggio
+        msg = QMessageBox(self)
+        msg.setWindowTitle(tr("action.about"))
+        
+        # Inseriamo il tuo HTML originale
+        content = (
             f"<h2>NotePadPQ {self.APP_VERSION}</h2>"
             "<p>Editor di testo avanzato multi-linguaggio.</p>"
             "<hr>"
@@ -1814,6 +1845,22 @@ class MainWindow(QMainWindow):
             "<hr>"
             f"<small>Python · PyQt6 · QScintilla</small>"
         )
+        
+        msg.setText(content)
+        # Usiamo l'icona informativa standard (simile a .about)
+        msg.setIcon(QMessageBox.Icon.Information)
+
+        # --- LOGICA SEGRETA: Triplo click sulla scritta NotePadPQ ---
+        for label in msg.findChildren(QLabel):
+            if "NotePadPQ" in label.text():
+                # Cambiamo il cursore per dare un indizio che "c'è qualcosa"
+                label.setCursor(Qt.CursorShape.PointingHandCursor)
+                # Installiamo il filtro (assicurati che TripleClickFilter sia definito nel file)
+                self._about_arc_filter = TripleClickFilter(self, self._launch_arcade)
+                label.installEventFilter(self._about_arc_filter)
+        # ------------------------------------------------------------
+
+        msg.exec()
 
     def action_check_updates(self) -> None:
         import urllib.request
@@ -2236,24 +2283,33 @@ class MainWindow(QMainWindow):
         
     # ── Orologio in alto a destra ─────────────────────────────────────────────
 
+    # ── Orologio in alto a destra ─────────────────────────────────────────────
+
     def _setup_clock(self):
-        # Crea l'etichetta per l'orologio
         self._clock_label = QLabel()
-        # Diamo un po' di margine e cambiamo il colore/dimensione per renderlo carino
         self._clock_label.setStyleSheet("padding-right: 10px; padding-left: 10px; font-size: 12px; color: #555;")
-        
-        # Incastra l'etichetta nell'angolo in alto a destra della barra dei menu
         self.menuBar().setCornerWidget(self._clock_label, Qt.Corner.TopRightCorner)
 
-        # Crea un timer interno che "suona" ogni secondo (1000 ms) per aggiornare l'ora
+        # --- AGGIUNTA EASTER EGG ---
+        self._clock_arc_filter = TripleClickFilter(self, self._launch_arcade)
+        self._clock_label.installEventFilter(self._clock_arc_filter)
+        # ---------------------------
+
         self._clock_timer = QTimer(self)
         self._clock_timer.timeout.connect(self._update_clock)
         self._clock_timer.start(1000)
-
-        # Scrive l'ora immediatamente all'avvio senza aspettare il primo secondo
         self._update_clock()
 
-    def _update_clock(self):
+    def _launch_arcade(self):
+        """Apre la finestra segreta dell'Arcade."""
+        try:
+            from ui.arcade import ArcadeDialog
+            dlg = ArcadeDialog(self)
+            dlg.exec()
+        except Exception as e:
+            self.statusBar().showMessage(f"Errore avvio Arcade: {e}", 5000)
+
+    def _update_clock(self):        
         from PyQt6.QtCore import QDateTime, QLocale
         from i18n.i18n import I18n
 

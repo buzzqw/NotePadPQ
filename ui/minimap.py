@@ -9,6 +9,7 @@ Implementato come QAbstractScrollArea ridisegnato.
 
 from __future__ import annotations
 
+import re
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QRect, QTimer, pyqtSlot
@@ -28,6 +29,14 @@ LINE_HEIGHT     = 2      # px per riga
 MAX_LINES       = 3000   # limite righe renderizzate
 UPDATE_DELAY_MS = 300    # ms debounce aggiornamento
 
+# Regex compilate una volta sola a livello modulo
+_RE_COMMENT = re.compile(r'^\s*(#|//|--|%|;)')
+_RE_STRING  = re.compile(r'["\']')
+_RE_KEYWORD = re.compile(
+    r'\b(def|class|import|from|if|else|elif|for|while|return|'
+    r'function|var|let|const|public|private|void|int|str)\b'
+)
+
 
 class MinimapWidget(QWidget):
     """
@@ -40,6 +49,7 @@ class MinimapWidget(QWidget):
         self._editor = editor
         self._pixmap: Optional[QPixmap] = None
         self._dirty  = True
+        self._needs_refresh = False
 
         self.setFixedWidth(MINIMAP_WIDTH)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -61,7 +71,16 @@ class MinimapWidget(QWidget):
 
     def _schedule_rebuild(self) -> None:
         self._dirty = True
-        self._timer.start()
+        if self.isVisible():
+            self._timer.start()
+        else:
+            self._needs_refresh = True
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._needs_refresh:
+            self._needs_refresh = False
+            self._timer.start()
 
     @pyqtSlot()
     def _rebuild(self) -> None:
@@ -102,27 +121,17 @@ class MinimapWidget(QWidget):
         self._pixmap.fill(bg)
         painter.begin(self._pixmap)
 
-        # Disegna ogni riga con colori semplificati
-        import re
-        _re_comment = re.compile(r'^\s*(#|//|--|%|;)')
-        _re_string  = re.compile(r'["\']')
-        _re_keyword = re.compile(
-            r'\b(def|class|import|from|if|else|elif|for|while|return|'
-            r'function|var|let|const|public|private|void|int|str)\b'
-        )
-
         for i, line in enumerate(lines):
             y = i * LINE_HEIGHT
             stripped = line.rstrip()
             if not stripped:
                 continue
 
-            # Colore semplificato per la riga
-            if _re_comment.match(stripped):
+            if _RE_COMMENT.match(stripped):
                 col = cmt_col
-            elif _re_string.search(stripped):
+            elif _RE_STRING.search(stripped):
                 col = str_col
-            elif _re_keyword.search(stripped):
+            elif _RE_KEYWORD.search(stripped):
                 col = kw_col
             else:
                 col = fg

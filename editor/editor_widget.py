@@ -19,6 +19,7 @@ Uso:
     editor.load_content("testo", encoding="utf-8", line_ending="LF")
 """
 
+import re
 import sys
 from enum import Enum
 from pathlib import Path
@@ -53,6 +54,9 @@ except ImportError:
     _mpl = None
     _plt = None
     _HAS_MATPLOTLIB = False
+
+# Pattern per spell check — compilato una volta sola
+_RE_SPELL = re.compile(r'(?<!\\)\b[A-Za-zàèìòùé]+\b')
 
 # ─── Costanti ─────────────────────────────────────────────────────────────────
 
@@ -362,7 +366,7 @@ class EditorWidget(QsciScintilla):
         if not word or len(word) < 2:
             return
 
-        import re, bisect
+        import bisect
         text = self.text()
         pattern = r'\b' + re.escape(word) + r'\b'
 
@@ -825,36 +829,34 @@ class EditorWidget(QsciScintilla):
         if not self._spell_checker:
             return
 
+        import bisect
         text = self.text()
-        # Pulisce gli errori precedenti per non fare sovrapposizioni
         self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SPELL)
-
-        import re
-        # Cerca parole di sole lettere, ignorando i comandi LaTeX che iniziano per "\"
-        # Include lettere accentate italiane
-        pattern = r'(?<!\\)\b[A-Za-zàèìòùé]+\b'
 
         words_found = []
         matches = []
-
-        for m in re.finditer(pattern, text):
+        for m in _RE_SPELL.finditer(text):
             word = m.group(0)
-            # Filtra parole troppo corte o interamente maiuscole (sigle)
             if len(word) > 2 and not word.isupper():
                 words_found.append(word)
                 matches.append(m)
 
-        # Chiede al dizionario quali di queste parole sono sbagliate (è molto veloce!)
         unknown = self._spell_checker.unknown(words_found)
+        if not unknown:
+            return
 
-        # Disegna l'ondina rossa sotto le parole sbagliate
+        # Precomputa la lista degli offset dei '\n' per conversione O(log n)
+        newlines = [i for i, c in enumerate(text) if c == '\n']
+
         for m in matches:
-            if m.group(0) in unknown:
-                start = m.start()
-                end = m.end()
-                line_s, col_s = self._offset_to_line_col(start)
-                line_e, col_e = self._offset_to_line_col(end)
-                self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SPELL)    
+            if m.group(0) not in unknown:
+                continue
+            start, end = m.start(), m.end()
+            line_s = bisect.bisect_right(newlines, start)
+            col_s  = start - (newlines[line_s - 1] + 1 if line_s > 0 else 0)
+            line_e = bisect.bisect_right(newlines, end)
+            col_e  = end - (newlines[line_e - 1] + 1 if line_e > 0 else 0)
+            self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SPELL)    
         
     # ── Autocompletamento BibTeX ──────────────────────────────────────────────
 
@@ -863,7 +865,6 @@ class EditorWidget(QsciScintilla):
         if not self.file_path or not self.file_path.parent.exists():
             return
             
-        import re
         bib_keys = []
         
         # Cerca tutti i file .bib nella cartella corrente
@@ -907,7 +908,6 @@ class EditorWidget(QsciScintilla):
 
         self._hide_hover_popup()
 
-        import re
         from PyQt6.QtCore import Qt, QPoint
         from PyQt6.QtGui import QPixmap, QImage
         from PyQt6.QtWidgets import QLabel

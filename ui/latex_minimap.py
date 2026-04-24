@@ -46,6 +46,7 @@ class LaTeXMinimapWidget(QWidget):
     def __init__(self, editor: "EditorWidget", parent: QWidget = None):
         super().__init__(parent)
         self._editor = editor
+        self._needs_refresh = False
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -100,7 +101,16 @@ class LaTeXMinimapWidget(QWidget):
     # ── Rebuild ───────────────────────────────────────────────────────────────
 
     def _schedule_rebuild(self) -> None:
-        self._timer.start()
+        if self.isVisible():
+            self._timer.start()
+        else:
+            self._needs_refresh = True
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._needs_refresh:
+            self._needs_refresh = False
+            self._timer.start()
 
     def _rebuild(self) -> None:
         """Ricostruisce l'albero dalla struttura del documento."""

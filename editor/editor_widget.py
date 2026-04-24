@@ -36,6 +36,24 @@ from PyQt6.Qsci import (
 from core.platform import get_preferred_monospace_font, IS_WINDOWS
 from i18n.i18n import tr
 
+# Dipendenze opzionali per hover preview
+try:
+    import fitz as _fitz
+    _HAS_FITZ = True
+except ImportError:
+    _fitz = None
+    _HAS_FITZ = False
+
+try:
+    import matplotlib as _mpl
+    _mpl.use('Agg')
+    import matplotlib.pyplot as _plt
+    _HAS_MATPLOTLIB = True
+except ImportError:
+    _mpl = None
+    _plt = None
+    _HAS_MATPLOTLIB = False
+
 # ─── Costanti ─────────────────────────────────────────────────────────────────
 
 class LineEnding(Enum):
@@ -289,6 +307,11 @@ class EditorWidget(QsciScintilla):
 
         # Aggiorna larghezza margine numeri di riga al cambio testo
         self.linesChanged.connect(self._update_line_number_margin)
+
+        # Smart Highlight: avvia il timer ad ogni movimento cursore
+        self.cursorPositionChanged.connect(
+            lambda *_: self._smart_hl_timer.start()
+        )
 
         self.userListActivated.connect(self._on_user_list_selection)
 
@@ -929,10 +952,11 @@ class EditorWidget(QsciScintilla):
                 pixmap = None
                 if img_path.suffix.lower() == '.pdf':
                     try:
-                        import fitz
-                        doc = fitz.open(str(img_path))
+                        if not _HAS_FITZ:
+                            raise ImportError("PyMuPDF non installato")
+                        doc = _fitz.open(str(img_path))
                         page = doc.load_page(0)
-                        pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+                        pix = page.get_pixmap(matrix=_fitz.Matrix(1.5, 1.5))
                         img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
                         pixmap = QPixmap.fromImage(img)
                     except Exception as e:
@@ -973,29 +997,18 @@ class EditorWidget(QsciScintilla):
 
         if formula_text:
             try:
+                if not _HAS_MATPLOTLIB:
+                    raise ImportError("matplotlib non installato")
                 import io
-                import matplotlib as mpl
-                # Configura matplotlib per non usare finestre GUI
-                mpl.use('Agg')
-                import matplotlib.pyplot as plt
-
-                # Pulisci la formula per matplotlib (aggiunge il $ per il parser interno)
                 formula_to_render = f"${formula_text}$"
-
-                # Crea un'immagine vuota con solo testo renderizzato in math-mode
-                fig = plt.figure(figsize=(0.01, 0.01))
-                # Colore sfondo dark per abbinarsi all'editor, colore testo chiaro
+                fig = _plt.figure(figsize=(0.01, 0.01))
                 fig.text(0, 0, formula_to_render, fontsize=16, color='#e0e0e0', ha='center', va='center')
-                
-                # Salva l'immagine in un buffer di memoria invece che sul disco
                 buf = io.BytesIO()
                 fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', pad_inches=0.1, transparent=True)
-                plt.close(fig)
-                
+                _plt.close(fig)
                 buf.seek(0)
                 pixmap = QPixmap()
                 pixmap.loadFromData(buf.read())
-                
                 if not pixmap.isNull():
                     self._create_tooltip_popup(pixmap, x, y)
             except Exception as e:

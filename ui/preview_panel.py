@@ -155,6 +155,7 @@ class PreviewPanel(QWidget):
         self._timer.timeout.connect(self._update_preview)
         self._last_hash: int = 0   # evita re-render se il testo non è cambiato
         self._md_worker = None             # thread markdown
+        self._needs_refresh: bool = False  # aggiornamento pendente mentre nascosto
 
         self._build_ui()
         self.setMinimumWidth(200)
@@ -374,12 +375,18 @@ class PreviewPanel(QWidget):
         # USA textChanged (1 segnale/keystroke) invece di SCN_MODIFIED
         # (che può sparare 4+ volte per singolo carattere)
         try:
-            editor.textChanged.connect(self._on_text_changed)
+            editor.textChanged.connect(
+                self._on_text_changed,
+                Qt.ConnectionType.UniqueConnection,
+            )
         except Exception:
             pass
         if self._sync_cursor:
             try:
-                editor.cursorPositionChanged.connect(self._on_cursor_changed)
+                editor.cursorPositionChanged.connect(
+                    self._on_cursor_changed,
+                    Qt.ConnectionType.UniqueConnection,
+                )
             except Exception:
                 pass
 
@@ -454,9 +461,16 @@ class PreviewPanel(QWidget):
 
     @pyqtSlot()
     def _on_text_changed(self) -> None:
-        # FIX: Rimosso il blocco if not self.isVisible() per garantire 
-        # che l'anteprima si prepari anche se il dock sta ancora caricando
-        self._timer.start(self._delay_ms)
+        if self.isVisible():
+            self._timer.start(self._delay_ms)
+        else:
+            self._needs_refresh = True
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._needs_refresh:
+            self._needs_refresh = False
+            self._timer.start(self._delay_ms)
 
     @pyqtSlot(int, int)
     def _on_cursor_changed(self, line: int, col: int) -> None:
@@ -723,7 +737,6 @@ class PreviewPanel(QWidget):
         except (ValueError, AttributeError):
             if getattr(self, "_pdf_path", None):
                 try:
-                    import fitz as _fitz
                     self._pdf_doc = _fitz.open(self._pdf_path)
                 except Exception as e:
                     self._stack.setCurrentIndex(2)
@@ -742,8 +755,7 @@ class PreviewPanel(QWidget):
         
         try:
             page = self._pdf_doc[self._pdf_page_num]
-            import fitz as _fitz
-            
+
             # --- LOGICA INTELLIGENTE DI RITAGLIO MARGINI ---
             clip_rect = page.rect
             if getattr(self, "_pdf_crop_margins", False):

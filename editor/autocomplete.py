@@ -412,6 +412,12 @@ class AutoCompleteManager(QObject):
         self._cross_tab_timer.setInterval(1500)
         self._cross_tab_timer.timeout.connect(self._rebuild_all_docs_words)
 
+        # Timer per rebuild API su modifica documento LaTeX
+        self._doc_change_timer = QTimer(self)
+        self._doc_change_timer.setSingleShot(True)
+        self._doc_change_timer.setInterval(2000)
+        self._doc_change_timer.timeout.connect(self._rebuild_api)
+
         self._setup_base()
 
     # ── Setup ─────────────────────────────────────────────────────────────────
@@ -532,9 +538,7 @@ class AutoCompleteManager(QObject):
         self._tab_manager_ref = tab_manager
         if self._tab_manager_ref:
             # Quando un altro editor cambia, scheduliamo il rebuild
-            self._editor.textChanged.connect(
-                lambda: self._cross_tab_timer.start()
-            )
+            self._editor.textChanged.connect(self._cross_tab_timer.start)
 
     def _add_all_docs_words(self) -> None:
         """Aggiunge al dizionario le parole da tutti i tab aperti."""
@@ -720,12 +724,6 @@ class AutoCompleteManager(QObject):
         Solo per LaTeX: usa un timer per non rallentare la digitazione.
         """
         if self._language in ("latex", "bibtex"):
-            if not hasattr(self, "_doc_change_timer"):
-                from PyQt6.QtCore import QTimer
-                self._doc_change_timer = QTimer(self)
-                self._doc_change_timer.setSingleShot(True)
-                self._doc_change_timer.setInterval(2000)
-                self._doc_change_timer.timeout.connect(self._rebuild_api)
             self._doc_change_timer.start()
 
     # ── Soglia e trigger ──────────────────────────────────────────────────────

@@ -104,6 +104,7 @@ class SmartHighlighter:
             except Exception:
                 pass
         self._active_editor = editor
+        self._last_word = ""  # nuovo editor = nessun highlight pregresso
         if editor:
             editor.cursor_changed.connect(self._on_cursor_moved)
             self._setup_indicator(editor)

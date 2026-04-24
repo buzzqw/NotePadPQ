@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup.sh — Versione 0.2.1 completa (Arch Linux 100% nativo)
+# setup.sh — NotePadPQ setup
 
 set -euo pipefail
 
@@ -7,26 +7,50 @@ PYTHON=${PYTHON:-python3}
 OS=$(uname)
 PROJECT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
-# Lista completa pacchetti PIP (per gli altri OS)
-PIP_PACKAGES="PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown pymupdf docutils pyspellchecker matplotlib sympy PyGithub python-gitlab keyring"
+# Pacchetti base (sempre richiesti)
+PIP_CORE="PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pyspellchecker PyGithub python-gitlab keyring"
 
-# Funzione: controlla se synctex è disponibile
+# Pacchetti opzionali per il supporto LaTeX avanzato
+PIP_LATEX="pymupdf matplotlib sympy"
+
+# ─── Helper ───────────────────────────────────────────────────────────────────
+
+_print_latex_hint() {
+    echo
+    echo "┌─────────────────────────────────────────────────────────────────┐"
+    echo "│  Supporto LaTeX avanzato (opzionale)                            │"
+    echo "│                                                                  │"
+    echo "│  Se usi NotePadPQ per compilare e scrivere LaTeX, installa:     │"
+    echo "│                                                                  │"
+    echo "│  • pymupdf     — anteprima PDF al passaggio del mouse           │"
+    echo "│  • matplotlib  — rendering equazioni matematiche inline         │"
+    echo "│  • sympy       — supporto calcolo simbolico                     │"
+    echo "│  • synctex     — navigazione bidirezionale sorgente ↔ PDF       │"
+    echo "│                  (pacchetto di sistema, incluso in TeX Live)    │"
+    echo "│                                                                  │"
+    echo "│  Installazione rapida (pip):                                     │"
+    echo "│    pip install pymupdf matplotlib sympy                         │"
+    echo "│                                                                  │"
+    echo "│  Su Arch Linux:                                                  │"
+    echo "│    sudo pacman -S python-pymupdf python-matplotlib python-sympy │"
+    echo "│    sudo pacman -S texlive-bin   (include synctex)               │"
+    echo "└─────────────────────────────────────────────────────────────────┘"
+}
+
 _check_synctex() {
     if command -v synctex &>/dev/null; then
-        echo "  synctex        : OK  (navigazione bidirezionale LaTeX<->PDF)"
+        echo "  synctex        : OK  (navigazione bidirezionale LaTeX↔PDF)"
     else
-        echo "  synctex        : NON TROVATO"
-        echo "    -> (Usa il gestore pacchetti della tua distro per installare TeX Live / SyncTeX)"
+        echo "  synctex        : non installato  (opzionale, incluso in TeX Live)"
     fi
 }
 
-# Funzione: crea file di avvio (.desktop) per Linux
 _create_linux_launcher() {
     echo
     echo "=== Creazione lanciatore Linux ==="
-    
+
     PYTHON_BIN=$(command -v "$PYTHON")
-    
+
     ICON_PATH=""
     for _try_icon in \
         "${PROJECT_DIR}/icons/NotePadPQ_256.png" \
@@ -63,40 +87,46 @@ EOF
     echo "  Lanciatore creato in: $LAUNCHER_FILE"
 }
 
-echo "=== NotePadPQ Mega Setup ==="
-echo "Installazione di tutte le funzioni: Editor, PDF, Math Preview, Spellcheck e Git Plugins."
+# ─── Installazione ────────────────────────────────────────────────────────────
+
+echo "=== NotePadPQ Setup ==="
+echo "Installazione dipendenze base: editor, spellcheck, plugin Git."
 echo
 
 if [[ "$OS" == MINGW* ]] || [[ "$OS" == CYGWIN* ]] || [[ "$OS" == MSYS* ]]; then
-    $PYTHON -m pip install $PIP_PACKAGES
+    $PYTHON -m pip install $PIP_CORE
 
 elif command -v pacman &>/dev/null; then
-    echo "Arch Linux: installo TUTTE le dipendenze native via pacman..."
+    echo "Arch Linux: installo dipendenze native via pacman..."
     sudo pacman -S --needed --noconfirm \
         python-pyqt6 python-pyqt6-webengine python-qscintilla-qt6 \
-        python-chardet python-markdown python-pymupdf python-docutils \
-        python-pygithub python-gitlab python-matplotlib python-sympy \
+        python-chardet python-markdown python-docutils \
+        python-pygithub python-gitlab \
         python-pyspellchecker python-keyring 2>/dev/null || true
 
 elif command -v apt-get &>/dev/null; then
     BREAK="--break-system-packages"
     sudo apt-get update
     sudo apt-get install -y \
-        python3-pyqt6 python3-pyqt6.qsci python3-chardet python3-markdown python3-pyqt6.qtwebengine 2>/dev/null || true
-    $PYTHON -m pip install $BREAK $PIP_PACKAGES 2>/dev/null || true
+        python3-pyqt6 python3-pyqt6.qsci python3-chardet \
+        python3-markdown python3-pyqt6.qtwebengine 2>/dev/null || true
+    $PYTHON -m pip install $BREAK $PIP_CORE 2>/dev/null || true
 
 elif command -v dnf &>/dev/null; then
     sudo dnf install -y \
         python3-qt6 python3-qscintilla-qt6 python3-qt6-webengine \
-        python3-chardet python3-markdown python3-pymupdf 2>/dev/null || true
-    $PYTHON -m pip install --user docutils pyspellchecker matplotlib sympy PyGithub python-gitlab keyring || true
+        python3-chardet python3-markdown 2>/dev/null || true
+    $PYTHON -m pip install --user $PIP_CORE || true
 
 else
-    $PYTHON -m pip install $PIP_PACKAGES || true
+    $PYTHON -m pip install $PIP_CORE || true
 fi
 
+# ─── Verifica finale ──────────────────────────────────────────────────────────
+
 echo
-echo "=== Verifica Finale ==="
+echo "=== Verifica dipendenze ==="
+echo "--- Base (richieste) ---"
 $PYTHON -c "
 def check(name, cmd):
     try:
@@ -105,28 +135,40 @@ def check(name, cmd):
     except:
         print(f'  {name:15}: NON TROVATO')
 
-check('PyQt6', 'from PyQt6.QtWidgets import QApplication')
-check('QScintilla', 'from PyQt6.Qsci import QsciScintilla')
-check('WebEngine', 'from PyQt6.QtWebEngineWidgets import QWebEngineView')
-check('Chardet', 'import chardet')
-check('Markdown', 'import markdown')
-check('Docutils', 'from docutils.core import publish_parts')
-check('PyMuPDF', 'import fitz')
-check('Spellchecker', 'import spellchecker')
-check('Matplotlib', 'import matplotlib')
-check('Sympy', 'import sympy')
-check('PyGithub', 'import github')
-check('GitLab', 'import gitlab')
-check('Keyring', 'import keyring')
+check('PyQt6',       'from PyQt6.QtWidgets import QApplication')
+check('QScintilla',  'from PyQt6.Qsci import QsciScintilla')
+check('WebEngine',   'from PyQt6.QtWebEngineWidgets import QWebEngineView')
+check('Chardet',     'import chardet')
+check('Markdown',    'import markdown')
+check('Docutils',    'from docutils.core import publish_parts')
+check('Spellchecker','import spellchecker')
+check('PyGithub',    'import github')
+check('GitLab',      'import gitlab')
+check('Keyring',     'import keyring')
 "
+echo
+echo "--- LaTeX avanzato (opzionali) ---"
+$PYTHON -c "
+def check_opt(name, cmd, desc):
+    try:
+        exec(cmd)
+        print(f'  {name:15}: OK')
+    except:
+        print(f'  {name:15}: non installato  ({desc})')
 
+check_opt('PyMuPDF',    'import fitz',       'anteprima PDF in hover')
+check_opt('Matplotlib', 'import matplotlib', 'rendering equazioni')
+check_opt('Sympy',      'import sympy',      'calcolo simbolico')
+"
 _check_synctex
 
-# Crea il lanciatore solo se siamo nativamente su Linux
+_print_latex_hint
+
 if [[ "$OS" == "Linux" ]]; then
     _create_linux_launcher
 fi
 
 echo
 echo "=== Setup completato ==="
-echo "Ora puoi avviare l'applicazione. Se sei su Linux la trovi nel menu, altrimenti lancia: $PYTHON main.py"
+echo "Avvia l'applicazione con: $PYTHON main.py"
+echo "Oppure cercala nel menu applicazioni (Linux)."

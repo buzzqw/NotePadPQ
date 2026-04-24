@@ -127,18 +127,25 @@ class SmartHighlighter:
 
         word = self._word_at_cursor(editor)
 
-        # Pulisce sempre il vecchio highlight
+        if not word or len(word) < self.MIN_LEN:
+            if self._last_word:
+                editor.clearIndicatorRange(
+                    0, 0,
+                    editor.lines() - 1, len(editor.text(editor.lines() - 1)),
+                    _SMART_HL_INDICATOR_NUM
+                )
+                self._last_word = ""
+            return
+
+        if word == self._last_word:
+            return
+
+        self._last_word = word
         editor.clearIndicatorRange(
             0, 0,
             editor.lines() - 1, len(editor.text(editor.lines() - 1)),
             _SMART_HL_INDICATOR_NUM
         )
-
-        if not word or len(word) < self.MIN_LEN or word == self._last_word and not word:
-            self._last_word = ""
-            return
-
-        self._last_word = word
         self._highlight_all(editor, word)
 
     def _word_at_cursor(self, editor: "EditorWidget") -> str:
@@ -158,18 +165,18 @@ class SmartHighlighter:
         return text[start:end]
 
     def _highlight_all(self, editor: "EditorWidget", word: str) -> None:
-        """Evidenzia tutte le occorrenze analizzando riga per riga per evitare il drift sui byte."""
+        """Evidenzia tutte le occorrenze. Una sola chiamata API per ottenere il testo."""
         pattern = r"\b" + re.escape(word) + r"\b"
         try:
-            for line in range(editor.lines()):
-                text = editor.text(line)
+            full_text = editor.text()
+            for line_num, text in enumerate(full_text.split('\n')):
                 for m in re.finditer(pattern, text):
                     # Calcola i byte esatti per QScintilla (evita sfasamenti con accenti)
                     byte_start = len(text[:m.start()].encode('utf-8'))
                     byte_end   = len(text[:m.end()].encode('utf-8'))
                     editor.fillIndicatorRange(
-                        line, byte_start,
-                        line, byte_end,
+                        line_num, byte_start,
+                        line_num, byte_end,
                         _SMART_HL_INDICATOR_NUM
                     )
         except Exception:

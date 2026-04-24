@@ -290,11 +290,6 @@ class EditorWidget(QsciScintilla):
         # Aggiorna larghezza margine numeri di riga al cambio testo
         self.linesChanged.connect(self._update_line_number_margin)
 
-        # Smart Highlight: avvia il timer ad ogni movimento cursore
-        self.cursorPositionChanged.connect(
-            lambda *_: self._smart_hl_timer.start()
-        )
-        
         self.userListActivated.connect(self._on_user_list_selection)
 
         # --- INIZIO HOVER IMMAGINI ---
@@ -336,28 +331,27 @@ class EditorWidget(QsciScintilla):
         """Evidenzia tutte le occorrenze della parola sotto il cursore."""
         if not self._smart_highlight_enabled:
             return
-        # Pulisce le evidenziazioni precedenti
-        length = len(self.text())
         self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
-        # Se c'è una selezione manuale, non sovrascrivere
         if self.hasSelectedText():
             return
         line, col = self.getCursorPosition()
         word = self.wordAtLineIndex(line, col)
         if not word or len(word) < 2:
             return
-        # Cerca tutte le occorrenze nel testo
+
+        import re, bisect
         text = self.text()
-        import re
         pattern = r'\b' + re.escape(word) + r'\b'
+
+        # Precomputa posizioni dei newline in O(n) per lookup O(log n) per match
+        newlines = [i for i, c in enumerate(text) if c == '\n']
+
         for m in re.finditer(pattern, text):
-            start = m.start()
-            end   = m.end()
-            # Converti offset byte in (riga, col) per Scintilla
-            line_s = text[:start].count('\n')
-            col_s  = start - text[:start].rfind('\n') - 1
-            line_e = text[:end].count('\n')
-            col_e  = end - text[:end].rfind('\n') - 1
+            start, end = m.start(), m.end()
+            line_s = bisect.bisect_right(newlines, start)
+            col_s  = start - (newlines[line_s - 1] + 1 if line_s > 0 else 0)
+            line_e = bisect.bisect_right(newlines, end)
+            col_e  = end - (newlines[line_e - 1] + 1 if line_e > 0 else 0)
             self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SMART_HL)
 
     def set_smart_highlight_enabled(self, enabled: bool) -> None:

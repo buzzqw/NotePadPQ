@@ -21,7 +21,16 @@ def check_dependencies() -> bool:
         missing.append("PyQt6  →  pip install PyQt6")
 
     try:
+        from PyQt6.QtWebEngineWidgets import QWebEngineView
+    except ImportError:
+        missing.append(
+            "PyQt6-WebEngine  →  Su Arch: sudo pacman -S qt6-webengine\n"
+            "                    Altrimenti: pip install PyQt6-WebEngine"
+        )
+
+    try:
         from PyQt6.Qsci import QsciScintilla
+    # ... resto invariato ...
     except ImportError:
         missing.append(
             "QScintilla  →  Su Arch: sudo pacman -S python-qscintilla\n"
@@ -48,11 +57,14 @@ def main():
 
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtGui import QIcon
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
 
     app = QApplication(sys.argv)
     app.setApplicationName("NotePadPQ")
     app.setOrganizationName("NotePadPQ")
     app.setApplicationVersion("0.2.2")
+    
+    # ... resto del file invariato ...
 
     # ── Single instance ───────────────────────────────────────────────────────
     # Deve essere creato DOPO QApplication (QLocalSocket ne ha bisogno)

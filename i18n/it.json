@@ -181,6 +181,8 @@
     "markup_bold": "Grassetto",
     "markup_italic": "Corsivo",
     "markup_strike": "Barrato",
+    "diff_vs_saved": "Confronta con file salvato",
+    "command_palette": "Elenco dei comandi...",
     "overwrite": "Sovrascrivi"
   },
   "label": {
@@ -381,7 +383,8 @@
     },
     "build": {
       "general": "Compilazione",
-      "save_before": "Salva automaticamente prima di compilare"
+      "save_before": "Salva automaticamente prima di compilare",
+      "panel_always": "Pannello di Compilazione"
     },
     "lang": {
       "choose": "Lingua interfaccia",

@@ -45,7 +45,7 @@ class PreferencesDialog(QDialog):
 
         self.setWindowTitle(tr("dialog.preferences", default="Preferenze"))
         self.setMinimumSize(680, 520)
-        self.resize(740, 620)
+        self.resize(720, 680)
 
         self._build_ui()
         self._load_values()
@@ -78,8 +78,6 @@ class PreferencesDialog(QDialog):
         buttons.rejected.connect(self.reject)
         buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._apply)
         layout.addWidget(buttons)
-
-    # ── Scheda Editor ─────────────────────────────────────────────────────────
 
     # ── Scheda Editor ─────────────────────────────────────────────────────────
 
@@ -165,10 +163,8 @@ class PreferencesDialog(QDialog):
         sv.setSpacing(6)
         
         self._show_symbol_panel_on_start = QCheckBox("Mostra struttura documento all'avvio")
-        self._show_build_panel_on_start  = QCheckBox("Mostra pannello compilazione all'avvio")
         sv.addWidget(self._show_symbol_panel_on_start)
-        sv.addWidget(self._show_build_panel_on_start)
-        
+       
         vl.addWidget(grp_startup)
 
         vl.addStretch()
@@ -291,21 +287,6 @@ class PreferencesDialog(QDialog):
         al.addRow("Cartella backup:", backup_dir_row)
 
         vl.addWidget(grp_autobackup)
-
-        # Auto-save periodico (salva il file originale)
-        grp_autosave = QGroupBox("Auto-salvataggio")
-        asl = QFormLayout(grp_autosave)
-
-        self._autosave_enabled = QCheckBox("Salva automaticamente i file modificati")
-        asl.addRow("", self._autosave_enabled)
-
-        self._autosave_interval = QSpinBox()
-        self._autosave_interval.setRange(1, 60)
-        self._autosave_interval.setSuffix(" minuti")
-        asl.addRow("Intervallo:", self._autosave_interval)
-
-        vl.addWidget(grp_autosave)
-
         vl.addStretch()
         return w
 
@@ -479,8 +460,8 @@ class PreferencesDialog(QDialog):
         self._autobackup_enabled.setChecked(s.get("file/autobackup_enabled", False))
         self._autobackup_interval.setValue(s.get("file/autobackup_interval", 5))
         self._autobackup_dir.setText(s.get("file/autobackup_dir", ""))
-        self._autosave_enabled.setChecked(s.get("file/autosave_enabled", False))
-        self._autosave_interval.setValue(s.get("file/autosave_interval", 2))
+        #self._autosave_enabled.setChecked(s.get("file/autosave_enabled", False))
+        #self._autosave_interval.setValue(s.get("file/autosave_interval", 2))
 
         # Autocompletamento
         self._ac_enabled.setChecked(s.get("autocomplete/enabled", True))
@@ -499,7 +480,7 @@ class PreferencesDialog(QDialog):
         self._build_save_before.setChecked(s.get("build/save_before", True))
         self._build_panel_always.setChecked(s.get("build/panel_always", False))
         self._show_symbol_panel_on_start.setChecked(s.get("ui/show_symbol_panel_on_start", False))
-        self._show_build_panel_on_start.setChecked(s.get("build/panel_always", False))
+        
 
         # Lingua
         lang = s.get("i18n/language", "it")
@@ -585,9 +566,7 @@ class PreferencesDialog(QDialog):
         s.set("file/autobackup_enabled",  self._autobackup_enabled.isChecked())
         s.set("file/autobackup_interval", self._autobackup_interval.value())
         s.set("file/autobackup_dir",      self._autobackup_dir.text().strip())
-        s.set("file/autosave_enabled",    self._autosave_enabled.isChecked())
-        s.set("file/autosave_interval",   self._autosave_interval.value())
-
+        
         # Autocompletamento
         s.set("autocomplete/enabled",   self._ac_enabled.isChecked())
         s.set("autocomplete/cross_tab", self._ac_cross.isChecked())
@@ -603,13 +582,13 @@ class PreferencesDialog(QDialog):
 
         # Build
         s.set("build/save_before", self._build_save_before.isChecked())
-        s.set("build/panel_always", self._show_build_panel_on_start.isChecked())
+        s.set("build/panel_always", self._build_panel_always.isChecked()) # <- Corretto!
         s.set("ui/show_symbol_panel_on_start", self._show_symbol_panel_on_start.isChecked())
         
         # Applica subito la visibilità dei pannelli
         mw_panels = self.parent()
         if hasattr(mw_panels, "_build_dock"):
-            if self._show_build_panel_on_start.isChecked():
+            if self._build_panel_always.isChecked():
                 mw_panels._build_dock.show()
         if hasattr(mw_panels, "_symbol_dock"):
             if self._show_symbol_panel_on_start.isChecked():

@@ -181,6 +181,8 @@
     "markup_bold": "Bold",
     "markup_italic": "Italic",
     "markup_strike": "Strikethrough",
+    "diff_vs_saved": "Diff with saved file",
+    "command_palette": "Command list...",
     "view_document_map": "Document Map"
   },
   "label": {

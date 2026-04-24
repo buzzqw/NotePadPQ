@@ -76,20 +76,19 @@ elif command -v pacman &>/dev/null; then
         python-pyqt6 python-pyqt6-webengine python-qscintilla-qt6 \
         python-chardet python-markdown python-pymupdf python-docutils \
         python-pygithub python-gitlab python-matplotlib python-sympy \
-        python-pyspellchecker python-keyring texlive-binextra 2>/dev/null || true
-    # Zero pip necessario su Arch! Tutto gestito da pacman.
+        python-pyspellchecker python-keyring 2>/dev/null || true
 
 elif command -v apt-get &>/dev/null; then
     BREAK="--break-system-packages"
     sudo apt-get update
     sudo apt-get install -y \
-        python3-pyqt6 python3-pyqt6.qsci python3-chardet python3-markdown texlive-extra-utils 2>/dev/null || true
+        python3-pyqt6 python3-pyqt6.qsci python3-chardet python3-markdown python3-pyqt6.qtwebengine 2>/dev/null || true
     $PYTHON -m pip install $BREAK $PIP_PACKAGES 2>/dev/null || true
 
 elif command -v dnf &>/dev/null; then
     sudo dnf install -y \
         python3-qt6 python3-qscintilla-qt6 python3-qt6-webengine \
-        python3-chardet python3-markdown python3-pymupdf texlive-synctex 2>/dev/null || true
+        python3-chardet python3-markdown python3-pymupdf 2>/dev/null || true
     $PYTHON -m pip install --user docutils pyspellchecker matplotlib sympy PyGithub python-gitlab keyring || true
 
 else

@@ -22,6 +22,11 @@ from PyQt6.QtCore import QObject, QFileSystemWatcher, pyqtSignal
 from editor.editor_widget import LineEnding
 from core.platform import get_config_dir
 
+try:
+    import chardet as _chardet
+except ImportError:
+    _chardet = None
+
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
 
@@ -124,14 +129,12 @@ class FileManager:
     @staticmethod
     def _chardet_detect(raw: bytes) -> Optional[str]:
         """Usa chardet per rilevare l'encoding. Restituisce None se non disponibile."""
-        try:
-            import chardet
-            result = chardet.detect(raw[:4096])  # campione iniziale
-            if result and result.get("confidence", 0) > 0.7:
-                enc = result.get("encoding", "")
-                return enc if enc else None
-        except ImportError:
-            pass
+        if _chardet is None:
+            return None
+        result = _chardet.detect(raw[:4096])  # campione iniziale
+        if result and result.get("confidence", 0) > 0.7:
+            enc = result.get("encoding", "")
+            return enc if enc else None
         return None
 
     @staticmethod

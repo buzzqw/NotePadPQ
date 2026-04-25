@@ -71,18 +71,24 @@ class Session:
 
         tabs = data.get("tabs", [])
         opened = 0
-        for tab in tabs:
-            p = Path(tab.get("path", ""))
-            if p.exists():
-                main_window.open_files([p])
-                # Ripristina posizione cursore
-                editor = main_window._tab_manager.current_editor()
-                if editor:
-                    line = tab.get("line", 1)
-                    col  = tab.get("col", 1)
-                    editor.go_to_line(line)
-                    editor.setCursorPosition(line - 1, col - 1)
-                opened += 1
+
+        # Sopprime il ridisegno durante il caricamento batch: evita N repaint
+        main_window.setUpdatesEnabled(False)
+        try:
+            for tab in tabs:
+                p = Path(tab.get("path", ""))
+                if p.exists():
+                    main_window.open_files([p])
+                    # Ripristina posizione cursore
+                    editor = main_window._tab_manager.current_editor()
+                    if editor:
+                        line = tab.get("line", 1)
+                        col  = tab.get("col", 1)
+                        editor.go_to_line(line)
+                        editor.setCursorPosition(line - 1, col - 1)
+                    opened += 1
+        finally:
+            main_window.setUpdatesEnabled(True)
 
         # Ripristina tab attivo
         idx = data.get("current_index", 0)

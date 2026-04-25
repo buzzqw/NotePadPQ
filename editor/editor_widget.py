@@ -138,6 +138,7 @@ class EditorWidget(QsciScintilla):
         self._zoom_level: int  = 0
         self._overwrite: bool  = False
         self._smart_highlight_enabled: bool = True
+        self._smart_hl_word: str = ""           # cache: evita regex se parola invariata
         self._smart_hl_timer: QTimer = QTimer(self)
         self._smart_hl_timer.setSingleShot(True)
         self._smart_hl_timer.setInterval(400)
@@ -149,7 +150,10 @@ class EditorWidget(QsciScintilla):
         self._spell_timer.setSingleShot(True)
         self._spell_timer.setInterval(1000) # Aspetta 1 secondo di inattività prima di controllare
         self._spell_timer.timeout.connect(self._do_spell_check)
+        self._spell_text_hash: int = 0          # cache: evita ricontrollo se testo invariato
         self.textChanged.connect(self._spell_timer.start) # Si riavvia a ogni tasto premuto
+        # Invalida la cache smart-hl quando il testo cambia
+        self.textChanged.connect(self._invalidate_hl_cache)
         # --- FINE TIMER SPELL CHECKER ---
         
 
@@ -377,21 +381,38 @@ class EditorWidget(QsciScintilla):
         """Evidenzia tutte le occorrenze della parola sotto il cursore."""
         if not self._smart_highlight_enabled:
             return
-        self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
         if self.hasSelectedText():
+            if self._smart_hl_word:
+                self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+                self._smart_hl_word = ""
             return
         line, col = self.getCursorPosition()
         word = self.wordAtLineIndex(line, col)
         if not word or len(word) < 2:
+            if self._smart_hl_word:
+                self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+                self._smart_hl_word = ""
             return
+
+        # Salta il ricalcolo se la parola non è cambiata dall'ultima volta
+        if word == self._smart_hl_word:
+            return
+        self._smart_hl_word = word
 
         import bisect
         text = self.text()
         pattern = r'\b' + re.escape(word) + r'\b'
 
-        # Precomputa posizioni dei newline in O(n) per lookup O(log n) per match
-        newlines = [i for i, c in enumerate(text) if c == '\n']
+        # Costruisce la lista newline con str.find() — più veloce del list-comp char-by-char
+        newlines: list[int] = []
+        pos = text.find('\n')
+        while pos != -1:
+            newlines.append(pos)
+            pos = text.find('\n', pos + 1)
 
+        self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+
+        count = 0
         for m in re.finditer(pattern, text):
             start, end = m.start(), m.end()
             line_s = bisect.bisect_right(newlines, start)
@@ -399,12 +420,19 @@ class EditorWidget(QsciScintilla):
             line_e = bisect.bisect_right(newlines, end)
             col_e  = end - (newlines[line_e - 1] + 1 if line_e > 0 else 0)
             self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SMART_HL)
+            count += 1
+            if count >= 500:  # parole troppo comuni rallentano tutto il rendering
+                break
 
     def set_smart_highlight_enabled(self, enabled: bool) -> None:
         """Abilita/disabilita lo smart highlight."""
         self._smart_highlight_enabled = enabled
         if not enabled:
             self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+
+    def _invalidate_hl_cache(self) -> None:
+        """Invalida la cache smart-hl quando il testo viene modificato."""
+        self._smart_hl_word = ""
 
     # ── Proprietà documento ───────────────────────────────────────────────────
 
@@ -872,6 +900,13 @@ class EditorWidget(QsciScintilla):
 
         import bisect
         text = self.text()
+
+        # Salta il controllo se il testo non è cambiato dall'ultima volta
+        h = hash(text)
+        if h == self._spell_text_hash:
+            return
+        self._spell_text_hash = h
+
         self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SPELL)
 
         words_found = []

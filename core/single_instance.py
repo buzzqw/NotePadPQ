@@ -4,7 +4,7 @@ NotePadPQ
 
 Garantisce che giri una sola istanza dell'applicazione.
 Se viene avviata una seconda istanza con un file come argomento,
-il file viene inviato alla prima istanza tramite socket locale Unix,
+il file viene inviato alla prima istanza tramite socket locale,
 e la seconda istanza termina immediatamente.
 """
 
@@ -25,10 +25,9 @@ class SingleInstance(QObject):
 
     def __init__(self, app_name: str = "NotePadPQ", parent: Optional[QObject] = None):
         super().__init__(parent)
-        # Aggiungiamo l'UID per evitare conflitti se ci sono più utenti sullo stesso PC
         uid = os.getuid() if hasattr(os, "getuid") else 0
-        self._app_name    = f"{app_name}_{uid}"
-        self._server      = None
+        self._app_name = f"{app_name}_{uid}"
+        self._server = None
         self._callback: Optional[Callable[[List[str]], None]] = None
 
     def send_args_if_secondary(self, paths: List[str]) -> bool:
@@ -40,12 +39,12 @@ class SingleInstance(QObject):
         sock = QLocalSocket()
         sock.connectToServer(self._app_name)
 
-        # Diamo 1 secondo pieno per la connessione (super stabile)
-        if sock.waitForConnected(1000):
+        # Aumentato a 2 secondi per PC lenti o dischi carichi
+        if sock.waitForConnected(2000):
             payload = (json.dumps(paths) + "\n").encode("utf-8")
             sock.write(payload)
             sock.flush()
-            sock.waitForBytesWritten(1000)
+            sock.waitForBytesWritten(2000)
             sock.disconnectFromServer()
             sock.deleteLater()
             return True
@@ -62,7 +61,10 @@ class SingleInstance(QObject):
         QLocalServer.removeServer(self._app_name)
 
         self._server = QLocalServer(self)
-        self._server.setSocketOptions(QLocalServer.SocketOption.UserAccessOption)
+        
+        # FIX IMPORTANTE: Ho rimosso "self._server.setSocketOptions(...)".
+        # Su Windows questa opzione può bloccare totalmente la comunicazione
+        # tra le istanze, causando l'apertura di finestre doppie.
         
         if not self._server.listen(self._app_name):
             print(f"[SingleInstance] Impossibile avviare il server: {self._server.errorString()}")
@@ -74,7 +76,6 @@ class SingleInstance(QObject):
         conn = self._server.nextPendingConnection()
         if not conn:
             return
-        # Accumula dati finché non arriva il terminatore '\n'
         conn.setProperty("buffer", b"")
         conn.readyRead.connect(lambda: self._on_ready_read(conn))
         conn.disconnected.connect(conn.deleteLater)
@@ -82,10 +83,11 @@ class SingleInstance(QObject):
     def _on_ready_read(self, conn: QLocalSocket) -> None:
         buf: bytes = conn.property("buffer") or b""
         buf += bytes(conn.readAll())
-        conn.setProperty("buffer", buf)
 
-        if b"\n" in buf:
-            line, _ = buf.split(b"\n", 1)
+        # FIX IMPORTANTE: Gestione corretta del buffer.
+        # Continua a leggere finché ci sono righe complete (\n)
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1) # Separa la prima riga e salva il resto
             try:
                 paths: List[str] = json.loads(line.decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError):
@@ -94,8 +96,11 @@ class SingleInstance(QObject):
             if paths:
                 self.files_received.emit(paths)
 
-            # Porta la finestra in primo piano anche se non ci sono file
+            # Porta la finestra in primo piano
             QTimer.singleShot(0, self._raise_window)
+            
+        # Salva ciò che rimane per la prossima lettura
+        conn.setProperty("buffer", buf)
 
     def _raise_window(self) -> None:
         """Porta la finestra principale in primo piano e toglie il 'Riduci a icona'."""

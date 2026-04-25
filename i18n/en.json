@@ -14,6 +14,9 @@
     "search": "Search",
     "document": "Document",
     "tools": "Tools",
+    "line_operations": "Line Operations",
+    "multicursor": "Multi-cursor",
+    "split_view": "Split View",
     "plugins": "Plugins",
     "format": "Format Text",
     "help": "Help"
@@ -274,7 +277,7 @@
     "file_not_found": "File not found: {path}",
     "file_read_error": "Cannot read file:\n{path}\n\nError: {error}",
     "file_write_error": "Cannot save file:\n{path}\n\nError: {error}",
-    "file_changed_on_disk": "File \"{name}\" was modified externally.\nReload?",
+    "file_changed_reload": "File \"{name}\" was modified externally.\nReload?",
     "file_deleted_on_disk": "File \"{name}\" was deleted from disk.",
     "encoding_detect_fail": "Cannot detect file encoding. UTF-8 will be used.",
     "no_results": "No results found for \"{query}\".",

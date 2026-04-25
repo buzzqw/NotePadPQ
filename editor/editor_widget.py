@@ -137,6 +137,7 @@ class EditorWidget(QsciScintilla):
         self._read_only_forced: bool = False
         self._zoom_level: int  = 0
         self._overwrite: bool  = False
+        self._show_line_numbers: bool = True
         self._smart_highlight_enabled: bool = True
         self._smart_hl_word: str = ""           # cache: evita regex se parola invariata
         self._smart_hl_timer: QTimer = QTimer(self)
@@ -373,6 +374,8 @@ class EditorWidget(QsciScintilla):
 
     def _update_line_number_margin(self) -> None:
         """Adatta la larghezza del margine al numero di righe."""
+        if not self._show_line_numbers:
+            return
         lines = self.lines()
         digits = len(str(lines)) + 1
         self.setMarginWidth(MARGIN_LINE_NUMBERS, "0" * (digits + 1))
@@ -593,7 +596,8 @@ class EditorWidget(QsciScintilla):
         self.setMarginWidth(MARGIN_GIT, 4 if (added or modified or deleted) else 0)
 
     def set_show_line_numbers(self, visible: bool) -> None:
-        if visible:            
+        self._show_line_numbers = visible
+        if visible:
             self._update_line_number_margin()
         else:
             self.setMarginWidth(MARGIN_LINE_NUMBERS, 0)

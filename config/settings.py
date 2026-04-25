@@ -62,6 +62,9 @@ class Settings(QObject):
         "window/geometry":         None,
         "window/state":            None,
         "window/fullscreen":       False,
+        # Barre
+        "view/toolbar":            True,
+        "view/statusbar":          True,
     }
 
     def __init__(self):

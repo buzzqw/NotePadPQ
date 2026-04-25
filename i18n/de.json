@@ -14,8 +14,11 @@
     "search": "Suchen",
     "document": "Dokument",
     "tools": "Werkzeuge",
+    "line_operations": "Zeilenoperationen",
+    "multicursor": "Mehrzeiliger Cursor",
+    "split_view": "Geteilte Ansicht",
     "plugins": "Erweiterungen",
-    "format": "Text formatieren"
+    "format": "Text formatieren",
     "help": "Hilfe"
   },
   "action": {
@@ -180,8 +183,10 @@
     "spell_check": "Rechtschreibprüfung",
     "markup_bold": "Fett",
     "markup_italic": "Kursiv",
-    "markup_strike": "Durchgestrichen"
-    "view_document_map": "Dokumentstruktur"
+    "markup_strike": "Durchgestrichen",
+    "diff_vs_saved": "Mit gespeicherter Datei vergleichen",
+    "command_palette": "Befehlsliste...",
+    "view_document_map": "Dokumentkarte"
   },
   "label": {
     "language": "Sprache",
@@ -272,7 +277,7 @@
     "file_not_found": "Datei nicht gefunden: {path}",
     "file_read_error": "Datei kann nicht gelesen werden:\n{path}\n\nFehler: {error}",
     "file_write_error": "Datei kann nicht gespeichert werden:\n{path}\n\nFehler: {error}",
-    "file_changed_on_disk": "Die Datei \"{name}\" wurde extern geändert.\nNeu laden?",
+    "file_changed_reload": "Die Datei \"{name}\" wurde extern geändert.\nNeu laden?",
     "file_deleted_on_disk": "Die Datei \"{name}\" wurde vom Datenträger gelöscht.",
     "encoding_detect_fail": "Dateicodierung kann nicht erkannt werden. UTF-8 wird verwendet.",
     "no_results": "Keine Ergebnisse für \"{query}\" gefunden.",

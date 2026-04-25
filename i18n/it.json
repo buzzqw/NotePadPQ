@@ -14,6 +14,9 @@
     "search": "Cerca",
     "document": "Documento",
     "tools": "Strumenti",
+    "line_operations": "Operazioni sulle righe",
+    "multicursor": "Multi-cursore",
+    "split_view": "Vista divisa",
     "plugins": "Plugin",
     "format": "Formatta Testo",
     "help": "Aiuto"
@@ -165,7 +168,7 @@
     "unsplit":           "Chiudi split view",
     "incremental_search":"Ricerca incrementale",
     "autoclose_toggle":  "Auto-chiusura parentesi/virgolette",
-    "view_function_list":"Function List",
+    "view_function_list":"Lista delle funzioni",
     "mc_next_occ":       "Seleziona prossima occorrenza",
     "mc_all_occ":        "Seleziona tutte le occorrenze",
     "mc_add_above":      "Aggiungi cursore sopra",
@@ -173,7 +176,7 @@
     "mc_numbers":        "Inserisci numeri incrementali",
     "mc_clear":          "Rimuovi cursori extra",
     "column_stats":      "Statistiche colonna…",
-    "view_document_map": "Document Map",
+    "view_document_map": "Mappa del documento",
     "compare_changes": "Confronta differenze",
     "wrap_env": "Avvolgi in Ambiente...",
     "align_table": "Allinea Tabella",
@@ -274,7 +277,7 @@
     "file_not_found": "File non trovato: {path}",
     "file_read_error": "Impossibile leggere il file:\n{path}\n\nErrore: {error}",
     "file_write_error": "Impossibile salvare il file:\n{path}\n\nErrore: {error}",
-    "file_changed_on_disk": "Il file \"{name}\" è stato modificato esternamente.\nRicaricare?",
+    "file_changed_reload": "Il file \"{name}\" è stato modificato esternamente.\nRicaricare?",
     "file_deleted_on_disk": "Il file \"{name}\" è stato eliminato dal disco.",
     "encoding_detect_fail": "Impossibile rilevare la codifica del file. Verrà usato UTF-8.",
     "no_results": "Nessun risultato trovato per \"{query}\".",
@@ -300,7 +303,7 @@
     "update_available": "Versione {version} disponibile.",
     "no_updates": "NotePadPQ è aggiornato.",
     "file_changed_on_disk": "Il file \"{name}\" è stato modificato da un altro programma. Cosa vuoi fare?",
-    "about_text": "NotePadPQ {version}\nEditor di testo avanzato per Linux, FreeBSD e Windows.\n\nBased on PyQt6 + QScintilla."
+    "about_text": "NotePadPQ {version}\nEditor di testo avanzato per Linux, FreeBSD e Windows.\n\nBasato su PyQt6 + QScintilla."
   },
   "pref": {
     "title": "Preferenze",

@@ -14,8 +14,11 @@
     "search": "Buscar",
     "document": "Documento",
     "tools": "Herramientas",
+    "line_operations": "Operaciones de línea",
+    "multicursor": "Multi-cursor",
+    "split_view": "Vista dividida",
     "plugins": "Plugins",
-    "format": "Formato de Texto"
+    "format": "Formato de Texto",
     "help": "Ayuda"
   },
   "action": {
@@ -180,7 +183,9 @@
     "spell_check": "Corrector Ortográfico",
     "markup_bold": "Negrita",
     "markup_italic": "Cursiva",
-    "markup_strike": "Tachado"
+    "markup_strike": "Tachado",
+    "diff_vs_saved": "Comparar con archivo guardado",
+    "command_palette": "Lista de comandos...",
     "view_document_map": "Mapa del documento"
   },
   "label": {
@@ -272,7 +277,7 @@
     "file_not_found": "Archivo no encontrado: {path}",
     "file_read_error": "No se puede leer el archivo:\n{path}\n\nError: {error}",
     "file_write_error": "No se puede guardar el archivo:\n{path}\n\nError: {error}",
-    "file_changed_on_disk": "El archivo \"{name}\" fue modificado externamente.\n¿Recargar?",
+    "file_changed_reload": "El archivo \"{name}\" fue modificado externamente.\n¿Recargar?",
     "file_deleted_on_disk": "El archivo \"{name}\" fue eliminado del disco.",
     "encoding_detect_fail": "No se puede detectar la codificación del archivo. Se usará UTF-8.",
     "no_results": "No se encontraron resultados para \"{query}\".",

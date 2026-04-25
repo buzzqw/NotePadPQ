@@ -571,7 +571,7 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("word_count",  "", self.action_word_count))
         self._sep(m)
         # ── Multi-cursore ─────────────────────────────────────────────────────
-        sub_mc = m.addMenu("🖊  Multi-cursore")
+        sub_mc = m.addMenu("🖊  " + tr("menu.multicursor"))
         self._menus["multicursor"] = sub_mc
         sub_mc.addAction(self._act("mc_next_occ",    "Ctrl+D",
                                    self._mc_select_next))
@@ -642,10 +642,10 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("view_toolbar",     "", self._toggle_toolbar,     checkable=True, checked=s.get("view/toolbar", True)))
         m.addAction(self._act("view_statusbar",   "", self._toggle_statusbar,   checkable=True, checked=s.get("view/statusbar", True)))
         self._sep(m)
-        m.addAction(self._act("view_line_numbers","", self._toggle_line_numbers,checkable=True, checked=s.get("editor/line_numbers", True)))
-        m.addAction(self._act("view_fold_margin", "", self._toggle_fold_margin, checkable=True, checked=s.get("editor/fold_margin", True)))
-        m.addAction(self._act("view_whitespace",  "", self._toggle_whitespace,  checkable=True, checked=s.get("editor/whitespace", False)))
-        m.addAction(self._act("view_eol",         "", self._toggle_eol,         checkable=True, checked=s.get("editor/eol", False)))
+        m.addAction(self._act("view_line_numbers","", self._toggle_line_numbers,checkable=True, checked=s.get("editor/show_line_numbers", True)))
+        m.addAction(self._act("view_fold_margin", "", self._toggle_fold_margin, checkable=True, checked=s.get("editor/show_fold_margin", True)))
+        m.addAction(self._act("view_whitespace",  "", self._toggle_whitespace,  checkable=True, checked=s.get("editor/show_whitespace", False)))
+        m.addAction(self._act("view_eol",         "", self._toggle_eol,         checkable=True, checked=s.get("editor/show_eol", False)))
         m.addAction(self._act("view_word_wrap",   "Alt+Z", self._toggle_word_wrap, checkable=True, checked=s.get("editor/word_wrap", False)))
         self._sep(m)
 
@@ -664,7 +664,7 @@ class MainWindow(QMainWindow):
         self._sep(m)
 
         # ── Split View submenu ─────────────────────────────────────────────────
-        sub_split = m.addMenu("🔲  Split View")
+        sub_split = m.addMenu("🔲  " + tr("menu.split_view"))
         self._menus["split_view"] = sub_split
 
         sub_split.addAction(self._act(
@@ -859,7 +859,7 @@ class MainWindow(QMainWindow):
         self._menus["tools"] = m
 
         # Line Operations submenu
-        sub_lo = m.addMenu("Line Operations")
+        sub_lo = m.addMenu(tr("menu.line_operations"))
         from ui.line_operations_menu import build_line_ops_menu
         build_line_ops_menu(sub_lo, self)
 
@@ -1352,7 +1352,7 @@ class MainWindow(QMainWindow):
         if editor.is_modified():
             reply = QMessageBox.question(
                 self, self.APP_NAME,
-                tr("msg.file_changed_on_disk", name=editor.file_path.name),
+                tr("msg.file_changed_reload", name=editor.file_path.name),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply != QMessageBox.StandardButton.Yes:
@@ -1632,30 +1632,44 @@ class MainWindow(QMainWindow):
 
     def _toggle_toolbar(self, checked: bool) -> None:
         self._toolbar.setVisible(checked)
+        from config.settings import Settings
+        Settings.instance().set("view/toolbar", checked)
 
     def _toggle_statusbar(self, checked: bool) -> None:
         self._statusbar.setVisible(checked)
+        from config.settings import Settings
+        Settings.instance().set("view/statusbar", checked)
 
     def _toggle_line_numbers(self, checked: bool) -> None:
         for ed in self._tab_manager.all_editors():
             ed.set_show_line_numbers(checked)
+        from config.settings import Settings
+        Settings.instance().set("editor/show_line_numbers", checked)
 
     def _toggle_fold_margin(self, checked: bool) -> None:
         from editor.editor_widget import MARGIN_FOLD
         for ed in self._tab_manager.all_editors():
             ed.setMarginWidth(MARGIN_FOLD, 14 if checked else 0)
+        from config.settings import Settings
+        Settings.instance().set("editor/show_fold_margin", checked)
 
     def _toggle_whitespace(self, checked: bool) -> None:
         for ed in self._tab_manager.all_editors():
             ed.set_show_whitespace(checked)
+        from config.settings import Settings
+        Settings.instance().set("editor/show_whitespace", checked)
 
     def _toggle_eol(self, checked: bool) -> None:
         for ed in self._tab_manager.all_editors():
             ed.set_show_eol(checked)
+        from config.settings import Settings
+        Settings.instance().set("editor/show_eol", checked)
 
     def _toggle_word_wrap(self, checked: bool) -> None:
         for ed in self._tab_manager.all_editors():
             ed.set_word_wrap(checked)
+        from config.settings import Settings
+        Settings.instance().set("editor/word_wrap", checked)
 
     def _toggle_minimap(self, checked: bool) -> None:
         """Attiva/disattiva la minimap per tutti i tab."""

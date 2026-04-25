@@ -260,6 +260,19 @@ class TabManager(QTabWidget):
         except Exception:
             pass
 
+        # Applica le impostazioni di visualizzazione salvate
+        try:
+            from config.settings import Settings
+            from editor.editor_widget import MARGIN_FOLD
+            s = Settings.instance()
+            editor.set_show_line_numbers(s.get("editor/show_line_numbers", True))
+            editor.setMarginWidth(MARGIN_FOLD, 14 if s.get("editor/show_fold_margin", True) else 0)
+            editor.set_show_whitespace(s.get("editor/show_whitespace", False))
+            editor.set_show_eol(s.get("editor/show_eol", False))
+            editor.set_word_wrap(s.get("editor/word_wrap", False))
+        except Exception:
+            pass
+
         # Imposta il lexer in base al path o all'estensione template
         ext = ""
         if path:

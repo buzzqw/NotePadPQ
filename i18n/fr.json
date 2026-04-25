@@ -14,8 +14,11 @@
     "search": "Rechercher",
     "document": "Document",
     "tools": "Outils",
+    "line_operations": "Opérations sur les lignes",
+    "multicursor": "Multi-curseur",
+    "split_view": "Vue divisée",
     "plugins": "Extensions",
-    "format": "Formater le Texte"
+    "format": "Formater le Texte",
     "help": "Aide"
   },
   "action": {
@@ -173,14 +176,16 @@
     "mc_numbers":        "Insérer des nombres incrémentaux",
     "mc_clear":          "Supprimer les curseurs supplémentaires",
     "column_stats":      "Statistiques de colonne…",
-    "action": "overwrite": "Écraser",
+    "overwrite": "Écraser",
     "compare_changes": "Comparer les modifications",
     "wrap_env": "Entourer d'un Environnement...",
     "align_table": "Aligner le Tableau",
     "spell_check": "Vérification Orthographique",
     "markup_bold": "Gras",
     "markup_italic": "Italique",
-    "markup_strike": "Barré"
+    "markup_strike": "Barré",
+    "diff_vs_saved": "Comparer avec le fichier enregistré",
+    "command_palette": "Liste des commandes...",
     "view_document_map": "Carte du document"
   },
   "label": {
@@ -272,7 +277,7 @@
     "file_not_found": "Fichier introuvable : {path}",
     "file_read_error": "Impossible de lire le fichier :\n{path}\n\nErreur : {error}",
     "file_write_error": "Impossible d'enregistrer le fichier :\n{path}\n\nErreur : {error}",
-    "file_changed_on_disk": "Le fichier \"{name}\" a été modifié de manière externe.\nLe recharger ?",
+    "file_changed_reload": "Le fichier \"{name}\" a été modifié de manière externe.\nLe recharger ?",
     "file_deleted_on_disk": "Le fichier \"{name}\" a été supprimé du disque.",
     "encoding_detect_fail": "Impossible de détecter l'encodage du fichier. UTF-8 sera utilisé.",
     "no_results": "Aucun résultat trouvé pour \"{query}\".",

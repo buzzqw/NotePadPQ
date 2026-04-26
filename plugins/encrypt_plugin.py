@@ -5,7 +5,9 @@ NotePadPQ
 Cifratura e decifratura del testo selezionato (o dell'intero documento).
 
 Algoritmi supportati:
-  - AES-256-CBC   (raccomandato, default)
+  - AES-256-GCM       (AEAD, raccomandato, default)
+  - ChaCha20-Poly1305 (AEAD, moderno, veloce)
+  - AES-256-CBC
   - AES-128-CBC
   - DES-CBC       (compatibilità legacy)
   - 3DES-CBC      (Triple DES)
@@ -49,6 +51,58 @@ if TYPE_CHECKING:
 def _derive_key(password: str, salt: bytes, key_len: int) -> bytes:
     """Deriva una chiave dalla password tramite PBKDF2-HMAC-SHA256."""
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000, key_len)
+
+
+def _aes_gcm_encrypt(text: str, password: str) -> str:
+    """AES-256-GCM encrypt → Base64. AEAD: autentica il ciphertext."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    salt  = os.urandom(16)
+    nonce = os.urandom(12)
+    key   = _derive_key(password, salt, 32)
+
+    ct_with_tag = AESGCM(key).encrypt(nonce, text.encode("utf-8"), None)
+    return base64.b64encode(salt + nonce + ct_with_tag).decode("ascii")
+
+
+def _aes_gcm_decrypt(b64text: str, password: str) -> str:
+    """AES-256-GCM decrypt da Base64."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    blob  = base64.b64decode(b64text.strip())
+    salt  = blob[:16]
+    nonce = blob[16:28]
+    ct    = blob[28:]
+    key   = _derive_key(password, salt, 32)
+
+    plain = AESGCM(key).decrypt(nonce, ct, None)
+    return plain.decode("utf-8")
+
+
+def _chacha20_encrypt(text: str, password: str) -> str:
+    """ChaCha20-Poly1305 encrypt → Base64. AEAD."""
+    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+
+    salt  = os.urandom(16)
+    nonce = os.urandom(12)
+    key   = _derive_key(password, salt, 32)
+
+    ct_with_tag = ChaCha20Poly1305(key).encrypt(nonce, text.encode("utf-8"), None)
+    return base64.b64encode(salt + nonce + ct_with_tag).decode("ascii")
+
+
+def _chacha20_decrypt(b64text: str, password: str) -> str:
+    """ChaCha20-Poly1305 decrypt da Base64."""
+    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+
+    blob  = base64.b64decode(b64text.strip())
+    salt  = blob[:16]
+    nonce = blob[16:28]
+    ct    = blob[28:]
+    key   = _derive_key(password, salt, 32)
+
+    plain = ChaCha20Poly1305(key).decrypt(nonce, ct, None)
+    return plain.decode("utf-8")
 
 
 def _aes_encrypt(text: str, password: str, key_len: int = 32) -> str:
@@ -203,7 +257,14 @@ class _EncryptDialog(QDialog):
         self._algo = QComboBox()
         has_crypto = _has_cryptography()
         if has_crypto:
-            self._algo.addItems(["AES-256-CBC", "AES-128-CBC", "3DES-CBC", "DES-CBC"])
+            self._algo.addItems([
+                "AES-256-GCM",
+                "ChaCha20-Poly1305",
+                "AES-256-CBC",
+                "AES-128-CBC",
+                "3DES-CBC",
+                "DES-CBC",
+            ])
         self._algo.addItems(["XOR", "Caesar cipher"])
         form.addRow("Algoritmo:", self._algo)
 
@@ -305,7 +366,11 @@ def do_encrypt(editor: "EditorWidget", parent) -> None:
         algo = dlg.result_algo
         pwd  = dlg.result_password
 
-        if algo == "AES-256-CBC":
+        if algo == "AES-256-GCM":
+            result = _aes_gcm_encrypt(text, pwd)
+        elif algo == "ChaCha20-Poly1305":
+            result = _chacha20_encrypt(text, pwd)
+        elif algo == "AES-256-CBC":
             result = _aes_encrypt(text, pwd, 32)
         elif algo == "AES-128-CBC":
             result = _aes_encrypt(text, pwd, 16)
@@ -339,7 +404,11 @@ def do_decrypt(editor: "EditorWidget", parent) -> None:
         algo = dlg.result_algo
         pwd  = dlg.result_password
 
-        if algo == "AES-256-CBC":
+        if algo == "AES-256-GCM":
+            result = _aes_gcm_decrypt(text, pwd)
+        elif algo == "ChaCha20-Poly1305":
+            result = _chacha20_decrypt(text, pwd)
+        elif algo == "AES-256-CBC":
             result = _aes_decrypt(text, pwd, 32)
         elif algo == "AES-128-CBC":
             result = _aes_decrypt(text, pwd, 16)
@@ -369,8 +438,8 @@ class EncryptPlugin(BasePlugin):
     NAME        = "Encrypt/Decrypt"
     VERSION     = "1.0"
     DESCRIPTION = (
-        "Cifratura AES-256/128, 3DES, DES, XOR e Caesar cipher "
-        "sul testo selezionato. Richiede 'pip install cryptography' per AES/DES."
+        "Cifratura AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR e Caesar cipher "
+        "sul testo selezionato. Richiede 'pip install cryptography' per gli algoritmi forti."
     )
     AUTHOR      = "NotePadPQ Team"
 

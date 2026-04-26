@@ -418,6 +418,11 @@ class TabManager(QTabWidget):
         editor = self._editors.pop(container, None)
         if editor:
             self._containers.pop(editor, None)
+            watcher = getattr(editor, "_watcher", None)
+            if watcher is not None:
+                watcher.blockSignals(True)
+                for p in watcher.files():
+                    watcher.removePath(p)
             self.tab_closed.emit(editor)
         self.removeTab(index)
         if self.count() == 0:

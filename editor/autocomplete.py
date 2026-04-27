@@ -285,6 +285,12 @@ _API_LATEX: list[str] = [
     "\\toprule", "\\midrule", "\\bottomrule",
     "\\cmidrule{}", "\\cmidrule(lr){}", "\\addlinespace",
     "\\specialrule{}{}{}", "\\arrayrulewidth",
+    "\\newcolumntype{}{}", "\\extrarowheight",
+    # ── longtable ─────────────────────────────────────────────────────────────
+    "\\endhead", "\\endfirsthead", "\\endfoot", "\\endlastfoot",
+    # ── multicol ──────────────────────────────────────────────────────────────
+    "\\columnbreak", "\\newcolumn",
+    "\\setlength{\\columnsep}{}", "\\setlength{\\columnseprule}{}",
     # ── Comandi di nuova definizione ──────────────────────────────────────────
     "\\newcommand{}{}", "\\newcommand[]{}{}", "\\renewcommand{}{}",
     "\\newenvironment{}{}{}", "\\renewenvironment{}{}{}",
@@ -310,7 +316,7 @@ _API_LATEX: list[str] = [
     "\\Repeat{}{}", "\\Until{}", "\\SetAlgoLined",
     # ── Pacchetti (completamento dopo \usepackage{) ────────────────────────────
     "geometry", "hyperref", "graphicx", "amsmath", "amssymb", "amsthm",
-    "booktabs", "tabularx", "longtable", "multirow", "array", "makecell",
+    "booktabs", "tabularx", "tabulary", "longtable", "multirow", "multicol", "array", "makecell",
     "xcolor", "color", "tikz", "pgfplots", "pgfplotstable",
     "babel", "inputenc", "fontenc", "lmodern", "microtype",
     "listings", "minted", "verbatim", "fancyvrb",
@@ -982,7 +988,7 @@ class AutoCompleteManager(QObject):
             "hyperref", "url", "cleveref", "varioref",
             "natbib", "biblatex", "cite",
             "booktabs", "tabularx", "tabulary", "longtable",
-            "multirow", "array", "dcolumn", "hhline",
+            "multirow", "multicol", "array", "dcolumn", "hhline",
             "fancyhdr", "titlesec", "tocloft", "tocbibind",
             "caption", "subcaption", "float", "placeins",
             "listings", "minted", "verbatim", "fancyvrb",

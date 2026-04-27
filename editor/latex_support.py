@@ -407,6 +407,36 @@ PACKAGE_COMMANDS: dict[str, list[str]] = {
         "\\includesvg{}", "\\includesvg[width=\\textwidth]{}",
     ],
     # ── Tabelle avanzate ──────────────────────────────────────────────────────
+    "multicol": [
+        "\\begin{multicols}{}", "\\end{multicols}",
+        "\\begin{multicols*}{}", "\\end{multicols*}",
+        "\\columnbreak", "\\newcolumn",
+        "\\setlength{\\columnsep}{}", "\\setlength{\\columnseprule}{}",
+        "\\setlength{\\multicolsep}{}", "\\premulticols{}",
+        "\\columnfraction{}",
+    ],
+    "tabularx": [
+        "\\begin{tabularx}{\\textwidth}{X}", "\\end{tabularx}",
+        "\\begin{tabularx}{\\textwidth}{lX}", "\\begin{tabularx}{\\textwidth}{lXr}",
+        "\\newcolumntype{Y}{>{\\centering\\arraybackslash}X}",
+        "\\tabularxcolumn{}",
+    ],
+    "tabulary": [
+        "\\begin{tabulary}{\\textwidth}{L}", "\\end{tabulary}",
+        "\\begin{tabulary}{\\textwidth}{LCR}", "\\begin{tabulary}{\\textwidth}{LLCR}",
+        "\\newcolumntype{L}{>{\\raggedright\\arraybackslash}X}",
+        "\\newcolumntype{C}{>{\\centering\\arraybackslash}X}",
+        "\\newcolumntype{R}{>{\\raggedleft\\arraybackslash}X}",
+    ],
+    "longtable": [
+        "\\begin{longtable}{}", "\\end{longtable}",
+        "\\endhead", "\\endfirsthead", "\\endfoot", "\\endlastfoot",
+        "\\caption{}", "\\caption[]{}",
+        "\\kill", "\\pagebreak[0]", "\\nopagebreak",
+        "\\setlength{\\LTleft}{}", "\\setlength{\\LTright}{}",
+        "\\setlength{\\LTpre}{}", "\\setlength{\\LTpost}{}",
+        "\\setlength{\\LTcapwidth}{}",
+    ],
     "tabularray": [
         "\\begin{tblr}", "\\end{tblr}",
         "\\begin{longtblr}", "\\end{longtblr}",
@@ -667,7 +697,8 @@ ENVIRONMENT_OPTIONS: dict[str, list[str]] = {
     "itemize":        ["label=", "leftmargin=", "itemsep=0pt", "nosep"],
     "enumerate":      ["label=\\arabic*.", "label=\\alph*)", "resume"],
     "description":    ["leftmargin=", "style=nextline"],
-    "multicols":      [],
+    "multicols":      ["2", "3", "4", "5"],
+    "multicols*":     ["2", "3", "4", "5"],
     "subfigure":      ["t", "b", "c"],
     "subtable":       ["t", "b", "c"],
     "axis": [

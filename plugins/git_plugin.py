@@ -352,7 +352,7 @@ class _GitPanel(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Header: repo + branch
+        # Header: repo + branch + refresh
         hdr = QHBoxLayout()
         self._repo_label   = QLabel("Nessun repository")
         self._repo_label.setStyleSheet("font-size: 11px;")
@@ -360,8 +360,13 @@ class _GitPanel(QWidget):
         self._branch_label.setStyleSheet(
             "font-size: 11px; color: #7ec8e3; font-weight: bold;"
         )
+        btn_refresh = QPushButton("🔄")
+        btn_refresh.setFixedSize(26, 26)
+        btn_refresh.setToolTip("Aggiorna (F5)")
+        btn_refresh.clicked.connect(self.refresh)
         hdr.addWidget(self._repo_label, 1)
         hdr.addWidget(self._branch_label)
+        hdr.addWidget(btn_refresh)
         layout.addLayout(hdr)
 
         # Azioni rapide
@@ -789,6 +794,7 @@ class GitPlugin(BasePlugin):
     def on_load(self, main_window: "MainWindow") -> None:
         super().on_load(main_window)
         self._panel = _GitPanel(main_window)
+        self._last_editor = None
 
         self._dock = QDockWidget("⎇  Git", main_window)
         self._dock.setObjectName("GitDock")
@@ -803,26 +809,32 @@ class GitPlugin(BasePlugin):
         main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dock)
         self._dock.hide()
 
+        # Quando il dock diventa visibile, aggiorna subito con l'editor corrente
+        self._dock.visibilityChanged.connect(self._on_dock_visibility)
+
+        # Una sola voce nel menu Plugin
         self.add_menu_action(main_window, "plugins",
-                             "⎇ Git Panel",
+                             "⎇  Git",
                              lambda: self._dock.setVisible(not self._dock.isVisible()))
-        self.add_menu_action(main_window, "plugins",
-                             "⎇ Git: Refresh status",
-                             self._panel.refresh)
-        self.add_menu_action(main_window, "plugins",
-                             "⎇ Git: Configura utente & token",
-                             self._panel._open_credentials)
         main_window._menus["plugins"].menuAction().setVisible(True)
 
+    def _on_dock_visibility(self, visible: bool) -> None:
+        if visible and hasattr(self, "_panel") and self._last_editor is not None:
+            self._panel.set_editor(self._last_editor)
+
     def on_editor_changed(self, editor) -> None:
-        if hasattr(self, "_panel") and self._dock.isVisible():
-            self._panel.set_editor(editor)
+        if hasattr(self, "_panel"):
+            self._last_editor = editor
+            if self._dock.isVisible():
+                self._panel.set_editor(editor)
 
     def on_file_opened(self, path) -> None:
         if hasattr(self, "_panel"):
             editor = self._mw._tab_manager.current_editor()
             if editor:
-                self._panel.set_editor(editor)
+                self._last_editor = editor
+                if self._dock.isVisible():
+                    self._panel.set_editor(editor)
 
     def on_unload(self) -> None:
         if hasattr(self, "_dock"):

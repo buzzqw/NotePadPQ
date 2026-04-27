@@ -109,6 +109,7 @@
     "view_zoom_out": "Verkleinern",
     "view_zoom_reset": "Zoom zurücksetzen",
     "view_fullscreen": "Vollbild",
+    "distraction_free": "Fokusmodus (ablenkungsfrei)",
     "view_plain_text_mode": "Nur-Text-Modus",
     "view_minimap": "Minimap",
     "view_build_panel": "Build- und Terminalfenster",
@@ -186,6 +187,10 @@
     "markup_strike": "Durchgestrichen",
     "diff_vs_saved": "Mit gespeicherter Datei vergleichen",
     "command_palette": "Befehlsliste...",
+    "goto_anything": "Gehe zu... (Datei, Zeile, Symbol)",
+    "word_frequency": "Worthäufigkeit...",
+    "sort_lines_menu": "Zeilen sortieren...",
+    "auto_indent_paste": "Auto-Einrückung beim Einfügen",
     "view_document_map": "Dokumentkarte"
   },
   "label": {

@@ -372,10 +372,22 @@ class _GitPanel(QWidget):
         # Azioni rapide
         acts = QHBoxLayout()
         for label, tip, slot in [
-            ("↓ Pull",   "Pull dal remote",           self._pull),
-            ("↑ Push",   "Push al remote",             self._push),
-            ("✓ Commit", "Commit dei file selezionati", self._commit),
-            ("≡ Stash",  "Stash / Pop stash",          self._stash),
+            ("↓ Pull",
+             "git pull — Scarica e integra le modifiche dal remote.\n"
+             "Mantiene il repo locale sincronizzato con il server.",
+             self._pull),
+            ("↑ Push",
+             "git push — Carica i commit locali sul remote.\n"
+             "Richiede almeno un remote configurato (es. origin).",
+             self._push),
+            ("✓ Commit",
+             "git add . + git commit — Apre un dialog per scegliere\n"
+             "i file da includere e scrivere il messaggio di commit.",
+             self._commit),
+            ("≡ Stash",
+             "Sì → git stash push  (salva le modifiche non committate)\n"
+             "No → git stash pop   (ripristina le modifiche salvate)",
+             self._stash),
         ]:
             btn = QPushButton(label)
             btn.setToolTip(tip)

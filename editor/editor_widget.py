@@ -141,6 +141,7 @@ class EditorWidget(QsciScintilla):
         self._smart_highlight_enabled: bool = True
         self._plain_text_mode: bool = False
         self._saved_language: str = ""
+        self._auto_indent_paste: bool = True
         self._smart_hl_word: str = ""           # cache: evita regex se parola invariata
         self._smart_hl_timer: QTimer = QTimer(self)
         self._smart_hl_timer.setSingleShot(True)
@@ -789,10 +790,18 @@ class EditorWidget(QsciScintilla):
 
     def keyPressEvent(self, event) -> None:
         """Intercetta Insert per toggle overwrite e registra macro."""
-        self._hide_hover_popup() # <--- AGGIUNGI QUESTA RIGA QUI
+        self._hide_hover_popup()
         if event.key() == Qt.Key.Key_Insert and not event.modifiers():
             self.toggle_overwrite()
             return
+        # Auto-indent su incolla (Ctrl+V)
+        if (self._auto_indent_paste
+                and event.key() == Qt.Key.Key_V
+                and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
+            cb_text = QApplication.clipboard().text()
+            if cb_text and "\n" in cb_text:
+                self._paste_with_indent(cb_text)
+                return
         # Registrazione macro: cattura tasti con testo stampabile
         try:
             from core.macro import MacroManager
@@ -865,6 +874,49 @@ class EditorWidget(QsciScintilla):
             event.acceptProposedAction()
         else:
             super().dropEvent(event)
+
+    # ── Auto-indent paste ─────────────────────────────────────────────────────
+
+    def set_auto_indent_paste(self, enabled: bool) -> None:
+        self._auto_indent_paste = enabled
+
+    def _paste_with_indent(self, text: str) -> None:
+        """Incolla testo riallineando l'indentazione al contesto corrente."""
+        line, col = self.getCursorPosition()
+        cur_line_text = self.text(line)
+        cur_indent = len(cur_line_text) - len(cur_line_text.lstrip())
+        indent_str = "\t" if self.indentationsUseTabs() else " " * self.tabWidth()
+        cur_indent_text = cur_line_text[:cur_indent]
+
+        lines = text.splitlines()
+        if not lines:
+            return
+
+        # Calcola l'indentazione minima del testo incollato
+        def _leading(s):
+            return len(s) - len(s.lstrip())
+
+        non_empty = [l for l in lines if l.strip()]
+        min_indent = min((_leading(l) for l in non_empty), default=0)
+
+        result_lines = []
+        for i, ln in enumerate(lines):
+            if i == 0:
+                result_lines.append(ln.lstrip() if non_empty else ln)
+            else:
+                stripped = ln[min_indent:] if len(ln) >= min_indent else ln.lstrip()
+                result_lines.append(cur_indent_text + stripped)
+
+        self.beginUndoAction()
+        if self.hasSelectedText():
+            self.removeSelectedText()
+        self.insert("\n".join(result_lines))
+        # Sposta cursore alla fine del testo incollato
+        new_line = line + len(result_lines) - 1
+        last = result_lines[-1]
+        new_col = (col + len(result_lines[0])) if len(result_lines) == 1 else len(last)
+        self.setCursorPosition(new_line, new_col)
+        self.endUndoAction()
 
     # ── Bookmark ──────────────────────────────────────────────────────────────
 

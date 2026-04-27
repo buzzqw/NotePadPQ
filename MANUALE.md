@@ -1,6 +1,6 @@
 # NotePadPQ — Manuale d'uso
 
-> Versione 0.2.9+ — Editor di testo avanzato basato su **QScintilla/PyQt6**  
+> Versione 0.3.1 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
 > Piattaforme: Linux, Windows, macOS
 
 ---
@@ -100,6 +100,27 @@ Se un file aperto viene modificato da un altro programma, NotePadPQ lo segnala c
 | Copia nome file | — |
 | Inserisci data/ora | — |
 | Conta parole | — |
+| **Frequenza parole** | — |
+| **Ordina righe (dialog)** | — |
+
+### Frequenza parole
+
+**Modifica → Frequenza parole** analizza il documento (o la selezione) e mostra una tabella ordinata per occorrenze con le prime 50 parole più frequenti, il totale di parole e il numero di parole uniche.
+
+### Ordina righe
+
+**Modifica → Ordina righe** apre un dialog con cinque criteri di ordinamento:
+
+| Criterio | Effetto |
+|---|---|
+| Alfabetico crescente (A→Z) | Ordine lessicografico standard |
+| Alfabetico decrescente (Z→A) | Ordine inverso |
+| Per lunghezza crescente | Le righe più corte prima |
+| Per lunghezza decrescente | Le righe più lunghe prima |
+| Casuale | Mischia le righe in ordine casuale |
+
+L'ordinamento si applica alla selezione (se attiva) o all'intero documento.  
+Ulteriori operazioni sulle righe (rimuovi duplicati, rimuovi righe vuote, ecc.) sono in **Strumenti → Line Operations**.
 
 ### Formattazione testo
 
@@ -117,7 +138,7 @@ Accessibile da **Modifica → Formatta**:
 | Attiva/disattiva commento | `Ctrl+E` |
 | Commenta righe | — |
 | Decommenta righe | — |
-| Indenta | `Ctrl+I` |
+| Indenta | `Ctrl+Shift+I` |
 | Deindenta | `Ctrl+U` |
 | Indentazione intelligente | — |
 | Rimuovi spazi finali | — |
@@ -140,9 +161,28 @@ Accessibile da **Modifica → Formatta**:
 
 ## 4. Cerca e Sostituisci
 
-Apri con `Ctrl+F`. Il dialog ha 4 tab.
+### Elenco comandi — Command Palette (`Ctrl+Shift+P`)
 
-### Tab "Cerca"
+Apre una palette fuzzy-search su tutti i comandi dell'editor. Digita una parola qualsiasi del nome del comando, naviga con `↑`/`↓`, premi `Invio` per eseguire. Utile per accedere a funzioni senza memorizzare la scorciatoia.
+
+### Vai a… — Goto Anything (`Ctrl+Shift+G`)
+
+Navigazione rapida stile Sublime Text. Apre una palette che si comporta diversamente in base al prefisso digitato:
+
+| Prefisso | Comportamento |
+|---|---|
+| *(niente)* | Ricerca fuzzy tra i **file aperti** per nome o percorso |
+| `:42` | Salta alla **riga 42** del file corrente |
+| `@nomeFunc` | Salta al **simbolo** (def/class/function) nel file corrente |
+| `>testo` | Cerca tra i **comandi** (come la Command Palette) |
+
+Naviga con `↑`/`↓`, conferma con `Invio`, chiudi con `Esc`.
+
+### Dialog Cerca (`Ctrl+F`)
+
+Il dialog ha 4 tab.
+
+#### Tab "Cerca"
 
 **Opzioni disponibili:**
 
@@ -167,7 +207,7 @@ Si popola automaticamente durante la digitazione (dopo 2 caratteri) e tramite il
 **Manuale regex:**  
 Appare automaticamente quando si attiva "Espressione regolare" — vedi anche [sezione 18](#18-espressioni-regolari--riferimento-completo).
 
-### Tab "Sostituisci"
+#### Tab "Sostituisci"
 
 Stesse opzioni del tab Cerca più:
 
@@ -176,17 +216,21 @@ Stesse opzioni del tab Cerca più:
 
 Nel campo "Sostituisci con" puoi usare `\1`, `\2`, ... per riferirsi ai gruppi catturati dalla regex.
 
-### Tab "Cerca nei file"
+#### Tab "Cerca nei file"
 
 Cerca in tutti i file di una directory, con filtro estensioni e opzione ricorsiva. I risultati mostrano file e righe — doppio clic apre il file alla riga corrispondente.
 
-### Tab "Cerca in tutti i documenti"
+#### Tab "Cerca in tutti i documenti"
 
 Cerca (e opzionalmente sostituisce) in tutti i file aperti nei tab.
 
-### Ricerca incrementale inline
+### Navigazione
 
-`Ctrl+Shift+F2` — apre una barra inline in fondo all'editor per cercare senza aprire il dialog. Premi `Esc` per chiuderla.
+| Azione | Scorciatoia |
+|---|---|
+| Vai alla riga | `Ctrl+G` |
+| Vai alla parentesi corrispondente | `Ctrl+]` |
+| Ricerca incrementale inline | `Ctrl+Shift+F2` |
 
 ---
 
@@ -253,7 +297,7 @@ I bookmark vengono salvati nella sessione e ripristinati alla riapertura del fil
 
 > **A capo automatico** è presente sia in **Visualizza** che in **Documento**: sono la stessa azione — spuntarla in un menu aggiorna l'altra automaticamente.
 
-### Modalità testo semplice (`Ctrl+Shift+P`)
+### Modalità testo semplice (`Ctrl+Alt+T`)
 
 **Visualizza → Modalità testo semplice** — toggle per tab. Quando attivo, disabilita sul tab corrente:
 
@@ -263,6 +307,20 @@ I bookmark vengono salvati nella sessione e ripristinati alla riapertura del fil
 - Autocompletamento
 
 Alla disattivazione, tutto viene ripristinato al linguaggio originale del file. Ogni tab mantiene il proprio stato indipendentemente.
+
+### Modalità scrittura — Distraction-Free (`Ctrl+Shift+F11`)
+
+**Visualizza → Modalità scrittura** — nasconde tutto tranne l'editor e va in schermo intero:
+
+- Toolbar nascosta
+- Statusbar nascosta
+- Menubar nascosta
+- Tutti i pannelli dock nascosti
+- Finestra in modalità schermo intero
+
+Premi di nuovo `Ctrl+Shift+F11` per uscire e ripristinare la visibilità precedente di tutti gli elementi. Ideale per sessioni di scrittura concentrata.
+
+> Differenza rispetto a `F11` (Schermo intero): il semplice schermo intero mantiene visibili toolbar, statusbar e pannelli. La modalità scrittura nasconde tutto.
 
 ### Zoom
 
@@ -275,7 +333,7 @@ Alla disattivazione, tutto viene ripristinato al linguaggio originale del file. 
 Anche `Ctrl+Rotella mouse` direttamente nell'editor.
 
 ### Schermo intero
-`F11` — alterna la modalità a schermo intero.
+`F11` — alterna la modalità a schermo intero (con toolbar e statusbar ancora visibili).
 
 ### Minimap
 Colonna stretta sul lato dell'editor che mostra una versione rimpicciolita dell'intero documento. Clicca per navigare velocemente a qualsiasi punto del file.
@@ -308,6 +366,8 @@ Tenendo il cursore fermo per mezzo secondo su determinati elementi, NotePadPQ mo
 
 - **Tipo indentazione** — Tab o Spazi
 - **Larghezza indentazione** — numero di spazi
+- **Indentazione automatica** — re-indenta automaticamente la nuova riga in base alla precedente
+- **Auto-indenta su incolla** — quando si incolla testo con più righe (`Ctrl+V`), le righe vengono riallineate all'indentazione del contesto corrente. Disattivabile dal menu Documento se non desiderato.
 - **Sola lettura** — blocca le modifiche
 - **Scrivi BOM** — aggiunge Byte Order Mark per UTF-8/UTF-16
 - **A capo automatico** — identica alla voce in Visualizza
@@ -387,7 +447,7 @@ I plugin vengono caricati automaticamente dalla cartella `plugins/`. Per install
 |---|---|
 | **Clipboard History** | Cronologia degli appunti con possibilità di incollare elementi precedenti |
 | **Compare & Merge** | Confronto visuale side-by-side di due file o tab |
-| **Encrypt/Decrypt** | Cifratura e decifratura AES del testo selezionato o dell'intero file |
+| **Encrypt/Decrypt** | Cifratura AES-256-GCM e ChaCha20-Poly1305 del testo selezionato o dell'intero file |
 | **FTP Browser** | Sfoglia e modifica file su server FTP |
 | **Git Integration** | Pannello Git completo (vedi sotto) |
 | **Hex Viewer** | Visualizza il file corrente in formato esadecimale |
@@ -494,6 +554,8 @@ Al prossimo avvio i file vengono riaperti automaticamente (se abilitato in Prefe
 
 **Autobackup:** se abilitato nelle Preferenze, salva una copia `.bak` di ogni file modificato a intervalli regolari nella cartella configurata.
 
+**Auto-save su perdita fuoco:** se abilitato nelle Preferenze → File → Auto-salvataggio, salva silenziosamente tutti i file modificati con un percorso su disco ogni volta che la finestra perde il fuoco (es. passando a un'altra applicazione).
+
 **Sessioni con nome:** tramite **Strumenti → Sessioni con nome** puoi salvare e ripristinare gruppi di file come sessioni nominate indipendenti dalla sessione automatica.
 
 ---
@@ -525,6 +587,7 @@ Apri con `Ctrl+Alt+P` oppure **Strumenti → Preferenze**. Le modifiche possono 
 - Ripristina sessione all'avvio
 - Numero massimo file recenti
 - **Autobackup periodico** — intervallo in minuti e cartella di destinazione
+- **Auto-salvataggio** — salva automaticamente i file modificati quando la finestra perde il fuoco
 
 ### Scheda Autocompletamento
 - Abilita/disabilita autocompletamento
@@ -699,6 +762,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Shift+Ctrl+W` | Chiudi tutti |
 | `Ctrl+Q` | Esci |
 | `Shift+Ctrl+R` | Ricarica da disco |
+| `Ctrl+P` | Stampa |
 
 ### Modifica
 
@@ -709,7 +773,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+X` / `C` / `V` | Taglia / Copia / Incolla |
 | `Ctrl+A` | Seleziona tutto |
 | `Ctrl+E` | Attiva/disattiva commento |
-| `Ctrl+I` | Indenta |
+| `Ctrl+Shift+I` | Indenta |
 | `Ctrl+U` | Deindenta |
 | `Ctrl+Alt+U` | Inverti maiuscolo/minuscolo |
 | `Ctrl+B` | Grassetto (Markup) |
@@ -718,10 +782,12 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Alt+E` | Avvolgi in Ambiente / Tag |
 | `Alt+T` | Allinea Tabella |
 
-### Cerca
+### Cerca e navigazione
 
 | Scorciatoia | Azione |
 |---|---|
+| `Ctrl+Shift+P` | **Elenco comandi (Command Palette)** |
+| `Ctrl+Shift+G` | **Vai a… (file aperto / riga / simbolo / comando)** |
 | `Ctrl+F` | Apri dialog Cerca |
 | `Ctrl+H` | Apri dialog Sostituisci |
 | `F3` | Trova successivo |
@@ -758,11 +824,12 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+-` | Zoom out |
 | `Ctrl+0` | Zoom reset |
 | `F11` | Schermo intero |
+| `Ctrl+Shift+F11` | **Modalità scrittura (distraction-free)** |
 | `F12` | Anteprima |
 | `Ctrl+Shift+E` | File Browser |
 | `Ctrl+Shift+F` | Function List |
 | `` Ctrl+` `` | Pannello compilazione e terminale |
-| `Ctrl+Shift+P` | Modalità testo semplice (per tab) |
+| `Ctrl+Alt+T` | Modalità testo semplice (per tab) |
 | `F4` | Controllo ortografico |
 
 ### Multi-cursore
@@ -794,7 +861,8 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Insert` | Modalità sovrascrittura |
 | `F6` | Compila |
 | `F7` | Build |
+| `F8` | Profili di build |
 
 ---
 
-*Manuale aggiornato — NotePadPQ 0.2.9+*
+*Manuale aggiornato — NotePadPQ 0.3.1*

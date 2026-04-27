@@ -119,9 +119,9 @@ class StatusBar(QStatusBar):
         )
 
     def _update_lang(self, editor: "EditorWidget") -> None:
-        lexer = editor.lexer()
-        lang = lexer.language() if lexer else ""
-        self._lbl_lang.setText(lang or "Text")
+        from editor.lexers import get_language_name
+        lang = get_language_name(editor)
+        self._lbl_lang.setText(lang if lang and lang != "Text" else "Text")
 
     def show_message(self, msg: str, timeout: int = 3000) -> None:
         self._lbl_message.setText(msg)

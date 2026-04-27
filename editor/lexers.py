@@ -214,12 +214,18 @@ def set_lexer_by_name(editor: "EditorWidget", lang_name: str) -> bool:
     if not ext:
         # Testo normale: rimuove il lexer
         editor.setLexer(None)
+        editor._current_language = ""
         return True
     return set_lexer_by_extension(editor, ext)
 
 
 def get_language_name(editor: "EditorWidget") -> str:
     """Restituisce il nome del linguaggio dell'editor corrente."""
+    # Usa il nome salvato da _apply_lexer (es. "LaTeX"), più preciso di lexer.language()
+    # che può restituire nomi interni diversi (es. QsciLexerTeX → "TeX").
+    stored = getattr(editor, "_current_language", None)
+    if stored:
+        return stored
     lexer = editor.lexer()
     if lexer is None:
         return "Text"
@@ -292,6 +298,8 @@ def _apply_lexer(editor: "EditorWidget",
     _configure_lexer(lexer, lang_name)
 
     editor.setLexer(lexer)
+    # Memorizza il nome linguaggio sull'editor per _update_file_type_menu
+    editor._current_language = lang_name
 
     # Forza il refresh dell'highlighting di Scintilla
     editor.SendScintilla(editor.SCI_COLOURISE, 0, -1)

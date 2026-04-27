@@ -301,6 +301,11 @@ class MainWindow(QMainWindow):
         dlg = CommandPaletteDialog(self)
         dlg.exec()
 
+    def action_goto_anything(self) -> None:
+        from ui.goto_anything import GotoAnythingDialog
+        dlg = GotoAnythingDialog(self)
+        dlg.exec()
+
     # ── Diff vs Saved ─────────────────────────────────────────────────────────
 
     def action_diff_vs_saved(self) -> None:
@@ -567,8 +572,10 @@ class MainWindow(QMainWindow):
         sub_fmt.addAction(self._act("spaces_to_tabs","",         self.action_spaces_to_tabs))
 
         self._sep(m)
-        m.addAction(self._act("insert_date", "", self.action_insert_date))
-        m.addAction(self._act("word_count",  "", self.action_word_count))
+        m.addAction(self._act("insert_date",     "", self.action_insert_date))
+        m.addAction(self._act("word_count",      "", self.action_word_count))
+        m.addAction(self._act("word_frequency",  "", self.action_word_frequency))
+        m.addAction(self._act("sort_lines_menu", "", self.action_sort_lines_dialog))
         self._sep(m)
         # ── Multi-cursore ─────────────────────────────────────────────────────
         sub_mc = m.addMenu("🖊  " + tr("menu.multicursor"))
@@ -598,6 +605,7 @@ class MainWindow(QMainWindow):
         self._menus["search"] = m
 
         m.addAction(self._act("command_palette", "Ctrl+Shift+P", self.action_command_palette))
+        m.addAction(self._act("goto_anything",   "Ctrl+Shift+G", self.action_goto_anything))
         self._sep(m)
         m.addAction(self._act("find",            "Ctrl+F",       self.action_find))
         m.addAction(self._act("find_next",       "F3",           self.action_find_next))
@@ -659,9 +667,10 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("view_zoom_out",   "Ctrl+-",   self.action_zoom_out))
         m.addAction(self._act("view_zoom_reset", "Ctrl+0",   self.action_zoom_reset))
         self._sep(m)
-        m.addAction(self._act("view_fullscreen", "F11", self._toggle_fullscreen, checkable=True, checked=False))
+        m.addAction(self._act("view_fullscreen",    "F11",          self._toggle_fullscreen,    checkable=True, checked=False))
+        m.addAction(self._act("distraction_free",   "Ctrl+Shift+F11", self._toggle_distraction_free, checkable=True, checked=False))
         self._sep(m)
-        m.addAction(self._act("view_plain_text_mode", "Ctrl+Shift+P",
+        m.addAction(self._act("view_plain_text_mode", "Ctrl+Alt+T",
                                self._toggle_plain_text_mode,
                                checkable=True, checked=False))
         self._sep(m)
@@ -712,9 +721,10 @@ class MainWindow(QMainWindow):
         self._menus["document"] = m
 
         m.addAction(self._actions["view_word_wrap"])  # stessa action di Visualizza → checkbox sincronizzato
-        m.addAction(self._act("line_break",      "", self.action_line_break,     checkable=False))
-        m.addAction(self._act("auto_indent",     "", self._toggle_auto_indent,   checkable=True, checked=True))
-        m.addAction(self._act("spell_check",     "F4", self._toggle_spellcheck,  checkable=True, checked=False))
+        m.addAction(self._act("line_break",        "", self.action_line_break,           checkable=False))
+        m.addAction(self._act("auto_indent",       "", self._toggle_auto_indent,         checkable=True, checked=True))
+        m.addAction(self._act("auto_indent_paste", "", self._toggle_auto_indent_paste,   checkable=True, checked=True))
+        m.addAction(self._act("spell_check",     "F4", self._toggle_spellcheck,          checkable=True, checked=False))
         self._sep(m)
 
         # Tipo indentazione submenu
@@ -1759,6 +1769,27 @@ class MainWindow(QMainWindow):
         else:
             self.showNormal()
 
+    def _toggle_distraction_free(self, checked: bool) -> None:
+        if checked:
+            self._df_toolbar_visible  = self._toolbar.isVisible()
+            self._df_statusbar_visible = self._statusbar.isVisible()
+            self._df_menubar_visible  = self.menuBar().isVisible()
+            self._df_docks_visible: list = []
+            for dock in self.findChildren(QDockWidget):
+                self._df_docks_visible.append((dock, dock.isVisible()))
+                dock.hide()
+            self._toolbar.hide()
+            self._statusbar.hide()
+            self.menuBar().hide()
+            self.showFullScreen()
+        else:
+            self.showNormal()
+            self.menuBar().setVisible(getattr(self, "_df_menubar_visible", True))
+            self._toolbar.setVisible(getattr(self, "_df_toolbar_visible", True))
+            self._statusbar.setVisible(getattr(self, "_df_statusbar_visible", True))
+            for dock, was_visible in getattr(self, "_df_docks_visible", []):
+                dock.setVisible(was_visible)
+
     def _toggle_plain_text_mode(self, checked: bool) -> None:
         editor = self._current_editor()
         if editor:
@@ -1785,6 +1816,13 @@ class MainWindow(QMainWindow):
         editor = self._current_editor()
         if editor:
             editor.setAutoIndent(checked)
+
+    def _toggle_auto_indent_paste(self, checked: bool) -> None:
+        for ed in self._tab_manager.all_editors():
+            if hasattr(ed, "set_auto_indent_paste"):
+                ed.set_auto_indent_paste(checked)
+        from config.settings import Settings
+        Settings.instance().set("editor/auto_indent_paste", checked)
 
     def _toggle_read_only(self, checked: bool) -> None:
         editor = self._current_editor()
@@ -2127,6 +2165,105 @@ class MainWindow(QMainWindow):
         line = min(cursor[0], max(0, editor.lines() - 1))
         editor.setCursorPosition(line, cursor[1])
 
+    # ── Auto-save su perdita focus ────────────────────────────────────────────
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        from PyQt6.QtCore import QEvent
+        if event.type() == QEvent.Type.WindowDeactivate:
+            from config.settings import Settings
+            if Settings.instance().get("file/autosave_on_focus_loss", False):
+                for editor in self._tab_manager.all_editors():
+                    if editor.isModified() and editor.file_path:
+                        try:
+                            from core.file_manager import FileManager
+                            FileManager.write(editor.file_path, editor.get_content(),
+                                              editor.encoding, editor.line_ending)
+                            editor.setModified(False)
+                        except Exception:
+                            pass
+
+    # ── Frequenza parole ─────────────────────────────────────────────────────
+
+    def action_word_frequency(self) -> None:
+        editor = self._current_editor()
+        if not editor:
+            return
+        text = editor.selectedText() or editor.text()
+        from collections import Counter
+        import re
+        words = re.findall(r"\b[a-zA-ZàèìòùéÀÈÌÒÙÉ']+\b", text, re.UNICODE)
+        if not words:
+            QMessageBox.information(self, "Frequenza parole", "Nessuna parola trovata.")
+            return
+        freq = Counter(w.lower() for w in words)
+        top = freq.most_common(50)
+
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QLabel, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Frequenza parole")
+        dlg.resize(360, 500)
+        vl = QVBoxLayout(dlg)
+        vl.addWidget(QLabel(f"Parole totali: {len(words)}  —  Uniche: {len(freq)}"))
+        tbl = QTableWidget(len(top), 2)
+        tbl.setHorizontalHeaderLabels(["Parola", "Occorrenze"])
+        tbl.horizontalHeader().setStretchLastSection(True)
+        for i, (word, count) in enumerate(top):
+            tbl.setItem(i, 0, QTableWidgetItem(word))
+            tbl.setItem(i, 1, QTableWidgetItem(str(count)))
+        tbl.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        tbl.sortItems(1, Qt.SortOrder.DescendingOrder)
+        vl.addWidget(tbl)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb.rejected.connect(dlg.reject)
+        vl.addWidget(bb)
+        dlg.exec()
+
+    # ── Ordina righe (dialog) ────────────────────────────────────────────────
+
+    def action_sort_lines_dialog(self) -> None:
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QRadioButton, QDialogButtonBox, QGroupBox
+        import core.line_operations as lo
+
+        editor = self._current_editor()
+        if not editor:
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Ordina righe")
+        vl = QVBoxLayout(dlg)
+
+        grp = QGroupBox("Criterio")
+        gl = QVBoxLayout(grp)
+        r_asc    = QRadioButton("Alfabetico crescente (A→Z)")
+        r_desc   = QRadioButton("Alfabetico decrescente (Z→A)")
+        r_len_a  = QRadioButton("Per lunghezza crescente")
+        r_len_d  = QRadioButton("Per lunghezza decrescente")
+        r_rand   = QRadioButton("Casuale")
+        r_asc.setChecked(True)
+        for r in [r_asc, r_desc, r_len_a, r_len_d, r_rand]:
+            gl.addWidget(r)
+        vl.addWidget(grp)
+
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        vl.addWidget(bb)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        if r_asc.isChecked():
+            lo.apply_sort_asc(editor)
+        elif r_desc.isChecked():
+            lo.apply_sort_desc(editor)
+        elif r_len_a.isChecked():
+            lo.apply_sort_by_length(editor)
+        elif r_len_d.isChecked():
+            lo.apply_sort_by_length_desc(editor)
+        elif r_rand.isChecked():
+            lo.apply_sort_random(editor)
+
     # ── File recenti ─────────────────────────────────────────────────────────
 
     def _update_recent(self, path: Path) -> None:
@@ -2201,13 +2338,6 @@ class MainWindow(QMainWindow):
             s.save_ui_state(self)
         except Exception:
             pass
-
-    # ── Toggle helpers ────────────────────────────────────────────────────────
-
-    def _toggle_auto_indent(self, checked: bool) -> None:
-        editor = self._current_editor()
-        if editor:
-            editor.setAutoIndent(checked)
 
     # ── Split View ────────────────────────────────────────────────────────────
 

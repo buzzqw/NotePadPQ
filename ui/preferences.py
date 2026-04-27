@@ -287,6 +287,13 @@ class PreferencesDialog(QDialog):
         al.addRow("Cartella backup:", backup_dir_row)
 
         vl.addWidget(grp_autobackup)
+
+        grp_autosave = QGroupBox("Auto-salvataggio")
+        asl = QVBoxLayout(grp_autosave)
+        self._autosave_on_focus_loss = QCheckBox("Salva automaticamente quando la finestra perde il fuoco")
+        asl.addWidget(self._autosave_on_focus_loss)
+        vl.addWidget(grp_autosave)
+
         vl.addStretch()
         return w
 
@@ -462,6 +469,7 @@ class PreferencesDialog(QDialog):
         self._autobackup_dir.setText(s.get("file/autobackup_dir", ""))
         #self._autosave_enabled.setChecked(s.get("file/autosave_enabled", False))
         #self._autosave_interval.setValue(s.get("file/autosave_interval", 2))
+        self._autosave_on_focus_loss.setChecked(s.get("file/autosave_on_focus_loss", False))
 
         # Autocompletamento
         self._ac_enabled.setChecked(s.get("autocomplete/enabled", True))
@@ -563,9 +571,10 @@ class PreferencesDialog(QDialog):
         s.set("file/add_newline_eof",    self._add_newline_eof.isChecked())
         s.set("file/restore_session",    self._restore_session.isChecked())
         s.set("file/recent_max",         self._recent_max.value())
-        s.set("file/autobackup_enabled",  self._autobackup_enabled.isChecked())
-        s.set("file/autobackup_interval", self._autobackup_interval.value())
-        s.set("file/autobackup_dir",      self._autobackup_dir.text().strip())
+        s.set("file/autobackup_enabled",     self._autobackup_enabled.isChecked())
+        s.set("file/autobackup_interval",    self._autobackup_interval.value())
+        s.set("file/autobackup_dir",         self._autobackup_dir.text().strip())
+        s.set("file/autosave_on_focus_loss", self._autosave_on_focus_loss.isChecked())
         
         # Autocompletamento
         s.set("autocomplete/enabled",   self._ac_enabled.isChecked())

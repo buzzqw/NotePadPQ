@@ -294,6 +294,10 @@ class TabManager(QTabWidget):
             ac = AutoCompleteManager(editor)
             ac.set_tab_manager(self)
             editor._autocomplete = ac
+            # Il lexer è già impostato prima di questa riga: propaga la lingua all'AC
+            lang = getattr(editor, "_current_language", "")
+            if lang:
+                ac.set_language(lang.lower())
         except Exception:
             pass
 

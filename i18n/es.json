@@ -109,6 +109,7 @@
     "view_zoom_out": "Alejar",
     "view_zoom_reset": "Restablecer zoom",
     "view_fullscreen": "Pantalla completa",
+    "distraction_free": "Modo enfoque (sin distracciones)",
     "view_plain_text_mode": "Modo texto simple",
     "view_minimap": "Minimapa",
     "view_build_panel": "Panel compilación y terminal",
@@ -186,6 +187,10 @@
     "markup_strike": "Tachado",
     "diff_vs_saved": "Comparar con archivo guardado",
     "command_palette": "Lista de comandos...",
+    "goto_anything": "Ir a... (archivo, línea, símbolo)",
+    "word_frequency": "Frecuencia de palabras...",
+    "sort_lines_menu": "Ordenar líneas...",
+    "auto_indent_paste": "Auto-indentar al pegar",
     "view_document_map": "Mapa del documento"
   },
   "label": {

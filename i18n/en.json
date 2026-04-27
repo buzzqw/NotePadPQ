@@ -109,6 +109,7 @@
     "view_zoom_out": "Zoom Out",
     "view_zoom_reset": "Reset Zoom",
     "view_fullscreen": "Full Screen",
+    "distraction_free": "Focus Mode (Distraction-Free)",
     "view_plain_text_mode": "Plain Text Mode",
     "view_minimap": "Minimap",
     "view_build_panel": "Build & Terminal Panel",
@@ -186,6 +187,10 @@
     "markup_strike": "Strikethrough",
     "diff_vs_saved": "Diff with saved file",
     "command_palette": "Command list...",
+    "goto_anything": "Go to... (file, line, symbol)",
+    "word_frequency": "Word Frequency...",
+    "sort_lines_menu": "Sort Lines...",
+    "auto_indent_paste": "Auto-indent on Paste",
     "view_document_map": "Document Map"
   },
   "label": {

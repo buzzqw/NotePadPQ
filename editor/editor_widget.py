@@ -139,6 +139,8 @@ class EditorWidget(QsciScintilla):
         self._overwrite: bool  = False
         self._show_line_numbers: bool = True
         self._smart_highlight_enabled: bool = True
+        self._plain_text_mode: bool = False
+        self._saved_language: str = ""
         self._smart_hl_word: str = ""           # cache: evita regex se parola invariata
         self._smart_hl_timer: QTimer = QTimer(self)
         self._smart_hl_timer.setSingleShot(True)
@@ -432,6 +434,43 @@ class EditorWidget(QsciScintilla):
         self._smart_highlight_enabled = enabled
         if not enabled:
             self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+
+    def set_plain_text_mode(self, enabled: bool) -> None:
+        """
+        Modalità testo semplice: disabilita syntax highlight, brace matching,
+        smart highlight e autocompletamento per questo tab.
+        """
+        if enabled == self._plain_text_mode:
+            return
+        self._plain_text_mode = enabled
+
+        if enabled:
+            # Salva il linguaggio corrente per poterlo ripristinare
+            from editor.lexers import get_language_name
+            self._saved_language = get_language_name(self)
+            # Rimuovi lexer (niente syntax highlight)
+            self.setLexer(None)
+            # Niente brace matching
+            self.setBraceMatching(QsciScintilla.BraceMatch.NoBraceMatch)
+            # Niente smart highlight
+            self.set_smart_highlight_enabled(False)
+            # Niente autocompletamento
+            self.setAutoCompletionSource(
+                QsciScintilla.AutoCompletionSource.AcsNone
+            )
+        else:
+            # Ripristina il lexer salvato
+            lang = self._saved_language or "testo normale"
+            from editor.lexers import set_lexer_by_name
+            set_lexer_by_name(self, lang)
+            # Ripristina brace matching
+            self.setBraceMatching(QsciScintilla.BraceMatch.SloppyBraceMatch)
+            # Ripristina smart highlight
+            self.set_smart_highlight_enabled(True)
+            # Ripristina autocompletamento (delega all'AutoCompleteManager)
+            ac = getattr(self, "_autocomplete", None)
+            if ac:
+                ac._apply_levels()
 
     def _invalidate_hl_cache(self) -> None:
         """Invalida la cache smart-hl quando il testo viene modificato."""

@@ -662,6 +662,10 @@ class MainWindow(QMainWindow):
         self._sep(m)
         m.addAction(self._act("view_fullscreen", "F11", self._toggle_fullscreen, checkable=True, checked=False))
         self._sep(m)
+        m.addAction(self._act("view_plain_text_mode", "Ctrl+Shift+P",
+                               self._toggle_plain_text_mode,
+                               checkable=True, checked=False))
+        self._sep(m)
 
         # ── Split View submenu ─────────────────────────────────────────────────
         sub_split = m.addMenu("🔲  " + tr("menu.split_view"))
@@ -1144,6 +1148,13 @@ class MainWindow(QMainWindow):
 
         # Aggiorna checkmark nel menu tipo file
         self._update_file_type_menu(editor)
+
+        # Sincronizza il checkmark "Modalità testo semplice" al tab corrente
+        if "view_plain_text_mode" in self._actions:
+            act = self._actions["view_plain_text_mode"]
+            act.blockSignals(True)
+            act.setChecked(getattr(editor, "_plain_text_mode", False))
+            act.blockSignals(False)
 
         # Aggiorna dock anteprima se visibile
         # Aggiorna SEMPRE il dock anteprima, indipendentemente dalla visibilità di Qt
@@ -1758,6 +1769,11 @@ class MainWindow(QMainWindow):
             self.showFullScreen()
         else:
             self.showNormal()
+
+    def _toggle_plain_text_mode(self, checked: bool) -> None:
+        editor = self._current_editor()
+        if editor:
+            editor.set_plain_text_mode(checked)
 
     def action_zoom_in(self) -> None:
         editor = self._current_editor()

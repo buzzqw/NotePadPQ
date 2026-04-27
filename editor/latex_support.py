@@ -284,6 +284,440 @@ PACKAGE_COMMANDS: dict[str, list[str]] = {
         "\\singlespacing", "\\onehalfspacing", "\\doublespacing",
         "\\setstretch{}", "\\begin{singlespace}", "\\begin{doublespace}",
     ],
+    # ── Presentazioni ─────────────────────────────────────────────────────────
+    "beamer": [
+        "\\begin{frame}", "\\end{frame}", "\\frametitle{}", "\\framesubtitle{}",
+        "\\begin{block}{}", "\\end{block}",
+        "\\begin{alertblock}{}", "\\end{alertblock}",
+        "\\begin{exampleblock}{}", "\\end{exampleblock}",
+        "\\begin{columns}", "\\end{columns}",
+        "\\begin{column}{}", "\\end{column}",
+        "\\begin{overlayarea}{}{}", "\\end{overlayarea}",
+        "\\usetheme{}", "\\usecolortheme{}", "\\usefonttheme{}",
+        "\\useinnertheme{}", "\\useoutertheme{}",
+        "\\only<>{}", "\\onslide<>{}", "\\visible<>{}",
+        "\\uncover<>{}", "\\alt<>{}{}",
+        "\\pause", "\\setbeamertemplate{}", "\\setbeamercovered{transparent}",
+        "\\alert{}", "\\structure{}",
+        "\\titlepage", "\\tableofcontents",
+        "\\AtBeginSection[]{}",
+        "\\institute{}", "\\titlegraphic{}", "\\logo{}",
+    ],
+    # ── Fisica e matematica avanzata ──────────────────────────────────────────
+    "physics": [
+        "\\abs{}", "\\norm{}", "\\eval{}", "\\order{}",
+        "\\qty{}", "\\pqty{}", "\\bqty{}", "\\vqty{}",
+        "\\dd{}", "\\dv{}{}", "\\pdv{}{}", "\\fdv{}{}",
+        "\\grad", "\\div", "\\curl", "\\laplacian",
+        "\\ket{}", "\\bra{}", "\\braket{}{}", "\\ketbra{}{}",
+        "\\expval{}", "\\mel{}{}{}",
+        "\\comm{}{}", "\\acomm{}{}",
+        "\\tr", "\\Tr", "\\rank", "\\erf",
+        "\\vb{}", "\\vb*{}", "\\va{}", "\\vu{}", "\\vdot", "\\cross",
+        "\\mqty{}", "\\pmqty{}", "\\bmqty{}", "\\vmqty{}",
+        "\\imat{}", "\\xmat{}{}{}",
+    ],
+    "empheq": [
+        "\\begin{empheq}[left=\\empheqlbrace]{align}", "\\end{empheq}",
+        "\\begin{empheq}[box=\\fbox]{equation}", "\\end{empheq}",
+    ],
+    "cancel": [
+        "\\cancel{}", "\\bcancel{}", "\\xcancel{}", "\\cancelto{}{}",
+    ],
+    "mathtools": [
+        "\\coloneqq", "\\Coloneqq", "\\eqqcolon",
+        "\\prescript{}{}{}", "\\mathclap{}", "\\mathllap{}", "\\mathrlap{}",
+        "\\smashoperator{}", "\\adjustlimits{}{}",
+        "\\shortintertext{}",
+        "\\begin{pmatrix*}", "\\begin{bmatrix*}", "\\begin{vmatrix*}",
+        "\\begin{matrix*}", "\\begin{Bmatrix*}",
+    ],
+    "braket": [
+        "\\bra{}", "\\ket{}", "\\braket{}", "\\Braket{}",
+        "\\set{}", "\\Set{}", "\\mean{}",
+    ],
+    "commath": [
+        "\\od{}{}", "\\pd{}{}", "\\dif", "\\Dif",
+        "\\abs{}", "\\norm{}", "\\cbr{}", "\\sbr{}", "\\eval{}",
+    ],
+    "tensor": [
+        "\\tensor{}{}", "\\indices{}", "\\tensor[]{}{}",
+    ],
+    # ── Font e codifica ───────────────────────────────────────────────────────
+    "fontspec": [
+        "\\setmainfont{}", "\\setsansfont{}", "\\setmonofont{}",
+        "\\setmathfont{}", "\\newfontfamily{}{}", "\\newfontface{}{}",
+        "\\addfontfeatures{}", "\\fontspec{}",
+    ],
+    "unicode-math": [
+        "\\setmathfont{}", "\\setmathfont[]{}",
+        "\\symbb{}", "\\symbf{}", "\\symit{}", "\\symrm{}",
+        "\\symsf{}", "\\symscr{}", "\\symfrak{}", "\\symup{}",
+    ],
+    "polyglossia": [
+        "\\setmainlanguage{}", "\\setotherlanguage{}",
+        "\\setmainlanguage[]{}", "\\setotherlanguage[]{}",
+        "\\textlang{}{}", "\\begin{otherlanguage*}", "\\end{otherlanguage*}",
+    ],
+    "lmodern": [], "fontawesome5": [
+        "\\faIcon{}", "\\faGithub", "\\faLinkedin",
+        "\\faEnvelope", "\\faPhone", "\\faHome", "\\faFile",
+    ],
+    "pifont": [
+        "\\ding{}", "\\dingline{}", "\\dingfill{}",
+        "\\begin{dinglist}{}", "\\end{dinglist}",
+    ],
+    # ── Layout e inserimento ──────────────────────────────────────────────────
+    "appendix": [
+        "\\begin{appendices}", "\\end{appendices}",
+        "\\appendix", "\\appendixpage", "\\addappheadtotoc",
+    ],
+    "pdfpages": [
+        "\\includepdf{}", "\\includepdf[pages=-]{}",
+        "\\includepdf[pages=1]{}", "\\includepdf[nup=2x1]{}",
+        "\\includepdf[fitpaper=true]{}",
+    ],
+    "afterpage": [
+        "\\afterpage{}", "\\afterpage{\\clearpage}",
+    ],
+    "placeins": ["\\FloatBarrier"],
+    "float": [
+        "\\floatstyle{}", "\\floatname{}{}",
+        "\\newfloat{}{}{}", "\\listof{}{}",
+    ],
+    "rotating": [
+        "\\begin{sidewaysfigure}", "\\end{sidewaysfigure}",
+        "\\begin{sidewaystable}", "\\end{sidewaystable}",
+        "\\begin{turn}", "\\end{turn}", "\\rotatebox{}{}",
+    ],
+    "wrapfig": [
+        "\\begin{wrapfigure}{}{}", "\\end{wrapfigure}",
+        "\\begin{wraptable}{}{}", "\\end{wraptable}",
+    ],
+    "varioref": [
+        "\\vref{}", "\\vpageref{}", "\\vrefrange{}{}", "\\fullref{}", "\\Vref{}",
+    ],
+    "subfig": [
+        "\\subfloat[][]{}", "\\subfloat[]{}", "\\subref{}",
+    ],
+    "standalone": [
+        "\\documentclass{standalone}", "\\standaloneconfig{}",
+    ],
+    "svg": [
+        "\\includesvg{}", "\\includesvg[width=\\textwidth]{}",
+    ],
+    # ── Tabelle avanzate ──────────────────────────────────────────────────────
+    "tabularray": [
+        "\\begin{tblr}", "\\end{tblr}",
+        "\\begin{longtblr}", "\\end{longtblr}",
+        "\\SetTblrStyle{}{}", "\\hline[]", "\\cline{}",
+    ],
+    "array": [
+        "\\newcolumntype{}{}", "\\extrarowheight",
+        "\\arraybackslash", "\\centering\\arraybackslash",
+    ],
+    "makecell": [
+        "\\makecell{}", "\\makecell[]{}", "\\thead{}",
+        "\\makegapedcells",
+    ],
+    # ── Nomenclatura, glossari, indici ────────────────────────────────────────
+    "acro": [
+        "\\ac{}", "\\acl{}", "\\acs{}", "\\acf{}",
+        "\\Ac{}", "\\acsp{}", "\\DeclareAcronym{}{}", "\\printacronyms",
+    ],
+    "nomencl": [
+        "\\nomenclature{}{}", "\\printnomenclature", "\\makenomenclature",
+    ],
+    # ── Codice esteso ─────────────────────────────────────────────────────────
+    "verbatim": [
+        "\\begin{verbatim}", "\\end{verbatim}",
+        "\\begin{verbatim*}", "\\end{verbatim*}",
+        "\\begin{comment}", "\\end{comment}",
+        "\\verbatiminput{}",
+    ],
+    "fancyvrb": [
+        "\\begin{Verbatim}", "\\end{Verbatim}",
+        "\\begin{Verbatim}[numbers=left]", "\\end{Verbatim}",
+        "\\VerbatimInput{}", "\\VerbatimInput[]{}",
+        "\\fvset{}",
+    ],
+    # ── Utilità ───────────────────────────────────────────────────────────────
+    "xparse": [
+        "\\NewDocumentCommand{}{}{}", "\\RenewDocumentCommand{}{}{}",
+        "\\NewDocumentEnvironment{}{}{}{}", "\\RenewDocumentEnvironment{}{}{}{}",
+        "\\NewExpandableDocumentCommand{}{}{}",
+    ],
+    "etoolbox": [
+        "\\AtBeginDocument{}", "\\AtEndDocument{}",
+        "\\apptocmd{}{}{}{}", "\\pretocmd{}{}{}{}",
+        "\\patchcmd{}{}{}{}{}", "\\providetoggle{}",
+        "\\toggletrue{}", "\\togglefalse{}", "\\iftoggle{}{}{}",
+    ],
+    "calc": [
+        "\\setlength{}{\\textwidth - 2cm}",
+        "\\setcounter{}{\\value{} + 1}",
+        "\\widthof{}", "\\heightof{}", "\\depthof{}",
+    ],
+    "ifthen": [
+        "\\ifthenelse{}{}{}", "\\whiledo{}{}",
+        "\\equal{}{}", "\\NOT{}", "\\AND{}{}", "\\OR{}{}",
+        "\\isodd{}", "\\lengthtest{}",
+    ],
+    "lastpage": ["\\pageref{LastPage}"],
+    "ulem": [
+        "\\uline{}", "\\uuline{}", "\\uwave{}",
+        "\\sout{}", "\\xout{}", "\\dashuline{}", "\\dotuline{}", "\\normalem",
+    ],
+    "soul": [
+        "\\so{}", "\\caps{}", "\\hl{}", "\\st{}", "\\ul{}", "\\sethlcolor{}",
+    ],
+    "changes": [
+        "\\added{}", "\\deleted{}", "\\replaced{}{}",
+        "\\added[id=]{}", "\\listofchanges",
+    ],
+    # ── Chimica ───────────────────────────────────────────────────────────────
+    "mhchem": ["\\ce{}", "\\cee{}", "\\cf{}"],
+    "chemformula": ["\\ch{}", "\\chname{}"],
+    # ── Circuiti ──────────────────────────────────────────────────────────────
+    "circuitikz": [
+        "\\begin{circuitikz}", "\\end{circuitikz}",
+        "to[R=]", "to[C=]", "to[L=]", "to[battery=]",
+        "to[short]", "to[open]",
+    ],
+    # ── Referenze ─────────────────────────────────────────────────────────────
+    "doi": ["\\doi{}", "\\doitext{}"],
+    "url": ["\\url{}", "\\urlstyle{}", "\\urldef{}{}{}"],
+    "lineno": [
+        "\\linenumbers", "\\nolinenumbers",
+        "\\modulolinenumbers{}", "\\linenumberfont",
+    ],
+    # ── Simboli extra ─────────────────────────────────────────────────────────
+    "stmaryrd": [
+        "\\llbracket", "\\rrbracket", "\\bigsqcap", "\\lightning",
+    ],
+    "wasysym": [
+        "\\square", "\\hexagon", "\\circle", "\\male", "\\female", "\\phone",
+    ],
+    "bbm": ["\\mathbbm{1}", "\\mathbbm{N}", "\\mathbbm{R}"],
+    "dsfont": ["\\mathds{1}", "\\mathds{R}"],
+    "mathrsfs": ["\\mathscr{A}", "\\mathscr{L}"],
+    "eufrak": ["\\mathfrak{A}", "\\mathfrak{g}"],
+    "pgfplotstable": [
+        "\\pgfplotstableread{}{}", "\\pgfplotstabletypeset{}",
+        "\\pgfplotstablecreatecol[]{}{}",
+    ],
+    "mdframed": [
+        "\\begin{mdframed}", "\\end{mdframed}",
+        "\\newmdenv{}{}", "\\newmdtheoremenv{}{}", "\\mdfsetup{}",
+    ],
+    "framed": [
+        "\\begin{framed}", "\\end{framed}",
+        "\\begin{shaded}", "\\end{shaded}",
+        "\\begin{leftbar}", "\\end{leftbar}",
+    ],
+}
+
+# ─── Opzioni per comandi con argomento opzionale [...] ───────────────────────
+
+COMMAND_OPTIONS: dict[str, list[str]] = {
+    "documentclass": [
+        "10pt", "11pt", "12pt", "14pt",
+        "a4paper", "letterpaper", "a5paper", "b5paper",
+        "twoside", "oneside", "twocolumn", "onecolumn",
+        "landscape", "portrait", "draft", "final",
+        "titlepage", "notitlepage",
+        "openright", "openany", "fleqn", "leqno",
+    ],
+    "includegraphics": [
+        "width=\\textwidth", "width=0.8\\textwidth", "width=0.5\\textwidth",
+        "width=\\linewidth", "width=\\columnwidth",
+        "height=\\textheight", "height=5cm", "height=3cm",
+        "scale=0.5", "scale=0.7", "scale=0.8", "scale=1.0",
+        "angle=90", "angle=180", "angle=270",
+        "clip=true", "trim=0 0 0 0", "keepaspectratio",
+        "page=1", "draft=true",
+    ],
+    "figure":     ["h", "t", "b", "p", "H", "htbp", "!htbp", "!h", "!t"],
+    "table":      ["h", "t", "b", "p", "H", "htbp", "!htbp"],
+    "wrapfigure": ["l", "r", "L", "R", "i", "o"],
+    "minipage":   ["t", "b", "c", "T", "B"],
+    "tabular":    ["t", "b", "c"],
+    "tabularx":   ["t", "b", "c"],
+    "longtable":  ["t", "b", "c", "h", "H"],
+    "lstlisting": [
+        "language=Python", "language=C", "language=C++", "language=Java",
+        "language=bash", "language=SQL", "language=HTML", "language=TeX",
+        "language=Matlab", "language=R",
+        "label=lst:", "caption=", "captionpos=b", "captionpos=t",
+        "numbers=left", "numbers=right", "numbers=none",
+        "numberstyle=\\tiny", "stepnumber=1", "numbersep=5pt",
+        "basicstyle=\\small\\ttfamily", "basicstyle=\\footnotesize\\ttfamily",
+        "keywordstyle=\\color{blue}\\bfseries",
+        "commentstyle=\\color{gray}\\itshape",
+        "stringstyle=\\color{red}",
+        "frame=single", "frame=lines", "frame=none", "frame=tb",
+        "breaklines=true", "breakatwhitespace=true",
+        "tabsize=4", "showtabs=false", "showspaces=false",
+    ],
+    "minted": [
+        "linenos=true", "linenos=false", "breaklines=true",
+        "bgcolor=lightgray", "fontsize=\\small", "fontsize=\\footnotesize",
+        "frame=lines", "framesep=2mm", "firstnumber=1",
+    ],
+    "geometry": [
+        "margin=2cm", "margin=2.5cm", "margin=1in",
+        "left=3cm", "right=2cm", "top=2.5cm", "bottom=2.5cm",
+        "inner=3cm", "outer=2cm",
+        "textwidth=16cm", "textheight=24cm",
+        "paper=a4paper", "paper=letterpaper", "landscape",
+        "headheight=14pt", "headsep=10pt", "footskip=25pt",
+        "includeheadfoot", "includefoot", "includehead", "bindingoffset=1cm",
+    ],
+    "hyperref": [
+        "colorlinks=true", "colorlinks=false",
+        "linkcolor=blue", "citecolor=green", "urlcolor=cyan",
+        "linkcolor=black", "citecolor=black", "urlcolor=black",
+        "hidelinks", "breaklinks=true",
+        "pdftitle=", "pdfauthor=", "pdfsubject=", "pdfkeywords=",
+        "unicode=true", "bookmarks=true", "bookmarksnumbered=true",
+        "pdfstartview=FitH", "linktoc=all",
+    ],
+    "babel": [
+        "italian", "english", "german", "ngerman", "french",
+        "spanish", "portuguese", "dutch", "russian",
+        "american", "british", "greek", "latin",
+    ],
+    "inputenc": ["utf8", "latin1", "latin9", "ansinew"],
+    "fontenc":  ["T1", "OT1", "T2A", "LGR"],
+    "xcolor":   ["dvipsnames", "svgnames", "x11names", "table", "xcdraw"],
+    "enumitem": [
+        "label=\\arabic*.", "label=\\alph*)", "label=\\roman*.",
+        "label=\\Alph*.", "label=\\Roman*.",
+        "label=•", "label=--", "label=◦",
+        "leftmargin=*", "leftmargin=1cm", "leftmargin=0pt",
+        "itemsep=0pt", "itemsep=5pt", "topsep=0pt", "parsep=0pt",
+        "resume", "resume*", "nosep", "wide", "noitemsep",
+    ],
+    "caption": [
+        "font=small", "font=footnotesize", "labelfont=bf", "labelfont=it",
+        "format=plain", "format=hang", "justification=centering",
+        "justification=raggedright", "width=0.8\\textwidth",
+        "labelsep=colon", "labelsep=period", "skip=5pt",
+    ],
+    "tcolorbox": [
+        "colback=white", "colback=yellow!10", "colback=blue!10",
+        "colframe=black", "colframe=blue", "colframe=red",
+        "title=", "fonttitle=\\bfseries", "arc=5pt", "arc=0pt",
+        "boxrule=0.5pt", "drop shadow", "enhanced", "breakable",
+    ],
+    "columns":   ["t", "T", "c", "b"],
+    "column":    [],
+    "cmidrule":  ["lr", "l", "r"],
+    "multirow":  ["*", "="],
+    "makecell":  ["t", "b", "c", "l", "r"],
+    "algorithm2e": ["H", "h", "t", "b", "htbp"],
+    "usetheme":  [
+        "Berlin", "Warsaw", "Madrid", "AnnArbor", "Antibes",
+        "Bergen", "Berkeley", "Boadilla", "CambridgeUS",
+        "Copenhagen", "Darmstadt", "default", "Dresden", "Frankfurt",
+        "Goettingen", "Ilmenau", "Luebeck", "Malmoe", "Marburg",
+        "Montpellier", "PaloAlto", "Pittsburgh", "Rochester",
+        "Singapore", "Szeged",
+    ],
+    "usecolortheme": [
+        "default", "albatross", "beaver", "beetle", "crane",
+        "dolphin", "dove", "fly", "lily", "monarca",
+        "orchid", "rose", "seagull", "seahorse", "spruce",
+        "whale", "wolverine",
+    ],
+}
+
+# ─── Opzioni valide per \\begin{env}[...] ─────────────────────────────────────
+
+ENVIRONMENT_OPTIONS: dict[str, list[str]] = {
+    "figure":         ["h", "t", "b", "p", "H", "htbp", "!htbp"],
+    "figure*":        ["h", "t", "b", "p", "H", "htbp", "!htbp"],
+    "table":          ["h", "t", "b", "p", "H", "htbp", "!htbp"],
+    "table*":         ["h", "t", "b", "p", "H", "htbp", "!htbp"],
+    "sidewaysfigure": ["h", "t", "b", "p", "htbp"],
+    "sidewaystable":  ["h", "t", "b", "p", "htbp"],
+    "minipage":       ["t", "b", "c", "T", "B"],
+    "tabular":        ["t", "b", "c"],
+    "tabular*":       ["t", "b", "c"],
+    "tabularx":       ["t", "b", "c"],
+    "tabulary":       ["t", "b", "c"],
+    "longtable":      ["t", "b", "c", "l", "r"],
+    "wrapfigure":     ["l", "r", "L", "R", "i", "o"],
+    "wraptable":      ["l", "r", "L", "R"],
+    "lstlisting":     [
+        "language=Python", "language=C", "language=C++",
+        "label=lst:", "caption=", "numbers=left", "frame=single",
+        "breaklines=true",
+    ],
+    "minted":         ["linenos", "breaklines", "fontsize=\\small"],
+    "tcolorbox":      ["colback=white", "colframe=black", "title=", "breakable"],
+    "frame":          [],
+    "columns":        ["t", "T", "c", "b"],
+    "column":         [],
+    "block":          [],
+    "alertblock":     [],
+    "exampleblock":   [],
+    "algorithm":      ["H", "h", "t", "b"],
+    "algorithm2e":    ["H", "h", "t", "b"],
+    "itemize":        ["label=", "leftmargin=", "itemsep=0pt", "nosep"],
+    "enumerate":      ["label=\\arabic*.", "label=\\alph*)", "resume"],
+    "description":    ["leftmargin=", "style=nextline"],
+    "multicols":      [],
+    "subfigure":      ["t", "b", "c"],
+    "subtable":       ["t", "b", "c"],
+    "axis": [
+        "xlabel=", "ylabel=", "title=",
+        "xmin=", "xmax=", "ymin=", "ymax=",
+        "legend pos=north east", "legend pos=south east",
+        "grid=major", "grid=minor", "grid=both",
+        "width=\\textwidth", "height=8cm",
+        "xmode=log", "ymode=log",
+    ],
+}
+
+# ─── Opzioni per \\usepackage[...]{pacchetto} ─────────────────────────────────
+
+PACKAGE_OPTIONS: dict[str, list[str]] = {
+    "geometry":    ["margin=2cm", "a4paper", "left=3cm", "right=2cm",
+                    "top=2.5cm", "bottom=2.5cm", "landscape"],
+    "hyperref":    ["colorlinks=true", "hidelinks", "pdftitle=",
+                    "bookmarks=true", "unicode=true"],
+    "babel":       ["italian", "english", "german", "french", "spanish"],
+    "inputenc":    ["utf8", "latin1"],
+    "fontenc":     ["T1", "OT1"],
+    "xcolor":      ["dvipsnames", "svgnames", "x11names", "table"],
+    "enumitem":    ["shortlabels", "inline"],
+    "caption":     ["font=small", "labelfont=bf"],
+    "microtype":   ["protrusion=true", "expansion=true", "final"],
+    "cleveref":    ["capitalise", "nameinlink", "noabbrev"],
+    "biblatex":    [
+        "backend=biber", "backend=bibtex",
+        "style=numeric", "style=authoryear", "style=alphabetic",
+        "style=ieee", "sorting=none", "sorting=nyt",
+        "maxbibnames=10", "maxcitenames=2",
+        "doi=false", "url=false", "isbn=false",
+    ],
+    "natbib":      ["round", "square", "colon", "comma",
+                    "authoryear", "numbers", "super", "sort"],
+    "minted":      ["cache=false"],
+    "tcolorbox":   ["most", "skins", "theorems", "breakable"],
+    "pgfplots":    ["compat=newest", "compat=1.18"],
+    "siunitx":     ["locale=IT", "locale=DE", "locale=UK"],
+    "algorithm2e": ["ruled", "vlined", "linesnumbered", "boxed",
+                    "italiano", "english"],
+    "fontspec":    ["no-math"],
+    "unicode-math":["math-style=ISO", "bold-style=ISO"],
+    "appendix":    ["toc", "titletoc", "title"],
+    "glossaries":  ["acronym", "toc", "nonumberlist", "nopostdot"],
+    "todonotes":   ["disable", "colorinlistoftodos"],
+    "ulem":        ["normalem"],
+    "csquotes":    ["style=italian", "style=german", "style=english"],
+    "listings":    ["final"],
 }
 
 # ─── LaTeXSupport: parser e connessioni ──────────────────────────────────────
@@ -320,6 +754,8 @@ class LaTeXSupport:
             LaTeXSupport._handle_newline(editor)
         elif char == "{":
             LaTeXSupport._handle_open_brace(editor)
+        elif char == "[":
+            LaTeXSupport._handle_open_bracket(editor)
         elif char == "$":
             LaTeXSupport._handle_dollar(editor)
         elif char == "\\":
@@ -376,6 +812,13 @@ class LaTeXSupport:
         ac = getattr(editor, "_autocomplete", None)
         if ac:
             ac.handle_latex_special("{")
+
+    @staticmethod
+    def _handle_open_bracket(editor: "EditorWidget") -> None:
+        """Dopo '[': suggerisce opzioni contestuali per il comando/ambiente."""
+        ac = getattr(editor, "_autocomplete", None)
+        if ac:
+            ac.handle_latex_option("[")
 
     @staticmethod
     def _handle_dollar(editor: "EditorWidget") -> None:
@@ -501,33 +944,6 @@ class LaTeXSupport:
         return cmds
 
     @staticmethod
-    def build_dynamic_api(text: str,
-                           tex_path: Optional[Path] = None) -> list[str]:
-        """
-        Costruisce la lista API dinamica dal documento corrente:
-        - Comandi custom (\newcommand)
-        - Ambienti custom (\newenvironment)
-        - Comandi dai pacchetti caricati
-        Usata da AutoCompleteManager._rebuild_api per arricchire il completamento.
-        """
-        api: list[str] = []
-
-        # Comandi custom definiti nel documento
-        for cmd in LaTeXSupport.extract_custom_commands(text):
-            api.append(f"{cmd}")
-
-        # Ambienti custom
-        for env in LaTeXSupport.extract_custom_environments(text):
-            api.append(f"\\begin{{{env}}}")
-            api.append(f"\\end{{{env}}}")
-
-        # Comandi dai pacchetti
-        packages = LaTeXSupport.extract_used_packages(text)
-        api.extend(LaTeXSupport.get_package_commands(packages))
-
-        return api
-
-    @staticmethod
     def get_all_environments(text: str) -> list[str]:
         """
         Restituisce tutti gli ambienti disponibili:
@@ -548,7 +964,221 @@ class LaTeXSupport:
         if re.search(r'\\begin\{[^}]+\}', stripped):
             return prev_indent + "    "
         if re.search(r'\\end\{[^}]+\}', stripped):
-            # Togli un livello se presente
             if len(prev_indent) >= 4:
                 return prev_indent[:-4]
         return prev_indent
+
+    # ── Opzioni contestuali ───────────────────────────────────────────────────
+
+    @staticmethod
+    def get_command_options(cmd: str) -> list[str]:
+        """Opzioni per il comando (da usare dopo '[')."""
+        return COMMAND_OPTIONS.get(cmd, [])
+
+    @staticmethod
+    def get_environment_options(env: str) -> list[str]:
+        """Opzioni per l'ambiente (da usare dopo '\\begin{env}[')."""
+        return ENVIRONMENT_OPTIONS.get(env, [])
+
+    @staticmethod
+    def get_package_options(pkg: str) -> list[str]:
+        """Opzioni per \\usepackage[...]{pkg}."""
+        return PACKAGE_OPTIONS.get(pkg.lower(), [])
+
+    # ── Supporto multi-file ───────────────────────────────────────────────────
+
+    @staticmethod
+    def collect_project_files(tex_path: Optional[Path],
+                               max_depth: int = 5) -> list[Path]:
+        """
+        Trova ricorsivamente tutti i .tex inclusi via \\input{}, \\include{},
+        \\subfile{} a partire dal file radice.
+        """
+        if not tex_path or not tex_path.exists():
+            return []
+        visited: set[Path] = set()
+        result: list[Path] = []
+
+        def _collect(path: Path, depth: int) -> None:
+            if depth > max_depth or path in visited:
+                return
+            visited.add(path)
+            result.append(path)
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                return
+            for m in re.finditer(
+                r'\\(?:input|include|subfile|subinputfrom)\*?\{([^}]+)\}', text
+            ):
+                ref = m.group(1).strip()
+                if not ref.endswith(".tex"):
+                    ref += ".tex"
+                ref_path = (path.parent / ref).resolve()
+                if ref_path.exists():
+                    _collect(ref_path, depth + 1)
+
+        _collect(tex_path, 0)
+        return result
+
+    @staticmethod
+    def extract_labels_multifile(tex_path: Optional[Path]) -> list[str]:
+        """Estrae tutte le \\label{} dall'intero progetto multi-file."""
+        labels: list[str] = []
+        for fpath in LaTeXSupport.collect_project_files(tex_path):
+            try:
+                text = fpath.read_text(encoding="utf-8", errors="replace")
+                labels.extend(LaTeXSupport.extract_labels(text))
+            except Exception:
+                pass
+        return sorted(set(labels))
+
+    @staticmethod
+    def extract_bibtex_keys_multifile(tex_path: Optional[Path]) -> list[str]:
+        """Estrae le chiavi BibTeX considerando tutti i file del progetto."""
+        keys: list[str] = []
+        for fpath in LaTeXSupport.collect_project_files(tex_path):
+            try:
+                text = fpath.read_text(encoding="utf-8", errors="replace")
+                keys.extend(LaTeXSupport.extract_bibtex_keys(text, fpath))
+            except Exception:
+                pass
+        return sorted(set(keys))
+
+    @staticmethod
+    def extract_custom_commands_multifile(tex_path: Optional[Path]) -> list[str]:
+        """Raccoglie \\newcommand da tutti i file del progetto."""
+        cmds: list[str] = []
+        for fpath in LaTeXSupport.collect_project_files(tex_path):
+            try:
+                text = fpath.read_text(encoding="utf-8", errors="replace")
+                cmds.extend(LaTeXSupport.extract_custom_commands(text))
+            except Exception:
+                pass
+        return sorted(set(cmds))
+
+    @staticmethod
+    def build_dynamic_api(text: str,
+                           tex_path: Optional[Path] = None) -> list[str]:
+        """
+        Costruisce la lista API dinamica dal documento e dal progetto:
+        - Comandi custom (\\newcommand) da tutti i file collegati
+        - Ambienti custom (\\newenvironment)
+        - Comandi dai pacchetti caricati
+        """
+        api: list[str] = []
+
+        # Comandi custom dal documento corrente + file inclusi
+        if tex_path:
+            all_cmds = LaTeXSupport.extract_custom_commands_multifile(tex_path)
+        else:
+            all_cmds = LaTeXSupport.extract_custom_commands(text)
+        api.extend(all_cmds)
+
+        # Ambienti custom
+        for env in LaTeXSupport.extract_custom_environments(text):
+            api.append(f"\\begin{{{env}}}")
+            api.append(f"\\end{{{env}}}")
+
+        # Comandi dai pacchetti
+        packages = LaTeXSupport.extract_used_packages(text)
+        api.extend(LaTeXSupport.get_package_commands(packages))
+
+        return api
+
+    # ── Controllo errori in tempo reale ──────────────────────────────────────
+
+    @staticmethod
+    def check_environment_balance(text: str) -> list[dict]:
+        """
+        Controlla il bilanciamento \\begin{}...\\end{}.
+        Restituisce lista di {line, env, msg} per ambienti sbilanciati.
+        """
+        errors: list[dict] = []
+        stack: list[tuple[str, int]] = []  # (env_name, lineno)
+
+        for lineno, line in enumerate(text.split("\n")):
+            # Rimuovi la parte commentata (% non escapata)
+            stripped = re.sub(r'(?<!\\)%.*', '', line)
+
+            for m in re.finditer(r'\\begin\{([^}]+)\}', stripped):
+                stack.append((m.group(1), lineno))
+
+            for m in re.finditer(r'\\end\{([^}]+)\}', stripped):
+                env_name = m.group(1)
+                if not stack:
+                    errors.append({
+                        "line": lineno, "env": env_name,
+                        "msg": f"\\end{{{env_name}}} senza \\begin corrispondente",
+                    })
+                else:
+                    top_env, top_line = stack[-1]
+                    if top_env == env_name:
+                        stack.pop()
+                    else:
+                        errors.append({
+                            "line": lineno, "env": env_name,
+                            "msg": (
+                                f"\\end{{{env_name}}} chiude '{top_env}' "
+                                f"aperto a riga {top_line + 1}"
+                            ),
+                        })
+                        stack.pop()
+
+        for env_name, lineno in stack:
+            errors.append({
+                "line": lineno, "env": env_name,
+                "msg": f"\\begin{{{env_name}}} non chiuso",
+            })
+
+        return errors
+
+    # ── Conteggio parole ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def count_words(text: str) -> dict:
+        """
+        Conta parole (corpo documento, escluso preambolo e comandi LaTeX).
+        Restituisce {words, chars, chars_nospace, lines, paragraphs}.
+        """
+        text_nc = re.sub(r'(?<!\\)%[^\n]*', '', text)
+        m = re.search(r'\\begin\{document\}', text_nc)
+        body = text_nc[m.end():] if m else text_nc
+        m2 = re.search(r'\\end\{document\}', body)
+        body = body[:m2.start()] if m2 else body
+
+        body_clean = re.sub(
+            r'\\[a-zA-Z]+\*?\s*(\[[^\]]*\])?\s*\{([^}]*)\}', r'\2', body
+        )
+        body_clean = re.sub(r'\\[a-zA-Z]+\*?\s*(\[[^\]]*\])?', ' ', body_clean)
+        body_clean = re.sub(r'[{}]', ' ', body_clean)
+
+        return {
+            "words":         len(re.findall(r'\b\w+\b', body_clean)),
+            "chars":         len(text),
+            "chars_nospace": len(re.sub(r'\s', '', text)),
+            "lines":         text.count("\n") + 1,
+            "paragraphs":    len(re.findall(r'\n\s*\n', body)) + 1,
+        }
+
+    # ── Rilevamento math mode ─────────────────────────────────────────────────
+
+    @staticmethod
+    def is_in_math_mode(text: str, pos: int) -> bool:
+        """
+        Euristica: True se la posizione è all'interno di un ambiente matematico.
+        """
+        before = text[:pos]
+        dollar_count = len(re.findall(r'(?<!\\)\$', before))
+        if dollar_count % 2 == 1:
+            return True
+        math_envs = (
+            "equation", "align", "gather", "multline",
+            "math", "displaymath", "split", "cases",
+            "alignat", "flalign", "subequations",
+        )
+        env_pat = r'\\begin\{(' + '|'.join(math_envs) + r'\*?)\}'
+        end_pat = r'\\end\{('  + '|'.join(math_envs) + r'\*?)\}'
+        opens  = len(re.findall(env_pat, before))
+        closes = len(re.findall(end_pat, before))
+        return opens > closes

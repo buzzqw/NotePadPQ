@@ -141,6 +141,285 @@ BUILTIN_SNIPPETS: dict[str, dict[str, dict]] = {
             "description": "Frazione",
             "body": "\\frac{${1:num}}{${2:den}}${0}",
         },
+        # ── Template documento completo ────────────────────────────────────────
+        "article": {
+            "trigger": "doc",
+            "description": "Template articolo completo",
+            "body": (
+                "\\documentclass[11pt,a4paper]{article}\n"
+                "\\usepackage[utf8]{inputenc}\n"
+                "\\usepackage[T1]{fontenc}\n"
+                "\\usepackage{lmodern}\n"
+                "\\usepackage{amsmath,amssymb,amsthm}\n"
+                "\\usepackage{graphicx}\n"
+                "\\usepackage{hyperref}\n"
+                "\\usepackage{microtype}\n"
+                "\n"
+                "\\title{${1:Titolo}}\n"
+                "\\author{${2:Autore}}\n"
+                "\\date{\\today}\n"
+                "\n"
+                "\\begin{document}\n"
+                "\\maketitle\n"
+                "\\tableofcontents\n"
+                "\n"
+                "\\section{${3:Introduzione}}\n"
+                "${0}\n"
+                "\n"
+                "\\end{document}"
+            ),
+        },
+        "beamer_frame": {
+            "trigger": "bfr",
+            "description": "Frame beamer",
+            "body": (
+                "\\begin{frame}{${1:Titolo}}\n"
+                "    ${0}\n"
+                "\\end{frame}"
+            ),
+        },
+        "beamer_doc": {
+            "trigger": "bea",
+            "description": "Template presentazione beamer",
+            "body": (
+                "\\documentclass{beamer}\n"
+                "\\usetheme{${1:Madrid}}\n"
+                "\\usepackage[utf8]{inputenc}\n"
+                "\\usepackage[T1]{fontenc}\n"
+                "\\usepackage{amsmath,amssymb}\n"
+                "\\usepackage{graphicx}\n"
+                "\n"
+                "\\title{${2:Titolo}}\n"
+                "\\author{${3:Autore}}\n"
+                "\\institute{${4:Istituto}}\n"
+                "\\date{\\today}\n"
+                "\n"
+                "\\begin{document}\n"
+                "\n"
+                "\\begin{frame}\n"
+                "    \\titlepage\n"
+                "\\end{frame}\n"
+                "\n"
+                "\\begin{frame}{Sommario}\n"
+                "    \\tableofcontents\n"
+                "\\end{frame}\n"
+                "\n"
+                "${0}\n"
+                "\n"
+                "\\end{document}"
+            ),
+        },
+        # ── Ambienti matematici ────────────────────────────────────────────────
+        "theorem": {
+            "trigger": "thm",
+            "description": "Ambiente theorem",
+            "body": (
+                "\\begin{theorem}[${1:Nome}]\n"
+                "    ${0}\n"
+                "\\end{theorem}"
+            ),
+        },
+        "proof": {
+            "trigger": "prf",
+            "description": "Ambiente proof",
+            "body": (
+                "\\begin{proof}\n"
+                "    ${0}\n"
+                "\\end{proof}"
+            ),
+        },
+        "definition": {
+            "trigger": "def",
+            "description": "Ambiente definition",
+            "body": (
+                "\\begin{definition}[${1:Nome}]\n"
+                "    ${0}\n"
+                "\\end{definition}"
+            ),
+        },
+        "gather": {
+            "trigger": "gat",
+            "description": "Ambiente gather",
+            "body": (
+                "\\begin{gather}\n"
+                "    ${1:formula} \\\\\\\\\n"
+                "    ${0}\n"
+                "\\end{gather}"
+            ),
+        },
+        "cases": {
+            "trigger": "cas",
+            "description": "Ambiente cases",
+            "body": (
+                "\\begin{cases}\n"
+                "    ${1:a} & \\text{se } ${2:condizione} \\\\\\\\\n"
+                "    ${0} & \\text{altrimenti}\n"
+                "\\end{cases}"
+            ),
+        },
+        # ── Matrici ───────────────────────────────────────────────────────────
+        "pmatrix": {
+            "trigger": "mat",
+            "description": "Matrice parentesi tonde (pmatrix)",
+            "body": (
+                "\\begin{pmatrix}\n"
+                "    ${1:a} & ${2:b} \\\\\\\\\n"
+                "    ${3:c} & ${0:d}\n"
+                "\\end{pmatrix}"
+            ),
+        },
+        "bmatrix": {
+            "trigger": "bmat",
+            "description": "Matrice parentesi quadre (bmatrix)",
+            "body": (
+                "\\begin{bmatrix}\n"
+                "    ${1:a} & ${2:b} \\\\\\\\\n"
+                "    ${3:c} & ${0:d}\n"
+                "\\end{bmatrix}"
+            ),
+        },
+        # ── Math shortcuts ────────────────────────────────────────────────────
+        "integral": {
+            "trigger": "int",
+            "description": "Integrale con limiti",
+            "body": "\\int_{${1:a}}^{${2:b}} ${3:f(x)} \\, \\mathrm{d}${0:x}",
+        },
+        "sum": {
+            "trigger": "sum",
+            "description": "Sommatoria",
+            "body": "\\sum_{${1:i=1}}^{${2:n}} ${0:a_i}",
+        },
+        "limit": {
+            "trigger": "lim",
+            "description": "Limite",
+            "body": "\\lim_{${1:x} \\to ${2:\\infty}} ${0:f(x)}",
+        },
+        "derivative": {
+            "trigger": "der",
+            "description": "Derivata",
+            "body": "\\frac{\\mathrm{d}${1:f}}{\\mathrm{d}${0:x}}",
+        },
+        "partialderiv": {
+            "trigger": "pder",
+            "description": "Derivata parziale",
+            "body": "\\frac{\\partial ${1:f}}{\\partial ${0:x}}",
+        },
+        # ── TikZ ──────────────────────────────────────────────────────────────
+        "tikzpicture": {
+            "trigger": "tikz",
+            "description": "Ambiente tikzpicture",
+            "body": (
+                "\\begin{tikzpicture}\n"
+                "    ${0}\n"
+                "\\end{tikzpicture}"
+            ),
+        },
+        "pgfplot": {
+            "trigger": "plot",
+            "description": "Grafico con pgfplots",
+            "body": (
+                "\\begin{tikzpicture}\n"
+                "    \\begin{axis}[\n"
+                "        xlabel={${1:$x$}},\n"
+                "        ylabel={${2:$y$}},\n"
+                "        title={${3:Grafico}},\n"
+                "        grid=major,\n"
+                "    ]\n"
+                "        \\addplot {${0:x^2}};\n"
+                "    \\end{axis}\n"
+                "\\end{tikzpicture}"
+            ),
+        },
+        # ── Struttura documento ───────────────────────────────────────────────
+        "subsection": {
+            "trigger": "sub",
+            "description": "\\subsection{}",
+            "body": "\\subsection{${1:Titolo}}\n\\label{sub:${2:label}}\n\n${0}",
+        },
+        "newcommand": {
+            "trigger": "nc",
+            "description": "\\newcommand",
+            "body": "\\newcommand{\\${1:nome}}[${2:0}]{${0:definizione}}",
+        },
+        "usepackage": {
+            "trigger": "pkg",
+            "description": "\\usepackage",
+            "body": "\\usepackage[${1:opzioni}]{${0:pacchetto}}",
+        },
+        "lstlisting": {
+            "trigger": "lst",
+            "description": "Ambiente lstlisting",
+            "body": (
+                "\\begin{lstlisting}[language=${1:Python},caption={${2:Caption}},label={lst:${3:label}}]\n"
+                "${0}\n"
+                "\\end{lstlisting}"
+            ),
+        },
+        "minipage": {
+            "trigger": "min",
+            "description": "Due minipage affiancate",
+            "body": (
+                "\\begin{minipage}[t]{${1:0.48}\\textwidth}\n"
+                "    ${2}\n"
+                "\\end{minipage}\n"
+                "\\hfill\n"
+                "\\begin{minipage}[t]{${3:0.48}\\textwidth}\n"
+                "    ${0}\n"
+                "\\end{minipage}"
+            ),
+        },
+        "appendix": {
+            "trigger": "app",
+            "description": "Appendice",
+            "body": (
+                "\\appendix\n"
+                "\\section{${1:Appendice A}}\n"
+                "\\label{app:${2:label}}\n"
+                "\n"
+                "${0}"
+            ),
+        },
+        "bibliography_bibtex": {
+            "trigger": "bib",
+            "description": "Setup bibliography (bibtex)",
+            "body": (
+                "\\bibliographystyle{${1:plain}}\n"
+                "\\bibliography{${0:references}}"
+            ),
+        },
+        "bibliography_biblatex": {
+            "trigger": "bibl",
+            "description": "Setup bibliography (biblatex)",
+            "body": (
+                "\\usepackage[backend=biber,style=${1:numeric}]{biblatex}\n"
+                "\\addbibresource{${2:references.bib}}\n"
+                "% ...\n"
+                "\\printbibliography"
+            ),
+        },
+        "tcolorbox_thm": {
+            "trigger": "tcb",
+            "description": "tcolorbox colorata",
+            "body": (
+                "\\begin{tcolorbox}[colback=${1:blue!5!white},colframe=${2:blue!75!black},title={${3:Titolo}}]\n"
+                "    ${0}\n"
+                "\\end{tcolorbox}"
+            ),
+        },
+        "columns_beamer": {
+            "trigger": "col",
+            "description": "Colonne beamer",
+            "body": (
+                "\\begin{columns}[t]\n"
+                "    \\begin{column}{${1:0.5}\\textwidth}\n"
+                "        ${2}\n"
+                "    \\end{column}\n"
+                "    \\begin{column}{${3:0.5}\\textwidth}\n"
+                "        ${0}\n"
+                "    \\end{column}\n"
+                "\\end{columns}"
+            ),
+        },
     },
 
     "html": {

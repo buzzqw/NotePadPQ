@@ -336,6 +336,17 @@ def _apply_lexer(editor: "EditorWidget",
                 editor.textChanged.connect(ac.on_document_changed)
         except Exception:
             pass
+        # Avvia il checker sintattico in tempo reale
+        try:
+            from editor.latex_checker import LaTeXChecker
+            old_checker = getattr(editor, "_latex_checker", None)
+            if old_checker:
+                old_checker.stop()
+            checker = LaTeXChecker(editor, parent=editor)
+            checker.start()
+            editor._latex_checker = checker
+        except Exception:
+            pass
 
     return True
 

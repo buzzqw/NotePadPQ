@@ -78,82 +78,267 @@ _API_PYTHON: list[str] = [
 ]
 
 _API_LATEX: list[str] = [
-    # struttura documento
-    "\\documentclass{}", "\\usepackage{}", "\\begin{}", "\\end{}",
-    "\\title{}", "\\author{}", "\\date{}", "\\maketitle",
-    # sezionamento
-    "\\part{}", "\\chapter{}", "\\section{}", "\\subsection{}",
-    "\\subsubsection{}", "\\paragraph{}", "\\subparagraph{}",
-    "\\section*{}", "\\subsection*{}", "\\subsubsection*{}",
-    # ambienti comuni
+    # ── Struttura documento ────────────────────────────────────────────────────
+    "\\documentclass{}?1\nScegli la classe documento",
+    "\\documentclass[]{}", "\\usepackage{}", "\\usepackage[]{}",
+    "\\begin{}", "\\end{}",
+    "\\title{}", "\\author{}", "\\date{}", "\\date{\\today}",
+    "\\maketitle", "\\makeatletter", "\\makeatother",
+    "\\tableofcontents", "\\listoffigures", "\\listoftables",
+    "\\appendix", "\\frontmatter", "\\mainmatter", "\\backmatter",
+    "\\newpage", "\\clearpage", "\\cleardoublepage",
+    "\\thispagestyle{}", "\\pagestyle{}",
+    "\\pagenumbering{arabic}", "\\pagenumbering{roman}",
+    "\\setcounter{}{}", "\\addtocounter{}{}", "\\value{}",
+    "\\stepcounter{}", "\\refstepcounter{}",
+    # ── Sezionamento ──────────────────────────────────────────────────────────
+    "\\part{}", "\\part*{}", "\\chapter{}", "\\chapter*{}",
+    "\\section{}", "\\section*{}", "\\subsection{}", "\\subsection*{}",
+    "\\subsubsection{}", "\\subsubsection*{}",
+    "\\paragraph{}", "\\subparagraph{}",
+    # ── Ambienti documento ────────────────────────────────────────────────────
     "\\begin{document}", "\\end{document}",
+    "\\begin{abstract}", "\\end{abstract}",
     "\\begin{figure}", "\\end{figure}",
+    "\\begin{figure*}", "\\end{figure*}",
     "\\begin{table}", "\\end{table}",
+    "\\begin{table*}", "\\end{table*}",
     "\\begin{tabular}", "\\end{tabular}",
+    "\\begin{tabular*}", "\\end{tabular*}",
+    "\\begin{tabularx}", "\\end{tabularx}",
+    "\\begin{longtable}", "\\end{longtable}",
     "\\begin{equation}", "\\end{equation}",
+    "\\begin{equation*}", "\\end{equation*}",
     "\\begin{align}", "\\end{align}",
     "\\begin{align*}", "\\end{align*}",
+    "\\begin{alignat}", "\\end{alignat}",
+    "\\begin{alignat*}", "\\end{alignat*}",
+    "\\begin{gather}", "\\end{gather}",
+    "\\begin{gather*}", "\\end{gather*}",
+    "\\begin{multline}", "\\end{multline}",
+    "\\begin{multline*}", "\\end{multline*}",
+    "\\begin{split}", "\\end{split}",
+    "\\begin{cases}", "\\end{cases}",
+    "\\begin{subequations}", "\\end{subequations}",
+    "\\begin{array}", "\\end{array}",
+    "\\begin{matrix}", "\\end{matrix}",
+    "\\begin{pmatrix}", "\\end{pmatrix}",
+    "\\begin{bmatrix}", "\\end{bmatrix}",
+    "\\begin{vmatrix}", "\\end{vmatrix}",
+    "\\begin{Vmatrix}", "\\end{Vmatrix}",
+    "\\begin{Bmatrix}", "\\end{Bmatrix}",
     "\\begin{itemize}", "\\end{itemize}",
     "\\begin{enumerate}", "\\end{enumerate}",
     "\\begin{description}", "\\end{description}",
     "\\begin{verbatim}", "\\end{verbatim}",
+    "\\begin{verbatim*}", "\\end{verbatim*}",
     "\\begin{abstract}", "\\end{abstract}",
     "\\begin{center}", "\\end{center}",
+    "\\begin{flushleft}", "\\end{flushleft}",
+    "\\begin{flushright}", "\\end{flushright}",
     "\\begin{minipage}", "\\end{minipage}",
     "\\begin{multicols}", "\\end{multicols}",
+    "\\begin{quote}", "\\end{quote}",
+    "\\begin{quotation}", "\\end{quotation}",
+    "\\begin{verse}", "\\end{verse}",
     "\\begin{lstlisting}", "\\end{lstlisting}",
+    "\\begin{minted}", "\\end{minted}",
     "\\begin{tcolorbox}", "\\end{tcolorbox}",
     "\\begin{tikzpicture}", "\\end{tikzpicture}",
-    # cross-reference
-    "\\label{}", "\\ref{}", "\\eqref{}", "\\pageref{}", "\\cite{}",
-    "\\citep{}", "\\citet{}", "\\citeauthor{}", "\\citeyear{}",
-    # formattazione testo
+    "\\begin{scope}", "\\end{scope}",
+    "\\begin{axis}", "\\end{axis}",
+    "\\begin{theorem}", "\\end{theorem}",
+    "\\begin{lemma}", "\\end{lemma}",
+    "\\begin{corollary}", "\\end{corollary}",
+    "\\begin{proposition}", "\\end{proposition}",
+    "\\begin{definition}", "\\end{definition}",
+    "\\begin{remark}", "\\end{remark}",
+    "\\begin{example}", "\\end{example}",
+    "\\begin{proof}", "\\end{proof}",
+    "\\begin{frame}", "\\end{frame}",
+    "\\begin{block}{}", "\\end{block}",
+    "\\begin{alertblock}{}", "\\end{alertblock}",
+    "\\begin{exampleblock}{}", "\\end{exampleblock}",
+    "\\begin{columns}", "\\end{columns}",
+    "\\begin{column}", "\\end{column}",
+    "\\begin{algorithm}", "\\end{algorithm}",
+    "\\begin{algorithm2e}", "\\end{algorithm2e}",
+    "\\begin{algorithmic}", "\\end{algorithmic}",
+    # ── Cross-reference ───────────────────────────────────────────────────────
+    "\\label{}", "\\ref{}", "\\eqref{}", "\\pageref{}",
+    "\\cite{}", "\\citep{}", "\\citet{}", "\\citeauthor{}", "\\citeyear{}",
+    "\\citealt{}", "\\citealp{}", "\\citefullauthor{}",
+    "\\parencite{}", "\\footcite{}", "\\textcite{}", "\\autocite{}",
+    "\\fullcite{}", "\\citetitle{}",
+    "\\cref{}", "\\Cref{}", "\\crefrange{}{}",
+    "\\autoref{}", "\\nameref{}", "\\vref{}",
+    "\\hyperref[]{}", "\\href{}{}", "\\url{}", "\\nolinkurl{}",
+    # ── Formattazione testo ───────────────────────────────────────────────────
     "\\textbf{}", "\\textit{}", "\\texttt{}", "\\textrm{}", "\\textsf{}",
-    "\\emph{}", "\\underline{}", "\\textsc{}", "\\textsl{}",
-    "\\footnote{}", "\\marginpar{}", "\\index{}", "\\glossary{}",
-    # matematica
-    "\\frac{}{}", "\\sqrt{}", "\\sum", "\\prod", "\\int", "\\oint",
-    "\\partial", "\\nabla", "\\infty", "\\forall", "\\exists",
-    "\\alpha", "\\beta", "\\gamma", "\\delta", "\\epsilon", "\\zeta",
-    "\\eta", "\\theta", "\\iota", "\\kappa", "\\lambda", "\\mu",
-    "\\nu", "\\xi", "\\pi", "\\rho", "\\sigma", "\\tau", "\\upsilon",
-    "\\phi", "\\chi", "\\psi", "\\omega",
-    "\\Alpha", "\\Beta", "\\Gamma", "\\Delta", "\\Theta", "\\Lambda",
-    "\\Pi", "\\Sigma", "\\Phi", "\\Psi", "\\Omega",
-    "\\left(", "\\right)", "\\left[", "\\right]", "\\left\\{", "\\right\\}",
-    "\\cdot", "\\times", "\\div", "\\pm", "\\mp", "\\leq", "\\geq",
-    "\\neq", "\\approx", "\\equiv", "\\sim", "\\simeq", "\\propto",
-    "\\to", "\\rightarrow", "\\leftarrow", "\\Rightarrow", "\\Leftrightarrow",
-    "\\ldots", "\\cdots", "\\vdots", "\\ddots",
-    "\\hat{}", "\\bar{}", "\\vec{}", "\\dot{}", "\\ddot{}", "\\tilde{}",
-    "\\overline{}", "\\underline{}", "\\overbrace{}", "\\underbrace{}",
-    "\\mathbf{}", "\\mathit{}", "\\mathrm{}", "\\mathcal{}", "\\mathbb{}",
-    # include e grafica
-    "\\input{}", "\\include{}", "\\includeonly{}",
-    "\\includegraphics{}", "\\includegraphics[width=\\textwidth]{}",
-    "\\graphicspath{{}}",
-    # tabelle
-    "\\hline", "\\cline{}", "\\multicolumn{}{}{}", "\\multirow{}{}{}",
-    "\\toprule", "\\midrule", "\\bottomrule", "\\addlinespace",
-    # lunghezze e spazi
+    "\\emph{}", "\\underline{}", "\\textsc{}", "\\textsl{}", "\\textup{}",
+    "\\textnormal{}", "\\textmd{}", "\\text{}",
+    "\\footnote{}", "\\footnotemark", "\\footnotetext{}",
+    "\\marginpar{}", "\\index{}", "\\glossary{}",
+    "\\uppercase{}", "\\lowercase{}", "\\MakeUppercase{}", "\\MakeLowercase{}",
+    "\\mbox{}", "\\makebox[]{}", "\\fbox{}", "\\framebox[]{}",
+    "\\parbox[]{}{}", "\\raisebox{}{}",
+    "\\phantom{}", "\\hphantom{}", "\\vphantom{}",
+    # ── Spazi e lunghezze ─────────────────────────────────────────────────────
+    "\\hspace{}", "\\hspace*{}", "\\vspace{}", "\\vspace*{}",
+    "\\hfill", "\\vfill", "\\hfil", "\\vfil",
+    "\\smallskip", "\\medskip", "\\bigskip", "\\noindent",
+    "\\quad", "\\qquad", "\\,", "\\;", "\\:",
     "\\textwidth", "\\linewidth", "\\columnwidth", "\\paperwidth",
     "\\textheight", "\\paperheight",
-    "\\hspace{}", "\\vspace{}", "\\hfill", "\\vfill",
-    "\\smallskip", "\\medskip", "\\bigskip", "\\noindent",
-    "\\newline", "\\newpage", "\\clearpage", "\\cleardoublepage",
-    # pacchetti comuni (completamento dopo \usepackage{)
+    "\\parindent", "\\parskip", "\\baselineskip",
+    "\\setlength{}{}", "\\addtolength{}{}",
+    "\\stretch{}", "\\fill",
+    # ── Matematica — operatori e struttura ────────────────────────────────────
+    "\\frac{}{}", "\\dfrac{}{}", "\\tfrac{}{}", "\\cfrac{}{}",
+    "\\binom{}{}", "\\dbinom{}{}", "\\tbinom{}{}",
+    "\\sqrt{}", "\\sqrt[n]{}",
+    "\\sum", "\\sum_{i=1}^{n}", "\\prod", "\\prod_{i=1}^{n}",
+    "\\int", "\\int_{a}^{b}", "\\iint", "\\iiint", "\\oint",
+    "\\partial", "\\nabla", "\\infty", "\\forall", "\\exists", "\\nexists",
+    "\\lim", "\\lim_{x \\to 0}", "\\lim_{n \\to \\infty}",
+    "\\sup", "\\inf", "\\max", "\\min", "\\arg", "\\det",
+    "\\sin", "\\cos", "\\tan", "\\cot", "\\sec", "\\csc",
+    "\\arcsin", "\\arccos", "\\arctan",
+    "\\sinh", "\\cosh", "\\tanh",
+    "\\log", "\\ln", "\\exp",
+    "\\operatorname{}", "\\operatorname*{}",
+    "\\text{}", "\\intertext{}", "\\shortintertext{}",
+    # ── Matematica — delimitatori ─────────────────────────────────────────────
+    "\\left(", "\\right)", "\\left[", "\\right]",
+    "\\left\\{", "\\right\\}", "\\left|", "\\right|",
+    "\\left\\|", "\\right\\|", "\\left.", "\\right.",
+    "\\left\\langle", "\\right\\rangle",
+    "\\bigl(", "\\bigr)", "\\Bigl(", "\\Bigr)",
+    "\\biggl(", "\\biggr)", "\\Biggl(", "\\Biggr)",
+    "\\langle", "\\rangle", "\\lfloor", "\\rfloor",
+    "\\lceil", "\\rceil",
+    # ── Matematica — lettere greche minuscole ─────────────────────────────────
+    "\\alpha", "\\beta", "\\gamma", "\\delta", "\\epsilon",
+    "\\varepsilon", "\\zeta", "\\eta", "\\theta", "\\vartheta",
+    "\\iota", "\\kappa", "\\lambda", "\\mu", "\\nu", "\\xi",
+    "\\pi", "\\varpi", "\\rho", "\\varrho", "\\sigma", "\\varsigma",
+    "\\tau", "\\upsilon", "\\phi", "\\varphi", "\\chi", "\\psi", "\\omega",
+    # ── Matematica — lettere greche maiuscole ─────────────────────────────────
+    "\\Gamma", "\\Delta", "\\Theta", "\\Lambda", "\\Xi",
+    "\\Pi", "\\Sigma", "\\Upsilon", "\\Phi", "\\Psi", "\\Omega",
+    # ── Matematica — frecce ───────────────────────────────────────────────────
+    "\\to", "\\rightarrow", "\\leftarrow", "\\Rightarrow", "\\Leftarrow",
+    "\\Leftrightarrow", "\\leftrightarrow", "\\longrightarrow",
+    "\\longleftarrow", "\\Longrightarrow", "\\Longleftarrow",
+    "\\mapsto", "\\longmapsto", "\\hookrightarrow", "\\hookleftarrow",
+    "\\uparrow", "\\downarrow", "\\Uparrow", "\\Downarrow",
+    "\\updownarrow", "\\Updownarrow", "\\nearrow", "\\searrow",
+    "\\swarrow", "\\nwarrow",
+    "\\xleftarrow{}", "\\xrightarrow{}",
+    # ── Matematica — operatori binari ─────────────────────────────────────────
+    "\\cdot", "\\times", "\\div", "\\pm", "\\mp",
+    "\\oplus", "\\ominus", "\\otimes", "\\oslash", "\\odot",
+    "\\cup", "\\cap", "\\setminus", "\\sqcup", "\\sqcap",
+    "\\vee", "\\wedge", "\\lor", "\\land",
+    "\\circ", "\\bullet", "\\star", "\\ast",
+    "\\dagger", "\\ddagger",
+    # ── Matematica — relazioni ────────────────────────────────────────────────
+    "\\leq", "\\geq", "\\neq", "\\approx", "\\equiv",
+    "\\sim", "\\simeq", "\\cong", "\\propto",
+    "\\ll", "\\gg", "\\lll", "\\ggg",
+    "\\subset", "\\supset", "\\subseteq", "\\supseteq",
+    "\\in", "\\notin", "\\ni", "\\not\\in",
+    "\\perp", "\\parallel", "\\mid", "\\nmid",
+    "\\prec", "\\succ", "\\preceq", "\\succeq",
+    # ── Matematica — puntini e simboli ────────────────────────────────────────
+    "\\ldots", "\\cdots", "\\vdots", "\\ddots", "\\iddots",
+    "\\colon", "\\because", "\\therefore",
+    "\\checkmark", "\\hbar", "\\ell",
+    "\\aleph", "\\wp", "\\Re", "\\Im",
+    "\\top", "\\bot", "\\angle", "\\triangle",
+    "\\square", "\\blacksquare", "\\lozenge",
+    "\\emptyset", "\\varnothing",
+    # ── Matematica — accenti e decorazioni ────────────────────────────────────
+    "\\hat{}", "\\bar{}", "\\vec{}", "\\dot{}", "\\ddot{}", "\\tilde{}",
+    "\\grave{}", "\\acute{}", "\\breve{}", "\\check{}", "\\mathring{}",
+    "\\widehat{}", "\\widetilde{}", "\\overrightarrow{}", "\\overleftarrow{}",
+    "\\overline{}", "\\underline{}", "\\overbrace{}", "\\underbrace{}",
+    "\\overset{}{}", "\\underset{}{}", "\\stackrel{}{}",
+    "\\xrightarrow{}", "\\xleftarrow{}",
+    # ── Matematica — font ─────────────────────────────────────────────────────
+    "\\mathbf{}", "\\mathit{}", "\\mathrm{}", "\\mathcal{}", "\\mathbb{}",
+    "\\mathfrak{}", "\\mathscr{}", "\\mathtt{}", "\\mathsf{}",
+    "\\boldsymbol{}", "\\pmb{}", "\\bm{}",
+    # ── Matrici ───────────────────────────────────────────────────────────────
+    "\\begin{pmatrix}\\end{pmatrix}",
+    "\\begin{bmatrix}\\end{bmatrix}",
+    "\\begin{vmatrix}\\end{vmatrix}",
+    "\\begin{Vmatrix}\\end{Vmatrix}",
+    "\\begin{matrix}\\end{matrix}",
+    # ── Grafica e figure ──────────────────────────────────────────────────────
+    "\\input{}", "\\include{}", "\\includeonly{}", "\\subfile{}",
+    "\\includegraphics{}", "\\includegraphics[width=\\textwidth]{}",
+    "\\includegraphics[scale=0.5]{}",
+    "\\graphicspath{{}}", "\\DeclareGraphicsExtensions{}",
+    # ── Tabelle ───────────────────────────────────────────────────────────────
+    "\\hline", "\\cline{}", "\\multicolumn{}{}{}", "\\multirow{}{}{}",
+    "\\toprule", "\\midrule", "\\bottomrule",
+    "\\cmidrule{}", "\\cmidrule(lr){}", "\\addlinespace",
+    "\\specialrule{}{}{}", "\\arrayrulewidth",
+    # ── Comandi di nuova definizione ──────────────────────────────────────────
+    "\\newcommand{}{}", "\\newcommand[]{}{}", "\\renewcommand{}{}",
+    "\\newenvironment{}{}{}", "\\renewenvironment{}{}{}",
+    "\\DeclareMathOperator{}{}", "\\DeclareMathOperator*{}{}",
+    "\\newtheorem{}{}", "\\newtheorem*{}{}",
+    "\\theoremstyle{}", "\\qedhere",
+    # ── TikZ ──────────────────────────────────────────────────────────────────
+    "\\tikz{}", "\\tikzset{}", "\\usetikzlibrary{}",
+    "\\draw", "\\fill", "\\filldraw", "\\shade", "\\shadedraw",
+    "\\path", "\\node", "\\coordinate", "\\pic",
+    "\\foreach", "\\clip",
+    # ── Beamer ────────────────────────────────────────────────────────────────
+    "\\frametitle{}", "\\framesubtitle{}", "\\pause",
+    "\\only<>{}", "\\onslide<>{}", "\\visible<>{}",
+    "\\uncover<>{}", "\\alert{}", "\\structure{}",
+    "\\usetheme{}", "\\usecolortheme{}",
+    "\\titlepage",
+    # ── Algoritmi ─────────────────────────────────────────────────────────────
+    "\\KwIn{}", "\\KwOut{}", "\\KwData{}", "\\KwResult{}",
+    "\\KwTo", "\\KwRet{}", "\\Return{}",
+    "\\If{}{}", "\\ElseIf{}{}", "\\Else{}",
+    "\\For{}{}", "\\ForEach{}{}", "\\While{}{}",
+    "\\Repeat{}{}", "\\Until{}", "\\SetAlgoLined",
+    # ── Pacchetti (completamento dopo \usepackage{) ────────────────────────────
     "geometry", "hyperref", "graphicx", "amsmath", "amssymb", "amsthm",
-    "booktabs", "tabularx", "longtable", "multirow", "array",
-    "xcolor", "color", "tikz", "pgfplots",
+    "booktabs", "tabularx", "longtable", "multirow", "array", "makecell",
+    "xcolor", "color", "tikz", "pgfplots", "pgfplotstable",
     "babel", "inputenc", "fontenc", "lmodern", "microtype",
-    "listings", "minted", "verbatim",
+    "listings", "minted", "verbatim", "fancyvrb",
     "natbib", "biblatex", "cite",
-    "fancyhdr", "titlesec", "tocloft",
-    "caption", "subcaption", "float", "wrapfig",
-    "enumitem", "mdframed", "tcolorbox",
-    "siunitx", "mathtools", "physics",
-    "algorithm", "algorithmicx", "algpseudocode",
-    "index", "makeidx", "imakeidx",
+    "fancyhdr", "titlesec", "tocloft", "tocbibind",
+    "caption", "subcaption", "float", "wrapfig", "rotating",
+    "enumitem", "paralist", "tasks",
+    "mdframed", "tcolorbox", "framed", "mdframed",
+    "siunitx", "mathtools", "physics", "braket", "tensor", "cancel",
+    "algorithm2e", "algorithmicx", "algpseudocode",
+    "imakeidx", "makeidx", "index",
+    "glossaries", "nomencl", "acronym", "acro",
+    "todonotes", "changes", "ulem", "soul",
+    "parskip", "setspace", "leading",
+    "csquotes", "epigraph", "cleveref", "varioref",
+    "pdfpages", "pdflscape", "rotating", "lscape",
+    "datetime2", "datenumber",
+    "xparse", "expl3", "etoolbox", "ifthen", "calc",
+    "fontspec", "unicode-math", "polyglossia",
+    "empheq", "commath", "mathrsfs", "eufrak", "bbm",
+    "beamer", "standalone", "subfiles",
+    "appendix", "afterpage", "placeins",
+    "wrapfig", "subfig", "subcaption",
+    "fontawesome5", "pifont", "wasysym",
+    "mhchem", "chemformula", "circuitikz",
+    "svg", "epstopdf", "pdfpages",
+    "lastpage", "lineno",
+    "stmaryrd", "dsfont", "tabularray",
 ]
 
 _API_HTML: list[str] = [
@@ -570,8 +755,7 @@ class AutoCompleteManager(QObject):
 
     def handle_latex_special(self, char: str) -> bool:
         """
-        Gestisce completamenti speciali LaTeX:
-        - dopo '{' in \\ref{, \\cite{, \\begin{: completa con label/cite/ambienti
+        Completamenti contestuali dopo '{': label, cite, ambienti, file, pacchetti.
         Restituisce True se ha gestito il carattere.
         """
         if self._language != "latex" or char != "{":
@@ -581,7 +765,6 @@ class AutoCompleteManager(QObject):
         line, col = ed.getCursorPosition()
         line_text = ed.text(line)[:col]
 
-        # Controlla il comando precedente la {
         match = re.search(r'\\(\w+)\{$', line_text)
         if not match:
             return False
@@ -589,21 +772,26 @@ class AutoCompleteManager(QObject):
         cmd = match.group(1)
 
         if cmd in ("ref", "eqref", "pageref", "autoref", "cref", "Cref",
-                       "nameref", "hyperref", "vref", "cpageref"):
+                   "nameref", "hyperref", "vref", "cpageref", "labelcref"):
             self._complete_labels()
             return True
         elif cmd in ("cite", "citep", "citet", "citeauthor", "citeyear",
                      "parencite", "footcite", "textcite", "autocite",
-                     "fullcite", "citetitle", "citealt", "citealp"):
+                     "fullcite", "citetitle", "citealt", "citealp",
+                     "footfullcite", "citenum"):
             self._complete_cite_keys()
             return True
         elif cmd in ("begin", "end"):
             self._complete_environments()
             return True
-        elif cmd in ("input", "include", "subfile", "subinputfrom"):
+        elif cmd in ("input", "include", "subfile", "subinputfrom",
+                     "includefrom", "subimport"):
             self._complete_file_paths("tex")
             return True
         elif cmd == "includegraphics":
+            self._complete_file_paths("includegraphics")
+            return True
+        elif cmd in ("includesvg", "includeinkscape"):
             self._complete_file_paths("includegraphics")
             return True
         elif cmd == "usepackage":
@@ -615,25 +803,139 @@ class AutoCompleteManager(QObject):
         elif cmd in ("bibliography", "addbibresource"):
             self._complete_file_paths("bib")
             return True
+        elif cmd in ("usetheme", "usecolortheme", "useinnertheme",
+                     "useoutertheme", "usefonttheme"):
+            self._complete_beamer_themes(cmd)
+            return True
+        elif cmd in ("newtheorem", "newtheorem*"):
+            pass  # lasciamo al completamento standard
+        elif cmd in ("gls", "Gls", "GLS", "glspl", "acrlong", "acrshort", "ac",
+                     "acl", "acs", "acf"):
+            pass  # glossary/acronym completamento futuro
 
         return False
 
+    def handle_latex_option(self, bracket: str) -> bool:
+        """
+        Completamento contestuale dopo '[': suggerisce opzioni valide per
+        il comando o ambiente che precede la parentesi.
+        Restituisce True se ha gestito il carattere.
+        """
+        if self._language != "latex" or bracket != "[":
+            return False
+
+        ed = self._editor
+        line, col = ed.getCursorPosition()
+        line_text = ed.text(line)[:col]
+
+        # \\begin{env}[  →  opzioni ambiente
+        m = re.search(r'\\begin\{([^}]+)\}\[$', line_text)
+        if m:
+            options = self._get_environment_options(m.group(1))
+            if options:
+                self._editor.showUserList(10, options)
+                return True
+
+        # \\usepackage[  →  opzioni pacchetto (cerca il nome dopo)
+        m_pkg_bracket = re.search(r'\\usepackage\[$', line_text)
+        if m_pkg_bracket:
+            # Tenta di leggere il nome del pacchetto dalla riga completa
+            rest = ed.text(line)[col:]
+            m_pkg_name = re.search(r'^\s*\{([^}]+)\}', rest)
+            if m_pkg_name:
+                options = self._get_package_options(m_pkg_name.group(1))
+                if options:
+                    self._editor.showUserList(11, options)
+                    return True
+
+        # \\includegraphics[
+        if re.search(r'\\includegraphics\[$', line_text):
+            from editor.latex_support import COMMAND_OPTIONS
+            opts = COMMAND_OPTIONS.get("includegraphics", [])
+            if opts:
+                self._editor.showUserList(10, opts)
+                return True
+
+        # \\documentclass[
+        if re.search(r'\\documentclass\[$', line_text):
+            from editor.latex_support import COMMAND_OPTIONS
+            opts = COMMAND_OPTIONS.get("documentclass", [])
+            if opts:
+                self._editor.showUserList(10, opts)
+                return True
+
+        # \\lstset[ o \\begin{lstlisting}[
+        if re.search(r'(?:\\lstset|\\begin\{lstlisting\})\[$', line_text):
+            from editor.latex_support import COMMAND_OPTIONS
+            opts = COMMAND_OPTIONS.get("lstlisting", [])
+            if opts:
+                self._editor.showUserList(10, opts)
+                return True
+
+        # \\usetheme[ , \\usecolortheme[  etc
+        m_theme = re.search(r'\\(usetheme|usecolortheme|useinnertheme|useoutertheme)\[$', line_text)
+        if m_theme:
+            from editor.latex_support import COMMAND_OPTIONS
+            opts = COMMAND_OPTIONS.get(m_theme.group(1), [])
+            if opts:
+                self._editor.showUserList(10, opts)
+                return True
+
+        # Comando generico \\cmd[
+        m_cmd = re.search(r'\\(\w+)\[$', line_text)
+        if m_cmd:
+            from editor.latex_support import COMMAND_OPTIONS
+            opts = COMMAND_OPTIONS.get(m_cmd.group(1), [])
+            if opts:
+                self._editor.showUserList(10, opts)
+                return True
+
+        return False
+
+    def _get_environment_options(self, env: str) -> list[str]:
+        try:
+            from editor.latex_support import ENVIRONMENT_OPTIONS
+            return ENVIRONMENT_OPTIONS.get(env, [])
+        except Exception:
+            return []
+
+    def _get_package_options(self, pkg: str) -> list[str]:
+        try:
+            from editor.latex_support import PACKAGE_OPTIONS
+            return PACKAGE_OPTIONS.get(pkg.strip().lower(), [])
+        except Exception:
+            return []
+
     def _complete_labels(self) -> None:
-        """Popup con tutte le \\label{} del documento."""
+        """Popup con tutte le \\label{} del documento e dei file inclusi."""
         from editor.latex_support import LaTeXSupport
-        labels = LaTeXSupport.extract_labels(self._editor.text())
+        fp = getattr(self._editor, "file_path", None)
+        if fp:
+            labels = LaTeXSupport.extract_labels_multifile(fp)
+        else:
+            labels = LaTeXSupport.extract_labels(self._editor.text())
         if labels:
             self._editor.showUserList(1, labels)
 
     def _complete_cite_keys(self) -> None:
-        """Popup con le chiavi BibTeX dai .bib referenziati."""
+        """Popup con le chiavi BibTeX (supporto multi-file)."""
         from editor.latex_support import LaTeXSupport
-        keys = LaTeXSupport.extract_bibtex_keys(
-            self._editor.text(),
-            self._editor.file_path
-        )
+        fp = getattr(self._editor, "file_path", None)
+        if fp:
+            keys = LaTeXSupport.extract_bibtex_keys_multifile(fp)
+        else:
+            keys = LaTeXSupport.extract_bibtex_keys(
+                self._editor.text(), fp
+            )
         if keys:
             self._editor.showUserList(2, keys)
+
+    def _complete_beamer_themes(self, cmd: str) -> None:
+        """Popup con i temi beamer disponibili."""
+        from editor.latex_support import COMMAND_OPTIONS
+        themes = COMMAND_OPTIONS.get(cmd, [])
+        if themes:
+            self._editor.showUserList(9, themes)
 
     def _complete_environments(self) -> None:
         """Popup con tutti gli ambienti LaTeX: standard + custom del documento."""

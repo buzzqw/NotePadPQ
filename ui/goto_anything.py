@@ -196,16 +196,11 @@ class GotoAnythingDialog(QDialog):
             editor = data
             if editor:
                 tm = self._mw._tab_manager
-                for i in range(tm.count()):
-                    if tm.widget(i) is editor or (
-                        hasattr(tm, "_get_editor_at") and tm._get_editor_at(i) is editor
-                    ):
-                        tm.setCurrentIndex(i)
-                        break
-                    ed = getattr(tm.widget(i), "_editor", None)
-                    if ed is editor:
-                        tm.setCurrentIndex(i)
-                        break
+                container = getattr(tm, "_containers", {}).get(editor)
+                if container is not None:
+                    idx = tm.indexOf(container)
+                    if idx >= 0:
+                        tm.setCurrentIndex(idx)
                 editor.setFocus()
 
         elif mode == "commands":

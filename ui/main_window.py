@@ -220,6 +220,11 @@ class MainWindow(QMainWindow):
         I18n.instance().language_changed.connect(self._rebuild_menus)
         self._on_editor_changed(tm.current_editor())
 
+        # Auto-save su perdita fuoco — segnale cross-platform più affidabile di changeEvent
+        QApplication.instance().applicationStateChanged.connect(
+            self._on_application_state_changed
+        )
+
     def _setup_autobackup(self) -> None:
         """Avvia il timer autobackup se abilitato nelle preferenze."""
         self._autobackup_timer = QTimer(self)
@@ -2167,19 +2172,14 @@ class MainWindow(QMainWindow):
 
     # ── Auto-save su perdita focus ────────────────────────────────────────────
 
-    def changeEvent(self, event) -> None:
-        super().changeEvent(event)
-        from PyQt6.QtCore import QEvent
-        if event.type() == QEvent.Type.WindowDeactivate:
+    def _on_application_state_changed(self, state) -> None:
+        if state == Qt.ApplicationState.ApplicationInactive:
             from config.settings import Settings
             if Settings.instance().get("file/autosave_on_focus_loss", False):
                 for editor in self._tab_manager.all_editors():
-                    if editor.isModified() and editor.file_path:
+                    if editor.is_modified() and editor.file_path:
                         try:
-                            from core.file_manager import FileManager
-                            FileManager.write(editor.file_path, editor.get_content(),
-                                              editor.encoding, editor.line_ending)
-                            editor.setModified(False)
+                            self._save_editor(editor, editor.file_path)
                         except Exception:
                             pass
 

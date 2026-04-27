@@ -49,7 +49,9 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Split view** orizzontale e verticale (`Ctrl+Alt+2` / `Ctrl+Alt+3`).
 - **Clona tab** per lavorare sulla stessa vista in due posizioni.
 
-### 🔍 Ricerca e sostituzione
+### 🔍 Ricerca, navigazione e palette comandi
+- **Command Palette** (`Ctrl+Shift+P`) — accesso fuzzy-search a tutti i comandi dell'editor.
+- **Goto Anything** (`Ctrl+Shift+G`) — navigazione rapida stile Sublime: file aperti, `:riga`, `@simbolo`, `>comando`.
 - Trova/Sostituisci con **espressioni regolari** (sintassi Python completa).
 - **Cerca in tutti i file** aperti nei tab contemporaneamente.
 - **Cerca nei file** su disco con filtro estensione e ricerca ricorsiva.
@@ -63,7 +65,9 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Macro**: registra, salva, carica ed esegui N volte.
 - **Conversione caso**: MAIUSCOLO, minuscolo, Title Case, Invert Case.
 - **Commenta/decommenta** righe (`Ctrl+E`) con rilevamento automatico del linguaggio.
-- **Indentazione** smart, tabs↔spazi.
+- **Indentazione** smart, tabs↔spazi. **Auto-indenta su incolla**: le righe incollate si riallineano automaticamente al contesto del cursore.
+- **Ordina righe** con 5 criteri: alfabetico, inverso, per lunghezza, casuale.
+- **Frequenza parole**: analisi delle occorrenze sul documento o sulla selezione.
 - **Allineamento tabelle** Markdown/LaTeX, **avvolgimento** in ambienti/tag.
 - Color picker, tester regex interattivo, convertitore numerico (dec/hex/bin/oct).
 
@@ -92,7 +96,7 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 |--------|----------|
 | **Clipboard History** | Cronologia degli appunti con selezione rapida |
 | **Compare & Merge** | Confronto visuale side-by-side tra due file o versioni |
-| **Encrypt/Decrypt** | Cifratura/decifratura testo con AES |
+| **Encrypt/Decrypt** | Cifratura/decifratura con AES-256-GCM e ChaCha20-Poly1305 |
 | **FTP Browser** | Navigazione e modifica file su server FTP |
 | **Git Integration** | Stato repo, commit, diff, branch, PR/MR direttamente dall'editor |
 | **Hex Viewer** | Visualizzazione esadecimale dei file binari |
@@ -102,7 +106,9 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Temi**: editor di temi integrato con anteprima live; importa/esporta in JSON.
 - **Set icone**: Lucide, Material, Sistema — download automatico al primo utilizzo.
 - **Orologio live** nella barra dei menu con data e ora localizzate.
-- **Sessioni**: ripristino automatico all'avvio di tutti i file, posizioni cursore e layout pannelli.
+- **Modalità testo semplice** (`Ctrl+Alt+T`) — disabilita highlighting, brace matching e autocomplete per tab, ripristinabile in un click.
+- **Modalità scrittura distraction-free** (`Ctrl+Shift+F11`) — schermo intero senza toolbar, statusbar, menubar né pannelli. Ripristino completo all'uscita.
+- **Sessioni**: ripristino automatico all'avvio di tutti i file, posizioni cursore e layout pannelli. Auto-save opzionale su perdita del fuoco.
 - **Istanza singola**: aprire un file da file manager lo invia alla finestra già aperta.
 
 ---
@@ -170,7 +176,9 @@ Runs natively on Linux, Windows, and macOS.
 - **Markup shortcuts**: `Ctrl+B`, `Ctrl+I`, `Ctrl+Shift+X` work natively in Markdown and LaTeX.
 - **LSP support**, API dictionaries, snippet completion.
 
-### 🔍 Search & Replace
+### 🔍 Search, Navigation & Command Palette
+- **Command Palette** (`Ctrl+Shift+P`) — fuzzy-search over all editor commands.
+- **Goto Anything** (`Ctrl+Shift+G`) — Sublime-style quick navigation: open files, `:line`, `@symbol`, `>command`.
 - Full regex search (Python syntax) with capture group replacement.
 - Search across all open tabs, search in files on disk.
 - Inline incremental search (`Ctrl+Shift+F2`), Go to line (`Ctrl+G`).
@@ -198,7 +206,7 @@ Runs natively on Linux, Windows, and macOS.
 |--------|----------|
 | **Clipboard History** | Multi-entry clipboard with quick selection |
 | **Compare & Merge** | Visual side-by-side file comparison |
-| **Encrypt/Decrypt** | AES text encryption |
+| **Encrypt/Decrypt** | AES-256-GCM and ChaCha20-Poly1305 encryption |
 | **FTP Browser** | Browse and edit files on FTP servers |
 | **Git Integration** | Full Git panel: status, log, diff, branch, PR/MR |
 | **Hex Viewer** | Hexadecimal view of binary files |
@@ -207,7 +215,9 @@ Runs natively on Linux, Windows, and macOS.
 - **5 languages**: Italian, English, German, French, Spanish — switch at runtime.
 - **Theme editor** with live preview, import/export JSON.
 - **Icon sets**: Lucide, Material, System — auto-downloaded on first use.
-- **Session restore**: all files, cursor positions, and panel layout restored at startup.
+- **Plain text mode** (`Ctrl+Alt+T`) — disable highlighting, brace matching and autocomplete per tab.
+- **Distraction-free writing mode** (`Ctrl+Shift+F11`) — fullscreen with all UI elements hidden. Fully restored on exit.
+- **Session restore**: all files, cursor positions, and panel layout restored at startup. Optional auto-save on focus loss.
 - **Single instance**: opening files from the file manager sends them to the running window.
 
 ---

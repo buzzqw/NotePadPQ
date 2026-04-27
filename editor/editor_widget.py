@@ -882,22 +882,25 @@ class EditorWidget(QsciScintilla):
 
     def _paste_with_indent(self, text: str) -> None:
         """Incolla testo riallineando l'indentazione al contesto corrente."""
-        line, col = self.getCursorPosition()
+        # Determina il punto di inserimento PRIMA di rimuovere la selezione
+        if self.hasSelectedText():
+            line, col, _, _ = self.getSelection()
+        else:
+            line, col = self.getCursorPosition()
+
         cur_line_text = self.text(line)
         cur_indent = len(cur_line_text) - len(cur_line_text.lstrip())
-        indent_str = "\t" if self.indentationsUseTabs() else " " * self.tabWidth()
         cur_indent_text = cur_line_text[:cur_indent]
 
         lines = text.splitlines()
         if not lines:
             return
 
-        # Calcola l'indentazione minima del testo incollato
         def _leading(s):
             return len(s) - len(s.lstrip())
 
-        non_empty = [l for l in lines if l.strip()]
-        min_indent = min((_leading(l) for l in non_empty), default=0)
+        non_empty = [ln for ln in lines if ln.strip()]
+        min_indent = min((_leading(ln) for ln in non_empty), default=0)
 
         result_lines = []
         for i, ln in enumerate(lines):
@@ -911,10 +914,8 @@ class EditorWidget(QsciScintilla):
         if self.hasSelectedText():
             self.removeSelectedText()
         self.insert("\n".join(result_lines))
-        # Sposta cursore alla fine del testo incollato
         new_line = line + len(result_lines) - 1
-        last = result_lines[-1]
-        new_col = (col + len(result_lines[0])) if len(result_lines) == 1 else len(last)
+        new_col = (col + len(result_lines[0])) if len(result_lines) == 1 else len(result_lines[-1])
         self.setCursorPosition(new_line, new_col)
         self.endUndoAction()
 

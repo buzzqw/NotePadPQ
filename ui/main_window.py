@@ -20,12 +20,13 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QObject, QEvent
 from PyQt6.QtGui import (
-    QAction, QIcon, QKeySequence, QCloseEvent, QDragEnterEvent, QDropEvent, QPageSize
+    QAction, QIcon, QKeySequence, QCloseEvent, QDragEnterEvent, QDropEvent, QPageSize,
+    QShortcut,
 )
 from PyQt6.QtWidgets import (
     QMainWindow, QMenuBar, QMenu, QToolBar, QStatusBar, QDockWidget,
     QWidget, QVBoxLayout, QApplication, QMessageBox,
-    QFileDialog, QInputDialog, QLabel, QSizePolicy,
+    QFileDialog, QInputDialog, QLabel, QSizePolicy, QPushButton,
 )
 from PyQt6.QtPrintSupport import QPrinter, QPrintPreviewDialog, QPageSetupDialog
 
@@ -673,7 +674,9 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("view_zoom_reset", "Ctrl+0",   self.action_zoom_reset))
         self._sep(m)
         m.addAction(self._act("view_fullscreen",    "F11",          self._toggle_fullscreen,    checkable=True, checked=False))
-        m.addAction(self._act("distraction_free",   "Ctrl+Shift+F11", self._toggle_distraction_free, checkable=True, checked=False))
+        _df_act = self._act("distraction_free", "Ctrl+Shift+F11", self._toggle_distraction_free, checkable=True, checked=False)
+        _df_act.setShortcuts([QKeySequence("Ctrl+Shift+F11"), QKeySequence("Ctrl+F11")])
+        m.addAction(_df_act)
         self._sep(m)
         m.addAction(self._act("view_plain_text_mode", "Ctrl+Alt+T",
                                self._toggle_plain_text_mode,
@@ -1787,13 +1790,66 @@ class MainWindow(QMainWindow):
             self._statusbar.hide()
             self.menuBar().hide()
             self.showFullScreen()
+            self._show_df_exit_button()
         else:
+            self._hide_df_exit_button()
             self.showNormal()
             self.menuBar().setVisible(getattr(self, "_df_menubar_visible", True))
             self._toolbar.setVisible(getattr(self, "_df_toolbar_visible", True))
             self._statusbar.setVisible(getattr(self, "_df_statusbar_visible", True))
             for dock, was_visible in getattr(self, "_df_docks_visible", []):
                 dock.setVisible(was_visible)
+
+    def _show_df_exit_button(self) -> None:
+        if not hasattr(self, "_df_exit_btn"):
+            btn = QPushButton("✕  Esci (Esc)", self)
+            btn.setObjectName("df_exit_btn")
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: rgba(60,60,60,200); color: #ccc;
+                    border: 1px solid #555; border-radius: 4px;
+                    padding: 4px 10px; font-size: 12px;
+                }
+                QPushButton:hover { background: rgba(100,60,60,220); color: #fff; }
+            """)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(self._exit_distraction_free)
+            self._df_exit_btn = btn
+        self._df_exit_btn.adjustSize()
+        self._df_exit_btn.move(self.width() - self._df_exit_btn.width() - 12, 12)
+        self._df_exit_btn.raise_()
+        self._df_exit_btn.show()
+        # QShortcut con WindowShortcut cattura Escape anche quando l'editor ha il focus
+        if not hasattr(self, "_df_esc_shortcut"):
+            sc = QShortcut(QKeySequence(Qt.Key.Key_Escape), self)
+            sc.setContext(Qt.ShortcutContext.WindowShortcut)
+            sc.activated.connect(self._exit_distraction_free)
+            self._df_esc_shortcut = sc
+        self._df_esc_shortcut.setEnabled(True)
+
+    def _hide_df_exit_button(self) -> None:
+        if hasattr(self, "_df_exit_btn"):
+            self._df_exit_btn.hide()
+        if hasattr(self, "_df_esc_shortcut"):
+            self._df_esc_shortcut.setEnabled(False)
+
+    def _exit_distraction_free(self) -> None:
+        act = self._actions.get("distraction_free")
+        if act and act.isChecked():
+            act.setChecked(False)
+            self._toggle_distraction_free(False)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "_df_exit_btn") and self._df_exit_btn.isVisible():
+            self._df_exit_btn.move(self.width() - self._df_exit_btn.width() - 12, 12)
+
+    def keyPressEvent(self, event) -> None:
+        act = self._actions.get("distraction_free")
+        if act and act.isChecked() and event.key() == Qt.Key.Key_Escape:
+            self._exit_distraction_free()
+            return
+        super().keyPressEvent(event)
 
     def _toggle_plain_text_mode(self, checked: bool) -> None:
         editor = self._current_editor()

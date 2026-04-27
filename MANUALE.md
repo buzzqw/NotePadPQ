@@ -1,6 +1,6 @@
 # NotePadPQ — Manuale d'uso
 
-> Versione 0.2.3 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
+> Versione 0.2.9+ — Editor di testo avanzato basato su **QScintilla/PyQt6**  
 > Piattaforme: Linux, Windows, macOS
 
 ---
@@ -45,7 +45,7 @@ L'interfaccia è composta da:
 - **Tab bar** — un tab per ogni file aperto; i file modificati mostrano `*` nel titolo
 - **Editor** — area di testo principale con syntax highlighting, numeri di riga, fold margin, margine simboli (bookmark)
 - **Statusbar** — riga/colonna, encoding, line ending, selezione, zoom, modalità inserimento
-- **Pannelli dock** — File Browser, Function List, Anteprima, Output compilazione, Terminale
+- **Pannelli dock** — File Browser, Function List, Anteprima, Pannello compilazione e terminale
 
 ---
 
@@ -253,6 +253,17 @@ I bookmark vengono salvati nella sessione e ripristinati alla riapertura del fil
 
 > **A capo automatico** è presente sia in **Visualizza** che in **Documento**: sono la stessa azione — spuntarla in un menu aggiorna l'altra automaticamente.
 
+### Modalità testo semplice (`Ctrl+Shift+P`)
+
+**Visualizza → Modalità testo semplice** — toggle per tab. Quando attivo, disabilita sul tab corrente:
+
+- Syntax highlighting (lexer rimosso)
+- Brace matching
+- Smart highlight (evidenziazione parola sotto cursore)
+- Autocompletamento
+
+Alla disattivazione, tutto viene ripristinato al linguaggio originale del file. Ogni tab mantiene il proprio stato indipendentemente.
+
 ### Zoom
 
 | Azione | Scorciatoia |
@@ -425,15 +436,17 @@ Pannello con la lista di funzioni, classi e metodi del file corrente. Si aggiorn
 
 Linguaggi con parser dedicato: Python, JavaScript/TypeScript, C/C++, Java, Bash, SQL, LaTeX, Markdown.
 
-### Output compilazione
-Pannello inferiore con l'output testuale del comando build. La lista errori è cliccabile: click su un errore salta alla riga nel file sorgente. Dopo una compilazione LaTeX riuscita, il pulsante **📄 PDF** apre il documento nel pannello Anteprima.
+### Pannello compilazione e terminale (`` Ctrl+` ``)
 
-### Terminale integrato (`` Ctrl+` ``)
-Terminale completo nel pannello inferiore, basato su PTY nativo. Non richiede configurazione aggiuntiva — funziona su tutti i sistemi supportati.
+Un unico dock inferiore con due tab:
+
+**Tab "Output compilazione"** — output testuale del comando build. La lista errori è cliccabile: click su un errore salta alla riga nel file sorgente. Dopo una compilazione LaTeX riuscita, il pulsante **📄 PDF** apre il documento nel pannello Anteprima.
+
+**Tab "Terminale"** — terminale completo basato su xterm.js con PTY nativo. Non richiede configurazione aggiuntiva.
 
 - Supporta qualsiasi programma interattivo: vim, python REPL, ssh, compilatori, git
 - Gestione completa del colore ANSI e dei caratteri speciali
-- Schede multiple nel pannello inferiore
+- Le librerie xterm.js sono incluse nel pacchetto — non richiede connessione internet
 
 ---
 
@@ -555,11 +568,14 @@ NotePadPQ ha un supporto LaTeX completo, ma le funzionalità **avanzate** richie
 ### Funzionalità sempre disponibili (nessuna dipendenza extra)
 - **Syntax highlighting** LaTeX completo
 - **Code folding** di ambienti (`\begin{...}` / `\end{...}`)
-- **Autocompletamento BibTeX**: digitando `\cite{` in un file `.tex`, l'editor cerca tutti i file `.bib` nella stessa cartella e mostra un menu con le chiavi disponibili
+- **Autocompletamento contestuale**: digitando `\cite{` → chiavi BibTeX; `\ref{` → label; `\begin{` → ambienti; `\usepackage{` → pacchetti; `[` → opzioni comando/ambiente/pacchetto
+- **Autocompletamento per pacchetto**: quando il documento usa `\usepackage{multicol}`, `\usepackage{tabularx}`, `\usepackage{longtable}`, `\usepackage{tabulary}` ecc., vengono suggeriti automaticamente i comandi specifici del pacchetto (es. `\columnbreak`, `\endhead`, `\endfirsthead`, template colonne `X`, `lX`, `LCR`…)
 - **Build panel**: profili di compilazione configurabili (pdflatex, xelatex, lualatex, latexmk, ecc.)
 - **Errori cliccabili**: click su un errore nell'output di compilazione salta alla riga nel sorgente
 - **Scorciatoie markup**: `Ctrl+B` → `\textbf{...}`, `Ctrl+I` → `\textit{...}`, `Ctrl+Shift+X` → `\sout{...}`
 - **Struttura documento** (Function List): sezioni, label, figure, tabelle del file `.tex`
+- **Supporto multi-file**: label, chiavi BibTeX e comandi custom estratti dall'intero progetto seguendo `\input{}`, `\include{}`, `\subfile{}`
+- **Checker bilanciamento**: rileva `\begin{}`/`\end{}` sbilanciati in tempo reale con marcatori nel gutter
 
 ### Funzionalità che richiedono librerie opzionali
 
@@ -745,7 +761,8 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `F12` | Anteprima |
 | `Ctrl+Shift+E` | File Browser |
 | `Ctrl+Shift+F` | Function List |
-| `` Ctrl+` `` | Terminale |
+| `` Ctrl+` `` | Pannello compilazione e terminale |
+| `Ctrl+Shift+P` | Modalità testo semplice (per tab) |
 | `F4` | Controllo ortografico |
 
 ### Multi-cursore
@@ -780,4 +797,4 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 
 ---
 
-*Manuale aggiornato — NotePadPQ 0.2.3*
+*Manuale aggiornato — NotePadPQ 0.2.9+*

@@ -651,9 +651,8 @@ class MainWindow(QMainWindow):
 
         # --- DA QUI IN POI IL MENU RIMANE UGUALE A PRIMA ---
         m.addAction(self._act("view_minimap",       "", self._toggle_minimap,        checkable=True, checked=False))
-        m.addAction(self._act("view_build_panel",  "", self._toggle_build_panel,   checkable=True, checked=False))
+        m.addAction(self._act("view_build_panel",  "Ctrl+`", self._toggle_build_panel,   checkable=True, checked=False))
         m.addAction(self._act("view_file_browser", "Ctrl+Shift+E", self._toggle_file_browser, checkable=True, checked=False))
-        m.addAction(self._act("view_terminal",     "Ctrl+`",       self._toggle_terminal,     checkable=True, checked=False))
         m.addAction(self._act("preview_toggle",  "F12", self._toggle_preview,   checkable=True, checked=False))
         self._sep(m)
         m.addAction(self._act("view_zoom_in",    "Ctrl+=",   self.action_zoom_in))
@@ -1709,16 +1708,6 @@ class MainWindow(QMainWindow):
             self._file_browser_dock.show()
         else:
             self._file_browser_dock.hide()
-
-    def _toggle_terminal(self, checked: bool) -> None:
-        """Mostra/nasconde il terminale integrato nel pannello inferiore."""
-        if checked:
-            self._build_dock.show()
-            self._bottom_tabs.setCurrentWidget(self._terminal_panel)
-            self._terminal_panel._input.setFocus()
-        else:
-            # Nasconde solo se nessun altro tab è visibile
-            self._build_dock.hide()
 
     def _on_build_dock_visibility_changed(self, visible: bool) -> None:
         """Sincronizza lo stato dell'azione nel menu con la visibilità del dock."""

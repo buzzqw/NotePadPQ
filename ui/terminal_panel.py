@@ -37,9 +37,9 @@ XTERM_HTML = r"""
 <html>
 <head>
     <meta charset="utf-8"/>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/css/xterm.css" />
-    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@6.0.0/lib/xterm.js"></script>    
-    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.11.0/lib/addon-fit.js"></script>
+    <link rel="stylesheet" href="xterm.css" />
+    <script src="xterm.js"></script>
+    <script src="addon-fit.js"></script>
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <style>
         html, body { 
@@ -209,8 +209,10 @@ class TerminalPanel(QWidget):
         # Collega l'input di xterm.js al processo
         self._backend.input_received.connect(self._write_to_process)
 
-        # 🟢 Carica l'HTML con l'URL di base CORRETTO
-        self._webview.setHtml(XTERM_HTML, QUrl("qrc:/"))
+        # Carica l'HTML usando i file xterm locali come base URL
+        assets_dir = Path(__file__).parent / "assets" / "xterm"
+        base_url = QUrl.fromLocalFile(str(assets_dir) + "/")
+        self._webview.setHtml(XTERM_HTML, base_url)
         layout.addWidget(self._webview, stretch=1)
 
     # ── Logica terminale ──────────────────────────────────────────────────────

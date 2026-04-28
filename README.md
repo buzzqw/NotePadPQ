@@ -48,6 +48,7 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Tab multipli** con drag & drop, indicatore di modifica, ripristino sessione all'avvio.
 - **Split view** orizzontale e verticale (`Ctrl+Alt+2` / `Ctrl+Alt+3`).
 - **Clona tab** per lavorare sulla stessa vista in due posizioni.
+- **Gestione Progetti** stile PSPad: raggruppa file in progetti salvati come `.npqproj` (JSON); toolbar per creare gruppi, aggiungere/rimuovere file; doppio clic per aprire.
 
 ### 🔍 Ricerca, navigazione e palette comandi
 - **Command Palette** (`Ctrl+Shift+P`) — accesso fuzzy-search a tutti i comandi dell'editor.
@@ -69,7 +70,9 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Ordina righe** con 5 criteri: alfabetico, inverso, per lunghezza, casuale.
 - **Frequenza parole**: analisi delle occorrenze sul documento o sulla selezione.
 - **Allineamento tabelle** Markdown/LaTeX, **avvolgimento** in ambienti/tag.
-- Color picker, tester regex interattivo, convertitore numerico (dec/hex/bin/oct).
+- **Traduttore colori**: seleziona un colore e ottieni immediatamente nome HTML/CSS, `#HEX`, `rgb()`, `rgb(%)`, `hsl()` — pulsante inserisci/copia per ogni formato.
+- **Generatore Lorem Ipsum**: inserisce testo segnaposto con opzioni (paragrafi, frasi, separatore, primo paragrafo classico).
+- Tester regex interattivo, convertitore numerico (dec/hex/bin/oct).
 
 ### 🏗️ Pannello Build
 - **Profili di build** configurabili per linguaggio (LaTeX, Python, C/C++, Markdown, ecc.).
@@ -177,6 +180,9 @@ Runs natively on Linux, Windows, and macOS.
 - **Code folding**, minimap, word wrap, auto-indent, auto-close brackets.
 - **Markup shortcuts**: `Ctrl+B`, `Ctrl+I`, `Ctrl+Shift+X` work natively in Markdown and LaTeX.
 - **LSP support**, API dictionaries, snippet completion.
+- **Project Manager** (PSPad-style): group files into named projects saved as `.npqproj` JSON; toolbar to add/remove files and groups; double-click to open.
+- **Color Translator**: pick a color and get HTML/CSS name, `#HEX`, `rgb()`, `rgb(%)`, `hsl()` — insert or copy each format individually.
+- **Lorem Ipsum generator**: insert placeholder text with configurable paragraphs, sentences, and separator.
 
 ### 🔍 Search, Navigation & Command Palette
 - **Command Palette** (`Ctrl+Shift+P`) — fuzzy-search over all editor commands.

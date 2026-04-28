@@ -1,6 +1,6 @@
 # NotePadPQ — Manuale d'uso
 
-> Versione 0.3.1 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
+> Versione 0.3.6 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
 > Piattaforme: Linux, Windows, macOS
 
 ---
@@ -44,8 +44,8 @@ L'interfaccia è composta da:
 - **Toolbar** — azioni comuni con icone (set selezionabile: Lucide, Material, Sistema)
 - **Tab bar** — un tab per ogni file aperto; i file modificati mostrano `*` nel titolo
 - **Editor** — area di testo principale con syntax highlighting, numeri di riga, fold margin, margine simboli (bookmark)
-- **Statusbar** — riga/colonna, encoding, line ending, selezione, zoom, modalità inserimento
-- **Pannelli dock** — File Browser, Function List, Anteprima, Pannello compilazione e terminale
+- **Statusbar** — riga/colonna, encoding, line ending, zoom, modalità inserimento; con testo selezionato mostra `(selezione: N caratteri / M byte, K righe)`
+- **Pannelli dock** — File Browser, Gestione Progetti, Function List, Anteprima, Pannello compilazione e terminale
 
 ---
 
@@ -460,7 +460,8 @@ Registra e riproduce sequenze di tasti:
 
 | Strumento | Funzione |
 |---|---|
-| **Color Picker** | Selettore colore con codici HEX/RGB/HSL inseribili nell'editor |
+| **Traduttore colori** | Seleziona un colore e visualizza: nome HTML/CSS, `#HEX` maiusc/minusc, `rgb(r,g,b)`, `rgb(r%,g%,b%)`, `hsl(h,s%,l%)`; pulsante Inserisci e Copia per ogni formato |
+| **Lorem Ipsum** | Genera testo segnaposto con opzioni: numero di paragrafi, frasi per paragrafo, separatore, primo paragrafo classico; anteprima e inserimento nel documento |
 | **Tester Regex** | Dialog interattivo per testare espressioni regolari su testo di prova |
 | **Convertitore numerico** | Conversione tra decimale, esadecimale, binario, ottale |
 | **Statistiche colonna** | Analisi statistica dei valori numerici nella colonna corrente |
@@ -514,6 +515,14 @@ Tutti i pannelli sono dock widget: possono essere spostati, ridimensionati, stac
 
 ### File Browser (`Ctrl+Shift+E`)
 Pannello sinistro con la struttura di directory. Doppio clic su un file per aprirlo nell'editor.
+
+### Gestione Progetti (`Visualizza → Gestione progetti`)
+Pannello dock stile PSPad per organizzare file in progetti. Il progetto viene salvato come file `.npqproj` (JSON).
+
+- **Toolbar**: Nuovo, Apri, Salva progetto; +File (aggiunge file al gruppo selezionato), +Gruppo (crea un gruppo), Rimuovi
+- **Albero**: gruppi espandibili con i file associati — doppio clic per aprire il file
+- **Menu contestuale** (tasto destro): apri file, aggiungi file/gruppo, rimuovi
+- I file vengono salvati con il percorso assoluto; il progetto è portabile copiando sia il `.npqproj` che i file referenziati
 
 ### Function List (`Ctrl+Shift+F`)
 Pannello con la lista di funzioni, classi e metodi del file corrente. Si aggiorna automaticamente durante la digitazione.
@@ -894,4 +903,4 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 
 ---
 
-*Manuale aggiornato — NotePadPQ 0.3.1*
+*Manuale aggiornato — NotePadPQ 0.3.6*

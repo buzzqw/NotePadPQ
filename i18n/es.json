@@ -182,6 +182,7 @@
     "wrap_env": "Envolver en Entorno...",
     "align_table": "Alinear Tabla",
     "spell_check": "Corrector Ortográfico",
+    "spell_lang": "Idioma del diccionario",
     "markup_bold": "Negrita",
     "markup_italic": "Cursiva",
     "markup_strike": "Tachado",
@@ -244,7 +245,12 @@
     "file": "Archivo",
     "message": "Mensaje",
     "left": "Izquierda",
-    "right": "Derecha"
+    "right": "Derecha",
+    "spell_no_suggestions": "(sin sugerencias)",
+    "spell_add_dict": "Añadir al diccionario",
+    "spell_ignore_all": "Ignorar todo",
+    "spell_on": "Corrector ortográfico activado",
+    "spell_off": "Corrector ortográfico desactivado"
   },
   "button": {
     "ok": "Aceptar",

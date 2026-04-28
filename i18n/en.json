@@ -182,6 +182,7 @@
     "wrap_env": "Wrap in Environment...",
     "align_table": "Align Table",
     "spell_check": "Spell Check",
+    "spell_lang": "Dictionary Language",
     "markup_bold": "Bold",
     "markup_italic": "Italic",
     "markup_strike": "Strikethrough",
@@ -244,7 +245,12 @@
     "file": "File",
     "message": "Message",
     "left": "Left",
-    "right": "Right"
+    "right": "Right",
+    "spell_no_suggestions": "(no suggestions)",
+    "spell_add_dict": "Add to dictionary",
+    "spell_ignore_all": "Ignore all",
+    "spell_on": "Spell check enabled",
+    "spell_off": "Spell check disabled"
   },
   "button": {
     "ok": "OK",

@@ -27,7 +27,7 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QColor, QFont, QKeySequence
-from PyQt6.QtWidgets import QWidget, QApplication
+from PyQt6.QtWidgets import QWidget, QApplication, QMenu
 
 from PyQt6.Qsci import (
     QsciScintilla,
@@ -55,8 +55,8 @@ except ImportError:
     _plt = None
     _HAS_MATPLOTLIB = False
 
-# Pattern per spell check — compilato una volta sola
-_RE_SPELL = re.compile(r'(?<!\\)\b[A-Za-zàèìòùé]+\b')
+# Pattern per spell check — Unicode, copre IT/EN/DE/FR/ES e qualsiasi alfabeto latino esteso
+_RE_SPELL = re.compile(r"(?<![\\])\b[^\W\d_]+\b", re.UNICODE)
 
 # ─── Costanti ─────────────────────────────────────────────────────────────────
 
@@ -148,17 +148,19 @@ class EditorWidget(QsciScintilla):
         self._smart_hl_timer.setInterval(400)
         self._smart_hl_timer.timeout.connect(self._do_smart_highlight)
 
-        # --- INIZIO TIMER SPELL CHECKER ---
+        # --- SPELL CHECKER ---
         self._spell_checker = None
+        self._spell_lang: str = ""
+        self._spell_personal: set[str] = set()  # dizionario personale persistente per sessione
         self._spell_timer = QTimer(self)
         self._spell_timer.setSingleShot(True)
-        self._spell_timer.setInterval(1000) # Aspetta 1 secondo di inattività prima di controllare
+        self._spell_timer.setInterval(1000)
         self._spell_timer.timeout.connect(self._do_spell_check)
-        self._spell_text_hash: int = 0          # cache: evita ricontrollo se testo invariato
-        self.textChanged.connect(self._spell_timer.start) # Si riavvia a ogni tasto premuto
+        self._spell_text_hash: int = 0
+        self.textChanged.connect(self._spell_timer.start)
         # Invalida la cache smart-hl quando il testo cambia
         self.textChanged.connect(self._invalidate_hl_cache)
-        # --- FINE TIMER SPELL CHECKER ---
+        # --- FINE SPELL CHECKER ---
         
 
         self._setup_base()
@@ -978,16 +980,33 @@ class EditorWidget(QsciScintilla):
         if enabled:
             try:
                 from spellchecker import SpellChecker
-                # Carica il dizionario (ci mette una frazione di secondo)
+                self._spell_lang = lang
                 self._spell_checker = SpellChecker(language=lang)
-                self._do_spell_check() # Fa un primo controllo immediato
+                if self._spell_personal:
+                    self._spell_checker.word_frequency.load_words(self._spell_personal)
+                self._spell_text_hash = 0
+                self._do_spell_check()
             except ImportError:
                 self._spell_checker = None
-                print("[SpellCheck] Installa la libreria con: pip install pyspellchecker")
+                print("[SpellCheck] Installa con: pip install pyspellchecker")
         else:
             self._spell_checker = None
-            # Pulisce tutte le ondine rosse
             self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SPELL)
+
+    def set_spell_language(self, lang: str) -> None:
+        """Cambia la lingua del dizionario senza disabilitare lo spell check."""
+        if self._spell_checker is None:
+            return
+        try:
+            from spellchecker import SpellChecker
+            self._spell_lang = lang
+            self._spell_checker = SpellChecker(language=lang)
+            if self._spell_personal:
+                self._spell_checker.word_frequency.load_words(self._spell_personal)
+            self._spell_text_hash = 0
+            self._do_spell_check()
+        except Exception:
+            pass
 
     def _do_spell_check(self) -> None:
         """Trova le parole sconosciute e disegna l'ondina rossa."""
@@ -997,7 +1016,6 @@ class EditorWidget(QsciScintilla):
         import bisect
         text = self.text()
 
-        # Salta il controllo se il testo non è cambiato dall'ultima volta
         h = hash(text)
         if h == self._spell_text_hash:
             return
@@ -1009,7 +1027,8 @@ class EditorWidget(QsciScintilla):
         matches = []
         for m in _RE_SPELL.finditer(text):
             word = m.group(0)
-            if len(word) > 2 and not word.isupper():
+            # Salta: meno di 3 lettere, tutto maiuscolo (acronimi), sole cifre
+            if len(word) > 2 and not word.isupper() and not word.isdigit():
                 words_found.append(word)
                 matches.append(m)
 
@@ -1017,7 +1036,7 @@ class EditorWidget(QsciScintilla):
         if not unknown:
             return
 
-        # Precomputa la lista degli offset dei '\n' per conversione O(log n)
+        # Offset delle newline per conversione posizione→(riga,col) in O(log n)
         newlines = [i for i, c in enumerate(text) if c == '\n']
 
         for m in matches:
@@ -1028,8 +1047,80 @@ class EditorWidget(QsciScintilla):
             col_s  = start - (newlines[line_s - 1] + 1 if line_s > 0 else 0)
             line_e = bisect.bisect_right(newlines, end)
             col_e  = end - (newlines[line_e - 1] + 1 if line_e > 0 else 0)
-            self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SPELL)    
-        
+            self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SPELL)
+
+    def contextMenuEvent(self, event) -> None:
+        """Menu contestuale: suggerimenti ortografici in cima, poi azioni standard."""
+        menu = QMenu(self)
+
+        if self._spell_checker is not None:
+            result = self._spell_word_at_point(event.pos().x(), event.pos().y())
+            if result is not None:
+                word, ls, cs, le, ce = result
+                if len(word) > 2 and not word.isupper() and self._spell_checker.unknown([word]):
+                    candidates = self._spell_checker.candidates(word) or set()
+                    suggestions = sorted(candidates - {word.lower()})[:8]
+                    if suggestions:
+                        for s in suggestions:
+                            act = menu.addAction(s)
+                            act.triggered.connect(
+                                lambda _checked, s=s, ls=ls, cs=cs, le=le, ce=ce:
+                                self._spell_replace(ls, cs, le, ce, s)
+                            )
+                    else:
+                        na = menu.addAction(tr("label.spell_no_suggestions"))
+                        na.setEnabled(False)
+                    menu.addSeparator()
+                    add_act = menu.addAction(tr("label.spell_add_dict"))
+                    add_act.triggered.connect(lambda _checked, w=word: self._spell_add_to_personal(w))
+                    ign_act = menu.addAction(tr("label.spell_ignore_all"))
+                    ign_act.triggered.connect(lambda _checked, w=word: self._spell_add_to_personal(w))
+                    menu.addSeparator()
+
+        cut   = menu.addAction(tr("action.cut"))
+        cut.triggered.connect(self.cut)
+        cut.setEnabled(self.hasSelectedText())
+        copy  = menu.addAction(tr("action.copy"))
+        copy.triggered.connect(self.copy)
+        copy.setEnabled(self.hasSelectedText())
+        paste = menu.addAction(tr("action.paste"))
+        paste.triggered.connect(self.paste)
+        menu.addSeparator()
+        sel   = menu.addAction(tr("action.select_all"))
+        sel.triggered.connect(self.selectAll)
+
+        menu.exec(event.globalPos())
+
+    def _spell_word_at_point(self, x: int, y: int):
+        """Restituisce (word, line_s, col_s, line_e, col_e) per la parola sotto (x,y)."""
+        from PyQt6.QtCore import QPoint
+        line = self.lineAt(QPoint(x, y))
+        if line < 0:
+            return None
+        line_text = self.text(line)
+        if not line_text:
+            return None
+        # Posizione Scintilla → indice nella riga
+        scin_pos = self.SendScintilla(2023, x, y)  # SCI_POSITIONFROMPOINT = 2023
+        _, col = self.lineIndexFromPosition(scin_pos)
+        for m in _RE_SPELL.finditer(line_text):
+            if m.start() <= col <= m.end():
+                return m.group(0), line, m.start(), line, m.end()
+        return None
+
+    def _spell_replace(self, ls: int, cs: int, le: int, ce: int, replacement: str) -> None:
+        self.setSelection(ls, cs, le, ce)
+        self.replaceSelectedText(replacement)
+
+    def _spell_add_to_personal(self, word: str) -> None:
+        """Aggiunge la parola al dizionario personale (sessione corrente)."""
+        w = word.lower()
+        self._spell_personal.add(w)
+        if self._spell_checker:
+            self._spell_checker.word_frequency.load_words([w])
+        self._spell_text_hash = 0
+        self._do_spell_check()
+
     # ── Autocompletamento BibTeX ──────────────────────────────────────────────
 
     def _show_bibtex_autocomplete(self) -> None:

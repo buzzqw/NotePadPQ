@@ -182,6 +182,7 @@
     "wrap_env": "In Umgebung einbetten...",
     "align_table": "Tabelle ausrichten",
     "spell_check": "Rechtschreibprüfung",
+    "spell_lang": "Wörterbuchsprache",
     "markup_bold": "Fett",
     "markup_italic": "Kursiv",
     "markup_strike": "Durchgestrichen",
@@ -244,7 +245,12 @@
     "file": "Datei",
     "message": "Nachricht",
     "left": "Links",
-    "right": "Rechts"
+    "right": "Rechts",
+    "spell_no_suggestions": "(keine Vorschläge)",
+    "spell_add_dict": "Zum Wörterbuch hinzufügen",
+    "spell_ignore_all": "Alle ignorieren",
+    "spell_on": "Rechtschreibprüfung aktiviert",
+    "spell_off": "Rechtschreibprüfung deaktiviert"
   },
   "button": {
     "ok": "OK",

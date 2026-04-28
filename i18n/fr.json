@@ -182,6 +182,7 @@
     "wrap_env": "Entourer d'un Environnement...",
     "align_table": "Aligner le Tableau",
     "spell_check": "Vérification Orthographique",
+    "spell_lang": "Langue du dictionnaire",
     "markup_bold": "Gras",
     "markup_italic": "Italique",
     "markup_strike": "Barré",
@@ -244,7 +245,12 @@
     "file": "Fichier",
     "message": "Message",
     "left": "Gauche",
-    "right": "Droite"
+    "right": "Droite",
+    "spell_no_suggestions": "(aucune suggestion)",
+    "spell_add_dict": "Ajouter au dictionnaire",
+    "spell_ignore_all": "Ignorer tout",
+    "spell_on": "Correcteur orthographique activé",
+    "spell_off": "Correcteur orthographique désactivé"
   },
   "button": {
     "ok": "OK",

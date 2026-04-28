@@ -33,7 +33,7 @@ import re
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QColor, QKeySequence, QAction
+from PyQt6.QtGui import QColor, QIcon, QKeySequence, QAction, QPixmap
 from PyQt6.QtWidgets import QApplication
 
 if TYPE_CHECKING:
@@ -330,9 +330,13 @@ class MultiMarkManager:
         if search_menu:
             search_menu.addSeparator()
 
+            color_names = ["Rosso", "Verde", "Blu", "Arancione", "Viola"]
             for i in range(1, 6):
-                color_name = ["Rosso", "Verde", "Blu", "Arancione", "Viola"][i - 1]
-                act = QAction(f"🎨 Evidenzia in {color_name}  (Ctrl+{i})", main_window)
+                color = _MARK_COLORS[i - 1]
+                pm = QPixmap(12, 12)
+                pm.fill(color)
+                icon = QIcon(pm)
+                act = QAction(icon, f"Evidenzia in {color_names[i - 1]}  (Ctrl+{i})", main_window)
                 act.setShortcut(QKeySequence(f"Ctrl+{i}"))
                 act.triggered.connect(lambda checked, idx=i - 1: mgr.mark(idx))
                 search_menu.addAction(act)

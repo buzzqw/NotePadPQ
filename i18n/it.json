@@ -182,6 +182,7 @@
     "wrap_env": "Avvolgi in Ambiente...",
     "align_table": "Allinea Tabella",
     "spell_check": "Controllo Ortografico",
+    "spell_lang": "Lingua dizionario",
     "markup_bold": "Grassetto",
     "markup_italic": "Corsivo",
     "markup_strike": "Barrato",
@@ -244,7 +245,12 @@
     "file": "File",
     "message": "Messaggio",
     "left": "Sinistra",
-    "right": "Destra"
+    "right": "Destra",
+    "spell_no_suggestions": "(nessun suggerimento)",
+    "spell_add_dict": "Aggiungi al dizionario",
+    "spell_ignore_all": "Ignora tutto",
+    "spell_on": "Controllo ortografico attivato",
+    "spell_off": "Controllo ortografico disattivato"
   },
   "button": {
     "ok": "OK",

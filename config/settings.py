@@ -65,6 +65,9 @@ class Settings(QObject):
         # Barre
         "view/toolbar":            True,
         "view/statusbar":          True,
+        # Controllo ortografico
+        "spellcheck/enabled":      False,
+        "spellcheck/language":     "it",
     }
 
     def __init__(self):

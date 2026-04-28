@@ -673,9 +673,8 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("view_zoom_out",   "Ctrl+-",   self.action_zoom_out))
         m.addAction(self._act("view_zoom_reset", "Ctrl+0",   self.action_zoom_reset))
         self._sep(m)
-        m.addAction(self._act("view_fullscreen",    "F11",          self._toggle_fullscreen,    checkable=True, checked=False))
-        _df_act = self._act("distraction_free", "Ctrl+Shift+F11", self._toggle_distraction_free, checkable=True, checked=False)
-        _df_act.setShortcuts([QKeySequence("Ctrl+Shift+F11"), QKeySequence("Ctrl+F11")])
+        _df_act = self._act("distraction_free", "F11", self._toggle_distraction_free, checkable=True, checked=False)
+        _df_act.setShortcuts([QKeySequence("F11"), QKeySequence("Ctrl+Shift+F11"), QKeySequence("Ctrl+F11")])
         m.addAction(_df_act)
         self._sep(m)
         m.addAction(self._act("view_plain_text_mode", "Ctrl+Alt+T",
@@ -732,7 +731,27 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("line_break",        "", self.action_line_break,           checkable=False))
         m.addAction(self._act("auto_indent",       "", self._toggle_auto_indent,         checkable=True, checked=True))
         m.addAction(self._act("auto_indent_paste", "", self._toggle_auto_indent_paste,   checkable=True, checked=True))
-        m.addAction(self._act("spell_check",     "F4", self._toggle_spellcheck,          checkable=True, checked=False))
+        from config.settings import Settings as _S
+        _spell_enabled = _S.instance().get("spellcheck/enabled", False)
+        _spell_saved   = _S.instance().get("spellcheck/language", "it")
+        m.addAction(self._act("spell_check", "F4", self._toggle_spellcheck,
+                              checkable=True, checked=_spell_enabled))
+
+        # Submenu lingua dizionario (indipendente dalla lingua dell'interfaccia)
+        sub_spell = m.addMenu(tr("action.spell_lang"))
+        self._menus["spell_lang"] = sub_spell
+        from PyQt6.QtGui import QActionGroup as _SpellAG
+        _spell_ag = _SpellAG(self)
+        _spell_ag.setExclusive(True)
+        self._spell_lang_actions: dict[str, QAction] = {}
+        for _code, _label in [("it", "Italiano"), ("en", "English"),
+                               ("de", "Deutsch"), ("fr", "Français"), ("es", "Español")]:
+            _a = QAction(_label, self, checkable=True)
+            _a.setChecked(_code == _spell_saved)
+            _a.triggered.connect(lambda _checked, c=_code: self._set_spell_lang(c))
+            _spell_ag.addAction(_a)
+            sub_spell.addAction(_a)
+            self._spell_lang_actions[_code] = _a
         self._sep(m)
 
         # Tipo indentazione submenu
@@ -1161,6 +1180,12 @@ class MainWindow(QMainWindow):
         # Applica edge column dalla impostazione corrente
         from config.settings import Settings
         editor.set_edge_column(Settings.instance().get("editor/edge_column", 0))
+        # Applica spell check se abilitato (il nuovo tab potrebbe non averlo ancora)
+        if Settings.instance().get("spellcheck/enabled", False):
+            if hasattr(editor, "set_spellcheck_enabled") and editor._spell_checker is None:
+                editor.set_spellcheck_enabled(
+                    True, Settings.instance().get("spellcheck/language", "it")
+                )
         # --- FINE AGGIUNTA ---
 
         # Aggiorna checkmark nel menu tipo file
@@ -2796,17 +2821,23 @@ class MainWindow(QMainWindow):
 
     def _toggle_spellcheck(self, checked: bool) -> None:
         """Attiva o disattiva il controllo ortografico per tutti i tab aperti."""
-        from i18n.i18n import I18n
-        # Usa la lingua corrente di NotePadPQ (es. 'it', 'en') per il dizionario
-        lang = I18n.instance().current_language() 
-        
+        from config.settings import Settings
+        Settings.instance().set("spellcheck/enabled", checked)
+        lang = Settings.instance().get("spellcheck/language", "it")
         for ed in self._tab_manager.all_editors():
             if hasattr(ed, "set_spellcheck_enabled"):
                 ed.set_spellcheck_enabled(checked, lang)
-                
-        self.statusBar().showMessage(
-            f"Controllo ortografico ({lang}): " + ("attivato" if checked else "disattivato"), 3000
-        )    
+        label = tr("label.spell_on") if checked else tr("label.spell_off")
+        self.statusBar().showMessage(f"{label} ({lang})", 3000)
+
+    def _set_spell_lang(self, lang: str) -> None:
+        """Cambia la lingua del dizionario ortografico."""
+        from config.settings import Settings
+        Settings.instance().set("spellcheck/language", lang)
+        if "spell_check" in self._actions and self._actions["spell_check"].isChecked():
+            for ed in self._tab_manager.all_editors():
+                if hasattr(ed, "set_spell_language"):
+                    ed.set_spell_language(lang)
 
 
 # ─── Test standalone ──────────────────────────────────────────────────────────

@@ -410,7 +410,8 @@ def _detect_from_content(content: str) -> str:
     first_line = content.split("\n")[0].strip()
 
     if first_line.startswith("#!"):
-        shebang = first_line[2:].split()[0] if len(first_line) > 2 else ""
+        # join all tokens so "#!/usr/bin/env python3" is fully matched
+        shebang = " ".join(first_line[2:].split()) if len(first_line) > 2 else ""
         if "python" in shebang:
             return ".py"
         if "bash" in shebang or "sh" in shebang:

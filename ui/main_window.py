@@ -69,10 +69,10 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         # Importazioni locali per evitare dipendenze circolari
-        from ui.tab_manager import TabManager
+        from ui.split_view import SplitViewManager
         from ui.statusbar import StatusBar
 
-        self._tab_manager: TabManager = TabManager(self)
+        self._tab_manager: SplitViewManager = SplitViewManager(self)
         self._statusbar: StatusBar    = StatusBar(self)
         
         # Usa ScreenResolution per far coincidere i DPI di QScintilla con quelli di stampa
@@ -636,11 +636,6 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("find_prev",       "Shift+F3",     self.action_find_prev))
         m.addAction(self._act("replace",         "Ctrl+H",       self.action_replace))
         self._sep(m)
-        # Ricerca incrementale inline (non sostituisce il dialog)
-        #act_inc = self._act("incremental_search", "Ctrl+F2", self._toggle_incremental_search,
-        #                    checkable=True, checked=False)
-        #m.addAction(act_inc)
-        self._sep(m)
         m.addAction(self._act("find_in_files",      "Ctrl+Shift+F", self.action_find_in_files))
         m.addAction(self._act("find_in_all_docs",   "",             self.action_find_in_all_docs))
         m.addAction(self._act("replace_in_all_docs","",             self.action_replace_in_all_docs))
@@ -648,13 +643,9 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("go_to_line",      "Ctrl+G",       self.action_go_to_line))
         m.addAction(self._act("go_to_matching",  "Ctrl+]",       self.action_go_to_matching))
         self._sep(m)
-        m.addAction(self._act("mark_all",        "",             self.action_mark_all))
-        m.addAction(self._act("remove_markers",  "",             self.action_remove_markers))
-        self._sep(m)
         # Le voci "Segna con colore 1-5" e "Rimuovi tutti i mark" (Ctrl+0..5)
         # vengono aggiunte da MultiMarkManager.install_into_main_window() in main.py
         # dopo l'inizializzazione — non duplicarle qui.
-        self._sep(m)
         m.addAction(self._act("toggle_bookmark", "Ctrl+F2",      self.action_toggle_bookmark))
         m.addAction(self._act("next_bookmark",   "F2",           self.action_next_bookmark))
         m.addAction(self._act("prev_bookmark",   "Shift+F2",     self.action_prev_bookmark))
@@ -710,24 +701,22 @@ class MainWindow(QMainWindow):
             "split_vertical",    "Ctrl+Alt+2",
             lambda: self._tab_manager.split(
                 self._tab_manager.SPLIT_SIDE_BY_SIDE, clone_current=True
-            ) if hasattr(self._tab_manager, "split") else None
+            )
         ))
         sub_split.addAction(self._act(
             "split_horizontal",  "Ctrl+Alt+3",
             lambda: self._tab_manager.split(
                 self._tab_manager.SPLIT_TOP_BOTTOM, clone_current=True
-            ) if hasattr(self._tab_manager, "split") else None
+            )
         ))
         sub_split.addAction(self._act(
             "split_rotate",      "Ctrl+Alt+R",
             lambda: self._tab_manager.rotate_split()
-            if hasattr(self._tab_manager, "rotate_split") else None
         ))
         self._sep(sub_split)
         sub_split.addAction(self._act(
             "split_move_tab",    "Ctrl+Alt+M",
             lambda: self._tab_manager.move_to_other_panel()
-            if hasattr(self._tab_manager, "move_to_other_panel") else None
         ))
         sub_split.addAction(self._act(
             "split_sync_cursor", "",
@@ -738,7 +727,6 @@ class MainWindow(QMainWindow):
         sub_split.addAction(self._act(
             "unsplit",           "Ctrl+Alt+1",
             lambda: self._tab_manager.unsplit()
-            if hasattr(self._tab_manager, "unsplit") else None
         ))
 
     # ── Menu Documento ────────────────────────────────────────────────────────
@@ -748,7 +736,6 @@ class MainWindow(QMainWindow):
         self._menus["document"] = m
 
         m.addAction(self._actions["view_word_wrap"])  # stessa action di Visualizza → checkbox sincronizzato
-        m.addAction(self._act("line_break",        "", self.action_line_break,           checkable=False))
         m.addAction(self._act("auto_indent",       "", self._toggle_auto_indent,         checkable=True, checked=True))
         m.addAction(self._act("auto_indent_paste", "", self._toggle_auto_indent_paste,   checkable=True, checked=True))
         from config.settings import Settings as _S
@@ -822,9 +809,6 @@ class MainWindow(QMainWindow):
 
         self._sep(m)
         m.addAction(self._act("clone_document",       "", self.action_clone))
-        m.addAction(self._act("trim_trailing",        "", self.action_trim_trailing))
-        m.addAction(self._act("tabs_to_spaces",       "", self.action_tabs_to_spaces))
-        m.addAction(self._act("spaces_to_tabs",       "", self.action_spaces_to_tabs))
         self._sep(m)
         m.addAction(self._act("fold_all",             "", self.action_fold_all))
         m.addAction(self._act("unfold_all",           "", self.action_unfold_all))
@@ -2454,8 +2438,7 @@ class MainWindow(QMainWindow):
 
     def _toggle_split_sync(self, checked: bool) -> None:
         """Attiva/disattiva la sincronizzazione cursore tra i pannelli split."""
-        if hasattr(self._tab_manager, "set_sync_cursor"):
-            self._tab_manager.set_sync_cursor(checked)
+        self._tab_manager.set_sync_cursor(checked)
         self.statusBar().showMessage(
             "Sincronizzazione cursore split: " +
             ("attiva" if checked else "disattiva"), 3000

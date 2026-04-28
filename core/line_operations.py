@@ -62,7 +62,7 @@ def remove_empty_lines(lines: list[str]) -> list[str]:
 
 def remove_whitespace_lines(lines: list[str]) -> list[str]:
     """Rimuove righe composte solo da spazi/tab."""
-    return [l for l in lines if l.strip() or not l.replace("\t", "").replace(" ", "")]
+    return [l for l in lines if not l or l.strip()]
 
 
 def remove_every_nth(lines: list[str], n: int) -> list[str]:

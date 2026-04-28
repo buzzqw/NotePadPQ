@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QSortFilterProxyModel
+from PyQt6.QtCore import Qt, QSortFilterProxyModel, QTimer
 from PyQt6.QtGui import QStandardItemModel, QStandardItem
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLineEdit, QListView, QLabel,
@@ -75,6 +75,7 @@ class GotoAnythingDialog(QDialog):
             "Cerca file aperto… (>comando  :riga  @simbolo)"
         )
         self._search.textChanged.connect(self._on_text_changed)
+        self._search.returnPressed.connect(self._execute)
         vl.addWidget(self._search)
 
         self._hint = QLabel("")
@@ -213,9 +214,11 @@ class GotoAnythingDialog(QDialog):
                 n = int(data) - 1
                 editor = self._mw._current_editor()
                 if editor and n >= 0:
-                    editor.setCursorPosition(n, 0)
-                    editor.ensureLineVisible(n)
-                    editor.setFocus()
+                    def _goto(ed=editor, line=n):
+                        ed.setCursorPosition(line, 0)
+                        ed.ensureLineVisible(line)
+                        ed.setFocus()
+                    QTimer.singleShot(0, _goto)
             except (ValueError, TypeError):
                 pass
 

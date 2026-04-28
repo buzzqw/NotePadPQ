@@ -192,7 +192,9 @@
     "word_frequency": "Frequenza parole...",
     "sort_lines_menu": "Ordina righe...",
     "auto_indent_paste": "Auto-indenta su incolla",
-    "overwrite": "Sovrascrivi"
+    "overwrite": "Sovrascrivi",
+    "lorem_ipsum": "Genera testo segnaposto (Lorem Ipsum)…",
+    "view_project_manager": "Gestione progetti"
   },
   "label": {
     "language": "Lingua",

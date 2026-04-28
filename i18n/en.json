@@ -192,7 +192,9 @@
     "word_frequency": "Word Frequency...",
     "sort_lines_menu": "Sort Lines...",
     "auto_indent_paste": "Auto-indent on Paste",
-    "view_document_map": "Document Map"
+    "view_document_map": "Document Map",
+    "lorem_ipsum": "Insert Placeholder Text (Lorem Ipsum)…",
+    "view_project_manager": "Project Manager"
   },
   "label": {
     "language": "Language",

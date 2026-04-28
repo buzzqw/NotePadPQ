@@ -149,6 +149,24 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._file_browser_dock)
         self._file_browser_dock.hide()
 
+        # ── Dock sinistro: Gestione Progetti ─────────────────────────────────
+        from ui.project_manager import ProjectManager
+        self._project_manager = ProjectManager(self)
+        self._project_manager.file_open_requested.connect(
+            lambda p: self.open_files([p])
+        )
+        self._project_dock = QDockWidget("Progetti", self)
+        self._project_dock.setObjectName("ProjectDock")
+        self._project_dock.setWidget(self._project_manager)
+        self._project_dock.setMinimumWidth(200)
+        self._project_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+        self._project_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetClosable |
+            QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._project_dock)
+        self._project_dock.hide()
 
         # ── Dock anteprima (spostabile, alternativa allo split inline) ────────
         from ui.preview_panel import PreviewPanel
@@ -668,6 +686,7 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("view_minimap",       "", self._toggle_minimap,        checkable=True, checked=False))
         m.addAction(self._act("view_build_panel",  "Ctrl+`", self._toggle_build_panel,   checkable=True, checked=False))
         m.addAction(self._act("view_file_browser", "Ctrl+Shift+E", self._toggle_file_browser, checkable=True, checked=False))
+        m.addAction(self._act("view_project_manager", "", self._toggle_project_manager, checkable=True, checked=False))
         m.addAction(self._act("preview_toggle",  "F12", self._toggle_preview,   checkable=True, checked=False))
         self._sep(m)
         m.addAction(self._act("view_zoom_in",    "Ctrl+=",   self.action_zoom_in))
@@ -919,6 +938,7 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("regex_tester",    "", self.action_regex_tester))
         m.addAction(self._act("number_converter","", self.action_number_converter))
         m.addAction(self._act("column_stats",    "Ctrl+Alt+S", self.action_column_stats))
+        m.addAction(self._act("lorem_ipsum",     "", self.action_lorem_ipsum))
         self._sep(m)
         m.addAction(self._act("build_profiles",  "F8", self.action_build_profiles))
         m.addAction(self._act("compile",         "F6", self.action_compile))
@@ -1753,6 +1773,12 @@ class MainWindow(QMainWindow):
         else:
             self._file_browser_dock.hide()
 
+    def _toggle_project_manager(self, checked: bool) -> None:
+        if checked:
+            self._project_dock.show()
+        else:
+            self._project_dock.hide()
+
     def _on_build_dock_visibility_changed(self, visible: bool) -> None:
         """Sincronizza lo stato dell'azione nel menu con la visibilità del dock."""
         if "view_build_panel" in self._actions:
@@ -2023,12 +2049,14 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def action_color_picker(self) -> None:
-        from PyQt6.QtWidgets import QColorDialog
-        color = QColorDialog.getColor(parent=self)
-        if color.isValid():
-            editor = self._current_editor()
-            if editor:
-                editor.insert(color.name())
+        from ui.color_translator import ColorTranslatorDialog
+        dlg = ColorTranslatorDialog(self)
+        dlg.exec()
+
+    def action_lorem_ipsum(self) -> None:
+        from ui.lorem_ipsum import LoremIpsumDialog
+        dlg = LoremIpsumDialog(self)
+        dlg.exec()
 
     def action_compile(self) -> None:
         self._build_dock.show()

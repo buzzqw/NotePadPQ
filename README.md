@@ -73,6 +73,7 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 
 ### 🏗️ Pannello Build
 - **Profili di build** configurabili per linguaggio (LaTeX, Python, C/C++, Markdown, ecc.).
+- **Variabili nei comandi**: `${FILE}` (percorso completo), `${DIR}` (cartella), `${BASENAME}` (nome senza estensione), `${BASEFILE}` (percorso senza estensione), `${FILENAME}`, `${EXT}`, `${LINE}`, `${COL}`. Accettate anche nella forma `$(VAR)`.
 - **Output in tempo reale** con lista errori cliccabile — click su un errore salta direttamente alla riga.
 - **Rilevamento PDF automatico**: il pulsante anteprima si abilita istantaneamente se è presente un PDF già compilato.
 - **Salvataggio automatico** prima della compilazione.
@@ -188,6 +189,7 @@ Runs natively on Linux, Windows, and macOS.
 
 ### 🏗️ Build Panel
 - Configurable build profiles per language (LaTeX, Python, C/C++, Markdown, etc.).
+- **Command variables**: `${FILE}` (full path), `${DIR}` (directory), `${BASENAME}` (name without extension), `${BASEFILE}` (full path without extension), `${FILENAME}`, `${EXT}`, `${LINE}`, `${COL}`. Also accepted as `$(VAR)`.
 - Real-time output with **clickable error list** — click an error to jump to the line.
 - Automatic PDF detection after successful LaTeX compilation.
 

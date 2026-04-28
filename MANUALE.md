@@ -308,7 +308,7 @@ I bookmark vengono salvati nella sessione e ripristinati alla riapertura del fil
 
 Alla disattivazione, tutto viene ripristinato al linguaggio originale del file. Ogni tab mantiene il proprio stato indipendentemente.
 
-### Modalità scrittura — Distraction-Free (`Ctrl+Shift+F11`)
+### Modalità scrittura — Distraction-Free (`F11`)
 
 **Visualizza → Modalità scrittura** — nasconde tutto tranne l'editor e va in schermo intero:
 
@@ -318,9 +318,7 @@ Alla disattivazione, tutto viene ripristinato al linguaggio originale del file. 
 - Tutti i pannelli dock nascosti
 - Finestra in modalità schermo intero
 
-Premi di nuovo `Ctrl+Shift+F11` per uscire e ripristinare la visibilità precedente di tutti gli elementi. Ideale per sessioni di scrittura concentrata.
-
-> Differenza rispetto a `F11` (Schermo intero): il semplice schermo intero mantiene visibili toolbar, statusbar e pannelli. La modalità scrittura nasconde tutto.
+Premi di nuovo `F11` (oppure `Ctrl+Shift+F11` o `Ctrl+F11`) per uscire e ripristinare la visibilità precedente di tutti gli elementi. Ideale per sessioni di scrittura concentrata.
 
 ### Zoom
 
@@ -331,9 +329,6 @@ Premi di nuovo `Ctrl+Shift+F11` per uscire e ripristinare la visibilità precede
 | Zoom reset | `Ctrl+0` |
 
 Anche `Ctrl+Rotella mouse` direttamente nell'editor.
-
-### Schermo intero
-`F11` — alterna la modalità a schermo intero (con toolbar e statusbar ancora visibili).
 
 ### Minimap
 Colonna stretta sul lato dell'editor che mostra una versione rimpicciolita dell'intero documento. Clicca per navigare velocemente a qualsiasi punto del file.
@@ -370,8 +365,9 @@ Tenendo il cursore fermo per mezzo secondo su determinati elementi, NotePadPQ mo
 - **Auto-indenta su incolla** — quando si incolla testo con più righe (`Ctrl+V`), le righe vengono riallineate all'indentazione del contesto corrente. Disattivabile dal menu Documento se non desiderato.
 - **Sola lettura** — blocca le modifiche
 - **Scrivi BOM** — aggiunge Byte Order Mark per UTF-8/UTF-16
-- **A capo automatico** — identica alla voce in Visualizza
-- **Controllo Ortografico (`F4`)** — attiva la sottolineatura a zig-zag rossa per le parole errate. Il dizionario si adatta alla lingua dell'interfaccia. Ignora i comandi LaTeX (`\comando`) e le sigle interamente maiuscole.
+- **A capo automatico** (`Alt+Z`) — manda a capo il testo a schermo senza modificare il file
+- **Controllo Ortografico (`F4`)** — attiva la sottolineatura a zig-zag rossa per le parole errate. La lingua del dizionario è indipendente dalla lingua dell'interfaccia e si seleziona da **Documento → Lingua dizionario** (Italiano, English, Deutsch, Français, Español). Il click destro su una parola sottolineata mostra fino a 8 suggerimenti di correzione, "Aggiungi al dizionario" e "Ignora tutto". Ignora le sigle interamente maiuscole e le parole di meno di 3 lettere.
+- **Lingua dizionario** — sottomenu di Documento che seleziona la lingua dello spell checker indipendentemente dalla lingua dell'interfaccia. La scelta viene salvata tra le sessioni.
 
 ### Tipo di file (syntax highlighting)
 
@@ -413,6 +409,40 @@ Esegue il comando associato al tipo di file corrente e mostra l'output nel panne
 | Compila | `F6` |
 | Build | `F7` |
 | Stop compilazione | pulsante Stop nel pannello |
+
+#### Profili di compilazione e variabili
+
+I profili di compilazione si configurano da **Strumenti → Profili di compilazione**. Ogni profilo associa un tipo di file (es. `LaTeX`, `Python`, `Markdown`) a uno o più comandi (Compila, Build, Pulisci).
+
+Nei comandi sono disponibili le seguenti variabili, accettate sia nella forma `${VAR}` che `$(VAR)`:
+
+| Variabile | Descrizione | Esempio |
+|---|---|---|
+| `${FILE}` | Percorso completo del file | `/home/utente/doc/tesi.tex` |
+| `${DIR}` | Cartella contenente il file | `/home/utente/doc` |
+| `${FILENAME}` | Nome del file con estensione | `tesi.tex` |
+| `${BASENAME}` | Nome del file senza estensione | `tesi` |
+| `${BASEFILE}` | Percorso completo senza estensione | `/home/utente/doc/tesi` |
+| `${EXT}` | Estensione del file (senza punto) | `tex` |
+| `${LINE}` | Riga corrente del cursore | `42` |
+| `${COL}` | Colonna corrente del cursore | `7` |
+
+Esempio — compilazione LaTeX con pdflatex:
+```
+pdflatex -interaction=nonstopmode -synctex=1 ${FILE}
+```
+
+Esempio — conversione con pandoc:
+```
+pandoc ${FILE} -o ${BASEFILE}.pdf
+```
+
+Esempio — script che usa cartella e nome base:
+```
+cd ${DIR} && python ${FILENAME}
+```
+
+L'output appare nel pannello inferiore in tempo reale. Gli errori sono cliccabili: un click porta il cursore alla riga corrispondente nel file.
 
 ### Macro
 
@@ -823,8 +853,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+=` | Zoom in |
 | `Ctrl+-` | Zoom out |
 | `Ctrl+0` | Zoom reset |
-| `F11` | Schermo intero |
-| `Ctrl+Shift+F11` | **Modalità scrittura (distraction-free)** |
+| `F11` | **Modalità scrittura (distraction-free)** |
 | `F12` | Anteprima |
 | `Ctrl+Shift+E` | File Browser |
 | `Ctrl+Shift+F` | Function List |

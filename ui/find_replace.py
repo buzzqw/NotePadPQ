@@ -812,9 +812,22 @@ ESEMPI
         return _instance
 
     @classmethod
+    def _get_selected_text(cls, main_window: "MainWindow") -> str:
+        editor = main_window._current_editor()
+        if editor is None:
+            return ""
+        sel = editor.selectedText()
+        if "\n" in sel:
+            return ""
+        return sel.strip()
+
+    @classmethod
     def show_find(cls, main_window: "MainWindow") -> None:
         dlg = cls._get_or_create(main_window)
         dlg._tabs.setCurrentIndex(0)
+        sel = cls._get_selected_text(main_window)
+        if sel:
+            dlg._find_edit.setCurrentText(sel)
         dlg.show()
         dlg.raise_()
         dlg._find_edit.setFocus()
@@ -823,13 +836,20 @@ ESEMPI
     def show_replace(cls, main_window: "MainWindow") -> None:
         dlg = cls._get_or_create(main_window)
         dlg._tabs.setCurrentIndex(1)
+        sel = cls._get_selected_text(main_window)
+        if sel:
+            dlg._find_edit2.setCurrentText(sel)
         dlg.show()
         dlg.raise_()
+        dlg._find_edit2.setFocus()
 
     @classmethod
     def show_find_in_files(cls, main_window: "MainWindow") -> None:
         dlg = cls._get_or_create(main_window)
         dlg._tabs.setCurrentIndex(2)
+        sel = cls._get_selected_text(main_window)
+        if sel:
+            dlg._fif_find.setText(sel)
         dlg.show()
         dlg.raise_()
 
@@ -837,6 +857,9 @@ ESEMPI
     def show_find_all_docs(cls, main_window: "MainWindow") -> None:
         dlg = cls._get_or_create(main_window)
         dlg._tabs.setCurrentIndex(3)
+        sel = cls._get_selected_text(main_window)
+        if sel:
+            dlg._all_find.setText(sel)
         dlg.show()
         dlg.raise_()
 
@@ -844,6 +867,9 @@ ESEMPI
     def show_replace_all_docs(cls, main_window: "MainWindow") -> None:
         dlg = cls._get_or_create(main_window)
         dlg._tabs.setCurrentIndex(3)
+        sel = cls._get_selected_text(main_window)
+        if sel:
+            dlg._all_find.setText(sel)
         dlg.show()
         dlg.raise_()
 

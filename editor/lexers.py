@@ -287,6 +287,7 @@ def _apply_lexer(editor: "EditorWidget",
     """Instanzia e applica il lexer all'editor."""
     if lexer_class is None:
         editor.setLexer(None)
+        editor._current_language = lang_name
         return False
 
     font = editor.font()

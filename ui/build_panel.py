@@ -571,8 +571,25 @@ class BuildProfilesDialog(QDialog):
         form.addRow("Regex errori:",                      self._regex_edit)
 
         var_lbl = QLabel(
-            "<small><b>Variabili:</b>  "
-            "${FILE}  ${DIR}  ${BASENAME}  ${EXT}  ${FILENAME}  ${LINE}  ${COL}</small>"
+            "<small><b>Variabili disponibili</b> (sintassi <code>${VAR}</code> o <code>$(VAR)</code>):<br>"
+            "<table cellspacing='2'>"
+            "<tr><td><code>${FILE}</code></td><td>— percorso completo del file&nbsp;&nbsp;</td>"
+            "<td><i>es. /home/user/doc/main.py</i></td></tr>"
+            "<tr><td><code>${DIR}</code></td><td>— directory del file</td>"
+            "<td><i>es. /home/user/doc</i></td></tr>"
+            "<tr><td><code>${FILENAME}</code></td><td>— nome file con estensione</td>"
+            "<td><i>es. main.py</i></td></tr>"
+            "<tr><td><code>${BASENAME}</code></td><td>— nome file senza estensione</td>"
+            "<td><i>es. main</i></td></tr>"
+            "<tr><td><code>${BASEFILE}</code></td><td>— percorso completo senza estensione</td>"
+            "<td><i>es. /home/user/doc/main</i></td></tr>"
+            "<tr><td><code>${EXT}</code></td><td>— estensione con punto</td>"
+            "<td><i>es. .py</i></td></tr>"
+            "<tr><td><code>${LINE}</code></td><td>— riga corrente del cursore</td>"
+            "<td><i>es. 42</i></td></tr>"
+            "<tr><td><code>${COL}</code></td><td>— colonna corrente del cursore</td>"
+            "<td><i>es. 7</i></td></tr>"
+            "</table></small>"
         )
         var_lbl.setTextFormat(Qt.TextFormat.RichText)
         var_lbl.setWordWrap(True)

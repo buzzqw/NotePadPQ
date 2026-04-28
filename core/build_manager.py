@@ -398,17 +398,20 @@ class BuildManager(QObject):
         if editor:
             line, col = editor.get_cursor_position_1based()
 
-        replacements = {
-            "${FILE}":     str(path),
-            "${DIR}":      str(path.parent),
-            "${BASENAME}": path.stem,
-            "${EXT}":      path.suffix,
-            "${FILENAME}": path.name,
-            "${LINE}":     str(line),
-            "${COL}":      str(col),
+        vals = {
+            "FILE":     str(path),
+            "DIR":      str(path.parent),
+            "BASENAME": path.stem,
+            "BASEFILE": str(path.parent / path.stem),   # percorso completo senza estensione
+            "EXT":      path.suffix,
+            "FILENAME": path.name,
+            "LINE":     str(line),
+            "COL":      str(col),
         }
-        for var, val in replacements.items():
-            command = command.replace(var, val)
+        # Supporta sia ${VAR} che $(VAR)
+        for name, val in vals.items():
+            command = command.replace(f"${{{name}}}", val)
+            command = command.replace(f"$({name})", val)
         return command
 
     # ── Parsing errori ────────────────────────────────────────────────────────

@@ -660,7 +660,8 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("view_fold_margin", "", self._toggle_fold_margin, checkable=True, checked=s.get("editor/show_fold_margin", True)))
         m.addAction(self._act("view_whitespace",  "", self._toggle_whitespace,  checkable=True, checked=s.get("editor/show_whitespace", False)))
         m.addAction(self._act("view_eol",         "", self._toggle_eol,         checkable=True, checked=s.get("editor/show_eol", False)))
-        m.addAction(self._act("view_word_wrap",   "Alt+Z", self._toggle_word_wrap, checkable=True, checked=s.get("editor/word_wrap", False)))
+        # view_word_wrap: registrata qui per _actions ma aggiunta solo al menu Documento
+        self._act("view_word_wrap", "Alt+Z", self._toggle_word_wrap, checkable=True, checked=s.get("editor/word_wrap", False))
         self._sep(m)
 
         # --- DA QUI IN POI IL MENU RIMANE UGUALE A PRIMA ---

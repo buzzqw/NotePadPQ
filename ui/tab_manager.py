@@ -312,11 +312,14 @@ class TabManager(QTabWidget):
 
         # Titolo tab
         name = path.name if path else tr("label.untitled")
-        idx = self.addTab(container, name)
-        self.setCurrentIndex(idx)
 
+        # Popola le mappe PRIMA di addTab: quando currentChanged scatta,
+        # editor_at() deve già trovare il container in _editors.
         self._editors[container] = editor
         self._containers[editor] = container
+
+        idx = self.addTab(container, name)
+        self.setCurrentIndex(idx)
 
         # Connette segnali modifica
         editor.modified_changed.connect(

@@ -106,8 +106,9 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Temi**: editor di temi integrato con anteprima live; importa/esporta in JSON.
 - **Set icone**: Lucide, Material, Sistema — download automatico al primo utilizzo.
 - **Orologio live** nella barra dei menu con data e ora localizzate.
+- **Controllo ortografico** (`F4`) — spell checker in tempo reale con sottolineatura rossa per IT, EN, DE, FR, ES. Lingua del dizionario selezionabile indipendentemente dalla lingua dell'interfaccia (menu Documento → Lingua dizionario). Click destro su una parola evidenziata per suggerimenti, "Aggiungi al dizionario" o "Ignora tutto".
 - **Modalità testo semplice** (`Ctrl+Alt+T`) — disabilita highlighting, brace matching e autocomplete per tab, ripristinabile in un click.
-- **Modalità scrittura distraction-free** (`Ctrl+Shift+F11`) — schermo intero senza toolbar, statusbar, menubar né pannelli. Ripristino completo all'uscita.
+- **Modalità scrittura distraction-free** (`F11`) — schermo intero senza toolbar, statusbar, menubar né pannelli. Ripristino completo all'uscita.
 - **Sessioni**: ripristino automatico all'avvio di tutti i file, posizioni cursore e layout pannelli. Auto-save opzionale su perdita del fuoco.
 - **Istanza singola**: aprire un file da file manager lo invia alla finestra già aperta.
 
@@ -215,8 +216,9 @@ Runs natively on Linux, Windows, and macOS.
 - **5 languages**: Italian, English, German, French, Spanish — switch at runtime.
 - **Theme editor** with live preview, import/export JSON.
 - **Icon sets**: Lucide, Material, System — auto-downloaded on first use.
+- **Spell checker** (`F4`) — real-time spell checking with red squiggles for IT, EN, DE, FR, ES. Dictionary language is selectable independently from the UI language (Document → Dictionary Language). Right-click a highlighted word for suggestions, "Add to dictionary", or "Ignore all".
 - **Plain text mode** (`Ctrl+Alt+T`) — disable highlighting, brace matching and autocomplete per tab.
-- **Distraction-free writing mode** (`Ctrl+Shift+F11`) — fullscreen with all UI elements hidden. Fully restored on exit.
+- **Distraction-free writing mode** (`F11`) — fullscreen with all UI elements hidden. Fully restored on exit.
 - **Session restore**: all files, cursor positions, and panel layout restored at startup. Optional auto-save on focus loss.
 - **Single instance**: opening files from the file manager sends them to the running window.
 

@@ -150,9 +150,13 @@ def _aes_decrypt(b64text: str, password: str, key_len: int = 32) -> str:
 
 def _des_encrypt(text: str, password: str, triple: bool = False) -> str:
     """DES/3DES-CBC encrypt → Base64."""
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.primitives.ciphers import Cipher, modes
     from cryptography.hazmat.primitives import padding as sym_padding
     from cryptography.hazmat.backends import default_backend
+    try:
+        from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
+    except ImportError:
+        from cryptography.hazmat.primitives.ciphers.algorithms import TripleDES
 
     key_len = 24 if triple else 8
     salt    = os.urandom(8)
@@ -162,7 +166,7 @@ def _des_encrypt(text: str, password: str, triple: bool = False) -> str:
     padder  = sym_padding.PKCS7(64).padder()
     padded  = padder.update(text.encode("utf-8")) + padder.finalize()
 
-    algo   = algorithms.TripleDES(key) if triple else algorithms.TripleDES(key * 3)
+    algo   = TripleDES(key) if triple else TripleDES(key * 3)
     cipher = Cipher(algo, modes.CBC(iv), backend=default_backend())
     enc    = cipher.encryptor()
     ct     = enc.update(padded) + enc.finalize()
@@ -173,9 +177,13 @@ def _des_encrypt(text: str, password: str, triple: bool = False) -> str:
 
 def _des_decrypt(b64text: str, password: str, triple: bool = False) -> str:
     """DES/3DES-CBC decrypt da Base64."""
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.primitives.ciphers import Cipher, modes
     from cryptography.hazmat.primitives import padding as sym_padding
     from cryptography.hazmat.backends import default_backend
+    try:
+        from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
+    except ImportError:
+        from cryptography.hazmat.primitives.ciphers.algorithms import TripleDES
 
     blob    = base64.b64decode(b64text.strip())
     key_len = 24 if triple else 8
@@ -184,7 +192,7 @@ def _des_decrypt(b64text: str, password: str, triple: bool = False) -> str:
     ct      = blob[16:]
     key     = _derive_key(password, salt, key_len)
 
-    algo   = algorithms.TripleDES(key) if triple else algorithms.TripleDES(key * 3)
+    algo   = TripleDES(key) if triple else TripleDES(key * 3)
     cipher = Cipher(algo, modes.CBC(iv), backend=default_backend())
     dec    = cipher.decryptor()
     padded = dec.update(ct) + dec.finalize()

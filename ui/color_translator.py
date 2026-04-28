@@ -2,7 +2,7 @@
 ui/color_translator.py — Traduttore colori HTML/CSS (stile PSPad)
 NotePadPQ
 
-Mostra un colore selezionato in diversi formati:
+Permette di inserire un colore in qualsiasi notazione e lo converte in:
 - Nome HTML/CSS (se riconosciuto)
 - Barra del colore (anteprima visiva)
 - Hex maiuscolo: #RRGGBB
@@ -10,15 +10,24 @@ Mostra un colore selezionato in diversi formati:
 - RGB decimale:  rgb(r, g, b)
 - RGB percentuale: rgb(r%, g%, b%)
 - HSL:           hsl(h, s%, l%)
+
+Formati accettati in input:
+  red  /  cornflowerblue          → nome CSS
+  #FF5500  /  #f50  /  FF5500    → hex (con o senza #, anche 3 cifre)
+  255, 85, 0  /  255 85 0        → r g b separati da virgola o spazio
+  rgb(255, 85, 0)                → notazione rgb()
+  rgb(100%, 33%, 0%)             → notazione rgb%
+  hsl(20, 100%, 50%)             → notazione hsl()
 """
 
 from __future__ import annotations
 
 import colorsys
+import re
 from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QClipboard
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QLineEdit, QPushButton, QFrame, QColorDialog, QApplication,
@@ -29,7 +38,6 @@ if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
 # ── Dizionario colori CSS nominati ────────────────────────────────────────────
-# Mappa nome → (r, g, b) per i 148 colori CSS standard
 _CSS_COLORS: dict[str, tuple[int, int, int]] = {
     "aliceblue": (240, 248, 255), "antiquewhite": (250, 235, 215),
     "aqua": (0, 255, 255), "aquamarine": (127, 255, 212),
@@ -104,8 +112,80 @@ _CSS_COLORS: dict[str, tuple[int, int, int]] = {
     "yellowgreen": (154, 205, 50),
 }
 
-# Mappa inversa (r,g,b) → nome
 _RGB_TO_NAME: dict[tuple[int, int, int], str] = {v: k for k, v in _CSS_COLORS.items()}
+
+
+# ── Parser multi-formato ──────────────────────────────────────────────────────
+
+def _clamp(v: float, lo: float = 0, hi: float = 255) -> int:
+    return max(lo, min(hi, round(v)))
+
+
+def parse_color(text: str) -> Optional[QColor]:
+    """
+    Tenta di interpretare `text` come colore in uno dei formati supportati.
+    Restituisce QColor valido o None se il parse fallisce.
+    """
+    t = text.strip()
+    if not t:
+        return None
+
+    # 1. Nome CSS
+    lo = t.lower()
+    if lo in _CSS_COLORS:
+        r, g, b = _CSS_COLORS[lo]
+        return QColor(r, g, b)
+
+    # 2. Hex — #RGB, #RRGGBB, oppure senza #
+    hex_t = t.lstrip("#")
+    if re.fullmatch(r"[0-9a-fA-F]{3}", hex_t):
+        r = int(hex_t[0] * 2, 16)
+        g = int(hex_t[1] * 2, 16)
+        b = int(hex_t[2] * 2, 16)
+        return QColor(r, g, b)
+    if re.fullmatch(r"[0-9a-fA-F]{6}", hex_t):
+        r = int(hex_t[0:2], 16)
+        g = int(hex_t[2:4], 16)
+        b = int(hex_t[4:6], 16)
+        return QColor(r, g, b)
+
+    # 3. rgb(r, g, b) con valori interi
+    m = re.fullmatch(
+        r"rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)", t, re.IGNORECASE
+    )
+    if m:
+        r, g, b = (_clamp(int(x)) for x in m.groups())
+        return QColor(r, g, b)
+
+    # 4. rgb(r%, g%, b%)
+    m = re.fullmatch(
+        r"rgb\(\s*(\d+(?:\.\d+)?)\s*%\s*,\s*(\d+(?:\.\d+)?)\s*%\s*,\s*(\d+(?:\.\d+)?)\s*%\s*\)",
+        t, re.IGNORECASE
+    )
+    if m:
+        r, g, b = (_clamp(float(x) / 100 * 255) for x in m.groups())
+        return QColor(r, g, b)
+
+    # 5. r, g, b  oppure  r g b  (tre numeri separati da virgola o spazio)
+    m = re.fullmatch(r"(\d{1,3})[,\s]\s*(\d{1,3})[,\s]\s*(\d{1,3})", t)
+    if m:
+        r, g, b = (_clamp(int(x)) for x in m.groups())
+        return QColor(r, g, b)
+
+    # 6. hsl(h, s%, l%)
+    m = re.fullmatch(
+        r"hsl\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*%\s*,\s*(\d+(?:\.\d+)?)\s*%\s*\)",
+        t, re.IGNORECASE
+    )
+    if m:
+        h_deg, s_pct, l_pct = (float(x) for x in m.groups())
+        h = (h_deg % 360) / 360
+        s = max(0.0, min(1.0, s_pct / 100))
+        l = max(0.0, min(1.0, l_pct / 100))
+        r_f, g_f, b_f = colorsys.hls_to_rgb(h, l, s)
+        return QColor(_clamp(r_f * 255), _clamp(g_f * 255), _clamp(b_f * 255))
+
+    return None
 
 
 def _rgb_to_hsl(r: int, g: int, b: int) -> tuple[int, int, int]:
@@ -113,15 +193,17 @@ def _rgb_to_hsl(r: int, g: int, b: int) -> tuple[int, int, int]:
     return round(h * 360), round(s * 100), round(l * 100)
 
 
+# ── Dialog ────────────────────────────────────────────────────────────────────
+
 class ColorTranslatorDialog(QDialog):
-    """Dialog traduttore colori stile PSPad."""
+    """Dialog traduttore colori stile PSPad con input libero."""
 
     def __init__(self, main_window: "MainWindow", initial: Optional[QColor] = None):
         super().__init__(main_window)
         self._mw = main_window
         self._color = initial or QColor("#3399ff")
         self.setWindowTitle("Traduttore colori")
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(460)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         self._build_ui()
         self._update_display()
@@ -132,7 +214,23 @@ class ColorTranslatorDialog(QDialog):
         vl = QVBoxLayout(self)
         vl.setSpacing(8)
 
-        # Riga picker + barra del colore
+        # ── Riga input libero ─────────────────────────────────────────────────
+        inp_row = QHBoxLayout()
+        inp_row.addWidget(QLabel("Inserisci colore:"))
+        self._input = QLineEdit()
+        self._input.setPlaceholderText(
+            "es.  red   #FF5500   255,85,0   rgb(0,128,255)   hsl(200,80%,50%)"
+        )
+        self._input.returnPressed.connect(self._apply_input)
+        self._input.textChanged.connect(self._on_input_changed)
+        inp_row.addWidget(self._input)
+        apply_btn = QPushButton("Applica")
+        apply_btn.setFixedWidth(72)
+        apply_btn.clicked.connect(self._apply_input)
+        inp_row.addWidget(apply_btn)
+        vl.addLayout(inp_row)
+
+        # ── Riga picker + barra del colore ────────────────────────────────────
         top = QHBoxLayout()
         pick_btn = QPushButton("Scegli colore…")
         pick_btn.clicked.connect(self._pick_color)
@@ -146,7 +244,7 @@ class ColorTranslatorDialog(QDialog):
         top.addWidget(self._bar)
         vl.addLayout(top)
 
-        # Griglia formati
+        # ── Griglia formati (sola lettura) ────────────────────────────────────
         grid = QGridLayout()
         grid.setColumnStretch(1, 1)
         grid.setHorizontalSpacing(6)
@@ -185,7 +283,7 @@ class ColorTranslatorDialog(QDialog):
 
         vl.addLayout(grid)
 
-        # Riga inferiore
+        # ── Riga inferiore ────────────────────────────────────────────────────
         bot = QHBoxLayout()
         bot.addStretch()
         close_btn = QPushButton("Chiudi")
@@ -195,10 +293,36 @@ class ColorTranslatorDialog(QDialog):
 
     # ── Logica ────────────────────────────────────────────────────────────────
 
+    def _on_input_changed(self, text: str) -> None:
+        """Feedback visivo immediato: bordo verde se il colore è riconosciuto."""
+        if not text.strip():
+            self._input.setStyleSheet("")
+            return
+        c = parse_color(text)
+        if c:
+            self._input.setStyleSheet("border: 1px solid #44aa44;")
+        else:
+            self._input.setStyleSheet("border: 1px solid #cc4444;")
+
+    def _apply_input(self) -> None:
+        """Legge il campo di input e aggiorna il colore se il parse ha successo."""
+        text = self._input.text().strip()
+        if not text:
+            return
+        c = parse_color(text)
+        if c:
+            self._color = c
+            self._input.setStyleSheet("border: 1px solid #44aa44;")
+            self._update_display()
+        else:
+            self._input.setStyleSheet("border: 1px solid #cc4444;")
+
     def _pick_color(self) -> None:
         c = QColorDialog.getColor(self._color, self, "Seleziona colore")
         if c.isValid():
             self._color = c
+            self._input.clear()
+            self._input.setStyleSheet("")
             self._update_display()
 
     def _update_display(self) -> None:

@@ -85,12 +85,13 @@ class StatusBar(QStatusBar):
             f"{tr('label.line')} {line}, {tr('label.column')} {col}"
         )
 
-    def set_selection(self, chars: int, lines: int) -> None:
+    def set_selection(self, chars: int, lines: int, byte_count: int = 0) -> None:
         if chars > 0:
-            self._lbl_sel.setText(
-                f"({tr('label.selection')}: {chars} {tr('label.chars')}, "
-                f"{lines} {tr('label.lines_total')})"
-            )
+            txt = f"({tr('label.selection')}: {chars} {tr('label.chars')}"
+            if byte_count != chars:
+                txt += f" / {byte_count} byte"
+            txt += f", {lines} {tr('label.lines_total')})"
+            self._lbl_sel.setText(txt)
         else:
             self._lbl_sel.setText("")
 

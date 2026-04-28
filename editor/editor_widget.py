@@ -122,7 +122,7 @@ class EditorWidget(QsciScintilla):
     cursor_changed     = pyqtSignal(int, int)    # riga, colonna (1-based)
     encoding_changed   = pyqtSignal(str)         # es. "UTF-8"
     line_ending_changed = pyqtSignal(str)        # "LF" / "CRLF" / "CR"
-    selection_changed_info = pyqtSignal(int, int) # chars selezionati, righe
+    selection_changed_info = pyqtSignal(int, int, int) # chars, righe, byte
     zoom_changed       = pyqtSignal(int)         # livello zoom corrente
     overwrite_changed  = pyqtSignal(bool)        # modalità inserimento/sovrascrittura
     language_changed   = pyqtSignal(str)         # es. "Python", "LaTeX"
@@ -369,8 +369,13 @@ class EditorWidget(QsciScintilla):
 
     def _on_selection_changed(self) -> None:
         text = self.selectedText()
-        lines = text.count("\n") + 1 if text else 0
-        self.selection_changed_info.emit(len(text), lines if text else 0)
+        if text:
+            lines = text.count("\n") + 1
+            byte_count = len(text.encode(self.encoding or "utf-8", errors="replace"))
+        else:
+            lines = 0
+            byte_count = 0
+        self.selection_changed_info.emit(len(text), lines, byte_count)
 
     def _on_zoom_changed(self) -> None:
         level = self.SendScintilla(QsciScintilla.SCI_GETZOOM)

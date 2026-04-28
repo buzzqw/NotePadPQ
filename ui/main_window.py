@@ -1226,6 +1226,7 @@ class MainWindow(QMainWindow):
 
         # Collega i segnali del nuovo editor allo statusbar
         editor.cursor_changed.connect(self._statusbar.set_cursor)
+        editor.selection_changed_info.connect(self._statusbar.set_selection)
         editor.encoding_changed.connect(self._statusbar.set_encoding)
         editor.line_ending_changed.connect(self._statusbar.set_line_ending)
         editor.modified_changed.connect(

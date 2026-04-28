@@ -118,6 +118,28 @@ elif command -v dnf &>/dev/null; then
         python3-chardet python3-markdown 2>/dev/null || true
     $PYTHON -m pip install --user $PIP_CORE || true
 
+elif [[ "$OS" == "FreeBSD" ]]; then
+    echo "FreeBSD: rilevazione versione Python..."
+    PY_VER=$($PYTHON -c "import sys; print(f'{sys.version_info.major}{sys.version_info.minor}')")
+    echo "  Versione Python: $PY_VER"
+    # Pacchetti disponibili nei ports FreeBSD
+    sudo pkg install -y \
+        "py${PY_VER}-pip" \
+        "py${PY_VER}-qt6-qscintilla2" \
+        "py${PY_VER}-chardet" \
+        "py${PY_VER}-markdown" \
+        "py${PY_VER}-docutils" \
+        "py${PY_VER}-keyring" \
+        "py${PY_VER}-python-gitlab"
+    # PyQt6, PyQt6-WebEngine, pyspellchecker, PyGithub non sono nei ports -> pip
+    PIPBIN=$(command -v pip3 || command -v pip || true)
+    if [[ -n "$PIPBIN" ]]; then
+        $PIPBIN install --user PyQt6 PyQt6-WebEngine PyQt6-QScintilla pyspellchecker PyGithub || true
+    else
+        echo "  ERRORE: pip non trovato dopo installazione py${PY_VER}-pip"
+        echo "  Riprova: sudo pkg install py${PY_VER}-pip"
+    fi
+
 else
     $PYTHON -m pip install $PIP_CORE || true
 fi
@@ -167,6 +189,8 @@ _print_latex_hint
 if [[ "$OS" == "Linux" ]]; then
     _create_linux_launcher
 fi
+
+
 
 echo
 echo "=== Setup completato ==="

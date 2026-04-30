@@ -258,19 +258,7 @@ ESEMPI
         self._chk_case2  = QCheckBox(tr("label.match_case"))
         self._chk_word2  = QCheckBox(tr("label.whole_word"))
         self._chk_regex2 = QCheckBox(tr("label.regex"))
-        self._chk_regex2.setToolTip(
-            "Espressione regolare (Python re):\n"
-            "  .       qualsiasi carattere\n"
-            "  \\d      cifra  |  \\w  parola  |  \\s  spazio\n"
-            "  *       0 o più  |  +  1 o più  |  ?  0 o 1\n"
-            "  ^       inizio riga  |  $  fine riga\n"
-            "  [abc]   classe caratteri  |  [^abc]  negazione\n"
-            "  (...)   gruppo  |  (?:...)  gruppo non catturante\n"
-            "  \\1      riferimento al gruppo 1\n"
-            "  a|b     alternativa (a oppure b)\n"
-            "  \\b      confine di parola\n"
-            "\nNel campo Sostituisci: \\1 \\2 ... per i gruppi catturati"
-        )
+        self._chk_regex2.setToolTip(tr("tooltip.find_regex_help"))
         self._chk_wrap2  = QCheckBox(tr("label.wrap_around"))
         self._chk_wrap2.setChecked(True)
         opts2 = QHBoxLayout()

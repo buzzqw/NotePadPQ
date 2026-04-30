@@ -33,6 +33,8 @@ from PyQt6.QtWidgets import (
     QComboBox, QMenu, QAbstractItemView,
 )
 
+from i18n.i18n import tr
+
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
@@ -350,14 +352,14 @@ class _FunctionListPanel(QWidget):
 
         self._sort_btn = QPushButton("A↓")
         self._sort_btn.setFixedSize(32, 24)
-        self._sort_btn.setToolTip("Ordina A-Z / per riga")
+        self._sort_btn.setToolTip(tr("tooltip.funclist_sort"))
         self._sort_btn.setCheckable(True)
         self._sort_btn.toggled.connect(self._toggle_sort)
         top.addWidget(self._sort_btn)
 
         btn_refresh = QPushButton("↻")
         btn_refresh.setFixedSize(28, 24)
-        btn_refresh.setToolTip("Aggiorna")
+        btn_refresh.setToolTip(tr("tooltip.funclist_refresh"))
         btn_refresh.clicked.connect(self._refresh)
         top.addWidget(btn_refresh)
         layout.addLayout(top)

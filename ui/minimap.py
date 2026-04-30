@@ -18,6 +18,7 @@ from PyQt6.QtGui import (
     QFontMetrics, QPixmap,
 )
 from PyQt6.QtWidgets import QWidget, QAbstractScrollArea
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -53,7 +54,7 @@ class MinimapWidget(QWidget):
 
         self.setFixedWidth(MINIMAP_WIDTH)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip("Minimap — clic per navigare")
+        self.setToolTip(tr("tooltip.minimap_nav"))
 
         # Debounce aggiornamento
         self._timer = QTimer(self)

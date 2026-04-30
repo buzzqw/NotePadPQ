@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
 )
 
 from plugins.base_plugin import BasePlugin
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -369,7 +370,7 @@ class _SettingsDialog(QDialog):
                 btn_show = QPushButton("👁")
                 btn_show.setFixedWidth(28)
                 btn_show.setCheckable(True)
-                btn_show.setToolTip("Mostra/nascondi chiave")
+                btn_show.setToolTip(tr("tooltip.ai_show_key"))
                 btn_show.toggled.connect(
                     lambda checked, e=edit: e.setEchoMode(
                         QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
@@ -438,13 +439,15 @@ class _AIPanel(QWidget):
         self._provider_combo = QComboBox()
         for name in PROVIDERS:
             self._provider_combo.addItem(name)
+        self._provider_combo.setToolTip(tr("tooltip.ai_provider"))
         self._provider_combo.currentIndexChanged.connect(self._on_provider_changed)
         self._model_combo = QComboBox()
         self._model_combo.setMinimumWidth(180)
+        self._model_combo.setToolTip(tr("tooltip.ai_model"))
         self._model_combo.currentTextChanged.connect(self._on_model_changed)
         btn_settings = QPushButton("⚙")
         btn_settings.setFixedWidth(28)
-        btn_settings.setToolTip("Impostazioni chiavi API")
+        btn_settings.setToolTip(tr("tooltip.ai_settings"))
         btn_settings.clicked.connect(self._open_settings)
         top.addWidget(QLabel("Provider:"))
         top.addWidget(self._provider_combo, 1)
@@ -456,12 +459,10 @@ class _AIPanel(QWidget):
         # ── Opzioni avanzate (Extended Thinking, System) ───────────────────────
         adv = QHBoxLayout()
         self._chk_thinking = QCheckBox("Extended Thinking")
-        self._chk_thinking.setToolTip(
-            "Abilita il ragionamento esteso di Claude (solo Opus 4.7 / Sonnet 4.5-thinking).\n"
-            "Aumenta la qualità delle risposte complesse ma usa più token."
-        )
+        self._chk_thinking.setToolTip(tr("tooltip.ai_thinking"))
         self._chk_thinking.setVisible(False)
         self._lbl_cost = QLabel("")
+        self._lbl_cost.setToolTip(tr("tooltip.ai_cost"))
         self._lbl_cost.setStyleSheet("color:#858585; font-size:10px;")
         adv.addWidget(self._chk_thinking)
         adv.addStretch()
@@ -472,6 +473,7 @@ class _AIPanel(QWidget):
         self._btn_sys = QPushButton("▶ System prompt")
         self._btn_sys.setCheckable(True)
         self._btn_sys.setFixedHeight(22)
+        self._btn_sys.setToolTip(tr("tooltip.ai_system"))
         self._btn_sys.toggled.connect(self._toggle_system)
         layout.addWidget(self._btn_sys)
         self._system_edit = QPlainTextEdit()
@@ -484,24 +486,32 @@ class _AIPanel(QWidget):
         # ── Pulsanti rapidi "Chiedi su…" ──────────────────────────────────────
         quick_row = QHBoxLayout()
         btn_ask_file = QPushButton("📄 Chiedi sul file")
-        btn_ask_file.setToolTip("Aggiunge tutto il file aperto come contesto e mette il cursore nell'input")
+        btn_ask_file.setToolTip(tr("tooltip.ai_ask_file"))
         btn_ask_file.clicked.connect(self._ask_about_file)
         btn_ask_sel = QPushButton("✏ Chiedi sulla selezione")
-        btn_ask_sel.setToolTip("Aggiunge il testo selezionato come contesto")
+        btn_ask_sel.setToolTip(tr("tooltip.ai_ask_sel"))
         btn_ask_sel.clicked.connect(self._ask_about_selection)
         quick_row.addWidget(btn_ask_file)
         quick_row.addWidget(btn_ask_sel)
         layout.addLayout(quick_row)
 
         # ── Azioni contestuali (applicano subito un prompt fisso) ─────────────
+        _action_tooltips = {
+            "Spiega":       tr("tooltip.ai_explain"),
+            "Refactoring":  tr("tooltip.ai_refactor"),
+            "Docstring":    tr("tooltip.ai_docstring"),
+            "Correggi bug": tr("tooltip.ai_fix_bug"),
+        }
         act_row = QHBoxLayout()
         for label, prompt in CONTEXT_ACTIONS[:4]:
             btn = QPushButton(label)
             btn.setFixedHeight(24)
+            btn.setToolTip(_action_tooltips.get(label, prompt))
             btn.clicked.connect(lambda _, p=prompt: self._context_action(p))
             act_row.addWidget(btn)
         btn_more = QPushButton("Altro ▾")
         btn_more.setFixedHeight(24)
+        btn_more.setToolTip(tr("tooltip.ai_more"))
         btn_more.clicked.connect(self._show_more_actions)
         act_row.addWidget(btn_more)
         layout.addLayout(act_row)
@@ -513,6 +523,7 @@ class _AIPanel(QWidget):
         self._chat_view.setReadOnly(True)
         self._chat_view.setFont(QFont("Monospace", 10))
         self._chat_view.setStyleSheet("background:#1e1e1e; color:#d4d4d4; border:none;")
+        self._chat_view.setToolTip(tr("tooltip.ai_chat"))
         splitter.addWidget(self._chat_view)
 
         input_widget = QWidget()
@@ -525,16 +536,19 @@ class _AIPanel(QWidget):
         self._input.setFont(QFont("Monospace", 10))
         self._input.setPlaceholderText("Scrivi un messaggio… (Ctrl+Enter per inviare)")
         self._input.setStyleSheet("background:#252526; color:#d4d4d4; border:1px solid #3c3c3c;")
+        self._input.setToolTip(tr("tooltip.ai_input"))
         self._input.installEventFilter(self)
         input_layout.addWidget(self._input)
 
         btn_row = QHBoxLayout()
-        self._btn_ctx   = QPushButton("+ Contesto")
-        self._btn_ctx.setToolTip("Aggiunge il file/selezione corrente come contesto")
+        self._btn_ctx = QPushButton("+ Contesto")
+        self._btn_ctx.setToolTip(tr("tooltip.ai_add_context"))
         self._btn_ctx.clicked.connect(self._add_context)
         self._btn_clear = QPushButton("Pulisci chat")
+        self._btn_clear.setToolTip(tr("tooltip.ai_clear"))
         self._btn_clear.clicked.connect(self._clear)
-        self._btn_send  = QPushButton("▶ Invia  Ctrl+↵")
+        self._btn_send = QPushButton("▶ Invia  Ctrl+↵")
+        self._btn_send.setToolTip(tr("tooltip.ai_send"))
         self._btn_send.clicked.connect(self._send)
         btn_row.addWidget(self._btn_ctx)
         btn_row.addStretch()

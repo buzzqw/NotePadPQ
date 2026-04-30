@@ -60,7 +60,7 @@ class _PanelHeader(QWidget):
         btn = QToolButton()
         btn.setText("✕")
         btn.setFixedSize(18, 18)
-        btn.setToolTip("Chiudi split view")
+        btn.setToolTip(tr("tooltip.split_close"))
         btn.setStyleSheet(
             "QToolButton{border:none;color:#888;font-size:11px;}"
             "QToolButton:hover{color:#fff;background:#c0392b;border-radius:2px;}"

@@ -215,22 +215,22 @@ class PreviewPanel(QWidget):
         pdf_nav = QHBoxLayout()
         self._pdf_btn_prev = QToolButton()
         self._pdf_btn_prev.setText("◀")
-        self._pdf_btn_prev.setToolTip("Pagina precedente  [PgUp]")
+        self._pdf_btn_prev.setToolTip(tr("tooltip.preview_prev"))
         self._pdf_btn_prev.clicked.connect(self._pdf_prev_page)
         self._pdf_btn_next = QToolButton()
         self._pdf_btn_next.setText("▶")
-        self._pdf_btn_next.setToolTip("Pagina successiva  [PgDn]")
+        self._pdf_btn_next.setToolTip(tr("tooltip.preview_next"))
         self._pdf_btn_next.clicked.connect(self._pdf_next_page)
         self._pdf_lbl_page = QLabel("  —  ")
         self._pdf_lbl_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._pdf_lbl_page.setMinimumWidth(80)
         self._pdf_zoom_in  = QToolButton()
         self._pdf_zoom_in.setText("🔍+")
-        self._pdf_zoom_in.setToolTip("Zoom avanti  [Ctrl++]")
+        self._pdf_zoom_in.setToolTip(tr("tooltip.preview_zoom_in"))
         self._pdf_zoom_in.clicked.connect(self._pdf_zoom_in_action)
         self._pdf_zoom_out = QToolButton()
         self._pdf_zoom_out.setText("🔍−")
-        self._pdf_zoom_out.setToolTip("Zoom indietro  [Ctrl+-]")
+        self._pdf_zoom_out.setToolTip(tr("tooltip.preview_zoom_out"))
         self._pdf_zoom_out.clicked.connect(self._pdf_zoom_out_action)
         self._pdf_lbl_synctex = QLabel("")
         self._pdf_lbl_synctex.setStyleSheet("color: #4caf50; font-size: 10px; padding: 0 4px;")
@@ -238,23 +238,23 @@ class PreviewPanel(QWidget):
         # Pulsanti fit
         self._pdf_btn_fit_width = QToolButton()
         self._pdf_btn_fit_width.setText("↔")
-        self._pdf_btn_fit_width.setToolTip("Adatta alla larghezza")
+        self._pdf_btn_fit_width.setToolTip(tr("tooltip.preview_fit_width"))
         self._pdf_btn_fit_width.clicked.connect(self._pdf_fit_width)
 
         self._pdf_btn_fit_page = QToolButton()
         self._pdf_btn_fit_page.setText("⛶")
-        self._pdf_btn_fit_page.setToolTip("Adatta alla pagina intera")
+        self._pdf_btn_fit_page.setToolTip(tr("tooltip.preview_fit_page"))
         self._pdf_btn_fit_page.clicked.connect(self._pdf_fit_page)
         
         self._pdf_btn_crop = QToolButton()
         self._pdf_btn_crop.setText("✂")
-        self._pdf_btn_crop.setToolTip("Taglia margini bianchi")
+        self._pdf_btn_crop.setToolTip(tr("tooltip.preview_crop"))
         self._pdf_btn_crop.setCheckable(True)
         self._pdf_btn_crop.clicked.connect(self._pdf_toggle_crop)
 
         self._pdf_btn_zoom_reset = QToolButton()
         self._pdf_btn_zoom_reset.setText("1:1")
-        self._pdf_btn_zoom_reset.setToolTip("Zoom 100%")
+        self._pdf_btn_zoom_reset.setToolTip(tr("tooltip.preview_zoom_reset"))
         self._pdf_btn_zoom_reset.clicked.connect(self._pdf_zoom_reset)
 
         for w2 in [self._pdf_btn_prev, self._pdf_lbl_page, self._pdf_btn_next,
@@ -273,10 +273,10 @@ class PreviewPanel(QWidget):
         crop_layout.setContentsMargins(4, 0, 4, 2)
         crop_layout.setSpacing(6)
 
-        self._crop_t = QSpinBox(); self._crop_t.setToolTip("Taglio in Alto (Top)")
-        self._crop_b = QSpinBox(); self._crop_b.setToolTip("Taglio in Basso (Bottom)")
-        self._crop_l = QSpinBox(); self._crop_l.setToolTip("Taglio a Sinistra (Left)")
-        self._crop_r = QSpinBox(); self._crop_r.setToolTip("Taglio a Destra (Right)")
+        self._crop_t = QSpinBox(); self._crop_t.setToolTip(tr("tooltip.preview_crop_top"))
+        self._crop_b = QSpinBox(); self._crop_b.setToolTip(tr("tooltip.preview_crop_bottom"))
+        self._crop_l = QSpinBox(); self._crop_l.setToolTip(tr("tooltip.preview_crop_left"))
+        self._crop_r = QSpinBox(); self._crop_r.setToolTip(tr("tooltip.preview_crop_right"))
 
         crop_layout.addStretch() # Spinge i contatori al centro
         for label, sp in [("Su:", self._crop_t), ("Giù:", self._crop_b),
@@ -876,9 +876,7 @@ class PreviewPanel(QWidget):
         s  = _Path(str(pdf_path)).with_suffix(".synctex")
         if sz.exists() or s.exists():
             self._pdf_lbl_synctex.setText("⟷ SyncTeX")
-            self._pdf_lbl_synctex.setToolTip(
-                "SyncTeX attivo: clicca sul PDF per andare alla riga nel sorgente"
-            )
+            self._pdf_lbl_synctex.setToolTip(tr("tooltip.preview_synctex"))
         else:
             self._pdf_lbl_synctex.setText("")
 

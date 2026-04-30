@@ -39,6 +39,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor, QFont
 
 from plugins.base_plugin import BasePlugin
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -362,7 +363,7 @@ class _GitPanel(QWidget):
         )
         btn_refresh = QPushButton("🔄")
         btn_refresh.setFixedSize(26, 26)
-        btn_refresh.setToolTip("Aggiorna (F5)")
+        btn_refresh.setToolTip(tr("tooltip.git_refresh"))
         btn_refresh.clicked.connect(self.refresh)
         hdr.addWidget(self._repo_label, 1)
         hdr.addWidget(self._branch_label)
@@ -372,22 +373,10 @@ class _GitPanel(QWidget):
         # Azioni rapide
         acts = QHBoxLayout()
         for label, tip, slot in [
-            ("↓ Pull",
-             "git pull — Scarica e integra le modifiche dal remote.\n"
-             "Mantiene il repo locale sincronizzato con il server.",
-             self._pull),
-            ("↑ Push",
-             "git push — Carica i commit locali sul remote.\n"
-             "Richiede almeno un remote configurato (es. origin).",
-             self._push),
-            ("✓ Commit",
-             "git add . + git commit — Apre un dialog per scegliere\n"
-             "i file da includere e scrivere il messaggio di commit.",
-             self._commit),
-            ("≡ Stash",
-             "Sì → git stash push  (salva le modifiche non committate)\n"
-             "No → git stash pop   (ripristina le modifiche salvate)",
-             self._stash),
+            ("↓ Pull",   tr("tooltip.git_pull"),   self._pull),
+            ("↑ Push",   tr("tooltip.git_push"),   self._push),
+            ("✓ Commit", tr("tooltip.git_commit"), self._commit),
+            ("≡ Stash",  tr("tooltip.git_stash"),  self._stash),
         ]:
             btn = QPushButton(label)
             btn.setToolTip(tip)

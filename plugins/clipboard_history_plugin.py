@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
 )
 
 from plugins.base_plugin import BasePlugin
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -90,7 +91,7 @@ class _ClipboardPanel(QWidget):
         self._list.itemDoubleClicked.connect(self._paste_item)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._context_menu)
-        self._list.setToolTip("Doppio clic per incollare nell'editor")
+        self._list.setToolTip(tr("tooltip.clipboard_paste"))
         layout.addWidget(self._list, 1)
 
         # Anteprima

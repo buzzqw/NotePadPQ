@@ -37,6 +37,8 @@ from PyQt6.QtWidgets import (
     QLabel, QCheckBox, QSizePolicy, QApplication,
 )
 
+from i18n.i18n import tr
+
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
@@ -119,19 +121,19 @@ class IncrementalSearchBar(QWidget):
 
         # Opzioni compatte
         self._cb_case  = QCheckBox("Aa")
-        self._cb_case.setToolTip("Distingui maiuscole/minuscole")
+        self._cb_case.setToolTip(tr("tooltip.search_case"))
         self._cb_case.setStyleSheet("background: transparent; border: none; color: #ccc;")
         self._cb_case.stateChanged.connect(self._on_text_changed)
         layout.addWidget(self._cb_case)
 
         self._cb_regex = QCheckBox(".*")
-        self._cb_regex.setToolTip("Espressione regolare")
+        self._cb_regex.setToolTip(tr("tooltip.search_regex"))
         self._cb_regex.setStyleSheet("background: transparent; border: none; color: #ccc;")
         self._cb_regex.stateChanged.connect(self._on_text_changed)
         layout.addWidget(self._cb_regex)
 
         self._cb_word  = QCheckBox("\\b")
-        self._cb_word.setToolTip("Parola intera")
+        self._cb_word.setToolTip(tr("tooltip.search_word"))
         self._cb_word.setStyleSheet("background: transparent; border: none; color: #ccc;")
         self._cb_word.stateChanged.connect(self._on_text_changed)
         layout.addWidget(self._cb_word)
@@ -140,8 +142,8 @@ class IncrementalSearchBar(QWidget):
 
         # Pulsanti nav
         for label, tip, slot in [
-            ("▲", "Precedente (Shift+F3)", self._find_prev),
-            ("▼", "Successivo (F3)",       self._find_next),
+            ("▲", tr("tooltip.search_prev"), self._find_prev),
+            ("▼", tr("tooltip.search_next"), self._find_next),
         ]:
             btn = QPushButton(label)
             btn.setFixedSize(26, 24)
@@ -157,7 +159,7 @@ class IncrementalSearchBar(QWidget):
         # Chiudi
         btn_close = QPushButton("✕")
         btn_close.setFixedSize(26, 24)
-        btn_close.setToolTip("Chiudi (Esc)")
+        btn_close.setToolTip(tr("tooltip.search_close"))
         btn_close.setStyleSheet(
             "QPushButton{background:#3a3a3a;border:1px solid #555;"
             "color:#888;border-radius:3px;}"

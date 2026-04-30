@@ -70,16 +70,11 @@ class BuildPanel(QWidget):
             "font-weight: bold; padding: 2px 6px; "
             "background: #264f78; color: #9cdcfe; border-radius: 3px;"
         )
-        self._lbl_profile.setToolTip(
-            "Profilo selezionato automaticamente dal tipo di file.\n"
-            "Puoi sovrascriverlo con il combo a destra."
-        )
+        self._lbl_profile.setToolTip(tr("tooltip.build_profile_label"))
 
         # Combo override manuale
         self._profile_combo = QComboBox()
-        self._profile_combo.setToolTip(
-            "Profilo automatico (da estensione file) o selezione manuale"
-        )
+        self._profile_combo.setToolTip(tr("tooltip.build_profile_combo"))
         self._profile_combo.addItem("— automatico —", userData=None)
         for name in self._bm.get_profiles():
             self._profile_combo.addItem(name, userData=name)
@@ -102,7 +97,7 @@ class BuildPanel(QWidget):
         self._btn_stop.setStyleSheet("color: #f44747;")
 
         self._btn_open_pdf = QPushButton("📄 PDF")
-        self._btn_open_pdf.setToolTip("Apri il PDF generato nel pannello anteprima")
+        self._btn_open_pdf.setToolTip(tr("tooltip.build_open_pdf"))
         self._btn_open_pdf.setEnabled(False)
 
         for btn in [self._btn_compile, self._btn_run,
@@ -208,7 +203,7 @@ class BuildPanel(QWidget):
         if pdf_path:
             self._btn_open_pdf.setToolTip(f"Apri: {pdf_path.name}")
         else:
-            self._btn_open_pdf.setToolTip("Apri il PDF generato nel pannello anteprima")
+            self._btn_open_pdf.setToolTip(tr("tooltip.build_open_pdf"))
         # --- FINE AGGIUNTA ---
 
         # Se c'è un override manuale (combo != "— automatico —"), non toccare
@@ -278,7 +273,7 @@ class BuildPanel(QWidget):
         if not profile_name:
             for btn in [self._btn_compile, self._btn_run, self._btn_build]:
                 btn.setEnabled(False)
-                btn.setToolTip("Apri un file per attivare il profilo di compilazione")
+                btn.setToolTip(tr("tooltip.build_no_file"))
 
     # ── Esecuzione ────────────────────────────────────────────────────────────
 
@@ -488,7 +483,7 @@ class _TaskTab(QWidget):
         self._btn_stop.clicked.connect(self._stop)
         self._btn_refresh = QPushButton("↺")
         self._btn_refresh.setFixedWidth(30)
-        self._btn_refresh.setToolTip("Ricarica task dal progetto")
+        self._btn_refresh.setToolTip(tr("tooltip.build_reload_tasks"))
         self._btn_refresh.clicked.connect(self._discover)
         row.addWidget(self._cmd_edit, 1)
         row.addWidget(self._btn_run)
@@ -640,9 +635,7 @@ class BuildProfilesDialog(QDialog):
                 "background: #264f78; color: #9cdcfe; "
                 "font-size: 12px; padding: 4px 6px; border-radius: 3px;"
             )
-            self._active_banner.setToolTip(
-                "Profilo selezionato automaticamente in base all'estensione del file aperto"
-            )
+            self._active_banner.setToolTip(tr("tooltip.build_auto_banner"))
         else:
             self._active_banner = QLabel("(nessun file aperto — profilo non determinato)")
             self._active_banner.setStyleSheet(
@@ -664,10 +657,7 @@ class BuildProfilesDialog(QDialog):
         left.addLayout(btn_row)
 
         self._btn_set_active = QPushButton("▶  Imposta come attivo")
-        self._btn_set_active.setToolTip(
-            "Forza questo profilo come attivo per il file corrente,\n"
-            "indipendentemente dall'estensione."
-        )
+        self._btn_set_active.setToolTip(tr("tooltip.build_set_active"))
         self._btn_set_active.setStyleSheet(
             "font-weight: bold; padding: 4px 8px; "
             "background: #264f78; color: #9cdcfe; border: 1px solid #9cdcfe;"
@@ -789,15 +779,15 @@ class BuildProfilesDialog(QDialog):
                 font.setBold(True)
                 item.setFont(font)
                 item.setForeground(QColor("#9cdcfe"))
-                item.setToolTip("✔ Profilo attivo per il file corrente")
+                item.setToolTip(tr("tooltip.build_profile_active"))
                 item.setBackground(QColor("#1e3a5f"))
                 active_row = i
             elif name in DEFAULT_PROFILES:
                 item.setForeground(QColor("#858585"))
-                item.setToolTip("Profilo built-in (non eliminabile)")
+                item.setToolTip(tr("tooltip.build_profile_builtin"))
             else:
                 item.setForeground(QColor("#9cdcfe"))
-                item.setToolTip("Profilo utente")
+                item.setToolTip(tr("tooltip.build_profile_user"))
             self._profile_list.addItem(item)
 
         if self._profile_list.count() > 0:
@@ -876,7 +866,7 @@ class BuildProfilesDialog(QDialog):
                 item.setText(f"▶  {iname}")
                 item.setForeground(QColor("#9cdcfe"))
                 item.setBackground(QColor("#1e3a5f"))
-                item.setToolTip("✔ Profilo attivo (impostato manualmente)")
+                item.setToolTip(tr("tooltip.build_profile_active_manual"))
             else:
                 item.setText(f"    {iname}")
                 item.setBackground(QColor(0, 0, 0, 0))
@@ -928,7 +918,7 @@ class BuildProfilesDialog(QDialog):
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, name)
             item.setForeground(QColor("#9cdcfe"))
-            item.setToolTip("Profilo utente")
+            item.setToolTip(tr("tooltip.build_profile_user"))
             self._profile_list.addItem(item)
             self._profile_list.setCurrentItem(item)
         else:
@@ -970,7 +960,7 @@ class BuildProfilesDialog(QDialog):
         item = QListWidgetItem(f"    {name}")
         item.setData(Qt.ItemDataRole.UserRole, name)
         item.setForeground(QColor("#9cdcfe"))
-        item.setToolTip("Profilo utente")
+        item.setToolTip(tr("tooltip.build_profile_user"))
         self._profile_list.addItem(item)
         self._profile_list.setCurrentItem(item)
 

@@ -9,6 +9,7 @@ Doppio click su un file → lo apre nell'editor.
 from pathlib import Path
 from typing import Optional
 
+from i18n.i18n import tr
 from PyQt6.QtCore import Qt, QDir, pyqtSignal
 from PyQt6.QtGui import QFileSystemModel, QAction
 from PyQt6.QtWidgets import (
@@ -45,24 +46,24 @@ class FileBrowser(QWidget):
 
         self._path_edit = QLineEdit()
         self._path_edit.setReadOnly(True)
-        self._path_edit.setToolTip("Cartella radice corrente")
+        self._path_edit.setToolTip(tr("tooltip.filebrowser_path"))
         bar.addWidget(self._path_edit)
 
         btn_home = QToolButton()
         btn_home.setText("🏠")
-        btn_home.setToolTip("Vai alla home")
+        btn_home.setToolTip(tr("tooltip.filebrowser_home"))
         btn_home.clicked.connect(lambda: self._set_root(Path.home()))
         bar.addWidget(btn_home)
 
         btn_choose = QToolButton()
         btn_choose.setText("📂")
-        btn_choose.setToolTip("Scegli cartella...")
+        btn_choose.setToolTip(tr("tooltip.filebrowser_choose"))
         btn_choose.clicked.connect(self._choose_root)
         bar.addWidget(btn_choose)
 
         btn_up = QToolButton()
         btn_up.setText("⬆")
-        btn_up.setToolTip("Cartella superiore")
+        btn_up.setToolTip(tr("tooltip.filebrowser_up"))
         btn_up.clicked.connect(self._go_up)
         bar.addWidget(btn_up)
 

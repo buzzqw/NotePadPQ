@@ -175,19 +175,19 @@ class _FtpPanel(QWidget):
 
         btn_add  = QPushButton("＋")
         btn_add.setFixedWidth(28)
-        btn_add.setToolTip("Nuovo profilo")
+        btn_add.setToolTip(tr("tooltip.ftp_new_profile"))
         btn_add.clicked.connect(self._add_profile)
         top.addWidget(btn_add)
 
         btn_edit = QPushButton("✎")
         btn_edit.setFixedWidth(28)
-        btn_edit.setToolTip("Modifica profilo")
+        btn_edit.setToolTip(tr("tooltip.ftp_edit_profile"))
         btn_edit.clicked.connect(self._edit_profile)
         top.addWidget(btn_edit)
 
         btn_del = QPushButton("✕")
         btn_del.setFixedWidth(28)
-        btn_del.setToolTip("Elimina profilo")
+        btn_del.setToolTip(tr("tooltip.ftp_del_profile"))
         btn_del.clicked.connect(self._delete_profile)
         top.addWidget(btn_del)
 
@@ -201,7 +201,7 @@ class _FtpPanel(QWidget):
         path_row.addWidget(self._path_label, 1)
         btn_up = QPushButton("↑")
         btn_up.setFixedWidth(28)
-        btn_up.setToolTip("Directory padre")
+        btn_up.setToolTip(tr("tooltip.ftp_parent_dir"))
         btn_up.clicked.connect(self._go_up)
         path_row.addWidget(btn_up)
         layout.addLayout(path_row)

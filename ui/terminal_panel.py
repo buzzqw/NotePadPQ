@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
+from i18n.i18n import tr
 from PyQt6.QtCore import QUrl, Qt, QProcess, QProcessEnvironment, pyqtSignal, pyqtSlot, QObject, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QLabel, QMessageBox
@@ -175,14 +176,14 @@ class TerminalPanel(QWidget):
 
         btn_clear = QToolButton()
         btn_clear.setText("🗑 Pulisci")
-        btn_clear.setToolTip("Pulisci schermo")
+        btn_clear.setToolTip(tr("tooltip.terminal_clear"))
         btn_clear.setStyleSheet("color: #d4d4d4; background: transparent; border: none;")
         btn_clear.clicked.connect(self.clear_output)
         bar.addWidget(btn_clear)
 
         btn_restart = QToolButton()
         btn_restart.setText("🔄 Riavvia")
-        btn_restart.setToolTip("Riavvia la sessione terminale")
+        btn_restart.setToolTip(tr("tooltip.terminal_restart"))
         btn_restart.setStyleSheet("color: #d4d4d4; background: transparent; border: none;")
         btn_restart.clicked.connect(self._restart_shell)
         bar.addWidget(btn_restart)
@@ -190,7 +191,7 @@ class TerminalPanel(QWidget):
         btn_stop = QToolButton()
         btn_stop.setText("⏹ Stop")
         btn_stop.setStyleSheet("color: #f44747; background: transparent; border: none;")
-        btn_stop.setToolTip("Termina processo")
+        btn_stop.setToolTip(tr("tooltip.terminal_stop"))
         btn_stop.clicked.connect(self._kill_process)
         bar.addWidget(btn_stop)
 

@@ -571,14 +571,15 @@ class _FtpPanel(QWidget):
         tm = self._mw._tab_manager
 
         def force_titles(*args):
-            if tab not in tm._containers:
+            actual_tm = tm.tab_manager_for(tab)
+            if actual_tm is None:
                 return
-            
+
             # 1. Aggiorna la linguetta del tab
-            idx = tm.indexOf(tm._containers[tab])
+            idx = actual_tm.indexOf(actual_tm._containers[tab])
             if idx >= 0:
                 mod_tab = "* " if tab.is_modified() else ""
-                tm.setTabText(idx, f"{mod_tab}{name}")
+                actual_tm.setTabText(idx, f"{mod_tab}{name}")
 
             # 2. Aggiorna il titolo della finestra in alto
             if tm.current_editor() == tab:

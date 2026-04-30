@@ -460,6 +460,9 @@ class EditorWidget(QsciScintilla):
             self._saved_language = get_language_name(self)
             # Rimuovi lexer (niente syntax highlight)
             self.setLexer(None)
+            # Riapplica i colori del tema: setLexer(None) resetta STYLE_DEFAULT
+            from config.themes import ThemeManager
+            ThemeManager.instance().apply_to_editor(self)
             # Niente brace matching
             self.setBraceMatching(QsciScintilla.BraceMatch.NoBraceMatch)
             # Niente smart highlight

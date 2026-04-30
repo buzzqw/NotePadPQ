@@ -198,6 +198,13 @@ class SplitViewManager(QWidget):
             ok = self._secondary.tab_manager.close_all_tabs() and ok
         return ok
 
+    def tab_manager_for(self, editor):
+        """Restituisce il TabManager che contiene editor, o None."""
+        for panel in self._panels():
+            if editor in panel.tab_manager._containers:
+                return panel.tab_manager
+        return None
+
     def toggle_minimap(self, enabled: bool) -> None:
         for p in self._panels():
             p.tab_manager.toggle_minimap(enabled)

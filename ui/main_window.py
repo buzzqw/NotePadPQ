@@ -659,7 +659,7 @@ class MainWindow(QMainWindow):
 
         self._sep(m)
         m.addAction(self._act("save",      "Ctrl+S",       self.action_save))
-        m.addAction(self._act("save_as",   "Shift+Ctrl+S", self.action_save_as))
+        m.addAction(self._act("save_as",   "",             self.action_save_as))
         m.addAction(self._act("save_all",  "Shift+Ctrl+S", self.action_save_all))
 
         self._sep(m)
@@ -1135,9 +1135,9 @@ class MainWindow(QMainWindow):
         self._sep(m)
         sub_lsp = m.addMenu("⚡  LSP")
         self._menus["lsp"] = sub_lsp
-        sub_lsp.addAction(self._act("lsp_goto_def",  "F12",          self.action_lsp_goto_definition))
+        sub_lsp.addAction(self._act("lsp_goto_def",  "Ctrl+F12",     self.action_lsp_goto_definition))
         sub_lsp.addAction(self._act("lsp_refs",      "Shift+F12",    self.action_lsp_find_references))
-        sub_lsp.addAction(self._act("lsp_rename",    "F2",           self.action_lsp_rename))
+        sub_lsp.addAction(self._act("lsp_rename",    "Shift+F6",     self.action_lsp_rename))
         sub_lsp.addAction(self._act("lsp_format",    "Alt+Shift+F",  self.action_lsp_format))
         sub_lsp.addAction(self._act("lsp_diag",      "",             self.action_lsp_diagnostics))
         self._sep(m)

@@ -94,10 +94,34 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - Supporta qualsiasi programma interattivo: vim, python REPL, ssh, git, compilatori.
 - Nessuna dipendenza esterna — funziona su tutti i sistemi supportati.
 
+### ⚡ LSP — Language Server Protocol
+
+Integrazione nativa con i Language Server: errori/warning in tempo reale, hover con documentazione, vai alla definizione, mostra riferimenti, rinomina simbolo, formatta documento.
+
+Server supportati: `pylsp` (Python), `clangd` (C/C++), `rust-analyzer` (Rust), `gopls` (Go), `typescript-language-server` (TS/JS), `texlab` (LaTeX).
+
+### ⚡ Task Runner
+
+Tab dedicato nel pannello inferiore con auto-scoperta dei task dal progetto (Makefile, `npm scripts`, `pyproject.toml`) e campo per comandi manuali arbitrari.
+
+### 🤖 AI Assistant (plugin)
+
+Panel dock con chat AI multi-provider:
+
+| Provider | Funzionalità speciali |
+|---|---|
+| **Anthropic Claude** | Streaming SSE, Extended Thinking (Opus), modelli claude-opus-4-7 / claude-sonnet-4-6 / claude-haiku |
+| **OpenAI** | GPT-4o, GPT-4o-mini, o3-mini |
+| **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro |
+| **Ollama** | Modelli locali (nessuna chiave, nessun costo) |
+
+Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, Review) direttamente da tasto destro nell'editor. Bring-your-own-key — ogni provider ha la propria chiave configurabile.
+
 ### 🔌 Sistema Plugin
 
 | Plugin | Funzione |
 |--------|----------|
+| **AI Assistant** | Chat AI multi-provider con streaming e azioni contestuali |
 | **Clipboard History** | Cronologia degli appunti con selezione rapida |
 | **Compare & Merge** | Confronto visuale side-by-side tra due file o versioni |
 | **Encrypt/Decrypt** | Cifratura/decifratura con AES-256-GCM e ChaCha20-Poly1305 |

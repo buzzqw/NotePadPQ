@@ -165,8 +165,10 @@ class BuildPanel(QWidget):
         self._tabs.addTab(self._error_tree,
                           tr("label.errors", default="Errori"))
 
-        # --- AGGIUNGI QUESTA RIGA PER INCASTRARE LA BARRA A DESTRA ---
-        #self._tabs.setCornerWidget(tb, Qt.Corner.TopRightCorner)
+        # ── Tab Task rapido ───────────────────────────────────────────────────
+        self._task_widget = _TaskTab(self._mw)
+        self._tabs.addTab(self._task_widget, "⚡ Task")
+
         self._tabs.setCornerWidget(tb, Qt.Corner.TopLeftCorner)
 
         layout.addWidget(self._tabs, 1)
@@ -452,6 +454,143 @@ class BuildPanel(QWidget):
         if editor and line > 0:
             editor.go_to_line(line)
             editor.setFocus()
+
+
+# ─── Task rapido ─────────────────────────────────────────────────────────────
+
+class _TaskTab(QWidget):
+    """Tab per eseguire task arbitrari (Makefile, npm, pyproject, comando libero)."""
+
+    def __init__(self, main_window, parent=None):
+        super().__init__(parent)
+        self._mw = main_window
+        self._worker = None
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(4)
+
+        # Riga: input + pulsanti
+        row = QHBoxLayout()
+        self._cmd_edit = QLineEdit()
+        self._cmd_edit.setPlaceholderText("Comando da eseguire (es. make test, npm run build, pytest)")
+        self._cmd_edit.setStyleSheet("background:#1e1e1e; color:#d4d4d4; border:1px solid #3c3c3c; padding:2px 4px;")
+        self._cmd_edit.returnPressed.connect(self._run_command)
+        self._btn_run  = QPushButton("▶ Esegui")
+        self._btn_run.setFixedWidth(80)
+        self._btn_run.clicked.connect(self._run_command)
+        self._btn_stop = QPushButton("■ Stop")
+        self._btn_stop.setFixedWidth(60)
+        self._btn_stop.setEnabled(False)
+        self._btn_stop.setStyleSheet("color:#f44747;")
+        self._btn_stop.clicked.connect(self._stop)
+        self._btn_refresh = QPushButton("↺")
+        self._btn_refresh.setFixedWidth(30)
+        self._btn_refresh.setToolTip("Ricarica task dal progetto")
+        self._btn_refresh.clicked.connect(self._discover)
+        row.addWidget(self._cmd_edit, 1)
+        row.addWidget(self._btn_run)
+        row.addWidget(self._btn_stop)
+        row.addWidget(self._btn_refresh)
+        layout.addLayout(row)
+
+        # Lista task scoperti
+        self._task_list = QListWidget()
+        self._task_list.setStyleSheet("""
+            QListWidget {
+                background:#1e1e1e; color:#d4d4d4; border:1px solid #3c3c3c;
+            }
+            QListWidget::item:selected { background:#264f78; }
+        """)
+        self._task_list.setMaximumHeight(130)
+        self._task_list.itemDoubleClicked.connect(self._on_task_double_clicked)
+        self._task_list.itemClicked.connect(
+            lambda item: self._cmd_edit.setText(item.data(Qt.ItemDataRole.UserRole) or "")
+        )
+        layout.addWidget(self._task_list)
+
+        # Output
+        self._output = QPlainTextEdit()
+        self._output.setReadOnly(True)
+        self._output.setFont(QFont("Monospace", 10))
+        self._output.setMaximumBlockCount(2000)
+        self._output.setStyleSheet("""
+            QPlainTextEdit {
+                background-color: #1e1e1e; color: #d4d4d4;
+                border: none; selection-background-color: #264f78;
+            }
+        """)
+        layout.addWidget(self._output, 1)
+
+        QTimer.singleShot(500, self._discover)
+
+    def _discover(self) -> None:
+        self._task_list.clear()
+        editor = self._mw._tab_manager.current_editor() if hasattr(self._mw, "_tab_manager") else None
+        path = getattr(editor, "file_path", None) if editor else None
+        directory = path.parent if path else None
+        if not directory:
+            self._task_list.addItem("(apri un file per scoprire i task del progetto)")
+            return
+        from core.build_manager import BuildManager
+        tasks = BuildManager.discover_tasks(directory)
+        if not tasks:
+            self._task_list.addItem(f"(nessun task trovato in {directory.name})")
+            return
+        for t in tasks:
+            item = QListWidgetItem(f"[{t['source']}]  {t['name']}")
+            item.setData(Qt.ItemDataRole.UserRole, t["cmd"])
+            self._task_list.addItem(item)
+
+    def _on_task_double_clicked(self, item: QListWidgetItem) -> None:
+        self._cmd_edit.setText(item.data(Qt.ItemDataRole.UserRole) or "")
+        self._run_command()
+
+    def _run_command(self) -> None:
+        cmd = self._cmd_edit.text().strip()
+        if not cmd:
+            return
+        editor = self._mw._tab_manager.current_editor() if hasattr(self._mw, "_tab_manager") else None
+        path   = getattr(editor, "file_path", None) if editor else None
+        cwd    = str(path.parent) if path else "."
+        self._output.clear()
+        self._output.appendPlainText(f"$ {cmd}\n")
+        self._btn_run.setEnabled(False)
+        self._btn_stop.setEnabled(True)
+
+        from core.build_manager import BuildWorker
+        import os
+        self._worker = BuildWorker(cmd, cwd, dict(os.environ))
+        self._worker.output.connect(self._on_output)
+        self._worker.finished.connect(self._on_done)
+        self._worker.start()
+
+    def _stop(self) -> None:
+        if self._worker:
+            self._worker.abort()
+
+    def _on_output(self, line: str) -> None:
+        cursor = self._output.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        fmt = QTextCharFormat()
+        if "error" in line.lower():
+            fmt.setForeground(QColor("#f44747"))
+        elif "warning" in line.lower():
+            fmt.setForeground(QColor("#ffcc00"))
+        else:
+            fmt.setForeground(QColor("#d4d4d4"))
+        cursor.insertText(line + "\n", fmt)
+        self._output.setTextCursor(cursor)
+        self._output.ensureCursorVisible()
+
+    def _on_done(self, ok: bool) -> None:
+        self._btn_run.setEnabled(True)
+        self._btn_stop.setEnabled(False)
+        color = "#4caf50" if ok else "#f44747"
+        icon  = "✓" if ok else "✗"
+        self._output.appendHtml(f'<span style="color:{color}"><b>{icon} {"OK" if ok else "Fallito"}</b></span>')
 
 
 # ─── Dialog configurazione profili ───────────────────────────────────────────

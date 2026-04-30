@@ -416,6 +416,76 @@ class BuildManager(QObject):
 
     # ── Parsing errori ────────────────────────────────────────────────────────
 
+    # ── Task discovery ────────────────────────────────────────────────────────
+
+    @staticmethod
+    def discover_tasks(directory: Path) -> list[dict]:
+        """
+        Cerca task eseguibili nel progetto: Makefile, package.json, pyproject.toml.
+        Restituisce [{"name": str, "cmd": str, "source": str}].
+        """
+        tasks: list[dict] = []
+
+        # Makefile targets
+        makefile = directory / "Makefile"
+        if not makefile.exists():
+            makefile = directory / "makefile"
+        if makefile.exists():
+            try:
+                for line in makefile.read_text(errors="replace").splitlines():
+                    m = re.match(r"^([a-zA-Z0-9_\-]+)\s*:", line)
+                    if m:
+                        target = m.group(1)
+                        if target not in ("all", "PHONY", ".PHONY"):
+                            tasks.append({"name": f"make {target}", "cmd": f"make {target}", "source": "Makefile"})
+            except Exception:
+                pass
+
+        # package.json scripts
+        pkg = directory / "package.json"
+        if pkg.exists():
+            try:
+                data = json.loads(pkg.read_text())
+                for name, cmd in data.get("scripts", {}).items():
+                    tasks.append({"name": f"npm run {name}", "cmd": f"npm run {name}", "source": "package.json"})
+            except Exception:
+                pass
+
+        # pyproject.toml [tool.taskipy.tasks] or [tool.scripts]
+        pyproject = directory / "pyproject.toml"
+        if pyproject.exists():
+            try:
+                text = pyproject.read_text()
+                # cerca [tool.taskipy.tasks] o [tool.scripts]
+                in_tasks = False
+                for line in text.splitlines():
+                    line = line.strip()
+                    if line in ("[tool.taskipy.tasks]", "[tool.scripts]"):
+                        in_tasks = True
+                        continue
+                    if line.startswith("[") and in_tasks:
+                        in_tasks = False
+                    if in_tasks and "=" in line:
+                        parts = line.split("=", 1)
+                        name = parts[0].strip().strip('"')
+                        cmd_raw = parts[1].strip().strip('"').strip("'")
+                        tasks.append({"name": name, "cmd": cmd_raw, "source": "pyproject.toml"})
+            except Exception:
+                pass
+
+        return tasks
+
+    def run_task(self, cmd: str, cwd: Path) -> None:
+        """Esegue un comando task arbitrario (come run/compile ma senza profilo)."""
+        from core.platform import get_default_shell, get_shell_exec_flag
+        shell = get_default_shell()
+        flag  = get_shell_exec_flag()
+        env   = {**os.environ}
+        self._worker = BuildWorker(cmd, str(cwd), env)
+        self._worker.output.connect(self.build_output)
+        self._worker.finished.connect(lambda ok: self.build_done.emit(ok, "Task completato" if ok else "Task fallito"))
+        self._worker.start()
+
     def parse_errors(self, output: str, profile_name: str) -> list[dict]:
         """
         Analizza l'output del build e restituisce lista di errori

@@ -541,11 +541,17 @@ Un unico dock inferiore con due tab:
 
 **Tab "Output compilazione"** — output testuale del comando build. La lista errori è cliccabile: click su un errore salta alla riga nel file sorgente. Dopo una compilazione LaTeX riuscita, il pulsante **📄 PDF** apre il documento nel pannello Anteprima.
 
-**Tab "Terminale"** — terminale completo basato su xterm.js con PTY nativo. Non richiede configurazione aggiuntiva.
+**Tab "Terminale"** — terminale completo basato su xterm.js con PTY nativo.
 
-- Supporta qualsiasi programma interattivo: vim, python REPL, ssh, compilatori, git
-- Gestione completa del colore ANSI e dei caratteri speciali
-- Le librerie xterm.js sono incluse nel pacchetto — non richiede connessione internet
+**Tab "⚡ Task"** — task runner rapido per comandi arbitrari:
+- Auto-scoperta dei task dal progetto: target `Makefile`, `npm scripts` da `package.json`, task da `pyproject.toml`
+- Doppio click su un task scoperto per eseguirlo
+- Campo testo per comandi manuali (es. `pytest`, `cargo test`, `make lint`)
+- Output colorato con rilevamento errori/warning
+
+**Tab "⚡ Diagnostics"** — lista errori/warning emessi dai Language Server (LSP):
+- Raggruppati per file, con severità (ERR/WARN/INFO/HINT)
+- Doppio click → salta al file e alla riga esatta
 
 ---
 
@@ -900,7 +906,82 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `F6` | Compila |
 | `F7` | Build |
 | `F8` | Profili di build |
+| `F12` | LSP — Vai alla definizione |
+| `Shift+F12` | LSP — Mostra riferimenti |
+| `F2` | LSP — Rinomina simbolo |
+| `Alt+Shift+F` | LSP — Formatta documento |
+| `Ctrl+Alt+A` | Apri/chiudi pannello AI Assistant |
 
 ---
 
-*Manuale aggiornato — NotePadPQ 0.3.6*
+## 20. LSP — Language Server Protocol
+
+Il client LSP si attiva automaticamente quando apri un file il cui linguaggio ha un server installato.
+
+### Server supportati
+
+| Linguaggio | Server | Installazione |
+|---|---|---|
+| Python | `pylsp` | `pip install python-lsp-server` |
+| C/C++ | `clangd` | `apt install clangd` / `pacman -S clang` |
+| Rust | `rust-analyzer` | `rustup component add rust-analyzer` |
+| Go | `gopls` | `go install golang.org/x/tools/gopls@latest` |
+| TypeScript/JS | `typescript-language-server` | `npm i -g typescript-language-server` |
+| LaTeX | `texlab` | scarica da github.com/latex-lsp/texlab |
+
+### Funzionalità
+
+| Funzionalità | Come usarla |
+|---|---|
+| **Diagnostics** (errori/warning) | Automatico — Tab "⚡ Diagnostics" nel pannello inferiore |
+| **Hover** (documentazione) | Tieni il mouse fermo su un simbolo per 400ms |
+| **Vai alla definizione** | `F12` o Strumenti → LSP |
+| **Mostra riferimenti** | `Shift+F12` |
+| **Rinomina simbolo** | `F2` → inserisci nuovo nome |
+| **Formatta documento** | `Alt+Shift+F` |
+
+---
+
+## 21. AI Assistant
+
+Il plugin AI Assistant (attivabile da Plugin Manager) aggiunge un pannello dock con chat AI.
+
+**Apertura:** `Ctrl+Alt+A` oppure menu Plugin → AI Assistant.
+
+### Provider supportati
+
+| Provider | Modelli principali | Chiave API |
+|---|---|---|
+| **Anthropic (Claude)** | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5 | console.anthropic.com |
+| **OpenAI** | gpt-4o, gpt-4o-mini, gpt-4-turbo | platform.openai.com |
+| **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro | aistudio.google.com |
+| **Ollama** | llama3, mistral, codestral, qwen2.5-coder | nessuna (locale) |
+
+> **Nota Anthropic:** l'abbonamento *Claude Pro* (claude.ai) dà accesso alla chat web. Le API richiedono credito separato da console.anthropic.com.
+
+### Configurazione
+
+1. Apri il pannello con `Ctrl+Alt+A`
+2. Clicca **⚙** per aprire le impostazioni
+3. Incolla la chiave API del provider desiderato
+4. Seleziona provider e modello dal pannello
+
+### Utilizzo
+
+| Azione | Come |
+|---|---|
+| Chiedi sul file corrente | Pulsante **📄 Chiedi sul file** |
+| Chiedi sulla selezione | Seleziona testo → **✏ Chiedi sulla selezione** |
+| Azioni rapide | Pulsanti Spiega / Refactoring / Docstring / Correggi bug |
+| Menu contestuale | Tasto destro nell'editor → 🤖 Chiedi all'AI |
+| System prompt | Clicca **▶ System prompt** per personalizzare il comportamento |
+| Extended Thinking | Disponibile su claude-opus-4-7 (ragionamento esteso) |
+| Invio messaggio | `Ctrl+Invio` oppure pulsante ▶ Invia |
+
+### Streaming
+
+Claude (Anthropic) risponde in streaming: il testo appare progressivamente mentre viene generato. Gli altri provider mostrano la risposta completa al termine.
+
+---
+
+*Manuale aggiornato — NotePadPQ 0.3.9*

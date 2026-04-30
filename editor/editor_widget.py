@@ -126,6 +126,8 @@ class EditorWidget(QsciScintilla):
     zoom_changed       = pyqtSignal(int)         # livello zoom corrente
     overwrite_changed  = pyqtSignal(bool)        # modalità inserimento/sovrascrittura
     language_changed   = pyqtSignal(str)         # es. "Python", "LaTeX"
+    lsp_hover_requested  = pyqtSignal(int, int)  # line, col (0-based) — per hover LSP
+    context_menu_requested = pyqtSignal(object)  # QMenu — plugin possono aggiungere voci
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -1094,6 +1096,9 @@ class EditorWidget(QsciScintilla):
         sel   = menu.addAction(tr("action.select_all"))
         sel.triggered.connect(self.selectAll)
 
+        # Permette ai plugin di aggiungere voci al menu contestuale
+        self.context_menu_requested.emit(menu)
+
         menu.exec(event.globalPos())
 
     def _spell_word_at_point(self, x: int, y: int):
@@ -1242,8 +1247,9 @@ class EditorWidget(QsciScintilla):
         # ---------------------------------------------------------
         # PARTE 2: RICERCA FORMULE MATEMATICHE (LaTeX Math)
         # ---------------------------------------------------------
-        # Funziona solo se il linguaggio è TeX o Markdown
         if not ("latex" in lang or "tex" in lang or "markdown" in lang):
+            # Non LaTeX/Markdown: emetti hover LSP e termina
+            self.lsp_hover_requested.emit(line_idx, relative_pos)
             return
 
         # Cerca formule in linea ($...$) e display equation ($$...$$ o \[...\])
@@ -1279,8 +1285,12 @@ class EditorWidget(QsciScintilla):
                 pixmap.loadFromData(buf.read())
                 if not pixmap.isNull():
                     self._create_tooltip_popup(pixmap, x, y)
+                    return
             except Exception as e:
                 print(f"[Math Hover] Impossibile renderizzare la formula: {e}")
+
+        # Nessuna immagine/formula trovata — chiedi LSP
+        self.lsp_hover_requested.emit(line_idx, relative_pos)
 
 
     # -- Helper per creare il popup finale

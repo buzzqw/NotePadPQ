@@ -184,6 +184,30 @@ check_opt('Sympy',      'import sympy',      'calcolo simbolico')
 "
 _check_synctex
 
+echo
+echo "--- LSP (server di linguaggio, opzionali) ---"
+for tool in pylsp clangd rust-analyzer gopls texlab typescript-language-server; do
+    if command -v "$tool" &>/dev/null; then
+        echo "  $tool: OK"
+    else
+        echo "  $tool: non installato"
+    fi
+done
+echo "  Installa i server mancanti:"
+echo "    pip install python-lsp-server        # Python"
+echo "    apt install clangd                   # C/C++"
+echo "    go install golang.org/x/tools/gopls@latest  # Go"
+echo "    npm i -g typescript-language-server  # TypeScript/JavaScript"
+
+echo
+echo "--- Plugin AI Assistant ---"
+$PYTHON -c "import urllib.request; print('  urllib (stdlib): OK')"
+echo "  Configura le API key dal pannello AI (Ctrl+Alt+A → ⚙)"
+echo "  Anthropic: https://console.anthropic.com/settings/keys"
+echo "  OpenAI:    https://platform.openai.com/api-keys"
+echo "  Gemini:    https://aistudio.google.com/app/apikey"
+echo "  Ollama:    http://localhost:11434 (nessuna chiave necessaria)"
+
 _print_latex_hint
 
 if [[ "$OS" == "Linux" ]]; then

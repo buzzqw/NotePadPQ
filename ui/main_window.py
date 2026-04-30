@@ -92,6 +92,7 @@ class MainWindow(QMainWindow):
         self._setup_autobackup()
         self._setup_autosave()
         self._setup_git_gutter()
+        self._setup_lsp()
         self._setup_clock()
 
         self.setAcceptDrops(True)
@@ -196,9 +197,14 @@ class MainWindow(QMainWindow):
 
         # Nota: i risultati ricerca sono ora embedded nel dialog find_replace.py
 
-        # Tab 3: Terminale integrato
+        # Tab: Terminale integrato
         self._terminal_panel = TerminalPanel(self)
         self._bottom_tabs.addTab(self._terminal_panel, "🖥  Terminale")
+
+        # Tab: Diagnostics LSP
+        from ui.lsp_panel import DiagnosticsPanel
+        self._diag_panel = DiagnosticsPanel(self)
+        self._bottom_tabs.addTab(self._diag_panel, "⚡  Diagnostics")
 
         self._build_dock = QDockWidget(tr("label.build_output", default="Pannello inferiore"), self)
         self._build_dock.setObjectName("BuildDock")
@@ -306,6 +312,203 @@ class MainWindow(QMainWindow):
                     self.action_save()
                 except Exception:
                     pass
+
+    # ── LSP ───────────────────────────────────────────────────────────────────
+
+    def _setup_lsp(self) -> None:
+        self._lsp_hover_pos: tuple[int, int] = (0, 0)
+
+    def _lsp_connect_editor(self, editor) -> None:
+        """Connette l'editor al server LSP appropriato (se disponibile)."""
+        if editor is None or not editor.file_path:
+            return
+        try:
+            from editor.lsp_client import LSPClient, lang_to_id
+            from editor.lexers import get_language_name
+            lang      = get_language_name(editor).lower()
+            workspace = str(editor.file_path.parent)
+            client    = LSPClient.get(lang, workspace)
+            if client is None:
+                return
+
+            # Evita di riconnettere se già attivo sullo stesso client
+            if getattr(editor, "_lsp_client", None) is client:
+                return
+            editor._lsp_client = client
+
+            # Open file nel server (idempotente)
+            content = editor.get_content()
+            client.open_file(editor.file_path, content, lang_to_id(lang))
+
+            # Diagnostics → pannello
+            try:
+                client.diagnostics_ready.disconnect(self._diag_panel.update_diagnostics)
+            except Exception:
+                pass
+            client.diagnostics_ready.connect(self._diag_panel.update_diagnostics)
+
+            # Definition → naviga
+            try:
+                client.definition_ready.disconnect()
+            except Exception:
+                pass
+            client.definition_ready.connect(self._on_lsp_definition)
+
+            # Hover → tooltip testo
+            try:
+                editor.lsp_hover_requested.disconnect()
+            except Exception:
+                pass
+            editor.lsp_hover_requested.connect(
+                lambda line, col, _e=editor, _c=client: self._lsp_request_hover(_e, _c, line, col)
+            )
+            try:
+                client.hover_ready.disconnect(self._on_lsp_hover_text)
+            except Exception:
+                pass
+            client.hover_ready.connect(self._on_lsp_hover_text)
+
+            # Formatting → applica edits
+            try:
+                client.formatting_ready.disconnect()
+            except Exception:
+                pass
+            client.formatting_ready.connect(
+                lambda edits, _e=editor: self._on_lsp_formatting(edits, _e)
+            )
+
+            # Rename → applica workspace edit
+            try:
+                client.rename_ready.disconnect()
+            except Exception:
+                pass
+            client.rename_ready.connect(self._on_lsp_rename)
+
+            # References → mostra in panel
+            try:
+                client.references_ready.disconnect()
+            except Exception:
+                pass
+            client.references_ready.connect(self._on_lsp_references)
+
+        except Exception as e:
+            print(f"[LSP] _lsp_connect_editor: {e}")
+
+    def _lsp_request_hover(self, editor, client, line: int, col: int) -> None:
+        self._lsp_hover_pos = (line, col)
+        if editor.file_path:
+            client.request_hover(editor.file_path, line, col)
+
+    def _on_lsp_hover_text(self, text: str) -> None:
+        if not text.strip():
+            return
+        from PyQt6.QtWidgets import QToolTip
+        from PyQt6.QtGui import QCursor
+        QToolTip.showText(QCursor.pos(), text.strip()[:600], None, msecShowTime=6000)
+
+    def _on_lsp_definition(self, uri: str, line: int, col: int) -> None:
+        try:
+            from pathlib import Path
+            path = Path(uri.replace("file://", ""))
+            if path.exists():
+                self.open_files([path])
+            editor = self._tab_manager.current_editor()
+            if editor:
+                editor.go_to_line(line + 1)
+                editor.setFocus()
+        except Exception as e:
+            print(f"[LSP] goto definition: {e}")
+
+    def _on_lsp_formatting(self, edits: list, editor) -> None:
+        if not edits or editor is None:
+            return
+        # Applica in ordine inverso per non spostare le posizioni
+        for edit in sorted(edits, key=lambda e: (
+            -e.get("range", {}).get("start", {}).get("line", 0),
+            -e.get("range", {}).get("start", {}).get("character", 0)
+        )):
+            r     = edit.get("range", {})
+            start = r.get("start", {})
+            end   = r.get("end", {})
+            new_text = edit.get("newText", "")
+            editor.setSelection(start["line"], start["character"], end["line"], end["character"])
+            editor.replaceSelectedText(new_text)
+
+    def _on_lsp_rename(self, workspace_edit: dict) -> None:
+        changes = workspace_edit.get("changes", {})
+        for uri, edits in changes.items():
+            try:
+                from pathlib import Path
+                path = Path(uri.replace("file://", ""))
+                self.open_files([path])
+                editor = self._tab_manager.current_editor()
+                if editor:
+                    self._on_lsp_formatting(edits, editor)
+                    self._save_editor(editor, editor.file_path)
+            except Exception as e:
+                print(f"[LSP] rename apply: {e}")
+
+    def _on_lsp_references(self, refs: list) -> None:
+        if not refs:
+            self.statusBar().showMessage("LSP: nessun riferimento trovato", 3000)
+            return
+        lines = []
+        for r in refs:
+            try:
+                from pathlib import Path
+                fname = Path(r["uri"].replace("file://", "")).name
+                lines.append(f"{fname}:{r['line'] + 1}:{r['col'] + 1}")
+            except Exception:
+                pass
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(self, "Riferimenti LSP", "\n".join(lines[:50]))
+
+    # ── Azioni LSP pubbliche ──────────────────────────────────────────────────
+
+    def action_lsp_goto_definition(self) -> None:
+        editor = self._tab_manager.current_editor()
+        client = getattr(editor, "_lsp_client", None)
+        if not editor or not client or not editor.file_path:
+            return
+        line, col = editor.getCursorPosition()
+        client.request_definition(editor.file_path, line, col)
+
+    def action_lsp_find_references(self) -> None:
+        editor = self._tab_manager.current_editor()
+        client = getattr(editor, "_lsp_client", None)
+        if not editor or not client or not editor.file_path:
+            return
+        line, col = editor.getCursorPosition()
+        client.request_references(editor.file_path, line, col)
+
+    def action_lsp_rename(self) -> None:
+        editor = self._tab_manager.current_editor()
+        client = getattr(editor, "_lsp_client", None)
+        if not editor or not client or not editor.file_path:
+            return
+        from PyQt6.QtWidgets import QInputDialog
+        new_name, ok = QInputDialog.getText(self, "Rinomina simbolo", "Nuovo nome:")
+        if ok and new_name.strip():
+            line, col = editor.getCursorPosition()
+            client.request_rename(editor.file_path, line, col, new_name.strip())
+
+    def action_lsp_format(self) -> None:
+        editor = self._tab_manager.current_editor()
+        client = getattr(editor, "_lsp_client", None)
+        if not editor or not client or not editor.file_path:
+            self.statusBar().showMessage("LSP: server non disponibile per questo file", 3000)
+            return
+        from config.settings import Settings
+        tab_size = Settings.instance().get("editor/tab_width", 4)
+        client.request_formatting(editor.file_path, tab_size=tab_size)
+
+    def action_lsp_diagnostics(self) -> None:
+        self._build_dock.show()
+        n = self._bottom_tabs.count()
+        for i in range(n):
+            if "Diagnostics" in self._bottom_tabs.tabText(i):
+                self._bottom_tabs.setCurrentIndex(i)
+                break
 
     # ── Git Gutter ────────────────────────────────────────────────────────────
 
@@ -930,6 +1133,14 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("build",           "F7", self.action_build))
         m.addAction(self._act("stop_build",      "",   self.action_stop_build))
         self._sep(m)
+        sub_lsp = m.addMenu("⚡  LSP")
+        self._menus["lsp"] = sub_lsp
+        sub_lsp.addAction(self._act("lsp_goto_def",  "F12",          self.action_lsp_goto_definition))
+        sub_lsp.addAction(self._act("lsp_refs",      "Shift+F12",    self.action_lsp_find_references))
+        sub_lsp.addAction(self._act("lsp_rename",    "F2",           self.action_lsp_rename))
+        sub_lsp.addAction(self._act("lsp_format",    "Alt+Shift+F",  self.action_lsp_format))
+        sub_lsp.addAction(self._act("lsp_diag",      "",             self.action_lsp_diagnostics))
+        self._sep(m)
         m.addAction(self._act("keybinding_editor","",  self.action_keybinding_editor))
         m.addAction(self._act("reload_config",   "",   self.action_reload_config))
         self._sep(m)
@@ -1218,6 +1429,9 @@ class MainWindow(QMainWindow):
         )
         editor.overwrite_changed.connect(self._statusbar.set_overwrite)
         editor.zoom_changed.connect(self._statusbar.set_zoom)
+
+        # LSP — connette il server per il linguaggio corrente (no-op se non disponibile)
+        self._lsp_connect_editor(editor)
 
     @pyqtSlot(object, bool)
     def _on_tab_modified(self, editor: EditorWidget, modified: bool) -> None:

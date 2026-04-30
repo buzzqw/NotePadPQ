@@ -23,3 +23,17 @@ pyspellchecker>=0.7.0  # Controllo ortografico
 PyGithub>=1.55         # Plugin GitHub PR
 python-gitlab>=3.0.0   # Plugin GitLab MR
 keyring>=23.5.0        # Gestione sicura dei token
+
+# --- LSP (Language Server Protocol) ---
+# Il client LSP usa solo librerie standard (subprocess, json, threading).
+# Installare separatamente i server per i linguaggi desiderati:
+#   pip install python-lsp-server   # Python (pylsp)
+#   npm i -g typescript-language-server  # TypeScript/JavaScript
+#   apt install clangd              # C/C++
+#   curl -L https://github.com/latex-lsp/texlab/releases/...  # LaTeX (texlab)
+#   go install golang.org/x/tools/gopls@latest  # Go
+
+# --- Plugin AI Assistant (Opzionali) ---
+# Nessuna dipendenza aggiuntiva: usa urllib (stdlib Python).
+# Configurare le chiavi API dal pannello AI (Ctrl+Alt+A → ⚙).
+# Provider supportati: Anthropic Claude, OpenAI, Google Gemini, Ollama (locale).

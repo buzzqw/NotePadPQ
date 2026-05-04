@@ -189,6 +189,7 @@ class MainWindow(QMainWindow):
 
         # ── Pannello inferiore multiuso ───────────────────────────────────────
         self._bottom_tabs = _QTabWidget()
+        self._bottom_tabs.setMinimumHeight(0)
         self._bottom_tabs.setTabPosition(_QTabWidget.TabPosition.South)
 
         # Tab 1: Output compilazione

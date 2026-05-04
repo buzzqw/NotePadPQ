@@ -56,6 +56,7 @@ class BuildPanel(QWidget):
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
+        self.setMinimumHeight(0)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -116,9 +117,11 @@ class BuildPanel(QWidget):
 
         # ── Tabs: Output | Errori ─────────────────────────────────────────────
         self._tabs = QTabWidget()
+        self._tabs.setMinimumHeight(0)
 
         # Output
         self._output = QPlainTextEdit()
+        self._output.setMinimumHeight(0)
         self._output.setReadOnly(True)
         self._output.setFont(QFont("Monospace", 10))
         self._output.setMaximumBlockCount(5000)
@@ -134,6 +137,7 @@ class BuildPanel(QWidget):
 
         # Errori
         self._error_tree = QTreeWidget()
+        self._error_tree.setMinimumHeight(0)
         self._error_tree.setStyleSheet("""
             QTreeWidget {
                 background-color: #1e1e1e;

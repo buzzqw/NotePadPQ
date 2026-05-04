@@ -22,6 +22,13 @@ import json
 import re
 import urllib.request
 import urllib.error
+import urllib.parse
+import secrets
+import hashlib
+import base64
+import threading
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, Qt, QTimer, QSize
@@ -41,6 +48,47 @@ if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
 # ─── Configurazione provider ──────────────────────────────────────────────────
+
+# ── JetBrains AI — disabilitato, codice conservato ────────────────────────────
+#
+# Perché è disabilitato:
+#   L'API JetBrains AI (https://api.jetbrains.ai, versioni v8/v9) è un servizio
+#   privato non documentato pubblicamente. L'analisi dell'estensione VSCode ufficiale
+#   (jetbrains.jetbrains-ai-assistant) ha rivelato che:
+#     • non usa OAuth2 standard: l'autenticazione è gestita da un server Java locale
+#       (server-0.0.1.jar) che parla con il backend Grazie tramite un protocollo
+#       proprietario — non accessibile dall'esterno;
+#     • il client_id "notepadpq-ai-assistant" nell'URL OAuth restituisce HTTP 400
+#       perché nessuna app esterna è registrata con JetBrains senza partnership ufficiale;
+#     • il formato della request/response è proprietario (non OpenAI-compatibile).
+#
+# Cosa è implementato e pronto:
+#   • Flusso OAuth PKCE completo con server di callback locale (_JetBrainsOAuth)
+#   • Chiamata API con refresh automatico del token (_AIWorker._call_jetbrains)
+#   • UI nel dialog impostazioni con pulsante OAuth e campo token manuale
+#
+# Come riabilitare in futuro:
+#   Se JetBrains pubblica API ufficiali per terze parti, spostare la voce
+#   "JetBrains AI" da _JETBRAINS_PROVIDER_RESERVED in PROVIDERS qui sotto,
+#   aggiornare client_id e l'endpoint in _call_jetbrains(), e testare il flusso.
+_JETBRAINS_PROVIDER_RESERVED: dict = {
+    "JetBrains AI": {
+        "id":      "jetbrains",
+        "models":  ["claude-3-5-sonnet", "gpt-4o", "gpt-4o-mini", "gemini-1.5-pro"],
+        "default": "claude-3-5-sonnet",
+        "key_url": "",
+        "note":    "Accedi con il tuo account JetBrains per verificare la licenza AI",
+        "thinking_models": [],
+        "auth_type": "oauth",
+        "oauth_config": {
+            "auth_url":    "https://account.jetbrains.com/oauth2/auth",
+            "token_url":   "https://account.jetbrains.com/oauth2/token",
+            "client_id":   "notepadpq-ai-assistant",
+            "scope":       "profile ai_assistant",
+            "redirect_uri":"http://localhost:8080/oauth/callback",
+        },
+    }
+}
 
 PROVIDERS: dict[str, dict] = {
     "Anthropic (Claude)": {
@@ -107,6 +155,244 @@ CONTEXT_ACTIONS = [
 ]
 
 
+# ─── OAuth JetBrains ───────────────────────────────────────────────────────────
+
+class _OAuthCallbackHandler(BaseHTTPRequestHandler):
+    """Handler per il callback OAuth di JetBrains"""
+    
+    def do_GET(self):
+        """Gestisce la richiesta GET del callback OAuth"""
+        parsed_url = urllib.parse.urlparse(self.path)
+        query_params = urllib.parse.parse_qs(parsed_url.query)
+        
+        if 'code' in query_params:
+            # Successo: salva il codice di autorizzazione
+            self.server.auth_code = query_params['code'][0]
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(b'''
+                <html><body>
+                <h2>Autenticazione JetBrains completata!</h2>
+                <p>Puoi chiudere questa finestra e tornare a NotePadPQ.</p>
+                <script>window.close();</script>
+                </body></html>
+            ''')
+        elif 'error' in query_params:
+            # Errore: salva l'errore
+            self.server.auth_error = query_params.get('error_description', ['Errore sconosciuto'])[0]
+            self.send_response(400)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(f'''
+                <html><body>
+                <h2>Errore di autenticazione</h2>
+                <p>{self.server.auth_error}</p>
+                <p>Puoi chiudere questa finestra e riprovare.</p>
+                </body></html>
+            '''.encode())
+        else:
+            self.send_response(400)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(b'<html><body><h2>Richiesta non valida</h2></body></html>')
+    
+    def log_message(self, format, *args):
+        """Disabilita i log del server HTTP"""
+        pass
+
+
+class _JetBrainsOAuth(QObject):
+    """Gestisce l'autenticazione OAuth con JetBrains"""
+    
+    auth_completed = pyqtSignal(str)  # access_token
+    auth_failed = pyqtSignal(str)     # error_message
+    
+    def __init__(self):
+        super().__init__()
+        self._server = None
+        self._server_thread = None
+        
+    def start_auth_flow(self, oauth_config: dict) -> None:
+        """Avvia il flusso di autenticazione OAuth"""
+        try:
+            # Genera state e code_verifier per PKCE
+            state = secrets.token_urlsafe(32)
+            code_verifier = secrets.token_urlsafe(32)
+            code_challenge = base64.urlsafe_b64encode(
+                hashlib.sha256(code_verifier.encode()).digest()
+            ).decode().rstrip('=')
+            
+            # Salva i parametri per il token exchange
+            self._oauth_config = oauth_config
+            self._state = state
+            self._code_verifier = code_verifier
+            
+            # Avvia il server locale per il callback
+            self._start_callback_server()
+            
+            # Costruisce l'URL di autorizzazione
+            auth_params = {
+                'response_type': 'code',
+                'client_id': oauth_config['client_id'],
+                'redirect_uri': oauth_config['redirect_uri'],
+                'scope': oauth_config['scope'],
+                'state': state,
+                'code_challenge': code_challenge,
+                'code_challenge_method': 'S256'
+            }
+            
+            auth_url = f"{oauth_config['auth_url']}?{urllib.parse.urlencode(auth_params)}"
+            
+            # Apre il browser per l'autenticazione
+            import webbrowser
+            webbrowser.open(auth_url)
+            
+        except Exception as e:
+            self.auth_failed.emit(f"Errore nell'avvio dell'autenticazione: {str(e)}")
+    
+    def _start_callback_server(self) -> None:
+        """Avvia il server HTTP locale per ricevere il callback"""
+        try:
+            # Estrae porta dall'URL di redirect
+            redirect_url = urllib.parse.urlparse(self._oauth_config['redirect_uri'])
+            port = redirect_url.port or 8080
+            
+            # Crea e avvia il server
+            self._server = HTTPServer(('localhost', port), _OAuthCallbackHandler)
+            self._server.auth_code = None
+            self._server.auth_error = None
+            
+            # Avvia il server in un thread separato
+            self._server_thread = threading.Thread(target=self._run_server, daemon=True)
+            self._server_thread.start()
+            
+            # Avvia il timer per controllare il callback
+            self._callback_timer = QTimer()
+            self._callback_timer.timeout.connect(self._check_callback)
+            self._callback_timer.start(1000)  # Controlla ogni secondo
+            
+        except Exception as e:
+            self.auth_failed.emit(f"Errore nell'avvio del server callback: {str(e)}")
+    
+    def _run_server(self) -> None:
+        """Esegue il server HTTP in un thread separato"""
+        try:
+            self._server.handle_request()  # Gestisce una sola richiesta
+        except Exception as e:
+            print(f"Errore nel server callback: {e}")
+    
+    def _check_callback(self) -> None:
+        """Controlla se il callback è stato ricevuto"""
+        if not self._server:
+            return
+            
+        if hasattr(self._server, 'auth_code') and self._server.auth_code:
+            # Callback ricevuto con successo
+            self._callback_timer.stop()
+            auth_code = self._server.auth_code
+            self._cleanup_server()
+            self._exchange_code_for_token(auth_code)
+            
+        elif hasattr(self._server, 'auth_error') and self._server.auth_error:
+            # Callback ricevuto con errore
+            self._callback_timer.stop()
+            error = self._server.auth_error
+            self._cleanup_server()
+            self.auth_failed.emit(f"Errore di autorizzazione: {error}")
+    
+    def _cleanup_server(self) -> None:
+        """Pulisce il server HTTP"""
+        if self._server:
+            try:
+                self._server.server_close()
+            except Exception:
+                pass
+            self._server = None
+        
+        if hasattr(self, '_callback_timer'):
+            self._callback_timer.stop()
+    
+    def _exchange_code_for_token(self, auth_code: str) -> None:
+        """Scambia il codice di autorizzazione con un access token"""
+        try:
+            token_data = {
+                'grant_type': 'authorization_code',
+                'client_id': self._oauth_config['client_id'],
+                'code': auth_code,
+                'redirect_uri': self._oauth_config['redirect_uri'],
+                'code_verifier': self._code_verifier
+            }
+            
+            # Effettua la richiesta per il token
+            data = urllib.parse.urlencode(token_data).encode()
+            req = urllib.request.Request(
+                self._oauth_config['token_url'],
+                data=data,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            
+            with urllib.request.urlopen(req, timeout=30) as response:
+                token_response = json.loads(response.read().decode())
+            
+            if 'access_token' in token_response:
+                access_token   = token_response['access_token']
+                refresh_token  = token_response.get('refresh_token', '')
+                expires_in     = int(token_response.get('expires_in', 3600))
+                if refresh_token:
+                    from config.settings import Settings
+                    s = Settings.instance()
+                    s.set("ai/jetbrains_refresh_token", refresh_token)
+                    s.set("ai/jetbrains_token_expires", int(time.time()) + expires_in - 60)
+                self._verify_ai_license(access_token)
+            else:
+                self.auth_failed.emit("Token di accesso non ricevuto")
+                
+        except urllib.error.HTTPError as e:
+            try:
+                error_body = e.read().decode()
+                error_data = json.loads(error_body)
+                error_msg = error_data.get('error_description', f'HTTP {e.code}')
+            except Exception:
+                error_msg = f'HTTP {e.code}'
+            self.auth_failed.emit(f"Errore nel token exchange: {error_msg}")
+        except Exception as e:
+            self.auth_failed.emit(f"Errore nel token exchange: {str(e)}")
+    
+    def _verify_ai_license(self, access_token: str) -> None:
+        """Verifica la licenza AI; se l'endpoint non è raggiungibile assume licenza valida."""
+        try:
+            license_url = "https://account.jetbrains.com/api/v1/licenses/ai"
+            req = urllib.request.Request(
+                license_url,
+                headers={'Authorization': f'Bearer {access_token}'}
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                license_data = json.loads(response.read().decode())
+            has_ai_license = license_data.get('ai_license_active', False)
+            if not has_ai_license:
+                self.auth_failed.emit(
+                    "Il tuo account JetBrains non ha una licenza AI attiva.\n"
+                    "Acquista una licenza JetBrains AI per utilizzare questa funzionalità."
+                )
+                return
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                self.auth_failed.emit("Token di accesso non valido")
+                return
+            elif e.code == 403:
+                self.auth_failed.emit("Accesso negato — verifica le tue licenze JetBrains")
+                return
+            # Altro errore HTTP (es. 404 = endpoint non ancora disponibile): procedi
+        except Exception:
+            # Endpoint non raggiungibile: procedi comunque
+            pass
+
+        from config.settings import Settings
+        Settings.instance().set("ai/jetbrains_token", access_token)
+        self.auth_completed.emit(access_token)
+
+
 # ─── Worker HTTP — streaming per Anthropic, batch per gli altri ───────────────
 
 class _AIWorker(QThread):
@@ -141,6 +427,8 @@ class _AIWorker(QThread):
                 text = self._call_gemini()
             elif self._provider == "ollama":
                 text = self._call_ollama()
+            elif self._provider == "jetbrains":
+                text = self._call_jetbrains()
             else:
                 text = "Provider non supportato."
             self.result_ready.emit(text)
@@ -308,6 +596,117 @@ class _AIWorker(QThread):
             data = json.loads(resp.read())
         return data["message"]["content"]
 
+    # ── JetBrains AI ──────────────────────────────────────────────────────────
+
+    def _refresh_jetbrains_token(self, refresh_token: str, oauth_config: dict) -> str:
+        """Tenta il refresh del token OAuth; restituisce il nuovo access_token o ''."""
+        try:
+            data = urllib.parse.urlencode({
+                'grant_type':    'refresh_token',
+                'client_id':     oauth_config.get('client_id', ''),
+                'refresh_token': refresh_token,
+            }).encode()
+            req = urllib.request.Request(
+                oauth_config.get('token_url', ''),
+                data=data,
+                headers={'Content-Type': 'application/x-www-form-urlencoded'}
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                r = json.loads(resp.read().decode())
+            access_token  = r.get('access_token', '')
+            new_refresh   = r.get('refresh_token', refresh_token)
+            expires_in    = int(r.get('expires_in', 3600))
+            if access_token:
+                from config.settings import Settings
+                s = Settings.instance()
+                s.set("ai/jetbrains_token", access_token)
+                s.set("ai/jetbrains_refresh_token", new_refresh)
+                s.set("ai/jetbrains_token_expires", int(time.time()) + expires_in - 60)
+            return access_token
+        except Exception:
+            return ""
+
+    def _call_jetbrains(self) -> str:
+        """Chiama l'API JetBrains AI usando il token OAuth salvato"""
+        from config.settings import Settings
+        s = Settings.instance()
+
+        access_token = s.get("ai/jetbrains_token", "")
+        if not access_token:
+            raise Exception("Token JetBrains AI non trovato. Effettua l'autenticazione OAuth dalle impostazioni.")
+
+        # Refresh automatico se il token è scaduto
+        expires_at = float(s.get("ai/jetbrains_token_expires", 0) or 0)
+        if expires_at > 0 and time.time() > expires_at:
+            refresh_token = s.get("ai/jetbrains_refresh_token", "")
+            oauth_config  = PROVIDERS.get("JetBrains AI", {}).get("oauth_config", {})
+            if refresh_token and oauth_config:
+                access_token = self._refresh_jetbrains_token(refresh_token, oauth_config)
+            if not access_token:
+                raise Exception("Token JetBrains AI scaduto. Rieffettua l'autenticazione OAuth dalle impostazioni.")
+        
+        # Endpoint JetBrains AI per chat completions
+        url = "https://api.jetbrains.com/v1/chat/completions"
+        
+        # Prepara i messaggi nel formato OpenAI-compatibile
+        msgs = self._messages
+        if self._system:
+            msgs = [{"role": "system", "content": self._system}] + list(msgs)
+        
+        # Corpo della richiesta
+        body = json.dumps({
+            "model": self._model,
+            "messages": msgs,
+            "max_tokens": self._max_tokens,
+            "temperature": 0.7
+        }).encode()
+        
+        # Headers con autenticazione Bearer
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {access_token}",
+            "User-Agent": "NotePadPQ-AI-Assistant/1.1"
+        }
+        
+        req = urllib.request.Request(url, data=body, method="POST", headers=headers)
+        
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read())
+            
+            # Estrae la risposta e i token usage se disponibili
+            if "choices" in data and len(data["choices"]) > 0:
+                content = data["choices"][0]["message"]["content"]
+                
+                # Emette usage se disponibile
+                if "usage" in data:
+                    usage = data["usage"]
+                    self.usage_ready.emit(
+                        usage.get("prompt_tokens", 0), 
+                        usage.get("completion_tokens", 0)
+                    )
+                
+                return content
+            else:
+                raise Exception("Risposta non valida dall'API JetBrains AI")
+                
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                raise Exception("Token JetBrains AI scaduto o non valido. Rieffettua l'autenticazione OAuth.")
+            elif e.code == 403:
+                raise Exception("Accesso negato. Verifica che la tua licenza JetBrains AI sia attiva.")
+            elif e.code == 429:
+                raise Exception("Limite di richieste raggiunto. Riprova tra qualche minuto.")
+            else:
+                # Prova a leggere il messaggio di errore dal corpo della risposta
+                try:
+                    error_body = e.read().decode()
+                    error_data = json.loads(error_body)
+                    error_msg = error_data.get("error", {}).get("message", f"HTTP {e.code}")
+                except Exception:
+                    error_msg = f"HTTP {e.code}"
+                raise Exception(f"Errore API JetBrains AI: {error_msg}")
+
 
 # ─── Dialog impostazioni ──────────────────────────────────────────────────────
 
@@ -339,6 +738,9 @@ class _SettingsDialog(QDialog):
         form = QFormLayout()
         form.setSpacing(8)
         self._key_edits: dict[str, QLineEdit] = {}
+        self._oauth_buttons: dict[str, QPushButton] = {}
+        self._oauth_status: dict[str, QLabel] = {}
+        self._oauth_disconnect: dict[str, QPushButton] = {}
 
         _placeholders = {
             "anthropic": "sk-ant-api03-…  (da console.anthropic.com)",
@@ -348,12 +750,8 @@ class _SettingsDialog(QDialog):
         }
         for name, info in PROVIDERS.items():
             pid  = info["id"]
-            edit = QLineEdit()
-            if pid == "ollama":
-                edit.setPlaceholderText(_placeholders["ollama"])
-            else:
-                edit.setEchoMode(QLineEdit.EchoMode.Password)
-                edit.setPlaceholderText(_placeholders.get(pid, ""))
+            auth_type = info.get("auth_type", "api_key")
+            
             if info["key_url"]:
                 lbl_text = f"<b>{name}</b> &nbsp;<a href='{info['key_url']}'>[ottieni chiave ↗]</a>"
             else:
@@ -361,30 +759,106 @@ class _SettingsDialog(QDialog):
             lbl = QLabel(lbl_text)
             lbl.setOpenExternalLinks(True)
 
-            # Riga: campo + pulsante mostra/nascondi
-            row_widget = QWidget()
-            row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.addWidget(edit, 1)
-            if pid != "ollama":
-                btn_show = QPushButton("👁")
-                btn_show.setFixedWidth(28)
-                btn_show.setCheckable(True)
-                btn_show.setToolTip(tr("tooltip.ai_show_key"))
-                btn_show.toggled.connect(
-                    lambda checked, e=edit: e.setEchoMode(
+            if auth_type == "oauth":
+                outer = QVBoxLayout()
+                outer.setSpacing(4)
+                outer.setContentsMargins(0, 0, 0, 0)
+
+                # ── riga pulsanti OAuth ──
+                row_widget = QWidget()
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+
+                btn_oauth = QPushButton("🔐 Accedi con JetBrains")
+                btn_oauth.setMinimumHeight(28)
+                btn_oauth.setToolTip("Avvia il flusso OAuth nel browser (richiede client_id registrato con JetBrains)")
+                btn_oauth.clicked.connect(lambda _, p=pid: self._start_oauth_login(p))
+                row_layout.addWidget(btn_oauth, 1)
+
+                btn_disc = QPushButton("Disconnetti")
+                btn_disc.setMinimumHeight(28)
+                btn_disc.setFixedWidth(90)
+                btn_disc.setStyleSheet("color:#f44747;")
+                btn_disc.clicked.connect(lambda _, p=pid: self._disconnect_oauth(p))
+                btn_disc.hide()
+                row_layout.addWidget(btn_disc)
+
+                status_lbl = QLabel("")
+                status_lbl.setStyleSheet("color:#858585; font-size:10px;")
+                row_layout.addWidget(status_lbl)
+                outer.addWidget(row_widget)
+
+                # ── riga token manuale ──
+                token_row = QWidget()
+                token_layout = QHBoxLayout(token_row)
+                token_layout.setContentsMargins(0, 0, 0, 0)
+                token_lbl = QLabel("Bearer token:")
+                token_lbl.setStyleSheet("color:#858585; font-size:10px;")
+                token_edit = QLineEdit()
+                token_edit.setEchoMode(QLineEdit.EchoMode.Password)
+                token_edit.setPlaceholderText("Incolla il token Bearer dalle richieste AI del tuo IDE JetBrains")
+                token_edit.setStyleSheet("font-size:10px;")
+                token_edit.setToolTip(
+                    "Alternativa all'OAuth: copia il Bearer token dall'header Authorization\n"
+                    "che il tuo IDE JetBrains (PyCharm/IntelliJ) invia a api.grazie.ai"
+                )
+                btn_tok_show = QPushButton("👁")
+                btn_tok_show.setFixedWidth(24)
+                btn_tok_show.setCheckable(True)
+                btn_tok_show.toggled.connect(
+                    lambda checked, e=token_edit: e.setEchoMode(
                         QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
                     )
                 )
-                row_layout.addWidget(btn_show)
+                token_layout.addWidget(token_lbl)
+                token_layout.addWidget(token_edit, 1)
+                token_layout.addWidget(btn_tok_show)
+                outer.addWidget(token_row)
 
-            form.addRow(lbl, row_widget)
+                outer_w = QWidget()
+                outer_w.setLayout(outer)
+
+                self._oauth_buttons[pid] = btn_oauth
+                self._oauth_disconnect[pid] = btn_disc
+                self._oauth_status[pid] = status_lbl
+                self._key_edits[pid] = token_edit   # riusa lo stesso meccanismo save/load
+
+                form.addRow(lbl, outer_w)
+                
+            else:
+                # Provider con API key tradizionale
+                edit = QLineEdit()
+                if pid == "ollama":
+                    edit.setPlaceholderText(_placeholders["ollama"])
+                else:
+                    edit.setEchoMode(QLineEdit.EchoMode.Password)
+                    edit.setPlaceholderText(_placeholders.get(pid, ""))
+
+                # Riga: campo + pulsante mostra/nascondi
+                row_widget = QWidget()
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.addWidget(edit, 1)
+                if pid != "ollama":
+                    btn_show = QPushButton("👁")
+                    btn_show.setFixedWidth(28)
+                    btn_show.setCheckable(True)
+                    btn_show.setToolTip(tr("tooltip.ai_show_key"))
+                    btn_show.toggled.connect(
+                        lambda checked, e=edit: e.setEchoMode(
+                            QLineEdit.EchoMode.Normal if checked else QLineEdit.EchoMode.Password
+                        )
+                    )
+                    row_layout.addWidget(btn_show)
+
+                form.addRow(lbl, row_widget)
+                self._key_edits[pid] = edit
+            
             if info.get("note"):
                 note_lbl = QLabel(f"<small><i>{info['note']}</i></small>")
                 note_lbl.setOpenExternalLinks(True)
                 note_lbl.setStyleSheet("color:#858585;")
                 form.addRow("", note_lbl)
-            self._key_edits[pid] = edit
 
         layout.addLayout(form)
 
@@ -406,15 +880,107 @@ class _SettingsDialog(QDialog):
 
     def _load(self) -> None:
         for pid, edit in self._key_edits.items():
-            val = self._s.get(f"ai/{pid}_key", "")
-            edit.setText(val)
+            key = _settings_key(pid)
+            edit.setText(self._s.get(key, ""))
         self._max_tok.setValue(int(self._s.get("ai/max_tokens", 4096)))
+        self._update_oauth_status()
 
     def _save(self) -> None:
         for pid, edit in self._key_edits.items():
-            self._s.set(f"ai/{pid}_key", edit.text().strip())
+            val = edit.text().strip()
+            key = _settings_key(pid)
+            self._s.set(key, val)
         self._s.set("ai/max_tokens", self._max_tok.value())
         self.accept()
+    
+    def _update_oauth_status(self) -> None:
+        """Aggiorna lo stato di autenticazione OAuth per i provider che lo supportano"""
+        for pid, status_lbl in self._oauth_status.items():
+            token = self._s.get(f"ai/{pid}_token", "")
+            disc_btn = self._oauth_disconnect.get(pid)
+            if token:
+                status_lbl.setText("✅ Autenticato")
+                status_lbl.setStyleSheet("color:#2ea043; font-size:10px;")
+                self._oauth_buttons[pid].setText("🔐 Riautentica")
+                if disc_btn:
+                    disc_btn.show()
+            else:
+                status_lbl.setText("❌ Non autenticato")
+                status_lbl.setStyleSheet("color:#f44747; font-size:10px;")
+                self._oauth_buttons[pid].setText("🔐 Accedi con JetBrains")
+                if disc_btn:
+                    disc_btn.hide()
+    
+    def _start_oauth_login(self, provider_id: str) -> None:
+        """Avvia il flusso di autenticazione OAuth per il provider specificato"""
+        if provider_id != "jetbrains":
+            return
+            
+        # Ottieni la configurazione OAuth per JetBrains
+        provider_info = PROVIDERS.get("JetBrains AI", {})
+        oauth_config = provider_info.get("oauth_config", {})
+        
+        if not oauth_config:
+            QMessageBox.warning(self, "Errore", "Configurazione OAuth non trovata per JetBrains AI")
+            return
+        
+        # Aggiorna UI
+        self._oauth_buttons[provider_id].setEnabled(False)
+        self._oauth_buttons[provider_id].setText("🔄 Autenticazione in corso...")
+        self._oauth_status[provider_id].setText("🔄 Apertura browser...")
+        self._oauth_status[provider_id].setStyleSheet("color:#ffcc00; font-size:10px;")
+        
+        # Crea e configura l'handler OAuth
+        self._oauth_handler = _JetBrainsOAuth()
+        self._oauth_handler.auth_completed.connect(self._on_oauth_success)
+        self._oauth_handler.auth_failed.connect(self._on_oauth_error)
+        
+        # Avvia il flusso OAuth
+        self._oauth_handler.start_auth_flow(oauth_config)
+    
+    def _on_oauth_success(self, access_token: str) -> None:
+        """Gestisce il successo dell'autenticazione OAuth"""
+        # Aggiorna UI
+        self._oauth_status["jetbrains"].setText("✅ Autenticazione completata!")
+        self._oauth_status["jetbrains"].setStyleSheet("color:#2ea043; font-size:10px;")
+        self._oauth_buttons["jetbrains"].setText("🔐 Riautentica")
+        self._oauth_buttons["jetbrains"].setEnabled(True)
+        
+        # Mostra messaggio di successo
+        QMessageBox.information(
+            self, 
+            "Autenticazione completata", 
+            "Autenticazione JetBrains AI completata con successo!\n"
+            "Ora puoi utilizzare JetBrains AI nel pannello chat."
+        )
+        
+        # Pulisce l'handler
+        self._oauth_handler = None
+    
+    def _on_oauth_error(self, error_message: str) -> None:
+        """Gestisce gli errori di autenticazione OAuth"""
+        # Ripristina UI
+        self._oauth_status["jetbrains"].setText("❌ Errore di autenticazione")
+        self._oauth_status["jetbrains"].setStyleSheet("color:#f44747; font-size:10px;")
+        self._oauth_buttons["jetbrains"].setText("🔐 Accedi con JetBrains")
+        self._oauth_buttons["jetbrains"].setEnabled(True)
+        
+        # Mostra messaggio di errore
+        QMessageBox.warning(
+            self, 
+            "Errore di autenticazione", 
+            f"Errore durante l'autenticazione JetBrains AI:\n\n{error_message}"
+        )
+        
+        # Pulisce l'handler
+        self._oauth_handler = None
+
+    def _disconnect_oauth(self, provider_id: str) -> None:
+        """Rimuove il token OAuth salvato per il provider indicato."""
+        self._s.set(f"ai/{provider_id}_token", "")
+        self._s.set(f"ai/{provider_id}_refresh_token", "")
+        self._s.set(f"ai/{provider_id}_token_expires", "")
+        self._update_oauth_status()
 
 
 # ─── Pannello chat ────────────────────────────────────────────────────────────
@@ -684,29 +1250,39 @@ class _AIPanel(QWidget):
         if self._worker and self._worker.isRunning():
             return
 
-        name   = self._provider_combo.currentText()
-        info   = PROVIDERS.get(name, {})
-        pid    = info.get("id", "")
-        model  = self._model_combo.currentText()
-        api_key = self._get_key(pid)
-
-        if not api_key and pid != "ollama":
-            self._append_msg("system",
-                "⚠ Chiave API mancante — apri ⚙ per configurarla.\n"
-                + _key_hint(pid), "#ffcc00")
-            return
-
-        # Validazione formato chiave (avviso non bloccante)
-        warn = _validate_key(pid, api_key)
-        if warn:
-            self._append_msg("system", f"⚠ {warn}", "#ffcc00")
+        name      = self._provider_combo.currentText()
+        info      = PROVIDERS.get(name, {})
+        pid       = info.get("id", "")
+        model     = self._model_combo.currentText()
+        auth_type = info.get("auth_type", "api_key")
 
         from config.settings import Settings
-        max_tokens = int(Settings.instance().get("ai/max_tokens", 4096))
+        s = Settings.instance()
+
+        if auth_type == "oauth":
+            token = s.get(f"ai/{pid}_token", "")
+            if not token:
+                self._append_msg("system",
+                    "⚠ Non autenticato — apri ⚙ e usa 'Accedi con JetBrains'.", "#ffcc00")
+                return
+            api_key    = ""   # _call_jetbrains() legge il token da Settings
+            key_to_use = ""
+        else:
+            api_key = self._get_key(pid)
+            if not api_key and pid != "ollama":
+                self._append_msg("system",
+                    "⚠ Chiave API mancante — apri ⚙ per configurarla.\n"
+                    + _key_hint(pid), "#ffcc00")
+                return
+            warn = _validate_key(pid, api_key)
+            if warn:
+                self._append_msg("system", f"⚠ {warn}", "#ffcc00")
+            key_to_use = "" if pid == "ollama" else api_key
+
+        max_tokens = int(s.get("ai/max_tokens", 4096))
         thinking   = self._chk_thinking.isChecked() and self._chk_thinking.isVisible()
         system     = self._system_edit.toPlainText().strip()
         ollama_url = api_key if pid == "ollama" else "http://localhost:11434"
-        key_to_use = "" if pid == "ollama" else api_key
 
         self._history.append({"role": "user", "content": text})
         self._append_msg("user", text, "#9cdcfe")
@@ -785,6 +1361,14 @@ class _AIPanel(QWidget):
         self._chat_view.clear()
         self._status.setText("")
         self._streaming_block = False
+
+
+def _settings_key(pid: str) -> str:
+    """Restituisce la chiave QSettings per il token/API key del provider."""
+    info = next((v for v in PROVIDERS.values() if v["id"] == pid), {})
+    if info.get("auth_type") == "oauth":
+        return f"ai/{pid}_token"
+    return f"ai/{pid}_key"
 
 
 def _key_hint(pid: str) -> str:

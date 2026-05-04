@@ -398,10 +398,11 @@ class _JetBrainsOAuth(QObject):
 class _AIWorker(QThread):
     """Thread che chiama le API AI. Emette chunk via stream_chunk o result_ready."""
 
-    stream_chunk   = pyqtSignal(str)   # testo parziale (streaming Anthropic)
-    result_ready   = pyqtSignal(str)   # risposta completa
+    stream_chunk   = pyqtSignal(str)        # testo parziale risposta
+    think_chunk    = pyqtSignal(str)        # pensieri (Anthropic thinking, <think> Ollama)
+    result_ready   = pyqtSignal(str)        # risposta completa
     error_occurred = pyqtSignal(str)
-    usage_ready    = pyqtSignal(int, int)  # input_tokens, output_tokens
+    usage_ready    = pyqtSignal(int, int)   # input_tokens, output_tokens
 
     def __init__(self, provider_id: str, model: str, api_key: str,
                  messages: list[dict], system: str = "",
@@ -521,10 +522,9 @@ class _AIWorker(QThread):
                 elif etype == "content_block_delta":
                     delta = event.get("delta", {})
                     if delta.get("type") == "thinking_delta" and in_thinking:
-                        # Mostra il pensiero in corsivo
                         chunk = delta.get("thinking", "")
                         if chunk:
-                            self.stream_chunk.emit(f"<i>{chunk}</i>")
+                            self.think_chunk.emit(chunk)
                     elif delta.get("type") == "text_delta":
                         chunk = delta.get("text", "")
                         if chunk:
@@ -590,11 +590,64 @@ class _AIWorker(QThread):
         if self._system:
             msgs = [{"role": "system", "content": self._system}] + list(msgs)
         url  = f"{self._ollama_url}/api/chat"
-        body = json.dumps({"model": self._model, "messages": msgs, "stream": False}).encode()
+        body = json.dumps({"model": self._model, "messages": msgs, "stream": True}).encode()
         req  = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
+        full_text = ""
+        in_think  = False
+        buf       = ""
+        _OPEN     = "<think>"
+        _CLOSE    = "</think>"
+
+        def _flush_normal(text: str) -> None:
+            nonlocal full_text
+            if text:
+                full_text += text
+                self.stream_chunk.emit(text)
+
         with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read())
-        return data["message"]["content"]
+            for raw_line in resp:
+                line = raw_line.decode("utf-8").strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                chunk = event.get("message", {}).get("content", "")
+                if chunk:
+                    buf += chunk
+                    # smista il buffer su think_chunk / stream_chunk
+                    while buf:
+                        if in_think:
+                            end = buf.find(_CLOSE)
+                            if end >= 0:
+                                self.think_chunk.emit(buf[:end])
+                                buf = buf[end + len(_CLOSE):]
+                                in_think = False
+                            else:
+                                self.think_chunk.emit(buf)
+                                buf = ""
+                        else:
+                            start = buf.find(_OPEN)
+                            if start >= 0:
+                                _flush_normal(buf[:start])
+                                buf = buf[start + len(_OPEN):]
+                                in_think = True
+                            else:
+                                # trattieni eventuale prefisso parziale di <think> a fine buffer
+                                hold = 0
+                                for i in range(min(len(_OPEN) - 1, len(buf)), 0, -1):
+                                    if buf.endswith(_OPEN[:i]):
+                                        hold = i
+                                        break
+                                _flush_normal(buf[:-hold] if hold else buf)
+                                buf = buf[-hold:] if hold else ""
+                                break
+                if event.get("done", False):
+                    if buf and not in_think:
+                        _flush_normal(buf)
+                    break
+        return full_text
 
     # ── JetBrains AI ──────────────────────────────────────────────────────────
 
@@ -987,12 +1040,16 @@ class _SettingsDialog(QDialog):
 
 class _AIPanel(QWidget):
 
+    _ollama_ready = pyqtSignal(object)  # list[str] | None — thread-safe
+
     def __init__(self, main_window: "MainWindow", parent=None):
         super().__init__(parent)
         self._mw        = main_window
         self._history:  list[dict] = []
         self._worker:   Optional[_AIWorker] = None
-        self._streaming_block = False  # True mentre arriva stream Anthropic
+        self._streaming_block = False
+        self._inline_selection: Optional[tuple] = None  # (lf, cf, lt, ct) o None = intero file
+        self._ollama_ready.connect(self._set_ollama_models)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -1022,15 +1079,19 @@ class _AIPanel(QWidget):
         top.addWidget(btn_settings)
         layout.addLayout(top)
 
-        # ── Opzioni avanzate (Extended Thinking, System) ───────────────────────
+        # ── Opzioni avanzate (Extended Thinking, Inline edit, costo) ─────────
         adv = QHBoxLayout()
         self._chk_thinking = QCheckBox("Extended Thinking")
         self._chk_thinking.setToolTip(tr("tooltip.ai_thinking"))
         self._chk_thinking.setVisible(False)
+        self._chk_inline = QCheckBox("✏ Inline edit")
+        self._chk_inline.setToolTip(tr("tooltip.ai_inline"))
+        self._chk_inline.toggled.connect(self._on_inline_toggled)
         self._lbl_cost = QLabel("")
         self._lbl_cost.setToolTip(tr("tooltip.ai_cost"))
         self._lbl_cost.setStyleSheet("color:#858585; font-size:10px;")
         adv.addWidget(self._chk_thinking)
+        adv.addWidget(self._chk_inline)
         adv.addStretch()
         adv.addWidget(self._lbl_cost)
         layout.addLayout(adv)
@@ -1110,6 +1171,14 @@ class _AIPanel(QWidget):
         self._btn_ctx = QPushButton("+ Contesto")
         self._btn_ctx.setToolTip(tr("tooltip.ai_add_context"))
         self._btn_ctx.clicked.connect(self._add_context)
+        self._btn_apply = QPushButton("⬇ Al file")
+        self._btn_apply.setToolTip(tr("tooltip.ai_apply"))
+        self._btn_apply.clicked.connect(self._apply_to_file)
+        self._btn_apply.setEnabled(False)
+        self._btn_new_tab = QPushButton("📄 Nuovo tab")
+        self._btn_new_tab.setToolTip(tr("tooltip.ai_new_tab"))
+        self._btn_new_tab.clicked.connect(self._open_in_new_tab)
+        self._btn_new_tab.setEnabled(False)
         self._btn_clear = QPushButton("Pulisci chat")
         self._btn_clear.setToolTip(tr("tooltip.ai_clear"))
         self._btn_clear.clicked.connect(self._clear)
@@ -1118,6 +1187,8 @@ class _AIPanel(QWidget):
         self._btn_send.clicked.connect(self._send)
         btn_row.addWidget(self._btn_ctx)
         btn_row.addStretch()
+        btn_row.addWidget(self._btn_apply)
+        btn_row.addWidget(self._btn_new_tab)
         btn_row.addWidget(self._btn_clear)
         btn_row.addWidget(self._btn_send)
         input_layout.addLayout(btn_row)
@@ -1125,6 +1196,29 @@ class _AIPanel(QWidget):
         splitter.addWidget(input_widget)
         splitter.setSizes([300, 130])
         layout.addWidget(splitter, 1)
+
+        # ── Pannello pensieri (collassabile, auto-appare quando arrivano think_chunk) ──
+        self._think_btn = QPushButton("▶ Pensieri")
+        self._think_btn.setCheckable(True)
+        self._think_btn.setFixedHeight(20)
+        self._think_btn.setStyleSheet(
+            "text-align:left; padding-left:6px; font-size:10px;"
+            "background:#1a1a2e; color:#6b7280; border:none; border-top:1px solid #3c3c3c;"
+        )
+        self._think_btn.toggled.connect(self._toggle_think)
+        self._think_btn.hide()
+        layout.addWidget(self._think_btn)
+
+        self._think_box = QPlainTextEdit()
+        self._think_box.setReadOnly(True)
+        self._think_box.setFont(QFont("Monospace", 9))
+        self._think_box.setMaximumHeight(160)
+        self._think_box.setStyleSheet(
+            "background:#111827; color:#6b7280; border:none;"
+            "border-bottom:1px solid #3c3c3c;"
+        )
+        self._think_box.hide()
+        layout.addWidget(self._think_box)
 
         self._status = QLabel("")
         self._status.setStyleSheet("color:#858585; font-size:10px; padding:1px 2px;")
@@ -1151,6 +1245,7 @@ class _AIPanel(QWidget):
     def _on_provider_changed(self, _idx: int) -> None:
         name = self._provider_combo.currentText()
         info = PROVIDERS.get(name, {})
+        self._model_combo.setEnabled(True)
         self._model_combo.clear()
         for m in info.get("models", []):
             self._model_combo.addItem(m)
@@ -1158,18 +1253,55 @@ class _AIPanel(QWidget):
         idx = self._model_combo.findText(default)
         if idx >= 0:
             self._model_combo.setCurrentIndex(idx)
+        if info.get("id") == "ollama":
+            self._refresh_ollama_models()
 
     def _on_model_changed(self, model: str) -> None:
         name    = self._provider_combo.currentText()
         info    = PROVIDERS.get(name, {})
         is_think = model in info.get("thinking_models", [])
         self._chk_thinking.setVisible(is_think)
-        # Aggiorna label costo
         if model in MODEL_COST:
             inp, out = MODEL_COST[model]
             self._lbl_cost.setText(f"~${inp:.2f}/MTok in · ${out:.2f}/MTok out")
         else:
             self._lbl_cost.setText("")
+
+    def _refresh_ollama_models(self) -> None:
+        """Interroga Ollama /api/tags in background e aggiorna il combo con i modelli installati."""
+        import threading
+        from config.settings import Settings
+        ollama_url = Settings.instance().get("ai/ollama_key", "") or "http://localhost:11434"
+
+        def _fetch():
+            try:
+                url = f"{ollama_url.rstrip('/')}/api/tags"
+                req = urllib.request.Request(url, method="GET")
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    data = json.loads(resp.read())
+                models = [m["name"] for m in data.get("models", [])]
+                self._ollama_ready.emit(models or [])
+            except Exception:
+                self._ollama_ready.emit(None)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _set_ollama_models(self, models: Optional[list[str]]) -> None:
+        """Popola il combo modelli con i modelli Ollama installati (chiamato nel thread principale)."""
+        if PROVIDERS.get(self._provider_combo.currentText(), {}).get("id") != "ollama":
+            return
+        self._model_combo.clear()
+        if models is None:
+            self._model_combo.addItem("⚠ ollama non raggiungibile")
+            self._model_combo.setEnabled(False)
+            return
+        self._model_combo.setEnabled(True)
+        current = self._model_combo.currentText()
+        for m in models:
+            self._model_combo.addItem(m)
+        idx = self._model_combo.findText(current)
+        if idx >= 0:
+            self._model_combo.setCurrentIndex(idx)
 
     # ── Azioni contestuali ────────────────────────────────────────────────────
 
@@ -1282,7 +1414,15 @@ class _AIPanel(QWidget):
         max_tokens = int(s.get("ai/max_tokens", 4096))
         thinking   = self._chk_thinking.isChecked() and self._chk_thinking.isVisible()
         system     = self._system_edit.toPlainText().strip()
-        ollama_url = api_key if pid == "ollama" else "http://localhost:11434"
+        ollama_url = (api_key or "http://localhost:11434") if pid == "ollama" else "http://localhost:11434"
+
+        # Cattura selezione prima di inviare (usata da inline edit in _on_result)
+        if self._chk_inline.isChecked():
+            editor = self._mw._tab_manager.current_editor()
+            if editor and editor.hasSelectedText():
+                self._inline_selection = editor.getSelection()
+            else:
+                self._inline_selection = None  # None = intero file
 
         self._history.append({"role": "user", "content": text})
         self._append_msg("user", text, "#9cdcfe")
@@ -1291,50 +1431,59 @@ class _AIPanel(QWidget):
         self._status.setText(f"⟳  {model} sta elaborando…")
         self._btn_send.setEnabled(False)
         self._streaming_block = False
+        self._think_box.clear()
 
         self._worker = _AIWorker(pid, model, key_to_use, list(self._history),
                                   system, max_tokens, thinking, ollama_url)
         self._worker.stream_chunk.connect(self._on_stream_chunk)
+        self._worker.think_chunk.connect(self._on_think_chunk)
         self._worker.result_ready.connect(self._on_result)
         self._worker.error_occurred.connect(self._on_error)
         self._worker.usage_ready.connect(self._on_usage)
         self._worker.start()
 
     def _on_stream_chunk(self, chunk: str) -> None:
-        if not self._streaming_block:
-            # Apri un nuovo blocco assistant
-            self._chat_view.append(
-                '<p><b style="color:#c3e88d">AI:</b>&nbsp;<span id="stream" style="color:#d4d4d4">'
-            )
-            self._streaming_block = True
-
         cursor = self._chat_view.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertHtml(_escape(chunk).replace("\n", "<br>"))
+
+        if not self._streaming_block:
+            # Prefisso "AI: " in grassetto colorato
+            cursor.insertBlock()
+            lbl = QTextCharFormat()
+            lbl.setForeground(QColor("#c3e88d"))
+            lbl.setFontWeight(700)
+            cursor.insertText("AI: ", lbl)
+            self._streaming_block = True
+
+        # Testo plain — preserva spazi e a capo senza collasso HTML
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor("#d4d4d4"))
+        cursor.insertText(chunk, fmt)
         self._chat_view.setTextCursor(cursor)
         self._chat_view.ensureCursorVisible()
 
     def _on_result(self, text: str) -> None:
         if not self._streaming_block:
-            # provider non-streaming: aggiunge il blocco completo
             self._append_msg("assistant", text, "#c3e88d")
         else:
-            # chiudi il blocco streaming
-            cursor = self._chat_view.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            cursor.insertHtml("</span></p>")
-            self._chat_view.setTextCursor(cursor)
+            # streaming già visualizzato chunk per chunk — niente da aggiungere
             self._streaming_block = False
 
         self._history.append({"role": "assistant", "content": text})
         self._btn_send.setEnabled(True)
+        self._btn_apply.setEnabled(True)
+        self._btn_new_tab.setEnabled(True)
         self._status.setText("")
+
+        if self._chk_inline.isChecked():
+            self._apply_inline(text)
 
     def _on_error(self, msg: str) -> None:
         self._append_msg("system", f"❌ Errore: {msg}", "#f44747")
         self._btn_send.setEnabled(True)
         self._status.setText("")
         self._streaming_block = False
+        self._inline_selection = None
         if self._history and self._history[-1]["role"] == "user":
             self._history.pop()
 
@@ -1347,6 +1496,21 @@ class _AIPanel(QWidget):
         else:
             cost_str = ""
         self._status.setText(f"↑{in_tok} tok  ↓{out_tok} tok{cost_str}")
+
+    def _on_think_chunk(self, chunk: str) -> None:
+        if not self._think_btn.isVisible():
+            self._think_btn.show()
+            self._think_btn.setChecked(True)
+            self._think_box.show()
+        cursor = self._think_box.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._think_box.setTextCursor(cursor)
+        self._think_box.insertPlainText(chunk)
+        self._think_box.ensureCursorVisible()
+
+    def _toggle_think(self, checked: bool) -> None:
+        self._think_box.setVisible(checked)
+        self._think_btn.setText(("▼" if checked else "▶") + " Pensieri")
 
     def _append_msg(self, role: str, text: str, color: str) -> None:
         prefix = {"user": "Tu:", "assistant": "AI:", "system": ""}
@@ -1361,6 +1525,58 @@ class _AIPanel(QWidget):
         self._chat_view.clear()
         self._status.setText("")
         self._streaming_block = False
+        self._btn_apply.setEnabled(False)
+        self._btn_new_tab.setEnabled(False)
+        self._think_btn.setChecked(False)
+        self._think_btn.hide()
+        self._think_box.hide()
+        self._think_box.clear()
+
+    # ── Inline edit / Applica / Nuovo tab ─────────────────────────────────────
+
+    def _on_inline_toggled(self, checked: bool) -> None:
+        if checked:
+            self._status.setText("⚡ Inline edit attivo — la risposta sovrascriverà l'editor")
+        else:
+            self._status.setText("")
+            self._inline_selection = None
+
+    def _apply_inline(self, text: str) -> None:
+        """Sostituisce la selezione salvata (o l'intero file) con la risposta AI."""
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            self._inline_selection = None
+            return
+        extracted = _extract_code_block(text)
+        sel = self._inline_selection
+        self._inline_selection = None
+        if sel is not None:
+            lf, cf, lt, ct = sel
+            editor.setSelection(lf, cf, lt, ct)
+            editor.replaceSelectedText(extracted)
+        else:
+            editor.selectAll()
+            editor.replaceSelectedText(extracted)
+
+    def _apply_to_file(self) -> None:
+        """Sostituisce il contenuto dell'editor attivo con l'ultima risposta AI."""
+        last = next((m["content"] for m in reversed(self._history) if m["role"] == "assistant"), None)
+        if not last:
+            return
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        extracted = _extract_code_block(last)
+        editor.selectAll()
+        editor.replaceSelectedText(extracted)
+
+    def _open_in_new_tab(self) -> None:
+        """Apre l'ultima risposta AI in un nuovo tab vuoto."""
+        last = next((m["content"] for m in reversed(self._history) if m["role"] == "assistant"), None)
+        if not last:
+            return
+        new_editor = self._mw._tab_manager.new_tab()
+        new_editor.load_content(last)
 
 
 def _settings_key(pid: str) -> str:
@@ -1397,6 +1613,14 @@ def _escape(text: str) -> str:
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\n", "<br>"))
+
+
+def _extract_code_block(text: str) -> str:
+    """Se la risposta contiene esattamente un blocco ```...```, lo restituisce; altrimenti il testo intero."""
+    matches = re.findall(r"```(?:\w+)?\n(.*?)```", text, re.DOTALL)
+    if len(matches) == 1:
+        return matches[0].rstrip("\n")
+    return text
 
 
 # ─── Plugin principale ────────────────────────────────────────────────────────

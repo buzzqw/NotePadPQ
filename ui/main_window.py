@@ -188,7 +188,12 @@ class MainWindow(QMainWindow):
         self._preview_dock.visibilityChanged.connect(self._on_preview_dock_visibility)
 
         # ── Pannello inferiore multiuso ───────────────────────────────────────
-        self._bottom_tabs = _QTabWidget()
+        class _BottomTabWidget(_QTabWidget):
+            def minimumSizeHint(self):
+                from PyQt6.QtCore import QSize
+                return QSize(0, 40)
+
+        self._bottom_tabs = _BottomTabWidget()
         self._bottom_tabs.setMinimumHeight(0)
         self._bottom_tabs.setTabPosition(_QTabWidget.TabPosition.South)
 
@@ -217,6 +222,7 @@ class MainWindow(QMainWindow):
             QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._build_dock)
+        self.resizeDocks([self._build_dock], [150], Qt.Orientation.Vertical)
 
         # Mostra all'avvio in base alle preferenze utente
         try:

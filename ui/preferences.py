@@ -271,6 +271,13 @@ class PreferencesDialog(QDialog):
         self._autobackup_enabled = QCheckBox("Abilita autobackup periodico")
         al.addRow("", self._autobackup_enabled)
 
+        self._autosave_to_backup = QCheckBox("Salvataggio automatico nella cartella backup")
+        self._autosave_to_backup.setToolTip(
+            "Salva subito una copia del file nella cartella backup quando viene aperto o salvato.\n"
+            "La copia viene aggiornata anche dal timer autobackup periodico."
+        )
+        al.addRow("", self._autosave_to_backup)
+
         self._autobackup_interval = QSpinBox()
         self._autobackup_interval.setRange(1, 120)
         self._autobackup_interval.setSuffix(" minuti")
@@ -465,6 +472,7 @@ class PreferencesDialog(QDialog):
         self._restore_session.setChecked(s.get("file/restore_session", True))
         self._recent_max.setValue(s.get("file/recent_max", 20))
         self._autobackup_enabled.setChecked(s.get("file/autobackup_enabled", False))
+        self._autosave_to_backup.setChecked(s.get("file/autosave_to_backup", False))
         self._autobackup_interval.setValue(s.get("file/autobackup_interval", 5))
         self._autobackup_dir.setText(s.get("file/autobackup_dir", ""))
         #self._autosave_enabled.setChecked(s.get("file/autosave_enabled", False))
@@ -572,6 +580,7 @@ class PreferencesDialog(QDialog):
         s.set("file/restore_session",    self._restore_session.isChecked())
         s.set("file/recent_max",         self._recent_max.value())
         s.set("file/autobackup_enabled",     self._autobackup_enabled.isChecked())
+        s.set("file/autosave_to_backup",     self._autosave_to_backup.isChecked())
         s.set("file/autobackup_interval",    self._autobackup_interval.value())
         s.set("file/autobackup_dir",         self._autobackup_dir.text().strip())
         s.set("file/autosave_on_focus_loss", self._autosave_on_focus_loss.isChecked())

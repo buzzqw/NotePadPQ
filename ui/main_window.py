@@ -398,31 +398,62 @@ class MainWindow(QMainWindow):
     def _apply_autobackup_settings(self) -> None:
         from config.settings import Settings
         s = Settings.instance()
-        enabled  = s.get("file/autobackup_enabled", False)
-        interval = s.get("file/autobackup_interval", 5)
+        enabled          = s.get("file/autobackup_enabled", False)
+        autosave_to_bak  = s.get("file/autosave_to_backup", False)
+        interval         = s.get("file/autobackup_interval", 5)
         self._autobackup_timer.stop()
-        if enabled:
+        if enabled or autosave_to_bak:
             self._autobackup_timer.start(interval * 60 * 1000)
+
+    def _get_backup_dir(self) -> Path:
+        from config.settings import Settings
+        from core.platform import get_data_dir
+        s = Settings.instance()
+        backup_dir_str = s.get("file/autobackup_dir", "")
+        return Path(backup_dir_str) if backup_dir_str else get_data_dir() / "autobackup"
+
+    def _autosave_file_to_backup(self, editor) -> None:
+        """Salva una copia corrente (senza timestamp) nella cartella backup.
+        Usato da open_files, _save_editor e dal timer autobackup."""
+        from config.settings import Settings
+        s = Settings.instance()
+        if not s.get("file/autosave_to_backup", False):
+            return
+        if not editor.file_path:
+            return
+        backup_dir = self._get_backup_dir()
+        try:
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            content = editor.get_content()
+            (backup_dir / editor.file_path.name).write_text(
+                content, encoding="utf-8", errors="replace"
+            )
+        except Exception:
+            pass
 
     def _do_autobackup(self) -> None:
         """Salva una copia di backup di tutti i file aperti modificati."""
         from config.settings import Settings
-        from core.platform import get_data_dir
         import datetime
         s = Settings.instance()
-        backup_dir_str = s.get("file/autobackup_dir", "")
-        backup_dir = Path(backup_dir_str) if backup_dir_str else get_data_dir() / "autobackup"
+        backup_dir = self._get_backup_dir()
         try:
             backup_dir.mkdir(parents=True, exist_ok=True)
         except Exception:
             return
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        autosave_to_backup = s.get("file/autosave_to_backup", False)
         for editor in self._tab_manager.all_editors():
             if editor.file_path:
                 try:
                     content = editor.get_content()
-                    name = f"{editor.file_path.stem}_{ts}{editor.file_path.suffix}.bak"
-                    (backup_dir / name).write_text(content, encoding="utf-8", errors="replace")
+                    if s.get("file/autobackup_enabled", False):
+                        name = f"{editor.file_path.stem}_{ts}{editor.file_path.suffix}.bak"
+                        (backup_dir / name).write_text(content, encoding="utf-8", errors="replace")
+                    if autosave_to_backup:
+                        (backup_dir / editor.file_path.name).write_text(
+                            content, encoding="utf-8", errors="replace"
+                        )
                 except Exception:
                     pass
 
@@ -1463,6 +1494,8 @@ class MainWindow(QMainWindow):
                     print(f"[download_icon_set] OK {icon}.svg ({len(data)} bytes)")
             except Exception as e:
                 failed += 1
+                # placeholder: segna l'icona come "tentata" per non riprovare al prossimo avvio
+                local_file.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg"/>')
                 print(f"[download_icon_set] ERRORE {icon}.svg: {e}")
                 progress.setLabelText(f"[{i+1}/{total}]  ⚠ Errore: {icon}.svg")
                 QApplication.processEvents()
@@ -1639,6 +1672,7 @@ class MainWindow(QMainWindow):
                 content, encoding, line_ending = FileManager.read(path)
                 tab = self._tab_manager.new_tab(path=path)
                 tab.load_content(content, encoding, line_ending)
+                self._autosave_file_to_backup(tab)
                 # Notifica plugin: file aperto
                 self._notify_plugins_file_opened(path)
                 # Se il lexer non è stato rilevato dall'estensione,
@@ -1718,6 +1752,7 @@ class MainWindow(QMainWindow):
             self._on_tab_modified(editor, False)
             self._update_recent(path)
             self._notify_plugins_file_saved(path)
+            self._autosave_file_to_backup(editor)
 
             # 5. Riattiva il watcher in modo sicuro dopo un ritardo maggiore
             if hasattr(editor, "_watcher"):

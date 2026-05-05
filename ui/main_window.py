@@ -1009,8 +1009,6 @@ class MainWindow(QMainWindow):
         self._sep(m)
         m.addAction(self._act("autoclose_toggle", "", self._toggle_autoclose,
                                checkable=True, checked=True))
-        self._sep(m)
-        m.addAction(self._act("preferences", "Ctrl+Alt+P", self.action_preferences))
 
     # ── Menu Cerca ────────────────────────────────────────────────────────────
 

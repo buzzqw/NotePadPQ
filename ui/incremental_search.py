@@ -107,6 +107,12 @@ class IncrementalSearchBar(QWidget):
         self._field.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
+        self._field_base_style = (
+            "QLineEdit { background: #1e1e1e; color: #e0e0e0; "
+            "border: 1px solid #555; border-radius: 3px; padding: 0 4px; }"
+            "QLineEdit:focus { border-color: #888; }"
+        )
+        self._field.setStyleSheet(self._field_base_style)
         self._field.textChanged.connect(self._on_text_changed)
         self._field.returnPressed.connect(self._find_next)
         layout.addWidget(self._field)
@@ -354,9 +360,12 @@ class IncrementalSearchBar(QWidget):
 
     def _set_field_color(self, bg: Optional[str]) -> None:
         if bg:
-            self._field.setStyleSheet(f"background: {bg}; color: #ffaaaa;")
+            self._field.setStyleSheet(
+                f"QLineEdit {{ background: {bg}; color: #ffaaaa; "
+                "border: 1px solid #844; border-radius: 3px; padding: 0 4px; }"
+            )
         else:
-            self._field.setStyleSheet("")
+            self._field.setStyleSheet(self._field_base_style)
 
     def _current_editor(self) -> Optional["EditorWidget"]:
         return self._mw._tab_manager.current_editor()

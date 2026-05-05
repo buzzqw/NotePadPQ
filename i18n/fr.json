@@ -150,6 +150,7 @@
     "print_preview": "Aperçu avant impression",
     "export_pdf": "Exporter en PDF",
     "keybinding_editor": "Éditeur de raccourcis clavier...",
+    "open_terminal": "Ouvrir le terminal ici",
     "word_wrap_toggle": "Retour à la ligne",
     "find_in_all_docs": "Rechercher dans tous les documents",
     "replace_in_all_docs": "Remplacer dans tous les documents",
@@ -502,6 +503,7 @@
     "clipboard_paste": "Double-clic pour coller dans l'éditeur",
     "split_close": "Fermer la vue divisée",
     "minimap_nav": "Minimap — cliquer pour naviguer",
-    "find_regex_help": "Expression régulière (Python re) :\n  .       n'importe quel caractère\n  \\d      chiffre  |  \\w  mot  |  \\s  espace\n  *       0 ou plus  |  +  1 ou plus  |  ?  0 ou 1\n  ^       début de ligne  |  $  fin de ligne\n  [abc]   classe de caractères  |  [^abc]  négation\n  (...)   groupe  |  (?:...)  groupe non-capturant\n  \\1      référence arrière au groupe 1\n  a|b     alternance (a ou b)\n  \\b      limite de mot\n\nDans le champ Remplacer : \\1 \\2 ... pour les groupes capturés"
+    "find_regex_help": "Expression régulière (Python re) :\n  .       n'importe quel caractère\n  \\d      chiffre  |  \\w  mot  |  \\s  espace\n  *       0 ou plus  |  +  1 ou plus  |  ?  0 ou 1\n  ^       début de ligne  |  $  fin de ligne\n  [abc]   classe de caractères  |  [^abc]  négation\n  (...)   groupe  |  (?:...)  groupe non-capturant\n  \\1      référence arrière au groupe 1\n  a|b     alternance (a ou b)\n  \\b      limite de mot\n\nDans le champ Remplacer : \\1 \\2 ... pour les groupes capturés",
+    "open_terminal": "Ouvre le terminal système dans le dossier du fichier courant.\nSi aucun fichier n'est ouvert, utilise le dossier de NotePadPQ."
   }
 }

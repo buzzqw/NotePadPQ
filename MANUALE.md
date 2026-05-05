@@ -1,6 +1,6 @@
 # NotePadPQ — Manuale d'uso
 
-> Versione 0.3.6 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
+> Versione 0.4.4 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
 > Piattaforme: Linux, Windows, macOS
 
 ---
@@ -40,7 +40,7 @@ Se NotePadPQ è già aperto, i file vengono inviati alla sessione esistente senz
 
 L'interfaccia è composta da:
 
-- **Menubar** — File / Modifica / Cerca / Visualizza / Documento / Strumenti / Plugin / Aiuto
+- **Menubar** — File / Modifica / Cerca / Visualizza / Documento / Strumenti / Plugin / Aiuto (la voce **Aiuto → Manuale** apre `MANUALE.md` nell'editor come tab normale)
 - **Toolbar** — azioni comuni con icone (set selezionabile: Lucide, Material, Sistema)
 - **Tab bar** — un tab per ogni file aperto; i file modificati mostrano `*` nel titolo
 - **Editor** — area di testo principale con syntax highlighting, numeri di riga, fold margin, margine simboli (bookmark)
@@ -57,7 +57,7 @@ L'interfaccia è composta da:
 | Apri file | `Ctrl+O` |
 | Apri file selezionato nell'editor | `Shift+Ctrl+O` |
 | Salva | `Ctrl+S` |
-| Salva con nome | `Shift+Ctrl+S` |
+| Salva con nome | — |
 | Salva tutto | `Shift+Ctrl+S` |
 | Ricarica da disco | `Shift+Ctrl+R` |
 | Proprietà file | `Shift+Ctrl+V` |
@@ -76,10 +76,16 @@ L'interfaccia è composta da:
 Trascina uno o più file direttamente sulla finestra o sull'editor per aprirli.
 
 ### Rilevamento modifica esterna
-Se un file aperto viene modificato da un altro programma, NotePadPQ lo segnala con un dialog che offre tre opzioni:
+NotePadPQ monitora i file aperti e reagisce in due modi distinti:
+
+**File modificato da un altro programma** — appare un dialog con tre opzioni:
 - **Ricarica** — scarta le modifiche locali e ricarica da disco
 - **Confronta** — apre il dialog Compare tra la versione in memoria e quella su disco
 - **Sovrascrivi** — scrive la versione in memoria sovrascrivendo il file su disco
+
+**File eliminato dal disco** — appare un dialog separato ("Il file X è stato eliminato") con due opzioni:
+- **Chiudi il tab** — chiude il tab corrispondente
+- **Mantieni aperto** *(default)* — il tab rimane aperto con il contenuto in memoria (non salvato su disco)
 
 ---
 
@@ -906,9 +912,9 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `F6` | Compila |
 | `F7` | Build |
 | `F8` | Profili di build |
-| `F12` | LSP — Vai alla definizione |
+| `Ctrl+F12` | LSP — Vai alla definizione |
 | `Shift+F12` | LSP — Mostra riferimenti |
-| `F2` | LSP — Rinomina simbolo |
+| `Shift+F6` | LSP — Rinomina simbolo |
 | `Alt+Shift+F` | LSP — Formatta documento |
 | `Ctrl+Alt+A` | Apri/chiudi pannello AI Assistant |
 
@@ -935,9 +941,9 @@ Il client LSP si attiva automaticamente quando apri un file il cui linguaggio ha
 |---|---|
 | **Diagnostics** (errori/warning) | Automatico — Tab "⚡ Diagnostics" nel pannello inferiore |
 | **Hover** (documentazione) | Tieni il mouse fermo su un simbolo per 400ms |
-| **Vai alla definizione** | `F12` o Strumenti → LSP |
+| **Vai alla definizione** | `Ctrl+F12` o Strumenti → LSP |
 | **Mostra riferimenti** | `Shift+F12` |
-| **Rinomina simbolo** | `F2` → inserisci nuovo nome |
+| **Rinomina simbolo** | `Shift+F6` → inserisci nuovo nome |
 | **Formatta documento** | `Alt+Shift+F` |
 
 ---
@@ -978,10 +984,22 @@ Il plugin AI Assistant (attivabile da Plugin Manager) aggiunge un pannello dock 
 | Extended Thinking | Disponibile su claude-opus-4-7 (ragionamento esteso) |
 | Invio messaggio | `Ctrl+Invio` oppure pulsante ▶ Invia |
 
+### Interazione con l'editor
+
+| Elemento | Funzione |
+|---|---|
+| **✏ Inline edit** *(checkbox)* | Se attivo, dopo l'invio la risposta AI sostituisce il testo selezionato nell'editor (o l'intero file se nulla è selezionato) |
+| **⬇ Al file** *(pulsante)* | Applica l'ultima risposta AI all'editor attivo; se la risposta contiene un blocco di codice, viene estratto automaticamente |
+| **📄 Nuovo tab** *(pulsante)* | Apre l'ultima risposta AI in un nuovo tab vuoto |
+
+### Pannello Pensieri
+
+Quando si usa Extended Thinking (Anthropic) o un modello Ollama con tag `<think>`, appare automaticamente un pannello **Pensieri** collassabile sopra la risposta. Il pannello si nasconde automaticamente con "Pulisci chat".
+
 ### Streaming
 
 Claude (Anthropic) risponde in streaming: il testo appare progressivamente mentre viene generato. Gli altri provider mostrano la risposta completa al termine.
 
 ---
 
-*Manuale aggiornato — NotePadPQ 0.3.9*
+*Manuale aggiornato — NotePadPQ 0.4.4*

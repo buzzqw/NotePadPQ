@@ -150,6 +150,7 @@
     "print_preview": "Vista previa de impresión",
     "export_pdf": "Exportar a PDF",
     "keybinding_editor": "Editor de atajos de teclado...",
+    "open_terminal": "Abrir terminal aquí",
     "word_wrap_toggle": "Ajuste de línea",
     "find_in_all_docs": "Buscar en todos los documentos",
     "replace_in_all_docs": "Reemplazar en todos los documentos",
@@ -502,6 +503,7 @@
     "clipboard_paste": "Doble clic para pegar en el editor",
     "split_close": "Cerrar vista dividida",
     "minimap_nav": "Minimapa — clic para navegar",
-    "find_regex_help": "Expresión regular (Python re):\n  .       cualquier carácter\n  \\d      dígito  |  \\w  palabra  |  \\s  espacio\n  *       0 o más  |  +  1 o más  |  ?  0 o 1\n  ^       inicio de línea  |  $  fin de línea\n  [abc]   clase de caracteres  |  [^abc]  negación\n  (...)   grupo  |  (?:...)  grupo no capturador\n  \\1      referencia al grupo 1\n  a|b     alternativa (a o b)\n  \\b      límite de palabra\n\nEn el campo Reemplazar: \\1 \\2 ... para grupos capturados"
+    "find_regex_help": "Expresión regular (Python re):\n  .       cualquier carácter\n  \\d      dígito  |  \\w  palabra  |  \\s  espacio\n  *       0 o más  |  +  1 o más  |  ?  0 o 1\n  ^       inicio de línea  |  $  fin de línea\n  [abc]   clase de caracteres  |  [^abc]  negación\n  (...)   grupo  |  (?:...)  grupo no capturador\n  \\1      referencia al grupo 1\n  a|b     alternativa (a o b)\n  \\b      límite de palabra\n\nEn el campo Reemplazar: \\1 \\2 ... para grupos capturados",
+    "open_terminal": "Abre el terminal del sistema en la carpeta del archivo actual.\nSi no hay archivo abierto, usa la carpeta de NotePadPQ."
   }
 }

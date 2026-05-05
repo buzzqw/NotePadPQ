@@ -87,7 +87,8 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "compare_files": "git-compare.svg", "color_picker": "palette.svg",
         "regex_tester": "asterisk.svg", "number_converter": "hash.svg",
         "column_stats": "bar-chart-2.svg", "lorem_ipsum": "align-left.svg",
-        "keybinding_editor": "keyboard.svg", "lsp_goto_def": "code.svg",
+        "keybinding_editor": "keyboard.svg", "open_terminal": "terminal.svg",
+        "lsp_goto_def": "code.svg",
         "lsp_refs": "git-merge.svg", "lsp_rename": "pen.svg",
         "lsp_format": "sparkles.svg", "lsp_diag": "alert-triangle.svg",
         # Documento
@@ -149,7 +150,8 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "compare_files": "compare_arrows.svg", "color_picker": "colorize.svg",
         "regex_tester": "code.svg", "number_converter": "functions.svg",
         "column_stats": "bar_chart.svg", "lorem_ipsum": "subject.svg",
-        "keybinding_editor": "keyboard.svg", "lsp_goto_def": "code.svg",
+        "keybinding_editor": "keyboard.svg", "open_terminal": "terminal.svg",
+        "lsp_goto_def": "code.svg",
         "lsp_refs": "call_made.svg", "lsp_rename": "edit.svg",
         "lsp_format": "auto_fix_high.svg", "lsp_diag": "report_problem.svg",
         # Documento
@@ -1282,6 +1284,8 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("reload_config",   "",   self.action_reload_config))
         self._sep(m)
         m.addAction(self._act("preferences", "Ctrl+Alt+P", self.action_preferences))
+        self._sep(m)
+        m.addAction(self._act("open_terminal",   "",   self.action_open_terminal))
 
     # ── Menu Plugin ───────────────────────────────────────────────────────────
 
@@ -1406,6 +1410,11 @@ class MainWindow(QMainWindow):
 
         already = sum(1 for ic in icons_to_download if (dest_dir / f"{ic}.svg").exists())
         print(f"[download_icon_set] {already}/{total} icone già presenti")
+
+        if already == total:
+            print("[download_icon_set] tutte le icone già presenti, rebuild diretto")
+            self._rebuild_toolbar()
+            return
 
         progress = QProgressDialog(self)
         progress.setWindowTitle(f"Download icone '{set_name}'")
@@ -2406,6 +2415,49 @@ class MainWindow(QMainWindow):
         from config.settings import Settings
         Settings.instance().reload()
         self._apply_autobackup_settings()
+
+    def action_open_terminal(self) -> None:
+        import subprocess, sys
+        from pathlib import Path
+
+        editor = self._tab_manager.current_editor()
+        if editor and editor.file_path:
+            folder = str(editor.file_path.parent)
+        else:
+            folder = str(Path(__file__).parent.parent)
+
+        try:
+            if sys.platform == "win32":
+                try:
+                    subprocess.Popen(["wt.exe", "-d", folder])
+                except FileNotFoundError:
+                    subprocess.Popen(["cmd.exe", "/K", f"cd /d {folder}"])
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", "-a", "Terminal", folder])
+            else:
+                terminals = [
+                    ["gnome-terminal", f"--working-directory={folder}"],
+                    ["konsole", "--workdir", folder],
+                    ["xfce4-terminal", f"--working-directory={folder}"],
+                    ["tilix", f"--working-directory={folder}"],
+                    ["alacritty", "--working-directory", folder],
+                    ["kitty", f"--directory={folder}"],
+                    ["lxterminal", f"--working-directory={folder}"],
+                    ["mate-terminal", f"--working-directory={folder}"],
+                    ["xterm", "-e", f"bash -c 'cd {folder!r}; exec bash'"],
+                ]
+                for cmd in terminals:
+                    try:
+                        subprocess.Popen(cmd)
+                        return
+                    except FileNotFoundError:
+                        continue
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, self.APP_NAME,
+                                    "Nessun terminale supportato trovato sul sistema.")
+        except Exception as e:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, self.APP_NAME, f"Impossibile aprire il terminale:\n{e}")
 
     def action_plugin_manager(self) -> None:
         from plugins.plugin_manager import PluginManagerDialog

@@ -150,6 +150,7 @@
     "print_preview": "Print Preview",
     "export_pdf": "Export as PDF",
     "keybinding_editor": "Keyboard Shortcuts Editor...",
+    "open_terminal": "Open Terminal Here",
     "word_wrap_toggle": "Word Wrap",
     "find_in_all_docs": "Find in All Documents",
     "replace_in_all_docs": "Replace in All Documents",
@@ -504,6 +505,7 @@
     "clipboard_paste": "Double-click to paste into editor",
     "split_close": "Close split view",
     "minimap_nav": "Minimap — click to navigate",
-    "find_regex_help": "Regular expression (Python re):\n  .       any character\n  \\d      digit  |  \\w  word char  |  \\s  space\n  *       0 or more  |  +  1 or more  |  ?  0 or 1\n  ^       line start  |  $  line end\n  [abc]   character class  |  [^abc]  negation\n  (...)   group  |  (?:...)  non-capturing group\n  \\1      back-reference to group 1\n  a|b     alternation (a or b)\n  \\b      word boundary\n\nIn Replace field: \\1 \\2 ... for captured groups"
+    "find_regex_help": "Regular expression (Python re):\n  .       any character\n  \\d      digit  |  \\w  word char  |  \\s  space\n  *       0 or more  |  +  1 or more  |  ?  0 or 1\n  ^       line start  |  $  line end\n  [abc]   character class  |  [^abc]  negation\n  (...)   group  |  (?:...)  non-capturing group\n  \\1      back-reference to group 1\n  a|b     alternation (a or b)\n  \\b      word boundary\n\nIn Replace field: \\1 \\2 ... for captured groups",
+    "open_terminal": "Opens the system terminal in the current file's folder.\nIf no file is open, uses the NotePadPQ folder."
   }
 }

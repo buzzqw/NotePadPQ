@@ -93,7 +93,7 @@ class Session:
         # Ripristina tab attivo
         idx = data.get("current_index", 0)
         if 0 <= idx < main_window._tab_manager.count():
-            main_window._tab_manager.setCurrentIndex(idx)
+            main_window._tab_manager.set_current_index(idx)
 
         return opened > 0
 

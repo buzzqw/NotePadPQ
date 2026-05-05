@@ -2764,74 +2764,86 @@ class MainWindow(QMainWindow):
             self._function_list_dock.setVisible(checked)
             
     def _on_file_changed_externally(self, editor: EditorWidget) -> None:
-        """Gestisce la modifica esterna con ricaricamento reale e confronto."""
+        """Gestisce la modifica o l'eliminazione esterna del file."""
         if not editor or not editor.file_path:
             return
 
-        # --- FIX: Ignora l'evento se siamo noi a scriverlo! ---
         if getattr(editor, "_is_saving", False):
             return
 
         editor._watcher.blockSignals(True)
-        
-        msg = tr("msg.file_changed_on_disk", name=editor.file_path.name)
+
+        # Caso: file eliminato dal disco
+        if not editor.file_path.exists():
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle(self.APP_NAME)
+            msg_box.setText(tr("msg.file_deleted_on_disk", name=editor.file_path.name))
+            msg_box.setIcon(QMessageBox.Icon.Warning)
+
+            btn_close = msg_box.addButton(tr("action.close_tab"), QMessageBox.ButtonRole.ActionRole)
+            btn_keep  = msg_box.addButton(tr("action.keep_open"),  QMessageBox.ButtonRole.RejectRole)
+            msg_box.setDefaultButton(btn_keep)
+
+            msg_box.exec()
+
+            if msg_box.clickedButton() == btn_close:
+                tm = self._tab_manager.tab_manager_for(editor)
+                if tm:
+                    container = tm._containers.get(editor)
+                    if container:
+                        tm._close_tab_at(tm.indexOf(container))
+            else:
+                editor._watcher.blockSignals(False)
+            return
+
+        # Caso: file modificato da un programma esterno
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle(self.APP_NAME)
-        msg_box.setText(msg)
+        msg_box.setText(tr("msg.file_changed_on_disk", name=editor.file_path.name))
         msg_box.setIcon(QMessageBox.Icon.Question)
-        
-        # Pulsanti
-        btn_reload = msg_box.addButton(tr("action.reload"), QMessageBox.ButtonRole.ActionRole)
-        btn_compare = msg_box.addButton(tr("action.compare_changes"), QMessageBox.ButtonRole.ActionRole)
-        btn_overwrite = msg_box.addButton(tr("action.overwrite"), QMessageBox.ButtonRole.ActionRole)
-        msg_box.addButton(tr("button.cancel"), QMessageBox.ButtonRole.RejectRole)
+
+        btn_reload    = msg_box.addButton(tr("action.reload"),          QMessageBox.ButtonRole.ActionRole)
+        btn_compare   = msg_box.addButton(tr("action.compare_changes"),  QMessageBox.ButtonRole.ActionRole)
+        btn_overwrite = msg_box.addButton(tr("action.overwrite"),        QMessageBox.ButtonRole.ActionRole)
+        msg_box.addButton(tr("button.cancel"),                           QMessageBox.ButtonRole.RejectRole)
 
         msg_box.exec()
         clicked = msg_box.clickedButton()
 
         if clicked == btn_reload:
-            # FIX: Ricarica reale del contenuto dal disco
             from core.file_manager import FileManager
             try:
                 content, enc, le = FileManager.read(editor.file_path)
                 editor.load_content(content, enc, le)
-                editor.setModified(False) # Toglie l'asterisco
+                editor.setModified(False)
                 self.statusBar().showMessage(f"🔄 File ricaricato: {editor.file_path.name}", 3000)
             except Exception as e:
                 QMessageBox.critical(self, "Errore", f"Impossibile ricaricare: {e}")
 
         elif clicked == btn_compare:
-            # Funzione di confronto: salva la versione corrente in un file temp e confronta
             import tempfile
             from pathlib import Path
-            
-            # 1. Creiamo un file temporaneo con quello che hai SCRITTO TU (versione in memoria)
-            # Usiamo delete=False perché dobbiamo passarlo a un'altra finestra
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, 
-                                             suffix=editor.file_path.suffix, 
+
+            with tempfile.NamedTemporaryFile(mode='w', delete=False,
+                                             suffix=editor.file_path.suffix,
                                              encoding=editor.encoding) as tmp:
                 tmp.write(editor.get_content())
                 tmp_path = Path(tmp.name)
-            
+
             from ui.compare import CompareDialog
             dlg = CompareDialog(self)
-            
-            # 2. Diciamo al dialog di caricare i file e avviare il confronto subito
-            # File 1: Quello sul DISCO (la versione dell'altro programma)
-            # File 2: Quello TEMPORANEO (la tua versione di NotePadPQ)
+
             if hasattr(dlg, "set_files"):
                 dlg.set_files(editor.file_path, tmp_path)
-            
+
             dlg.exec()
-            
-            # 3. Una volta chiusa la finestra, cancelliamo il file temporaneo
+
             try:
                 tmp_path.unlink()
-            except:
+            except Exception:
                 pass
 
         elif clicked == btn_overwrite:
-            # Vince NotePadPQ e scrive sul disco
             self._save_editor(editor, editor.file_path)
 
         # Riattiva il monitoraggio

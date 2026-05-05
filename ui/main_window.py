@@ -1300,6 +1300,8 @@ class MainWindow(QMainWindow):
     def _build_menu_help(self, mb: QMenuBar) -> None:
         m = mb.addMenu(tr("menu.help"))
         self._menus["help"] = m
+        m.addAction(self._act("manual",        "", self.action_open_manual))
+        self._sep(m)
         m.addAction(self._act("about",         "", self.action_about))
         m.addAction(self._act("about_qt",      "", lambda: QApplication.aboutQt()))
         self._sep(m)
@@ -2409,6 +2411,15 @@ class MainWindow(QMainWindow):
         from plugins.plugin_manager import PluginManagerDialog
         dlg = PluginManagerDialog(self)
         dlg.exec()
+
+    def action_open_manual(self) -> None:
+        from pathlib import Path
+        manual_path = Path(__file__).parent.parent / "MANUALE.md"
+        if manual_path.is_file():
+            self.open_files([manual_path])
+        else:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, tr("action.manual"), "MANUALE.md non trovato.")
 
     def action_about(self) -> None:
         from PyQt6.QtWidgets import QMessageBox, QLabel

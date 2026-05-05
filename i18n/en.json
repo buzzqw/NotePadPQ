@@ -114,6 +114,7 @@
     "view_minimap": "Minimap",
     "view_build_panel": "Build & Terminal Panel",
     "view_file_browser": "File Browser",
+    "manual": "Manual",
     "about": "About NotePadPQ...",
     "about_qt": "About Qt...",
     "check_updates": "Check for Updates...",

@@ -98,7 +98,8 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "auto_indent": "indent.svg", "read_only": "lock.svg",
         "write_bom": "file-code.svg",
         # Plugin / Aiuto
-        "plugin_manager": "puzzle.svg", "about_qt": "help-circle.svg",
+        "plugin_manager": "puzzle.svg", "manual": "book-open.svg",
+        "about_qt": "help-circle.svg",
         "check_updates": "refresh-cw.svg", "donate": "heart.svg",
     },
     "material": {
@@ -161,7 +162,8 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "auto_indent": "format_indent_increase.svg", "read_only": "lock.svg",
         "write_bom": "description.svg",
         # Plugin / Aiuto
-        "plugin_manager": "extension.svg", "about_qt": "help.svg",
+        "plugin_manager": "extension.svg", "manual": "menu_book.svg",
+        "about_qt": "help.svg",
         "check_updates": "system_update.svg", "donate": "favorite.svg",
     },
 }

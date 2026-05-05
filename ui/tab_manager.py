@@ -319,6 +319,8 @@ class TabManager(QTabWidget):
         self._containers[editor] = container
 
         idx = self.addTab(container, name)
+        if path:
+            self.setTabToolTip(idx, str(path))
         self.setCurrentIndex(idx)
 
         # Connette segnali modifica
@@ -478,6 +480,9 @@ class TabManager(QTabWidget):
             
         prefix = "* " if modified else ""
         self.setTabText(idx, f"{prefix}{name}")
+        if not (hasattr(editor, "_ftp_remote_path") and editor._ftp_remote_path):
+            path = editor.file_path
+            self.setTabToolTip(idx, str(path) if path else "")
         self.tab_modified_changed.emit(editor, modified)
 
     # ── Slot cambio tab ───────────────────────────────────────────────────────

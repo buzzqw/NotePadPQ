@@ -76,6 +76,7 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "view_line_numbers": "list-ordered.svg", "view_whitespace": "pilcrow.svg",
         "view_eol": "corner-down-left.svg", "view_minimap": "map.svg",
         "view_build_panel": "terminal.svg", "view_file_browser": "folder-tree.svg",
+        "view_character_panel": "type.svg", "column_editor": "table.svg",
         "preview_toggle": "eye.svg", "view_zoom_in": "zoom-in.svg",
         "view_zoom_out": "zoom-out.svg", "view_zoom_reset": "maximize-2.svg",
         "distraction_free": "focus.svg", "view_word_wrap": "wrap-text.svg",
@@ -87,6 +88,7 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "compare_files": "git-compare.svg", "color_picker": "palette.svg",
         "regex_tester": "asterisk.svg", "number_converter": "hash.svg",
         "column_stats": "bar-chart-2.svg", "lorem_ipsum": "align-left.svg",
+        "text_converter": "arrow-left-right.svg",
         "keybinding_editor": "keyboard.svg", "open_terminal": "terminal.svg",
         "lsp_goto_def": "code.svg",
         "lsp_refs": "git-merge.svg", "lsp_rename": "pen.svg",
@@ -140,6 +142,7 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "view_line_numbers": "format_list_numbered.svg", "view_whitespace": "space_bar.svg",
         "view_eol": "keyboard_return.svg", "view_minimap": "map.svg",
         "view_build_panel": "code.svg", "view_file_browser": "folder.svg",
+        "view_character_panel": "text_fields.svg", "column_editor": "table_chart.svg",
         "preview_toggle": "visibility.svg", "view_zoom_in": "zoom_in.svg",
         "view_zoom_out": "zoom_out.svg", "view_zoom_reset": "fullscreen.svg",
         "distraction_free": "center_focus_strong.svg", "view_word_wrap": "wrap_text.svg",
@@ -151,6 +154,7 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "compare_files": "compare_arrows.svg", "color_picker": "colorize.svg",
         "regex_tester": "code.svg", "number_converter": "functions.svg",
         "column_stats": "bar_chart.svg", "lorem_ipsum": "subject.svg",
+        "text_converter": "compare_arrows.svg",
         "keybinding_editor": "keyboard.svg", "open_terminal": "terminal.svg",
         "lsp_goto_def": "code.svg",
         "lsp_refs": "call_made.svg", "lsp_rename": "edit.svg",
@@ -303,6 +307,12 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._project_dock)
         self._project_dock.hide()
 
+        # ── Dock destro: Pannello caratteri ──────────────────────────────────
+        from ui.character_panel import CharacterPanel
+        self._character_panel_dock = CharacterPanel(self)
+        self._character_panel_dock.hide()
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._character_panel_dock)
+
         # ── Dock anteprima (spostabile, alternativa allo split inline) ────────
         from ui.preview_panel import PreviewPanel
         self._preview_panel_dock = PreviewPanel()
@@ -335,7 +345,10 @@ class MainWindow(QMainWindow):
         self._build_panel = BuildPanel(self)
         self._bottom_tabs.addTab(self._build_panel, "⚙  Output compilazione")
 
-        # Nota: i risultati ricerca sono ora embedded nel dialog find_replace.py
+        # Tab: Risultati ricerca (Find Result Panel)
+        from ui.find_result_panel import FindResultPanel
+        self._find_result_panel = FindResultPanel(self)
+        self._bottom_tabs.addTab(self._find_result_panel, "🔍  Risultati ricerca")
 
         # Tab: Terminale integrato
         self._terminal_panel = TerminalPanel(self)
@@ -971,6 +984,8 @@ class MainWindow(QMainWindow):
         sub_fmt.addAction(self._act("spaces_to_tabs","",         self.action_spaces_to_tabs))
 
         self._sep(m)
+        m.addAction(self._act("column_editor",   "Alt+C", self.action_column_editor))
+        self._sep(m)
         m.addAction(self._act("insert_date",     "", self.action_insert_date))
         m.addAction(self._act("word_count",      "", self.action_word_count))
         m.addAction(self._act("word_frequency",  "", self.action_word_frequency))
@@ -1052,7 +1067,8 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("view_minimap",       "", self._toggle_minimap,        checkable=True, checked=False))
         m.addAction(self._act("view_build_panel",  "Ctrl+`", self._toggle_build_panel,   checkable=True, checked=False))
         m.addAction(self._act("view_file_browser", "Ctrl+Shift+E", self._toggle_file_browser, checkable=True, checked=False))
-        m.addAction(self._act("view_project_manager", "", self._toggle_project_manager, checkable=True, checked=False))
+        m.addAction(self._act("view_project_manager",  "", self._toggle_project_manager, checkable=True, checked=False))
+        m.addAction(self._act("view_character_panel",  "", self._toggle_character_panel, checkable=True, checked=False))
         m.addAction(self._act("preview_toggle",  "F12", self._toggle_preview,   checkable=True, checked=False))
         self._sep(m)
         m.addAction(self._act("view_zoom_in",    "Ctrl+=",   self.action_zoom_in))
@@ -1298,6 +1314,7 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("number_converter","", self.action_number_converter))
         m.addAction(self._act("column_stats",    "Ctrl+Alt+S", self.action_column_stats))
         m.addAction(self._act("lorem_ipsum",     "", self.action_lorem_ipsum))
+        m.addAction(self._act("text_converter",  "", self.action_text_converter))
         self._sep(m)
         m.addAction(self._act("build_profiles",  "F8", self.action_build_profiles))
         m.addAction(self._act("compile",         "F6", self.action_compile))
@@ -1807,17 +1824,30 @@ class MainWindow(QMainWindow):
 
     def action_print(self) -> None:
         from PyQt6.QtPrintSupport import QPrintDialog
+        from ui.print_options_dialog import PrintOptionsDialog, print_with_header_footer
+        editor = self._current_editor()
+        if not editor:
+            return
+        opt_dlg = PrintOptionsDialog(self, file_path=editor.file_path)
+        if opt_dlg.exec() != PrintOptionsDialog.DialogCode.Accepted:
+            return
         dlg = QPrintDialog(self._printer, self)
         if dlg.exec() == QPrintDialog.DialogCode.Accepted:
-            self._do_print(self._printer)
+            print_with_header_footer(self._printer, editor, opt_dlg)
 
     def action_print_preview(self) -> None:
+        from ui.print_options_dialog import PrintOptionsDialog, print_with_header_footer
+        editor = self._current_editor()
+        if not editor:
+            return
+        opt_dlg = PrintOptionsDialog(self, file_path=editor.file_path)
+        if opt_dlg.exec() != PrintOptionsDialog.DialogCode.Accepted:
+            return
         dlg = QPrintPreviewDialog(self._printer, self)
-        dlg.paintRequested.connect(self._do_print)
-        
-        # Forza una dimensione ampia (es. 1000x800) in modo che il window manager non la schiacci
+        dlg.paintRequested.connect(
+            lambda printer: print_with_header_footer(printer, editor, opt_dlg)
+        )
         dlg.resize(1000, 800)
-        
         dlg.exec()
 
     def _do_print(self, printer: QPrinter) -> None:
@@ -1956,6 +1986,51 @@ class MainWindow(QMainWindow):
         editor = self._current_editor()
         if editor:
             editor.insert(datetime.now().strftime(fmt))
+
+    def action_column_editor(self) -> None:
+        from ui.column_editor import ColumnEditorDialog
+        editor = self._current_editor()
+        if not editor:
+            return
+
+        # Determina le righe coinvolte dalla selezione (anche rettangolare)
+        sel_start_line, sel_start_col, sel_end_line, _ = editor.getSelection()
+        if sel_start_line < 0:
+            # Nessuna selezione: usa solo la riga corrente
+            sel_start_line = editor.getCursorPosition()[0]
+            sel_end_line   = sel_start_line
+            sel_start_col  = editor.getCursorPosition()[1]
+
+        n_lines = sel_end_line - sel_start_line + 1
+
+        dlg = ColumnEditorDialog(self)
+        if dlg.exec() != ColumnEditorDialog.DialogCode.Accepted:
+            return
+
+        values = dlg.get_values(n_lines)
+
+        editor.beginUndoAction()
+        try:
+            for i, val in enumerate(values):
+                line_idx = sel_start_line + i
+                line_text = editor.text(line_idx)
+                # Rimuovi \n o \r\n finale per lavorare sul testo puro
+                eol = ""
+                if line_text.endswith("\r\n"):
+                    eol = "\r\n"
+                    line_text = line_text[:-2]
+                elif line_text.endswith(("\n", "\r")):
+                    eol = line_text[-1]
+                    line_text = line_text[:-1]
+                # Estendi la riga se la colonna di inserimento è oltre la fine
+                col = sel_start_col
+                if col > len(line_text):
+                    line_text = line_text + " " * (col - len(line_text))
+                new_text = line_text[:col] + val + line_text[col:] + eol
+                editor.setSelection(line_idx, 0, line_idx, editor.lineLength(line_idx))
+                editor.replaceSelectedText(new_text)
+        finally:
+            editor.endUndoAction()
 
     def action_word_count(self) -> None:
         editor = self._current_editor()
@@ -2139,6 +2214,12 @@ class MainWindow(QMainWindow):
             self._project_dock.show()
         else:
             self._project_dock.hide()
+
+    def _toggle_character_panel(self, checked: bool) -> None:
+        if checked:
+            self._character_panel_dock.show()
+        else:
+            self._character_panel_dock.hide()
 
     def _on_build_dock_visibility_changed(self, visible: bool) -> None:
         """Sincronizza lo stato dell'azione nel menu con la visibilità del dock."""
@@ -2419,6 +2500,13 @@ class MainWindow(QMainWindow):
         dlg = LoremIpsumDialog(self)
         dlg.exec()
 
+    def action_text_converter(self) -> None:
+        from ui.text_converter import TextConverterDialog
+        editor = self._current_editor()
+        initial = editor.selectedText() if editor else ""
+        dlg = TextConverterDialog(self, initial_text=initial)
+        dlg.exec()
+
     def action_compile(self) -> None:
         self._build_dock.show()
         from core.build_manager import BuildManager
@@ -2454,16 +2542,24 @@ class MainWindow(QMainWindow):
         self._apply_autobackup_settings()
 
     def action_open_terminal(self) -> None:
-        import subprocess, sys
+        import subprocess, sys, shlex
         from pathlib import Path
+        from config.settings import Settings
 
         editor = self._tab_manager.current_editor()
-        if editor and editor.file_path:
-            folder = str(editor.file_path.parent)
-        else:
-            folder = str(Path(__file__).parent.parent)
+        folder = str(editor.file_path.parent) if (editor and editor.file_path) \
+                 else str(Path(__file__).parent.parent)
+
+        terminal_cmd = Settings.instance().get("build/terminal_cmd", "")
 
         try:
+            if terminal_cmd:
+                # Comando configurato dall'utente (con token {DIR})
+                cmd_str = terminal_cmd.replace("{DIR}", folder)
+                subprocess.Popen(shlex.split(cmd_str))
+                return
+
+            # Automatico: fallback per piattaforma
             if sys.platform == "win32":
                 try:
                     subprocess.Popen(["wt.exe", "-d", folder])
@@ -2489,11 +2585,10 @@ class MainWindow(QMainWindow):
                         return
                     except FileNotFoundError:
                         continue
-                from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.warning(self, self.APP_NAME,
-                                    "Nessun terminale supportato trovato sul sistema.")
+                                    "Nessun terminale supportato trovato.\n"
+                                    "Configurane uno in Preferenze → Build.")
         except Exception as e:
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self, self.APP_NAME, f"Impossibile aprire il terminale:\n{e}")
 
     def action_plugin_manager(self) -> None:
@@ -3010,6 +3105,22 @@ class MainWindow(QMainWindow):
             return
 
         # Caso: file modificato da un programma esterno
+        from config.settings import Settings
+        if Settings.instance().get("file/autoreload_on_change", False):
+            try:
+                from core.file_manager import FileManager
+                content, enc, le = FileManager.read(editor.file_path)
+                editor.load_content(content, enc, le)
+                editor.setModified(False)
+                self.statusBar().showMessage(
+                    f"🔄 {editor.file_path.name} ricaricato automaticamente", 3000)
+            except Exception:
+                pass
+            if editor.file_path.exists():
+                editor._watcher.addPath(str(editor.file_path))
+            editor._watcher.blockSignals(False)
+            return
+
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle(self.APP_NAME)
         msg_box.setText(tr("msg.file_changed_on_disk", name=editor.file_path.name))

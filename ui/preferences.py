@@ -297,6 +297,8 @@ class PreferencesDialog(QDialog):
 
         grp_autosave = QGroupBox("Auto-salvataggio")
         asl = QVBoxLayout(grp_autosave)
+        self._autoreload_on_change = QCheckBox("Ricarica automaticamente i file modificati esternamente (senza chiedere)")
+        asl.addWidget(self._autoreload_on_change)
         self._autosave_on_focus_loss = QCheckBox("Salva automaticamente quando la finestra perde il fuoco")
         asl.addWidget(self._autosave_on_focus_loss)
         vl.addWidget(grp_autosave)
@@ -383,6 +385,44 @@ class PreferencesDialog(QDialog):
         gl.addWidget(self._build_panel_always)
 
         vl.addWidget(grp)
+
+        # ── Terminale ─────────────────────────────────────────────────────────
+        grp_term = QGroupBox("Terminale esterno")
+        tl = QFormLayout(grp_term)
+
+        self._terminal_combo = QComboBox()
+        _terminals = [
+            ("Automatico (rileva il terminale installato)", ""),
+            ("gnome-terminal",    "gnome-terminal --working-directory={DIR}"),
+            ("konsole",           "konsole --workdir {DIR}"),
+            ("xfce4-terminal",    "xfce4-terminal --working-directory={DIR}"),
+            ("tilix",             "tilix --working-directory={DIR}"),
+            ("alacritty",         "alacritty --working-directory {DIR}"),
+            ("kitty",             "kitty --directory={DIR}"),
+            ("lxterminal",        "lxterminal --working-directory={DIR}"),
+            ("mate-terminal",     "mate-terminal --working-directory={DIR}"),
+            ("xterm",             "xterm -e 'cd {DIR}; exec bash'"),
+            ("Windows Terminal",  "wt.exe -d {DIR}"),
+            ("cmd.exe",           'cmd.exe /K "cd /d {DIR}"'),
+            ("Personalizzato…",   "__custom__"),
+        ]
+        for label, cmd in _terminals:
+            self._terminal_combo.addItem(label, cmd)
+        tl.addRow("Terminale:", self._terminal_combo)
+
+        self._terminal_custom = QLineEdit()
+        self._terminal_custom.setPlaceholderText("es. myterm --workdir {DIR}")
+        self._terminal_custom.setToolTip(
+            "Comando personalizzato. {DIR} viene sostituito con la cartella del file corrente.\n"
+            "Esempio: xterm -e 'cd {DIR}; exec zsh'"
+        )
+        tl.addRow("Comando custom:", self._terminal_custom)
+
+        lbl_token = QLabel("{DIR} = cartella del file corrente")
+        lbl_token.setStyleSheet("color: gray; font-size: 9px;")
+        tl.addRow("", lbl_token)
+
+        vl.addWidget(grp_term)
         vl.addStretch()
         return w
 
@@ -477,6 +517,7 @@ class PreferencesDialog(QDialog):
         self._autobackup_dir.setText(s.get("file/autobackup_dir", ""))
         #self._autosave_enabled.setChecked(s.get("file/autosave_enabled", False))
         #self._autosave_interval.setValue(s.get("file/autosave_interval", 2))
+        self._autoreload_on_change.setChecked(s.get("file/autoreload_on_change", False))
         self._autosave_on_focus_loss.setChecked(s.get("file/autosave_on_focus_loss", False))
 
         # Autocompletamento
@@ -495,6 +536,22 @@ class PreferencesDialog(QDialog):
         # Build
         self._build_save_before.setChecked(s.get("build/save_before", True))
         self._build_panel_always.setChecked(s.get("build/panel_always", False))
+        saved_term_cmd = s.get("build/terminal_cmd", "")
+        matched = False
+        for i in range(self._terminal_combo.count()):
+            if self._terminal_combo.itemData(i) == saved_term_cmd:
+                self._terminal_combo.setCurrentIndex(i)
+                matched = True
+                break
+        if not matched and saved_term_cmd:
+            # Comando personalizzato salvato
+            for i in range(self._terminal_combo.count()):
+                if self._terminal_combo.itemData(i) == "__custom__":
+                    self._terminal_combo.setCurrentIndex(i)
+                    break
+            self._terminal_custom.setText(saved_term_cmd)
+        else:
+            self._terminal_custom.setText("")
         self._show_symbol_panel_on_start.setChecked(s.get("ui/show_symbol_panel_on_start", False))
         
 
@@ -583,6 +640,7 @@ class PreferencesDialog(QDialog):
         s.set("file/autosave_to_backup",     self._autosave_to_backup.isChecked())
         s.set("file/autobackup_interval",    self._autobackup_interval.value())
         s.set("file/autobackup_dir",         self._autobackup_dir.text().strip())
+        s.set("file/autoreload_on_change",   self._autoreload_on_change.isChecked())
         s.set("file/autosave_on_focus_loss", self._autosave_on_focus_loss.isChecked())
         
         # Autocompletamento
@@ -599,8 +657,13 @@ class PreferencesDialog(QDialog):
         s.set("preview/delay_ms",   self._preview_delay.value())
 
         # Build
-        s.set("build/save_before", self._build_save_before.isChecked())
-        s.set("build/panel_always", self._build_panel_always.isChecked()) # <- Corretto!
+        s.set("build/save_before",  self._build_save_before.isChecked())
+        s.set("build/panel_always", self._build_panel_always.isChecked())
+        term_data = self._terminal_combo.currentData()
+        if term_data == "__custom__":
+            s.set("build/terminal_cmd", self._terminal_custom.text().strip())
+        else:
+            s.set("build/terminal_cmd", term_data or "")
         s.set("ui/show_symbol_panel_on_start", self._show_symbol_panel_on_start.isChecked())
         
         # Applica subito la visibilità dei pannelli

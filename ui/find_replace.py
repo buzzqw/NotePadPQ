@@ -496,6 +496,8 @@ ESEMPI
         _ROLE = Qt.ItemDataRole.UserRole
         lines = editor.text().split("\n")
         count = 0
+        panel_results = []
+        file_path = str(editor.file_path) if editor.file_path else ""
         for line_idx, line_text in enumerate(lines):
             for m in compiled.finditer(line_text):
                 item = QTreeWidgetItem([
@@ -503,15 +505,31 @@ ESEMPI
                     line_text.strip()[:120]
                 ])
                 item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                # Colore esplicito: garantisce leggibilità anche quando selezionato
-                # (su Qt6 il colore da stylesheet non sempre si applica alla colonna selezionata)
                 item.setForeground(0, Qt.GlobalColor.white)
                 item.setForeground(1, Qt.GlobalColor.white)
                 item.setData(0, _ROLE, {"line": line_idx + 1, "col": m.start()})
                 self._find_occurrences.addTopLevelItem(item)
+                panel_results.append({
+                    "file": file_path,
+                    "line": line_idx,
+                    "text": line_text,
+                    "col":  m.start(),
+                })
                 count += 1
         if count:
             self._lbl_status.setText(f"✓ {count} occorrenze")
+            panel = getattr(self._mw, "_find_result_panel", None)
+            if panel and file_path:
+                panel.add_results(pattern_text, panel_results)
+                bottom = getattr(self._mw, "_bottom_tabs", None)
+                if bottom:
+                    for i in range(bottom.count()):
+                        if bottom.widget(i) is panel:
+                            bottom.setCurrentIndex(i)
+                            break
+                build_dock = getattr(self._mw, "_build_dock", None)
+                if build_dock:
+                    build_dock.show()
         else:
             self._lbl_status.setText(f"Nessun risultato per «{pattern_text}»")
 
@@ -681,6 +699,7 @@ ESEMPI
             self._fif_status.setText(
                 f"✓ {total_matches} corrispondenze in {total_files} file"
             )
+            self._send_to_result_panel(query, self._fif_results)
         self._fif_results.resizeColumnToContents(0)
 
     def _open_fif_result(self, item: QTreeWidgetItem) -> None:
@@ -740,6 +759,7 @@ ESEMPI
             self._all_status.setText(f"0 risultati per «{query}»")
         else:
             self._all_status.setText(f"✓ {total_matches} corrispondenze")
+            self._send_to_result_panel(query, self._all_results, in_docs=True)
         self._all_results.resizeColumnToContents(0)
 
     def _do_replace_all_docs(self) -> None:
@@ -819,6 +839,50 @@ ESEMPI
         dlg.show()
         dlg.raise_()
         dlg._find_edit.setFocus()
+
+    def _send_to_result_panel(self, query: str, tree: "QTreeWidget",
+                              in_docs: bool = False) -> None:
+        """Invia i risultati al FindResultPanel nel pannello inferiore."""
+        panel = getattr(self._mw, "_find_result_panel", None)
+        if panel is None:
+            return
+        _ROLE = Qt.ItemDataRole.UserRole
+        results = []
+        for fi in range(tree.topLevelItemCount()):
+            file_item = tree.topLevelItem(fi)
+            file_data = file_item.data(0, _ROLE)
+            if not isinstance(file_data, dict):
+                continue
+            for ci in range(file_item.childCount()):
+                child = file_item.child(ci)
+                child_data = child.data(0, _ROLE)
+                if not isinstance(child_data, dict):
+                    continue
+                line_raw = child_data.get("line", 1)
+                line_0 = int(line_raw) - 1 if line_raw else 0
+                if in_docs:
+                    editor = child_data.get("editor")
+                    fp = str(editor.file_path) if editor and editor.file_path else ""
+                else:
+                    fp = child_data.get("path", "")
+                results.append({
+                    "file": fp,
+                    "line": line_0,
+                    "text": child.text(1),
+                    "col":  child_data.get("col", 0),
+                })
+        if results:
+            panel.add_results(query, results)
+            # Mostra il tab dei risultati nel pannello inferiore
+            bottom = getattr(self._mw, "_bottom_tabs", None)
+            if bottom:
+                for i in range(bottom.count()):
+                    if bottom.widget(i) is panel:
+                        bottom.setCurrentIndex(i)
+                        break
+            build_dock = getattr(self._mw, "_build_dock", None)
+            if build_dock:
+                build_dock.show()
 
     @classmethod
     def show_replace(cls, main_window: "MainWindow") -> None:

@@ -61,3 +61,5 @@ versiona.sh
 .claude
 CLAUDE.md
 tests/*
+retroactive_notes.sh
+test.sh

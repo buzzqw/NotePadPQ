@@ -1542,7 +1542,12 @@ class MainWindow(QMainWindow):
     def _on_editor_changed(self, editor: Optional[EditorWidget]) -> None:
         """Aggiorna titolo finestra e statusbar quando cambia il tab attivo."""
         if editor is None:
-            self.setWindowTitle(self.APP_NAME)
+            # Potrebbe essere un tab spreadsheet: mostra il suo nome nel titolo
+            path = self._tab_manager.current_custom_path()
+            if path:
+                self.setWindowTitle(f"{path.name} — {self.APP_NAME}")
+            else:
+                self.setWindowTitle(self.APP_NAME)
             return
 
         # Controllo se il file proviene dall'FTP
@@ -1680,12 +1685,21 @@ class MainWindow(QMainWindow):
                 tr("msg.file_not_found", path=str(path))
             )
 
+    _SPREADSHEET_EXTS = frozenset({".csv", ".tsv", ".xlsx", ".xlsm", ".xls", ".ods"})
+
     def open_files(self, paths: list[Path]) -> None:
         """Apre una lista di file in nuovi tab (chiamato anche da drag&drop)."""
         from core.file_manager import FileManager
         for path in paths:
             if not path.is_file():
                 continue
+            # Intercetta file spreadsheet
+            if path.suffix.lower() in self._SPREADSHEET_EXTS:
+                plugin = getattr(self, "_spreadsheet_plugin", None)
+                if plugin is not None:
+                    plugin.open_spreadsheet(path)
+                    continue
+                # Plugin non caricato: apre come testo normale
             # Controlla se il file è già aperto
             existing = self._tab_manager.find_tab_by_path(path)
             if existing is not None:
@@ -1718,8 +1732,12 @@ class MainWindow(QMainWindow):
     def action_save(self) -> bool:
         editor = self._current_editor()
         if not editor:
+            # Controlla se il tab corrente è un widget custom (es. SpreadsheetWidget)
+            w = self._tab_manager.current_custom_widget()
+            if w is not None and hasattr(w, "save"):
+                return w.save()
             return False
-            
+
         # --- SE IL FILE È FTP, SALVA SUL SERVER ---
         if hasattr(editor, "_ftp_remote_path") and editor._ftp_remote_path:
             if hasattr(editor, "_ftp_panel_ref") and editor._ftp_panel_ref:

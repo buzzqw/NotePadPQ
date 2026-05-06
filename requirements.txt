@@ -19,10 +19,16 @@ sympy>=1.10            # Parsing formule matematiche
 # --- Strumenti di Scrittura ---
 pyspellchecker>=0.7.0  # Controllo ortografico
 
+# --- Plugin Foglio di Calcolo (Opzionali) ---
+openpyxl>=3.1.0        # Lettura/scrittura XLSX, XLSM, ODS (>= 3.1 supporta ODS)
+xlrd>=2.0.1            # Lettura XLS (formato Excel legacy, sola lettura)
+odfpy>=1.4.1           # Lettura/scrittura ODS (fallback se openpyxl non supporta ODS)
+
 # --- Plugin Git (Opzionali) ---
 PyGithub>=1.55         # Plugin GitHub PR
 python-gitlab>=3.0.0   # Plugin GitLab MR
 keyring>=23.5.0        # Gestione sicura dei token
+
 
 # --- LSP (Language Server Protocol) ---
 # Il client LSP usa solo librerie standard (subprocess, json, threading).

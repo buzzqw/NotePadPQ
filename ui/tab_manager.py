@@ -223,6 +223,8 @@ class TabManager(QTabWidget):
         self._editors: dict[QWidget, EditorWidget] = {}
         # Mappa EditorWidget → container widget (splitter o editor stesso)
         self._containers: dict[EditorWidget, QWidget] = {}
+        # Tab custom non-editor (es. SpreadsheetWidget): widget → path opzionale
+        self._custom_tabs: dict[QWidget, Optional[Path]] = {}
         # Preview panel attivo
         self._preview_enabled = False
 
@@ -379,6 +381,10 @@ class TabManager(QTabWidget):
     def all_editors(self) -> List[EditorWidget]:
         return list(self._editors.values())
 
+    def all_custom_tabs(self) -> list:
+        """Restituisce [(widget, path), ...] per tutti i tab custom aperti."""
+        return list(self._custom_tabs.items())
+
     def set_current_editor(self, editor: EditorWidget) -> None:
         container = self._containers.get(editor)
         if container:
@@ -391,11 +397,47 @@ class TabManager(QTabWidget):
 
     def find_tab_by_path(self, path: Path) -> Optional[int]:
         """Restituisce l'indice del tab con il file dato, o None."""
+        resolved = path.resolve()
         for i in range(self.count()):
             ed = self.editor_at(i)
-            if ed and ed.file_path and ed.file_path.resolve() == path.resolve():
+            if ed and ed.file_path and ed.file_path.resolve() == resolved:
                 return i
+            # Tab custom (spreadsheet, ecc.)
+            widget = self.widget(i)
+            if widget in self._custom_tabs:
+                p = self._custom_tabs[widget]
+                if p and p.resolve() == resolved:
+                    return i
         return None
+
+    def add_spreadsheet_tab(self, widget: QWidget, title: str,
+                            path: Optional[Path] = None) -> int:
+        """Aggiunge un widget custom (es. SpreadsheetWidget) come nuovo tab."""
+        self._custom_tabs[widget] = path
+        idx = self.addTab(widget, title)
+        if path:
+            self.setTabToolTip(idx, str(path))
+        # Aggiorna il titolo del tab direttamente da qui quando il widget
+        # segnala una modifica — TabManager è un QTabWidget e ha setTabText.
+        if hasattr(widget, "modified_changed"):
+            widget.modified_changed.connect(
+                lambda mod, w=widget: self._on_custom_tab_modified(w, mod)
+            )
+        self.setCurrentIndex(idx)
+        return idx
+
+    def _on_custom_tab_modified(self, widget: QWidget, modified: bool) -> None:
+        idx = self.indexOf(widget)
+        if idx < 0:
+            return
+        fp = getattr(widget, "file_path", None)
+        name = fp.name if fp else self.tabText(idx).rstrip(" *")
+        self.setTabText(idx, name + (" *" if modified else ""))
+
+    def current_custom_path(self) -> Optional[Path]:
+        """Se il tab corrente è un tab custom, restituisce il path; altrimenti None."""
+        w = self.currentWidget()
+        return self._custom_tabs.get(w) if w else None
 
     # ── Chiusura tab ─────────────────────────────────────────────────────────
 
@@ -419,6 +461,25 @@ class TabManager(QTabWidget):
                     self.set_current_editor(editor)
                     if not win.action_save():
                         return
+        elif editor is None:
+            # Potrebbe essere un tab custom (spreadsheet) con modifiche non salvate
+            widget = self.widget(index)
+            if widget in self._custom_tabs and hasattr(widget, "is_modified") and widget.is_modified():
+                path = self._custom_tabs.get(widget)
+                name = path.name if path else "foglio di calcolo"
+                reply = QMessageBox.question(
+                    self, "NotePadPQ",
+                    f"Il foglio '{name}' ha modifiche non salvate.\nSalvare prima di chiudere?",
+                    QMessageBox.StandardButton.Save |
+                    QMessageBox.StandardButton.Discard |
+                    QMessageBox.StandardButton.Cancel
+                )
+                if reply == QMessageBox.StandardButton.Cancel:
+                    return
+                elif reply == QMessageBox.StandardButton.Save:
+                    if hasattr(widget, "save"):
+                        if not widget.save():
+                            return
 
         self._close_tab_at(index)
 
@@ -433,6 +494,8 @@ class TabManager(QTabWidget):
                 for p in watcher.files():
                     watcher.removePath(p)
             self.tab_closed.emit(editor)
+        # Pulizia tab custom
+        self._custom_tabs.pop(container, None)
         self.removeTab(index)
         if self.count() == 0:
             self.new_tab()

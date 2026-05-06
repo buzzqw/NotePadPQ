@@ -168,6 +168,13 @@ class SplitViewManager(QWidget):
             eds += list(self._secondary.tab_manager.all_editors())
         return eds
 
+    def all_custom_tabs(self) -> list:
+        """Restituisce [(widget, path), ...] da tutti i pannelli."""
+        result = []
+        for panel in self._panels():
+            result.extend(panel.tab_manager.all_custom_tabs())
+        return result
+
     def find_tab_by_path(self, path: Path) -> Optional[int]:
         idx = self._primary.tab_manager.find_tab_by_path(path)
         if idx is not None:
@@ -221,6 +228,45 @@ class SplitViewManager(QWidget):
         if self._secondary:
             n += self._secondary.tab_manager.count()
         return n
+
+    def indexOf(self, widget) -> int:
+        """Cerca il widget tra tutti i pannelli; restituisce -1 se non trovato."""
+        for panel in self._panels():
+            idx = panel.tab_manager.indexOf(widget)
+            if idx >= 0:
+                return idx
+        return -1
+
+    def set_tab_text_for_widget(self, widget, text: str) -> None:
+        """Imposta il testo del tab che contiene widget, cercando in tutti i pannelli."""
+        for panel in self._panels():
+            idx = panel.tab_manager.indexOf(widget)
+            if idx >= 0:
+                panel.tab_manager.setTabText(idx, text)
+                return
+
+    def setTabText(self, index: int, text: str) -> None:
+        """Proxy difensivo: delega al pannello attivo (compatibilità con vecchio codice)."""
+        try:
+            self._active.tab_manager.setTabText(index, text)
+        except Exception:
+            pass
+
+    def add_spreadsheet_tab(self, widget, title: str, path=None) -> int:
+        """Aggiunge un tab spreadsheet nel pannello attivo."""
+        return self._active.tab_manager.add_spreadsheet_tab(widget, title, path)
+
+    def current_custom_path(self):
+        """Path del tab custom attivo, o None."""
+        return self._active.tab_manager.current_custom_path()
+
+    def current_custom_widget(self):
+        """Widget custom del tab attivo (es. SpreadsheetWidget), o None se è un editor."""
+        tm = self._active.tab_manager
+        w = tm.currentWidget()
+        if w is not None and w in tm._custom_tabs:
+            return w
+        return None
 
     # ── Split / Unsplit ───────────────────────────────────────────────────────
 

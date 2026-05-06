@@ -39,6 +39,7 @@ class Session:
         data = {
             "current_index": tab_manager.currentIndex(),
             "tabs": [],
+            "spreadsheets": [],
         }
         for editor in tab_manager.all_editors():
             if editor.file_path and editor.file_path.exists():
@@ -49,6 +50,15 @@ class Session:
                     "col":     col,
                     "encoding": editor.encoding,
                 })
+        if hasattr(tab_manager, "all_custom_tabs"):
+            for widget, path in tab_manager.all_custom_tabs():
+                if path and path.exists():
+                    data["spreadsheets"].append({
+                        "path":             str(path),
+                        "delimiter":        getattr(widget, "_delimiter", ","),
+                        "encoding":         getattr(widget, "_encoding", "utf-8-sig"),
+                        "first_row_header": getattr(widget, "_first_row_header", True),
+                    })
         try:
             self._path.write_text(
                 json.dumps(data, ensure_ascii=False, indent=2),
@@ -89,6 +99,23 @@ class Session:
                     opened += 1
         finally:
             main_window.setUpdatesEnabled(True)
+
+        # Ripristina fogli di calcolo
+        plugin = getattr(main_window, "_spreadsheet_plugin", None)
+        if plugin is not None:
+            for entry in data.get("spreadsheets", []):
+                p = Path(entry.get("path", ""))
+                if p.exists():
+                    try:
+                        plugin.open_spreadsheet_silent(
+                            p,
+                            delimiter=entry.get("delimiter", ","),
+                            encoding=entry.get("encoding", "utf-8-sig"),
+                            first_row_header=entry.get("first_row_header", True),
+                        )
+                        opened += 1
+                    except Exception as e:
+                        print(f"[session] Foglio non ripristinato {p}: {e}")
 
         # Ripristina tab attivo
         idx = data.get("current_index", 0)

@@ -1204,6 +1204,8 @@ class MainWindow(QMainWindow):
         self._sep(m)
         m.addAction(self._act("remove_markers",       "", self.action_remove_markers))
         m.addAction(self._act("remove_error_markers", "", self.action_remove_error_markers))
+        self._sep(m)
+        m.addAction(self._act("format_document", "Alt+Shift+F", self._action_format_document))
 
     def _populate_file_type_menu(self, menu: QMenu) -> None:
         """Popola il submenu Imposta tipo di file — ordinato alfabeticamente con checkmark."""
@@ -1593,6 +1595,10 @@ class MainWindow(QMainWindow):
         # Aggiorna SEMPRE il dock anteprima, indipendentemente dalla visibilità di Qt
         if hasattr(self, "_preview_panel_dock"):
             self._preview_panel_dock.set_editor(editor)
+
+        # Aggiorna pannello JSON/XML
+        if hasattr(self, "_json_xml_panel"):
+            self._json_xml_panel.set_editor(editor)
 
         # Collega i segnali del nuovo editor allo statusbar
         editor.cursor_changed.connect(self._statusbar.set_cursor)
@@ -2130,6 +2136,11 @@ class MainWindow(QMainWindow):
         editor = self._current_editor()
         if editor:
             editor.markerDeleteAll(-1)
+
+    def _action_format_document(self) -> None:
+        """Formatta il documento JSON/XML corrente (pretty-print)."""
+        if hasattr(self, "_json_xml_panel"):
+            self._json_xml_panel.format_document()
 
     def action_regex_tester(self) -> None:
         from ui.regex_tester import RegexTesterDialog

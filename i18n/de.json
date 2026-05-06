@@ -204,7 +204,9 @@
     "lsp_refs": "Referenzen suchen",
     "lsp_rename": "Symbol umbenennen",
     "lsp_format": "Dokument formatieren (LSP)",
-    "lsp_diag": "Diagnostik anzeigen"
+    "lsp_diag": "Diagnostik anzeigen",
+    "view_json_xml_panel": "JSON/XML-Struktur",
+    "format_document": "Dokument formatieren"
   },
   "label": {
     "language": "Sprache",
@@ -507,6 +509,11 @@
     "split_close": "Geteilte Ansicht schließen",
     "minimap_nav": "Minimap — klicken zum Navigieren",
     "find_regex_help": "Regulärer Ausdruck (Python re):\n  .       beliebiges Zeichen\n  \\d      Ziffer  |  \\w  Wortzeichen  |  \\s  Leerzeichen\n  *       0 oder mehr  |  +  1 oder mehr  |  ?  0 oder 1\n  ^       Zeilenanfang  |  $  Zeilenende\n  [abc]   Zeichenklasse  |  [^abc]  Negation\n  (...)   Gruppe  |  (?:...)  nicht-erfassende Gruppe\n  \\1      Rückreferenz auf Gruppe 1\n  a|b     Alternation (a oder b)\n  \\b      Wortgrenze\n\nIm Ersetzen-Feld: \\1 \\2 ... für erfasste Gruppen",
-    "open_terminal": "Öffnet das Systemterminal im Ordner der aktuellen Datei.\nFalls keine Datei geöffnet ist, wird der NotePadPQ-Ordner verwendet."
+    "open_terminal": "Öffnet das Systemterminal im Ordner der aktuellen Datei.\nFalls keine Datei geöffnet ist, wird der NotePadPQ-Ordner verwendet.",
+    "json_xml_refresh": "Baum aktualisieren",
+    "json_xml_expand": "Alles erweitern",
+    "json_xml_collapse": "Alles reduzieren",
+    "json_xml_format": "Formatieren",
+    "json_xml_filter": "Schlüssel filtern…"
   }
 }

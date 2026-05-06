@@ -142,6 +142,13 @@ def main():
     except Exception as e:
         print(f"[main] FunctionList: {e}")
 
+    # ── Pannello JSON/XML (Ctrl+Shift+J) ──────────────────────────────────────
+    try:
+        from ui.json_xml_panel import install as install_json_xml
+        install_json_xml(win)
+    except Exception as e:
+        print(f"[main] JsonXmlPanel: {e}")
+
     # ── Avvia server single-instance ────────────────────────────────────────
     # Fatto dopo win.show() così open_files funziona subito
     _si.start_server(

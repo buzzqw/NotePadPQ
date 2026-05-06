@@ -204,7 +204,9 @@
     "lsp_refs": "Trouver les références",
     "lsp_rename": "Renommer le symbole",
     "lsp_format": "Formater le document (LSP)",
-    "lsp_diag": "Afficher les diagnostics"
+    "lsp_diag": "Afficher les diagnostics",
+    "view_json_xml_panel": "Structure JSON/XML",
+    "format_document": "Formater le document"
   },
   "label": {
     "language": "Langue",
@@ -507,6 +509,11 @@
     "split_close": "Fermer la vue divisée",
     "minimap_nav": "Minimap — cliquer pour naviguer",
     "find_regex_help": "Expression régulière (Python re) :\n  .       n'importe quel caractère\n  \\d      chiffre  |  \\w  mot  |  \\s  espace\n  *       0 ou plus  |  +  1 ou plus  |  ?  0 ou 1\n  ^       début de ligne  |  $  fin de ligne\n  [abc]   classe de caractères  |  [^abc]  négation\n  (...)   groupe  |  (?:...)  groupe non-capturant\n  \\1      référence arrière au groupe 1\n  a|b     alternance (a ou b)\n  \\b      limite de mot\n\nDans le champ Remplacer : \\1 \\2 ... pour les groupes capturés",
-    "open_terminal": "Ouvre le terminal système dans le dossier du fichier courant.\nSi aucun fichier n'est ouvert, utilise le dossier de NotePadPQ."
+    "open_terminal": "Ouvre le terminal système dans le dossier du fichier courant.\nSi aucun fichier n'est ouvert, utilise le dossier de NotePadPQ.",
+    "json_xml_refresh": "Actualiser l'arbre",
+    "json_xml_expand": "Tout développer",
+    "json_xml_collapse": "Tout réduire",
+    "json_xml_format": "Formater",
+    "json_xml_filter": "Filtrer les clés…"
   }
 }

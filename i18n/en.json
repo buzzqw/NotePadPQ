@@ -206,7 +206,9 @@
     "lsp_refs": "Find References",
     "lsp_rename": "Rename Symbol",
     "lsp_format": "Format Document (LSP)",
-    "lsp_diag": "Show Diagnostics"
+    "lsp_diag": "Show Diagnostics",
+    "view_json_xml_panel": "JSON/XML Structure",
+    "format_document": "Format Document"
   },
   "label": {
     "language": "Language",
@@ -509,6 +511,11 @@
     "split_close": "Close split view",
     "minimap_nav": "Minimap — click to navigate",
     "find_regex_help": "Regular expression (Python re):\n  .       any character\n  \\d      digit  |  \\w  word char  |  \\s  space\n  *       0 or more  |  +  1 or more  |  ?  0 or 1\n  ^       line start  |  $  line end\n  [abc]   character class  |  [^abc]  negation\n  (...)   group  |  (?:...)  non-capturing group\n  \\1      back-reference to group 1\n  a|b     alternation (a or b)\n  \\b      word boundary\n\nIn Replace field: \\1 \\2 ... for captured groups",
-    "open_terminal": "Opens the system terminal in the current file's folder.\nIf no file is open, uses the NotePadPQ folder."
+    "open_terminal": "Opens the system terminal in the current file's folder.\nIf no file is open, uses the NotePadPQ folder.",
+    "json_xml_refresh": "Refresh tree",
+    "json_xml_expand": "Expand all",
+    "json_xml_collapse": "Collapse all",
+    "json_xml_format": "Format",
+    "json_xml_filter": "Filter keys…"
   }
 }

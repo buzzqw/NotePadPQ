@@ -62,7 +62,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("NotePadPQ")
     app.setOrganizationName("NotePadPQ")
-    app.setApplicationVersion("0.4.8")
+    app.setApplicationVersion("0.4.9")
     
     # ... resto del file invariato ...
 

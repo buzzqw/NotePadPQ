@@ -5,20 +5,395 @@ Supporta: CSV (con wizard import), XLSX, XLS (sola lettura), ODS.
 from __future__ import annotations
 
 import csv
+import re as _re
 from pathlib import Path
 from typing import Any, Optional
 
 from PyQt6.QtCore import (
-    Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal,
+    Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QTimer,
+    pyqtSignal,
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox,
-    QDialog, QDialogButtonBox, QGroupBox, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QRadioButton,
-    QSizePolicy, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout,
-    QWidget,
+    QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout, QHeaderView,
+    QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPlainTextEdit,
+    QPushButton, QRadioButton, QSizePolicy, QTableView, QTableWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
+
+
+# ─── Formula helpers ─────────────────────────────────────────────────────────
+
+def _to_num(v) -> float:
+    if isinstance(v, bool):  return 1.0 if v else 0.0
+    if isinstance(v, (int, float)): return float(v)
+    if isinstance(v, str):
+        try: return float(v.replace(",", "."))
+        except ValueError: return 0.0
+    return 0.0
+
+def _is_numlike(v) -> bool:
+    if isinstance(v, bool): return True
+    if isinstance(v, (int, float)): return True
+    if isinstance(v, str):
+        try: float(v.replace(",", ".")); return True
+        except ValueError: return False
+    return False
+
+def _to_bool(v) -> bool:
+    if isinstance(v, bool): return v
+    if isinstance(v, (int, float)): return v != 0
+    if isinstance(v, str):
+        if v.upper() in ("TRUE", "VERO"):  return True
+        if v.upper() in ("FALSE", "FALSO"): return False
+        try: return float(v.replace(",", ".")) != 0
+        except ValueError: return bool(v)
+    return bool(v)
+
+def _safe_avg(vals: list) -> float:
+    nums = [_to_num(v) for v in vals if _is_numlike(v)]
+    return sum(nums) / len(nums) if nums else 0.0
+
+_FORMULA_FUNCS: dict = {
+    "SUM":          lambda v: sum(_to_num(x) for x in v if _is_numlike(x)),
+    "AVERAGE":      lambda v: _safe_avg(v),
+    "AVG":          lambda v: _safe_avg(v),
+    "MIN":          lambda v: min((_to_num(x) for x in v if _is_numlike(x)), default=0),
+    "MAX":          lambda v: max((_to_num(x) for x in v if _is_numlike(x)), default=0),
+    "COUNT":        lambda v: sum(1 for x in v if _is_numlike(x)),
+    "COUNTA":       lambda v: sum(1 for x in v if x != "" and x is not None),
+    "IF":           lambda v: v[1] if _to_bool(v[0]) else (v[2] if len(v) > 2 else ""),
+    "ABS":          lambda v: abs(_to_num(v[0])) if v else 0,
+    "ROUND":        lambda v: round(_to_num(v[0]), int(_to_num(v[1])) if len(v) > 1 else 0),
+    "SQRT":         lambda v: _to_num(v[0]) ** 0.5 if v else 0,
+    "INT":          lambda v: int(_to_num(v[0])) if v else 0,
+    "LEN":          lambda v: len(str(v[0])) if v else 0,
+    "CONCAT":       lambda v: "".join(str(x) for x in v),
+    "CONCATENATE":  lambda v: "".join(str(x) for x in v),
+    "UPPER":        lambda v: str(v[0]).upper() if v else "",
+    "LOWER":        lambda v: str(v[0]).lower() if v else "",
+    "TRIM":         lambda v: str(v[0]).strip() if v else "",
+    "LEFT":         lambda v: str(v[0])[:int(_to_num(v[1]))] if len(v) > 1 else str(v[0])[:1],
+    "RIGHT":        lambda v: str(v[0])[-int(_to_num(v[1])):] if len(v) > 1 else str(v[0])[-1:],
+    "MID":          lambda v: str(v[0])[int(_to_num(v[1]))-1 : int(_to_num(v[1]))-1+int(_to_num(v[2]))] if len(v) > 2 else "",
+}
+
+_CELL_PAT = _re.compile(r'^\$?([A-Za-z]+)\$?(\d+)$')
+
+# Categorie per il menu "Inserisci funzione"
+_FORMULA_MENU = [
+    ("Matematica", [
+        ("SUM(range)",         "=SUM(",        "Somma tutti i valori nel range\nEs: =SUM(A1:A10)"),
+        ("AVERAGE(range)",     "=AVERAGE(",    "Media aritmetica dei valori\nEs: =AVERAGE(B1:B5)"),
+        ("MIN(range)",         "=MIN(",        "Valore minimo nel range\nEs: =MIN(C1:C100)"),
+        ("MAX(range)",         "=MAX(",        "Valore massimo nel range\nEs: =MAX(C1:C100)"),
+        ("COUNT(range)",       "=COUNT(",      "Conta le celle con valore numerico\nEs: =COUNT(A1:A50)"),
+        ("COUNTA(range)",      "=COUNTA(",     "Conta le celle non vuote\nEs: =COUNTA(A1:A50)"),
+        ("ABS(n)",             "=ABS(",        "Valore assoluto\nEs: =ABS(A1)"),
+        ("ROUND(n, dec)",      "=ROUND(",      "Arrotonda a n cifre decimali\nEs: =ROUND(A1,2)"),
+        ("SQRT(n)",            "=SQRT(",       "Radice quadrata\nEs: =SQRT(A1)"),
+        ("INT(n)",             "=INT(",        "Parte intera (tronca verso zero)\nEs: =INT(3.7) → 3"),
+    ]),
+    ("Testo", [
+        ("LEN(testo)",          "=LEN(",        "Numero di caratteri della stringa\nEs: =LEN(A1)"),
+        ("CONCAT(a, b, …)",     "=CONCAT(",     "Unisce due o più stringhe\nEs: =CONCAT(A1,\" \",B1)"),
+        ("UPPER(testo)",        "=UPPER(",      "Converte in MAIUSCOLO\nEs: =UPPER(A1)"),
+        ("LOWER(testo)",        "=LOWER(",      "Converte in minuscolo\nEs: =LOWER(A1)"),
+        ("TRIM(testo)",         "=TRIM(",       "Rimuove spazi iniziali e finali\nEs: =TRIM(A1)"),
+        ("LEFT(testo, n)",      "=LEFT(",       "Primi n caratteri da sinistra\nEs: =LEFT(A1,3)"),
+        ("RIGHT(testo, n)",     "=RIGHT(",      "Ultimi n caratteri da destra\nEs: =RIGHT(A1,4)"),
+        ("MID(testo, start, n)","=MID(",        "Sottostringa: n caratteri da posizione start\nEs: =MID(A1,2,5)"),
+    ]),
+    ("Logica", [
+        ("IF(cond, vero, falso)", "=IF(",       "Se cond è vera restituisce vero, altrimenti falso\nEs: =IF(A1>0,\"positivo\",\"negativo\")"),
+    ]),
+]
+
+def _col_letter(n: int) -> str:
+    """Converte indice 0-based in lettere colonna stile Excel: 0→A, 25→Z, 26→AA."""
+    result = ""
+    n += 1
+    while n:
+        n, rem = divmod(n - 1, 26)
+        result = chr(65 + rem) + result
+    return result
+
+
+# ─── FormulaEngine ────────────────────────────────────────────────────────────
+
+class FormulaEngine:
+    """Valutatore di formule stile Excel per SpreadsheetModel.
+
+    Supporta: riferimenti cella (A1), range (A1:B3), funzioni (SUM, IF, …),
+    operatori aritmetici, confronto e concatenazione stringa (&).
+    """
+
+    @staticmethod
+    def _col_idx(letters: str) -> int:
+        r = 0
+        for c in letters.upper():
+            r = r * 26 + (ord(c) - 64)
+        return r - 1
+
+    def __init__(self, model: "SpreadsheetModel"):
+        self._model = model
+
+    def evaluate(self, formula: str, visited: frozenset = frozenset()) -> str:
+        try:
+            tokens = self._tokenize(formula[1:])  # strip leading =
+            pos = [0]
+            result = self._parse_expr(tokens, pos, visited)
+            return self._fmt(result)
+        except ZeroDivisionError:
+            return "#DIV/0!"
+        except RecursionError:
+            return "#REF!"
+        except Exception:
+            return "#ERRORE"
+
+    # ── Formatter ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _fmt(val) -> str:
+        if isinstance(val, bool):
+            return "VERO" if val else "FALSO"
+        if isinstance(val, float):
+            if val == int(val) and abs(val) < 1e15:
+                return str(int(val))
+            return f"{val:.10g}"
+        return str(val) if val is not None else ""
+
+    # ── Cell / range access ───────────────────────────────────────────────────
+
+    def _cell_val(self, col: int, row: int, visited: frozenset):
+        key = (row, col)
+        if key in visited:
+            raise RecursionError
+        m = self._model
+        if row >= m.rowCount() or col >= m.columnCount():
+            return ""
+        raw = m._data[row][col] if col < len(m._data[row]) else ""
+        if not raw:
+            return ""
+        if raw.startswith("="):
+            result = self.evaluate(raw, visited | {key})
+            if result.startswith("#"):
+                return result
+            try:
+                return float(result.replace(",", "."))
+            except ValueError:
+                return result
+        try:
+            return float(raw.replace(",", "."))
+        except ValueError:
+            return raw
+
+    def _range_vals(self, c1: int, r1: int, c2: int, r2: int, visited: frozenset) -> list:
+        return [
+            self._cell_val(c, r, visited)
+            for r in range(min(r1, r2), max(r1, r2) + 1)
+            for c in range(min(c1, c2), max(c1, c2) + 1)
+        ]
+
+    # ── Tokenizer ─────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _tokenize(s: str) -> list:
+        toks: list = []
+        i = 0
+        while i < len(s):
+            if s[i].isspace():
+                i += 1
+                continue
+            if s[i] == '"':
+                j = i + 1
+                while j < len(s) and s[j] != '"':
+                    j += 1
+                toks.append(("STR", s[i+1:j]))
+                i = j + 1
+                continue
+            if s[i].isdigit() or (s[i] == '.' and i+1 < len(s) and s[i+1].isdigit()):
+                j = i
+                while j < len(s) and (s[j].isdigit() or s[j] == '.'):
+                    j += 1
+                toks.append(("NUM", float(s[i:j])))
+                i = j
+                continue
+            if s[i].isalpha() or s[i] == '$':
+                j = i
+                while j < len(s) and (s[j].isalnum() or s[j] in ('$', '_')):
+                    j += 1
+                word = s[i:j].replace('$', '')
+                if _CELL_PAT.match(word):
+                    toks.append(("CELL", word.upper()))
+                else:
+                    toks.append(("IDENT", word.upper()))
+                i = j
+                continue
+            if i + 1 < len(s) and s[i:i+2] in ('<>', '<=', '>='):
+                toks.append(("OP", s[i:i+2]))
+                i += 2
+                continue
+            if s[i] in '+-*/^&':
+                toks.append(("OP", s[i]))
+            elif s[i] in '(),:;':
+                toks.append(("PUNCT", s[i]))
+            elif s[i] in '=<>':
+                toks.append(("OP", s[i]))
+            i += 1
+        toks.append(("EOF", None))
+        return toks
+
+    # ── Recursive-descent parser ──────────────────────────────────────────────
+
+    def _parse_expr(self, toks: list, pos: list, visited: frozenset):
+        return self._parse_compare(toks, pos, visited)
+
+    def _parse_compare(self, toks, pos, visited):
+        left = self._parse_concat(toks, pos, visited)
+        if toks[pos[0]][0] == 'OP' and toks[pos[0]][1] in ('=', '<>', '<', '>', '<=', '>='):
+            op = toks[pos[0]][1]; pos[0] += 1
+            right = self._parse_concat(toks, pos, visited)
+            lc = _to_num(left) if _is_numlike(left) else str(left).lower()
+            rc = _to_num(right) if _is_numlike(right) else str(right).lower()
+            return {'=': lc==rc, '<>': lc!=rc, '<': lc<rc, '>': lc>rc,
+                    '<=': lc<=rc, '>=': lc>=rc}[op]
+        return left
+
+    def _parse_concat(self, toks, pos, visited):
+        left = self._parse_add(toks, pos, visited)
+        while toks[pos[0]] == ('OP', '&'):
+            pos[0] += 1
+            right = self._parse_add(toks, pos, visited)
+            left = str(left) + str(right)
+        return left
+
+    def _parse_add(self, toks, pos, visited):
+        left = self._parse_mul(toks, pos, visited)
+        while toks[pos[0]][0] == 'OP' and toks[pos[0]][1] in ('+', '-'):
+            op = toks[pos[0]][1]; pos[0] += 1
+            right = self._parse_mul(toks, pos, visited)
+            left = (_to_num(left) + _to_num(right)) if op == '+' else (_to_num(left) - _to_num(right))
+        return left
+
+    def _parse_mul(self, toks, pos, visited):
+        left = self._parse_unary(toks, pos, visited)
+        while toks[pos[0]][0] == 'OP' and toks[pos[0]][1] in ('*', '/'):
+            op = toks[pos[0]][1]; pos[0] += 1
+            right = self._parse_unary(toks, pos, visited)
+            if op == '/':
+                rv = _to_num(right)
+                left = _to_num(left) / rv if rv != 0 else "#DIV/0!"
+            else:
+                left = _to_num(left) * _to_num(right)
+        return left
+
+    def _parse_unary(self, toks, pos, visited):
+        if toks[pos[0]] == ('OP', '-'):
+            pos[0] += 1
+            return -_to_num(self._parse_power(toks, pos, visited))
+        if toks[pos[0]] == ('OP', '+'):
+            pos[0] += 1
+            return _to_num(self._parse_power(toks, pos, visited))
+        return self._parse_power(toks, pos, visited)
+
+    def _parse_power(self, toks, pos, visited):
+        base = self._parse_primary(toks, pos, visited)
+        if toks[pos[0]] == ('OP', '^'):
+            pos[0] += 1
+            exp = self._parse_primary(toks, pos, visited)
+            return _to_num(base) ** _to_num(exp)
+        return base
+
+    def _parse_primary(self, toks, pos, visited):
+        tok = toks[pos[0]]
+
+        if tok[0] == 'NUM':
+            pos[0] += 1; return tok[1]
+
+        if tok[0] == 'STR':
+            pos[0] += 1; return tok[1]
+
+        if tok[0] == 'PUNCT' and tok[1] == '(':
+            pos[0] += 1
+            val = self._parse_expr(toks, pos, visited)
+            if toks[pos[0]] == ('PUNCT', ')'):
+                pos[0] += 1
+            return val
+
+        if tok[0] == 'IDENT':
+            name = tok[1]; pos[0] += 1
+            if name == 'TRUE':  return True
+            if name == 'FALSE': return False
+            if name == 'VERO':  return True
+            if name == 'FALSO': return False
+            # Function call
+            if toks[pos[0]] == ('PUNCT', '('):
+                pos[0] += 1
+                args = self._parse_args(toks, pos, visited)
+                if toks[pos[0]] == ('PUNCT', ')'):
+                    pos[0] += 1
+                fn = _FORMULA_FUNCS.get(name)
+                if fn is None:
+                    return f"#NOME?"
+                flat = [x for a in args for x in (a if isinstance(a, list) else [a])]
+                return fn(flat)
+            return 0.0  # bare identifier without ()
+
+        if tok[0] == 'CELL':
+            cell_str = tok[1]; pos[0] += 1
+            # Range?
+            if toks[pos[0]] == ('PUNCT', ':'):
+                pos[0] += 1
+                cell2 = toks[pos[0]][1]; pos[0] += 1
+                return self._resolve_range(cell_str, cell2, visited)
+            return self._resolve_cell(cell_str, visited)
+
+        pos[0] += 1  # skip unknown
+        return 0.0
+
+    def _parse_args(self, toks, pos, visited) -> list:
+        args = []
+        if toks[pos[0]] == ('PUNCT', ')'):
+            return args
+        args.append(self._parse_arg(toks, pos, visited))
+        while toks[pos[0]][0] == 'PUNCT' and toks[pos[0]][1] in (',', ';'):
+            pos[0] += 1
+            args.append(self._parse_arg(toks, pos, visited))
+        return args
+
+    def _parse_arg(self, toks, pos, visited):
+        if toks[pos[0]][0] == 'CELL':
+            saved = pos[0]
+            cell1 = toks[pos[0]][1]; pos[0] += 1
+            if toks[pos[0]] == ('PUNCT', ':'):
+                pos[0] += 1
+                cell2 = toks[pos[0]][1]; pos[0] += 1
+                return self._resolve_range(cell1, cell2, visited)
+            pos[0] = saved
+        return self._parse_expr(toks, pos, visited)
+
+    # ── Cell / range resolution ───────────────────────────────────────────────
+
+    def _resolve_cell(self, cell_str: str, visited: frozenset):
+        m = _CELL_PAT.match(cell_str)
+        if not m:
+            return 0.0
+        col = self._col_idx(m.group(1))
+        row = int(m.group(2)) - 1
+        return self._cell_val(col, row, visited)
+
+    def _resolve_range(self, c1: str, c2: str, visited: frozenset) -> list:
+        m1 = _CELL_PAT.match(c1)
+        m2 = _CELL_PAT.match(c2)
+        if not m1 or not m2:
+            return []
+        return self._range_vals(
+            self._col_idx(m1.group(1)), int(m1.group(2)) - 1,
+            self._col_idx(m2.group(1)), int(m2.group(2)) - 1,
+            visited
+        )
 
 
 # ─── ImportWizardDialog ───────────────────────────────────────────────────────
@@ -275,6 +650,12 @@ class SpreadsheetModel(QAbstractTableModel):
         self._data: list[list[str]] = [row[:] for row in data]
         self._modified = False
         self._sort_keys: list[tuple[int, Qt.SortOrder]] = []
+        self._engine: Optional[FormulaEngine] = None
+
+    def _get_engine(self) -> "FormulaEngine":
+        if self._engine is None:
+            self._engine = FormulaEngine(self)
+        return self._engine
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self._data)
@@ -291,12 +672,21 @@ class SpreadsheetModel(QAbstractTableModel):
         if r >= len(self._data):
             return None
         row = self._data[r]
-        value = row[c] if c < len(row) else ""
-        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
-            return value
+        raw = row[c] if c < len(row) else ""
+        if role == Qt.ItemDataRole.EditRole:
+            return raw  # restituisce la formula grezza per la modifica
+        is_formula = isinstance(raw, str) and raw.startswith("=")
+        if role == Qt.ItemDataRole.DisplayRole:
+            if is_formula:
+                return self._get_engine().evaluate(raw)
+            return raw
+        if role == Qt.ItemDataRole.ForegroundRole and is_formula:
+            from PyQt6.QtGui import QColor
+            return QColor("#5baaff")  # formule in azzurro
         if role == Qt.ItemDataRole.TextAlignmentRole:
+            display = self._get_engine().evaluate(raw) if is_formula else raw
             try:
-                float(value.replace(",", "."))
+                float(str(display).replace(",", "."))
                 return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             except (ValueError, AttributeError):
                 return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -308,13 +698,15 @@ class SpreadsheetModel(QAbstractTableModel):
             return None
         if orientation == Qt.Orientation.Horizontal:
             name = self._headers[section] if section < len(self._headers) else str(section + 1)
+            letter = _col_letter(section)
+            label = f"{letter}  {name}"
             # Aggiunge indicatori di ordinamento
             for priority, (col, order) in enumerate(self._sort_keys):
                 if col == section:
                     arrow = "↑" if order == Qt.SortOrder.AscendingOrder else "↓"
                     suffix = f" {arrow}" if len(self._sort_keys) == 1 else f" {arrow}{priority+1}"
-                    return name + suffix
-            return name
+                    return label + suffix
+            return label
         return str(section + 1)
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
@@ -391,6 +783,12 @@ class SpreadsheetModel(QAbstractTableModel):
         self.endInsertColumns()
         self._set_modified(True)
 
+    def rename_column(self, col: int, new_name: str) -> None:
+        if 0 <= col < len(self._headers) and new_name != self._headers[col]:
+            self._headers[col] = new_name
+            self.headerDataChanged.emit(Qt.Orientation.Horizontal, col, col)
+            self._set_modified(True)
+
     def delete_rows(self, rows: list[int]) -> None:
         for r in sorted(set(rows), reverse=True):
             if 0 <= r < len(self._data):
@@ -448,16 +846,35 @@ class SpreadsheetIO:
     EXTENSIONS = frozenset({".csv", ".tsv", ".xlsx", ".xlsm", ".xls", ".ods"})
 
     @staticmethod
+    def get_sheet_names(path: Path) -> list[str]:
+        """Restituisce i nomi dei fogli (XLSX/XLS). Lista vuota per altri formati."""
+        ext = path.suffix.lower()
+        try:
+            if ext in (".xlsx", ".xlsm"):
+                import openpyxl
+                wb = openpyxl.load_workbook(path, read_only=True)
+                names = list(wb.sheetnames)
+                wb.close()
+                return names
+            if ext == ".xls":
+                import xlrd
+                return xlrd.open_workbook(str(path)).sheet_names()
+        except Exception:
+            pass
+        return []
+
+    @staticmethod
     def load(path: Path, delimiter: str = ",", encoding: str = "utf-8-sig",
-             first_row_header: bool = True) -> tuple[list[str], list[list[str]], Optional[str]]:
+             first_row_header: bool = True,
+             sheet: Optional[str] = None) -> tuple[list[str], list[list[str]], Optional[str]]:
         ext = path.suffix.lower()
         try:
             if ext in (".csv", ".tsv"):
                 return SpreadsheetIO._load_csv(path, delimiter, encoding, first_row_header)
             elif ext in (".xlsx", ".xlsm"):
-                return SpreadsheetIO._load_xlsx(path)
+                return SpreadsheetIO._load_xlsx(path, sheet=sheet)
             elif ext == ".xls":
-                return SpreadsheetIO._load_xls(path)
+                return SpreadsheetIO._load_xls(path, sheet=sheet)
             elif ext == ".ods":
                 return SpreadsheetIO._load_ods(path)
             else:
@@ -485,13 +902,14 @@ class SpreadsheetIO:
         return headers, data, None
 
     @staticmethod
-    def _load_xlsx(path: Path) -> tuple[list[str], list[list[str]], Optional[str]]:
+    def _load_xlsx(path: Path, sheet: Optional[str] = None) -> tuple[list[str], list[list[str]], Optional[str]]:
         try:
             import openpyxl
         except ImportError:
             return [], [], "openpyxl non installato.  pip install openpyxl"
         wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-        ws = wb.active
+        ws = wb[sheet] if sheet and sheet in wb.sheetnames else wb.active
+        sheet_names = wb.sheetnames
         rows = [[str(c.value) if c.value is not None else "" for c in row]
                 for row in ws.iter_rows()]
         wb.close()
@@ -501,16 +919,24 @@ class SpreadsheetIO:
         data = rows[1:]
         n = len(headers)
         data = [(r + [""] * n)[:n] for r in data]
-        return headers, data, None
+        warning = None
+        if len(sheet_names) > 1:
+            warning = (
+                f"Il file contiene {len(sheet_names)} fogli: "
+                f"{', '.join(sheet_names)}.\n"
+                f"Caricato solo il foglio attivo: «{ws.title}».\n"
+                f"Il supporto multi-foglio non è ancora disponibile."
+            )
+        return headers, data, warning
 
     @staticmethod
-    def _load_xls(path: Path) -> tuple[list[str], list[list[str]], Optional[str]]:
+    def _load_xls(path: Path, sheet: Optional[str] = None) -> tuple[list[str], list[list[str]], Optional[str]]:
         try:
             import xlrd
         except ImportError:
             return [], [], "xlrd non installato.  pip install xlrd"
         wb = xlrd.open_workbook(str(path))
-        ws = wb.sheet_by_index(0)
+        ws = wb.sheet_by_name(sheet) if sheet else wb.sheet_by_index(0)
         rows = [[str(ws.cell_value(r, c)) for c in range(ws.ncols)] for r in range(ws.nrows)]
         if not rows:
             return [], [], None
@@ -518,7 +944,16 @@ class SpreadsheetIO:
         data = rows[1:]
         n = len(headers)
         data = [(r + [""] * n)[:n] for r in data]
-        return headers, data, None
+        warning = None
+        if wb.nsheets > 1:
+            names = [wb.sheet_by_index(i).name for i in range(wb.nsheets)]
+            warning = (
+                f"Il file contiene {wb.nsheets} fogli: "
+                f"{', '.join(names)}.\n"
+                f"Caricato solo il primo foglio: «{ws.name}».\n"
+                f"Il supporto multi-foglio non è ancora disponibile."
+            )
+        return headers, data, warning
 
     @staticmethod
     def _load_ods(path: Path) -> tuple[list[str], list[list[str]], Optional[str]]:
@@ -608,34 +1043,183 @@ class SpreadsheetIO:
     @staticmethod
     def _save_ods(path: Path, headers: list[str], data: list[list[str]]) -> Optional[str]:
         try:
-            import openpyxl
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.append(headers)
-            for row in data:
-                ws.append(row)
-            wb.save(path)
-            return None
-        except Exception:
-            pass
-        try:
             from odf.opendocument import OpenDocumentSpreadsheet
             from odf.table import Table, TableRow, TableCell
             from odf.text import P
-            doc = OpenDocumentSpreadsheet()
-            table = Table(name="Foglio1")
-            doc.spreadsheet.addElement(table)
-            for row_data in [headers] + data:
-                tr = TableRow()
-                table.addElement(tr)
-                for val in row_data:
-                    tc = TableCell()
-                    tr.addElement(tc)
-                    tc.addElement(P(text=str(val)))
-            doc.save(str(path))
-            return None
         except ImportError:
             return "odfpy non installato.  pip install odfpy"
+        doc = OpenDocumentSpreadsheet()
+        table = Table(name="Foglio1")
+        doc.spreadsheet.addElement(table)
+        for row_data in [headers] + data:
+            tr = TableRow()
+            table.addElement(tr)
+            for val in row_data:
+                tc = TableCell()
+                tr.addElement(tc)
+                tc.addElement(P(text=str(val)))
+        doc.save(str(path))
+        return None
+
+
+# ─── ChartDialog ─────────────────────────────────────────────────────────────
+
+class ChartDialog(QDialog):
+    """Dialog per creare grafici (barre, linea, torta) da una selezione del foglio."""
+
+    _TYPES = [("Barre", "bar"), ("Linea", "line"), ("Torta", "pie")]
+
+    def __init__(self, headers: list[str], raw_data: list[list[str]], parent=None):
+        super().__init__(parent)
+        self._headers = headers
+        self._raw_data = raw_data
+        self._chart_type = "bar"
+        self._fig = None
+        self._canvas = None
+
+        self.setWindowTitle("Crea grafico")
+        self.setMinimumSize(640, 500)
+        self.resize(720, 560)
+        self._build_ui()
+        self._refresh()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+
+        type_row = QHBoxLayout()
+        type_row.addWidget(QLabel("Tipo:"))
+        grp = QButtonGroup(self)
+        for label, key in self._TYPES:
+            rb = QRadioButton(label)
+            if key == "bar":
+                rb.setChecked(True)
+            rb.toggled.connect(lambda checked, k=key: checked and self._on_type(k))
+            grp.addButton(rb)
+            type_row.addWidget(rb)
+        type_row.addStretch()
+        layout.addLayout(type_row)
+
+        try:
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+            from matplotlib.figure import Figure
+            self._fig = Figure(figsize=(7, 4), tight_layout=True)
+            self._canvas = FigureCanvas(self._fig)
+            layout.addWidget(self._canvas, 1)
+        except ImportError:
+            lbl = QLabel("matplotlib non disponibile.\nInstalla: pip install matplotlib")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(lbl, 1)
+
+        btn_row = QHBoxLayout()
+        btn_save = QPushButton("💾 Salva immagine…")
+        btn_save.clicked.connect(self._save_image)
+        btn_row.addWidget(btn_save)
+        btn_row.addStretch()
+        btn_close = QPushButton("Chiudi")
+        btn_close.setDefault(True)
+        btn_close.clicked.connect(self.accept)
+        btn_row.addWidget(btn_close)
+        layout.addLayout(btn_row)
+
+    def _on_type(self, key: str) -> None:
+        self._chart_type = key
+        self._refresh()
+
+    def _refresh(self) -> None:
+        if self._fig is None or self._canvas is None:
+            return
+        self._fig.clear()
+        ax = self._fig.add_subplot(111)
+
+        headers = self._headers
+        raw = self._raw_data
+
+        if not raw:
+            ax.text(0.5, 0.5, "Nessun dato", ha="center", va="center",
+                    transform=ax.transAxes)
+            self._canvas.draw()
+            return
+
+        # Prima colonna come etichette se non numerica, altrimenti indici
+        first_numeric = True
+        for row in raw[:5]:
+            try:
+                float((row[0] if row else "").replace(",", "."))
+            except (ValueError, AttributeError):
+                first_numeric = False
+                break
+
+        if not first_numeric and len(headers) > 1:
+            labels = [row[0] if row else "" for row in raw]
+            data_cols = list(range(1, len(headers)))
+        else:
+            labels = [str(i + 1) for i in range(len(raw))]
+            data_cols = list(range(len(headers)))
+
+        series: dict[str, list[float]] = {}
+        for c in data_cols:
+            col_name = headers[c] if c < len(headers) else f"Col{c + 1}"
+            vals = []
+            for row in raw:
+                val = row[c] if c < len(row) else ""
+                try:
+                    vals.append(float(val.replace(",", ".")))
+                except (ValueError, AttributeError):
+                    vals.append(0.0)
+            series[col_name] = vals
+
+        if not series:
+            ax.text(0.5, 0.5, "Nessun dato numerico nella selezione",
+                    ha="center", va="center", transform=ax.transAxes)
+            self._canvas.draw()
+            return
+
+        display_labels = [str(l)[:20] for l in labels]
+
+        if self._chart_type == "pie":
+            name, vals = next(iter(series.items()))
+            if len(vals) > 12:
+                vals, display_labels = vals[:12], display_labels[:12]
+            abs_vals = [abs(v) for v in vals]
+            if sum(abs_vals) == 0:
+                ax.text(0.5, 0.5, "Valori tutti zero", ha="center", va="center",
+                        transform=ax.transAxes)
+            else:
+                ax.pie(abs_vals, labels=display_labels, autopct="%1.1f%%", startangle=90)
+                ax.set_title(name)
+
+        elif self._chart_type == "bar":
+            n_series = len(series)
+            width = 0.8 / max(n_series, 1)
+            x = list(range(len(labels)))
+            for i, (name, vals) in enumerate(series.items()):
+                offsets = [xi + (i - (n_series - 1) / 2) * width for xi in x]
+                ax.bar(offsets, vals, width, label=name)
+            ax.set_xticks(x)
+            ax.set_xticklabels(display_labels, rotation=45, ha="right", fontsize=8)
+            if n_series > 1:
+                ax.legend(fontsize=8)
+
+        else:  # line
+            x = list(range(len(labels)))
+            for name, vals in series.items():
+                ax.plot(x, vals, marker="o", markersize=3, label=name)
+            ax.set_xticks(x)
+            ax.set_xticklabels(display_labels, rotation=45, ha="right", fontsize=8)
+            if len(series) > 1:
+                ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+
+        self._canvas.draw()
+
+    def _save_image(self) -> None:
+        if self._fig is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Salva grafico", "", "PNG (*.png);;SVG (*.svg);;PDF (*.pdf)"
+        )
+        if path:
+            self._fig.savefig(path, dpi=150, bbox_inches="tight")
 
 
 # ─── SpreadsheetWidget ────────────────────────────────────────────────────────
@@ -648,6 +1232,7 @@ class SpreadsheetWidget(QWidget):
     def __init__(self, path: Path, headers: list[str], data: list[list[str]],
                  read_only: bool = False, delimiter: str = ",",
                  encoding: str = "utf-8-sig", first_row_header: bool = True,
+                 sheet_names: Optional[list[str]] = None, current_sheet: str = "",
                  parent=None):
         super().__init__(parent)
         self.file_path = path
@@ -656,6 +1241,8 @@ class SpreadsheetWidget(QWidget):
         self._encoding = encoding
         self._first_row_header = first_row_header
         self._sort_keys: list[tuple[int, Qt.SortOrder]] = []
+        self._sheet_names: list[str] = sheet_names or []
+        self._current_sheet: str = current_sheet
 
         self._model = SpreadsheetModel(headers, data)
         self._model.modified_changed.connect(self._on_model_modified)
@@ -664,6 +1251,9 @@ class SpreadsheetWidget(QWidget):
         self._proxy.setSourceModel(self._model)
 
         self._build_ui()
+        self._sheet_bar_widget = self._build_sheet_bar(self._sheet_names, self._current_sheet)
+        if self._sheet_bar_widget is not None:
+            self.layout().addWidget(self._sheet_bar_widget)
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -733,7 +1323,76 @@ class SpreadsheetWidget(QWidget):
         btn_save_as.clicked.connect(self._save_as)
         toolbar.addWidget(btn_save_as)
 
+        btn_chart = QPushButton("📊 Grafico")
+        btn_chart.setFixedHeight(24)
+        btn_chart.setToolTip(
+            "Crea un grafico dalla selezione corrente\n"
+            "\n"
+            "Come usarlo:\n"
+            "  1. Seleziona le celle che vuoi visualizzare\n"
+            "  2. Clicca questo pulsante\n"
+            "  3. Scegli il tipo: Barre, Linea o Torta\n"
+            "\n"
+            "Formato dati atteso:\n"
+            "  • Prima colonna = etichette (es. nomi, mesi) — se non numerica\n"
+            "  • Colonne successive = serie numeriche da tracciare\n"
+            "  • Se tutte le colonne sono numeriche, l'asse X usa i numeri di riga\n"
+            "\n"
+            "Note:\n"
+            "  • La torta usa solo la prima serie numerica (max 12 valori)\n"
+            "  • Il grafico può essere salvato come PNG, SVG o PDF"
+        )
+        btn_chart.clicked.connect(self._create_chart)
+        toolbar.addWidget(btn_chart)
+
         layout.addLayout(toolbar)
+
+        # ── Barra formula (fx) ────────────────────────────────────────────────
+        self._formula_bar_updating = False
+        self._formula_inserting = False
+        self._formula_bar_active = False   # True mentre la formula bar ha o aveva focus
+        self._formula_focus_timer = QTimer()
+        self._formula_focus_timer.setSingleShot(True)
+        self._formula_focus_timer.setInterval(150)
+        self._formula_focus_timer.timeout.connect(
+            lambda: setattr(self, '_formula_bar_active', False)
+        )
+        fx_row = QHBoxLayout()
+        fx_row.setContentsMargins(0, 0, 0, 0)
+        fx_row.setSpacing(4)
+        self._fx_btn = QPushButton("fx ▾")
+        self._fx_btn.setFixedSize(44, 24)
+        self._fx_btn.setFlat(True)
+        self._fx_btn.setStyleSheet(
+            "QPushButton { font-weight: bold; font-size: 12px; }"
+            "QPushButton:hover { background: #3a3a5a; border-radius: 3px; }"
+        )
+        self._fx_btn.setToolTip("Inserisci funzione…\nMostra l'elenco delle funzioni disponibili")
+        self._fx_btn.clicked.connect(self._show_formula_menu)
+        fx_row.addWidget(self._fx_btn)
+        self._cell_ref = QLineEdit()
+        self._cell_ref.setReadOnly(True)
+        self._cell_ref.setFixedWidth(52)
+        self._cell_ref.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._cell_ref.setPlaceholderText("A1")
+        self._cell_ref.setToolTip("Indirizzo della cella selezionata")
+        fx_row.addWidget(self._cell_ref)
+        self._formula_bar = QLineEdit()
+        self._formula_bar.setPlaceholderText("Seleziona una cella per modificarla…")
+        self._formula_bar.setToolTip(
+            "Mostra e modifica il contenuto grezzo della cella selezionata.\n"
+            "Le formule iniziano con = (esempi):\n"
+            "  =SUM(A1:A10)        somma da A1 ad A10\n"
+            "  =AVERAGE(B1:B5)     media\n"
+            "  =IF(A1>0,\"sì\",\"no\")  condizione\n"
+            "  =A1+B1*2            aritmetica\n"
+            "  =CONCAT(A1,\" \",B1)  testo\n"
+            "\nPremi Invio per confermare, Esc per annullare."
+        )
+        self._formula_bar.returnPressed.connect(self._apply_formula_bar)
+        self._formula_bar.installEventFilter(self)
+        fx_row.addWidget(self._formula_bar)
+        layout.addLayout(fx_row)
 
         # ── Barra filtri (nascosta di default) ────────────────────────────────
         self._filter_bar = self._build_filter_bar()
@@ -752,13 +1411,16 @@ class SpreadsheetWidget(QWidget):
         hh.setStretchLastSection(True)
         hh.setSortIndicatorShown(True)
         hh.setSectionsMovable(True)
+        hh.sectionClicked.connect(self._on_header_clicked)
+        hh.sectionMoved.connect(self._on_column_moved)
+        hh.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        hh.customContextMenuRequested.connect(self._on_header_context_menu)
         hh.setToolTip(
             "Click: ordina per questa colonna\n"
             "Shift+Click: aggiunge colonna all'ordinamento\n"
-            "Trascina: sposta la colonna"
+            "Trascina: sposta la colonna\n"
+            "Tasto destro: rinomina colonna"
         )
-        hh.sectionClicked.connect(self._on_header_clicked)
-        hh.sectionMoved.connect(self._on_column_moved)
 
         vh = self._view.verticalHeader()
         vh.setDefaultSectionSize(22)
@@ -777,6 +1439,7 @@ class SpreadsheetWidget(QWidget):
 
         self._view.resizeColumnsToContents()
         self._view.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        self._view.selectionModel().currentChanged.connect(self._on_current_cell_changed)
         # Intercetta Ctrl+S e Ctrl+F direttamente sul viewport della tabella
         self._view.viewport().installEventFilter(self)
         layout.addWidget(self._view, 1)
@@ -875,18 +1538,56 @@ class SpreadsheetWidget(QWidget):
 
     def eventFilter(self, obj, event) -> bool:
         from PyQt6.QtCore import QEvent
-        if obj is self._view.viewport() and event.type() == QEvent.Type.KeyPress:
-            mods = event.modifiers()
-            ctrl = Qt.KeyboardModifier.ControlModifier
-            if mods == ctrl:
-                if event.key() == Qt.Key.Key_S:
-                    if not self._read_only:
-                        self._save()
-                    return True
-                if event.key() == Qt.Key.Key_F:
-                    self._btn_filter.setChecked(True)
-                    self._toggle_filter_bar(True)
-                    return True
+        if obj is self._formula_bar:
+            if event.type() == QEvent.Type.FocusIn:
+                self._formula_bar_active = True
+                self._formula_focus_timer.stop()
+                return False
+            if event.type() == QEvent.Type.FocusOut:
+                # Ritardo: il MouseButtonPress sul viewport arriva dopo FocusOut
+                self._formula_focus_timer.start()
+                return False
+        if obj is self._formula_bar and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Escape:
+                # Ripristina il valore originale e sposta il focus alla tabella
+                current = self._view.selectionModel().currentIndex()
+                if current.isValid():
+                    src = self._proxy.mapToSource(current)
+                    self._formula_bar_updating = True
+                    self._formula_bar.setText(
+                        str(self._model.data(src, Qt.ItemDataRole.EditRole) or "")
+                    )
+                    self._formula_bar_updating = False
+                self._formula_bar_active = False
+                self._formula_focus_timer.stop()
+                self._view.setFocus()
+                return True
+        if hasattr(self, '_view') and obj is self._view.viewport():
+            if (event.type() == QEvent.Type.MouseButtonPress
+                    and self._formula_bar_active
+                    and self._formula_bar.text().startswith("=")):
+                idx = self._view.indexAt(event.pos())
+                if idx.isValid():
+                    src = self._proxy.mapToSource(idx)
+                    ref = f"{_col_letter(src.column())}{src.row() + 1}"
+                    cp = self._formula_bar.cursorPosition()
+                    text = self._formula_bar.text()
+                    self._formula_bar.setText(text[:cp] + ref + text[cp:])
+                    self._formula_bar.setCursorPosition(cp + len(ref))
+                    self._formula_bar.setFocus()
+                    return True  # consuma: la selezione rimane sulla cella originale
+            if event.type() == QEvent.Type.KeyPress:
+                mods = event.modifiers()
+                ctrl = Qt.KeyboardModifier.ControlModifier
+                if mods == ctrl:
+                    if event.key() == Qt.Key.Key_S:
+                        if not self._read_only:
+                            self._save()
+                        return True
+                    if event.key() == Qt.Key.Key_F:
+                        self._btn_filter.setChecked(True)
+                        self._toggle_filter_bar(True)
+                        return True
         return super().eventFilter(obj, event)
 
     # ── Ordinamento multi-colonna ─────────────────────────────────────────────
@@ -975,6 +1676,185 @@ class SpreadsheetWidget(QWidget):
             source_rows.append(src.row())
         self._model.delete_rows(source_rows)
 
+    # ── Header context menu / Rinomina colonna ────────────────────────────────
+
+    def _on_header_context_menu(self, pos) -> None:
+        if self._read_only:
+            return
+        hh = self._view.horizontalHeader()
+        logical = hh.logicalIndexAt(pos)
+        if logical < 0:
+            return
+        menu = QMenu(self)
+        act = menu.addAction("Rinomina colonna…")
+        if menu.exec(hh.mapToGlobal(pos)) == act:
+            headers = self._model.get_headers()
+            current = headers[logical] if logical < len(headers) else ""
+            QTimer.singleShot(0, lambda: self._do_rename_column(logical, current))
+
+    def _do_rename_column(self, col: int, current: str) -> None:
+        new_name, ok = QInputDialog.getText(
+            self, "Rinomina colonna", "Nuovo nome:", text=current
+        )
+        if ok and new_name.strip() and new_name.strip() != current:
+            self._model.rename_column(col, new_name.strip())
+
+    def _create_chart(self) -> None:
+        sel = self._view.selectionModel().selectedIndexes()
+        if not sel:
+            QMessageBox.information(
+                self, "Grafico", "Seleziona almeno una colonna di dati per creare un grafico."
+            )
+            return
+
+        proxy_rows = sorted({idx.row() for idx in sel})
+        proxy_cols = sorted({idx.column() for idx in sel})
+
+        src_cols = [
+            self._proxy.mapToSource(self._proxy.index(0, c)).column()
+            for c in proxy_cols
+        ]
+        all_headers = self._model.get_headers()
+        headers = [all_headers[c] if c < len(all_headers) else str(c + 1) for c in src_cols]
+
+        raw_data: list[list[str]] = []
+        for pr in proxy_rows:
+            row = []
+            for pc in proxy_cols:
+                idx = self._proxy.index(pr, pc)
+                row.append(self._proxy.data(idx, Qt.ItemDataRole.DisplayRole) or "")
+            raw_data.append(row)
+
+        dlg = ChartDialog(headers, raw_data, self)
+        dlg.exec()
+
+    # ── Formula bar ───────────────────────────────────────────────────────────
+
+    def _on_current_cell_changed(self, current: QModelIndex, _prev: QModelIndex) -> None:
+        if self._formula_inserting:
+            self._formula_inserting = False
+            return  # la formula bar è già aggiornata, non sovrascrivere
+        if not current.isValid():
+            self._formula_bar.setText("")
+            self._cell_ref.setText("")
+            return
+        src = self._proxy.mapToSource(current)
+        r, c = src.row(), src.column()
+        self._cell_ref.setText(f"{_col_letter(c)}{r + 1}")
+        self._formula_bar_updating = True
+        self._formula_bar.setText(str(self._model.data(src, Qt.ItemDataRole.EditRole) or ""))
+        self._formula_bar_updating = False
+
+    def _apply_formula_bar(self) -> None:
+        if self._formula_bar_updating or self._read_only:
+            return
+        current = self._view.selectionModel().currentIndex()
+        if not current.isValid():
+            return
+        src = self._proxy.mapToSource(current)
+        self._model.setData(src, self._formula_bar.text(), Qt.ItemDataRole.EditRole)
+        self._formula_bar_active = False
+        self._formula_focus_timer.stop()
+        self._view.setFocus()
+
+    def _show_formula_menu(self) -> None:
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        for category, funcs in _FORMULA_MENU:
+            sub = menu.addMenu(category)
+            sub.setToolTipsVisible(True)
+            for label, template, tooltip in funcs:
+                act = sub.addAction(label)
+                act.setToolTip(tooltip)
+                act.triggered.connect(
+                    lambda checked, t=template: self._insert_formula_template(t)
+                )
+        global_pos = self._fx_btn.mapToGlobal(
+            self._fx_btn.rect().bottomLeft()
+        )
+        menu.exec(global_pos)
+
+    def _insert_formula_template(self, template: str) -> None:
+        current = self._view.selectionModel().currentIndex()
+        if not current.isValid():
+            return
+        cp = self._formula_bar.cursorPosition()
+        text = self._formula_bar.text()
+        # Se la barra è vuota parti da zero, altrimenti inserisci al cursore
+        if not text:
+            new_text = template
+            new_cp = len(template)
+        else:
+            new_text = text[:cp] + template + text[cp:]
+            new_cp = cp + len(template)
+        self._formula_bar.setText(new_text)
+        self._formula_bar.setCursorPosition(new_cp)
+        self._formula_bar.setFocus()
+
+    # ── Barra fogli ───────────────────────────────────────────────────────────
+
+    def _build_sheet_bar(self, sheet_names: list[str], current: str) -> Optional[QWidget]:
+        if len(sheet_names) <= 1:
+            return None
+        bar = QWidget()
+        bar.setStyleSheet("background: #1e1e2e; border-top: 1px solid #444;")
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(4, 2, 4, 2)
+        lay.setSpacing(2)
+        self._sheet_buttons: dict[str, QPushButton] = {}
+        for name in sheet_names:
+            btn = QPushButton(name)
+            btn.setFixedHeight(22)
+            btn.setCheckable(True)
+            btn.setChecked(name == current)
+            self._update_sheet_btn_style(btn, name == current)
+            btn.clicked.connect(lambda _checked, n=name: self._load_sheet(n))
+            self._sheet_buttons[name] = btn
+            lay.addWidget(btn)
+        lay.addStretch()
+        return bar
+
+    def _update_sheet_btn_style(self, btn: QPushButton, active: bool) -> None:
+        if active:
+            btn.setStyleSheet(
+                "QPushButton { background:#3a3a5a; color:#ffffff;"
+                " border:1px solid #7070c0; border-radius:2px; padding:0 8px; }"
+            )
+        else:
+            btn.setStyleSheet(
+                "QPushButton { background:#2a2a3a; color:#aaaaaa;"
+                " border:1px solid #444; border-radius:2px; padding:0 8px; }"
+                "QPushButton:hover { background:#333355; color:#dddddd; }"
+            )
+
+    def _load_sheet(self, sheet_name: str) -> None:
+        if sheet_name == self._current_sheet:
+            return
+        headers, data, error = SpreadsheetIO.load(self.file_path, sheet=sheet_name)
+        if error and not headers:
+            QMessageBox.warning(self, "Errore caricamento foglio", error)
+            return
+        if not headers and not data:
+            headers = [f"Col{i+1}" for i in range(5)]
+            data = [[""] * 5 for _ in range(20)]
+        self._model.modified_changed.disconnect(self._on_model_modified)
+        self._model = SpreadsheetModel(headers, data)
+        self._model.modified_changed.connect(self._on_model_modified)
+        self._proxy = _FilterProxy(self)
+        self._proxy.setSourceModel(self._model)
+        self._view.setModel(self._proxy)
+        self._view.selectionModel().selectionChanged.connect(self._on_selection_changed)
+        self._view.selectionModel().currentChanged.connect(self._on_current_cell_changed)
+        self._sort_keys = []
+        self._current_sheet = sheet_name
+        self._formula_bar.setText("")
+        self._cell_ref.setText("")
+        self._status.setText("Pronto")
+        if hasattr(self, "_sheet_buttons"):
+            for name, btn in self._sheet_buttons.items():
+                btn.setChecked(name == sheet_name)
+                self._update_sheet_btn_style(btn, name == sheet_name)
+
     # ── Selezione / Status ────────────────────────────────────────────────────
 
     def _on_selection_changed(self) -> None:
@@ -1028,35 +1908,63 @@ class SpreadsheetWidget(QWidget):
             self._model.mark_saved()
 
     def _save_as(self) -> None:
-        from PyQt6.QtWidgets import QFileDialog
-        _FILTER = (
-            "CSV (*.csv);;"
-            "Excel XLSX (*.xlsx);;"
-            "ODS LibreOffice (*.ods);;"
-            "TSV (*.tsv)"
-        )
-        default = str(self.file_path.with_suffix(".csv")
-                      if self._read_only else self.file_path)
-        dest, _ = QFileDialog.getSaveFileName(
-            self, "Salva foglio come…", default, _FILTER
-        )
-        if not dest:
+        _FILTERS = [
+            ("CSV (*.csv)",            ".csv"),
+            ("Excel XLSX (*.xlsx)",    ".xlsx"),
+            ("ODS LibreOffice (*.ods)",".ods"),
+            ("TSV (*.tsv)",            ".tsv"),
+        ]
+        filter_strings = [f for f, _ in _FILTERS]
+
+        ext = self.file_path.suffix.lower()
+        initial_filter = filter_strings[0]
+        for fname, fext in _FILTERS:
+            if fext == ext:
+                initial_filter = fname
+                break
+
+        def _ext_for_filter(f: str) -> str:
+            for fname, fext in _FILTERS:
+                if fname == f:
+                    return fext
+            return ".csv"
+
+        dlg = QFileDialog(self, "Salva foglio come…")
+        dlg.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dlg.setDirectory(str(self.file_path.parent))
+        dlg.setNameFilters(filter_strings)
+        dlg.selectNameFilter(initial_filter)
+        dlg.setDefaultSuffix(ext.lstrip(".") or "csv")
+        dlg.selectFile(self.file_path.stem)
+
+        def _on_filter_changed(f: str) -> None:
+            new_ext = _ext_for_filter(f)
+            dlg.setDefaultSuffix(new_ext.lstrip("."))
+            files = dlg.selectedFiles()
+            if files:
+                dlg.selectFile(Path(files[0]).with_suffix(new_ext).name)
+
+        dlg.filterSelected.connect(_on_filter_changed)
+
+        if dlg.exec() != QFileDialog.DialogCode.Accepted:
             return
-        dest_path = Path(dest)
+        files = dlg.selectedFiles()
+        if not files:
+            return
 
-        # Scegli delimiter per CSV/TSV
+        dest_path = Path(files[0])
+        # Garantisce l'estensione corretta in base al filtro scelto
+        expected_ext = _ext_for_filter(dlg.selectedNameFilter())
+        if dest_path.suffix.lower() != expected_ext:
+            dest_path = dest_path.with_suffix(expected_ext)
+
         delim = "\t" if dest_path.suffix.lower() == ".tsv" else self._delimiter
-
         err = SpreadsheetIO.save(
-            dest_path,
-            self._model.get_headers(),
-            self._model.get_data(),
-            delim,
+            dest_path, self._model.get_headers(), self._model.get_data(), delim
         )
         if err:
             QMessageBox.warning(self, "Errore salvataggio", err)
         else:
-            # Aggiorna il widget per puntare al nuovo file
             self.file_path = dest_path
             self._delimiter = delim
             self._read_only = False

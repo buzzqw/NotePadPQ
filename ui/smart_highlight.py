@@ -74,6 +74,7 @@ class SmartHighlighter:
     Evidenzia automaticamente tutte le occorrenze della parola sotto il cursore.
     Si attiva 300ms dopo l'ultimo spostamento cursore per non appesantire
     la digitazione. Viene disattivato se il cursore si sposta fuori dalla parola.
+    Può essere abilitato/disabilitato tramite set_enabled() e il toggle nel menu.
     """
 
     DELAY_MS  = 300
@@ -88,6 +89,11 @@ class SmartHighlighter:
         self._last_word = ""
         self._active_editor: Optional["EditorWidget"] = None
 
+        from config.settings import Settings
+        self._enabled: bool = Settings.instance().get(
+            "editor/smart_highlight_enabled", True
+        )
+
         # Collega al cambio editor
         main_window._tab_manager.current_editor_changed.connect(
             self._on_editor_changed
@@ -97,17 +103,50 @@ class SmartHighlighter:
         if ed:
             self._on_editor_changed(ed)
 
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = enabled
+        from config.settings import Settings
+        Settings.instance().set("editor/smart_highlight_enabled", enabled)
+        if not enabled:
+            self._clear_editor_indicators(self._active_editor)
+            self._last_word = ""
+            self._timer.stop()
+
+    def _clear_editor_indicators(self, editor: Optional["EditorWidget"]) -> None:
+        if editor:
+            editor.clearIndicatorRange(
+                0, 0,
+                editor.lines() - 1, len(editor.text(editor.lines() - 1)),
+                _SMART_HL_INDICATOR_NUM
+            )
+
     def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
         if self._active_editor:
             try:
                 self._active_editor.cursor_changed.disconnect(self._on_cursor_moved)
             except Exception:
                 pass
+            # Pulisce gli indicatori sull'editor uscente per evitare residui
+            self._clear_editor_indicators(self._active_editor)
         self._active_editor = editor
-        self._last_word = ""  # nuovo editor = nessun highlight pregresso
+        self._last_word = ""
         if editor:
             editor.cursor_changed.connect(self._on_cursor_moved)
             self._setup_indicator(editor)
+
+    @staticmethod
+    def install_into_main_window(main_window: "MainWindow") -> "SmartHighlighter":
+        """Crea lo SmartHighlighter e aggiunge il toggle nel menu Cerca."""
+        hl = SmartHighlighter(main_window)
+        search_menu = main_window._menus.get("search")
+        if search_menu:
+            search_menu.addSeparator()
+            act = QAction("Evidenziazione automatica parola", main_window)
+            act.setCheckable(True)
+            act.setChecked(hl._enabled)
+            act.triggered.connect(hl.set_enabled)
+            search_menu.addAction(act)
+        return hl
 
     def _setup_indicator(self, editor: "EditorWidget") -> None:
         # Use StraightBoxIndicator (or BoxIndicator) for a less intrusive highlight
@@ -119,7 +158,8 @@ class SmartHighlighter:
         editor.setIndicatorDrawUnder(True, _SMART_HL_INDICATOR_NUM)
 
     def _on_cursor_moved(self, line: int, col: int) -> None:
-        self._timer.start()
+        if self._enabled:
+            self._timer.start()
 
     def _do_highlight(self) -> None:
         editor = self._active_editor
@@ -185,13 +225,7 @@ class SmartHighlighter:
 
     def clear(self) -> None:
         """Rimuove tutti gli highlight smart."""
-        if self._active_editor:
-            ed = self._active_editor
-            ed.clearIndicatorRange(
-                0, 0,
-                ed.lines() - 1, len(ed.text(ed.lines() - 1)),
-                _SMART_HL_INDICATOR_NUM
-            )
+        self._clear_editor_indicators(self._active_editor)
 
 
 # ─── MultiMarkManager ────────────────────────────────────────────────────────
@@ -328,8 +362,6 @@ class MultiMarkManager:
 
         search_menu = main_window._menus.get("search")
         if search_menu:
-            search_menu.addSeparator()
-
             color_names = ["Rosso", "Verde", "Blu", "Arancione", "Viola"]
             for i in range(1, 6):
                 color = _MARK_COLORS[i - 1]

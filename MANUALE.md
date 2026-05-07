@@ -1,6 +1,6 @@
 # NotePadPQ — Manuale d'uso
 
-> Versione 0.4.4 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
+> Versione 0.4.9 — Editor di testo avanzato basato su **QScintilla/PyQt6**  
 > Piattaforme: Linux, Windows, macOS
 
 ---
@@ -26,6 +26,9 @@
 17. [Supporto LaTeX](#17-supporto-latex)
 18. [Espressioni regolari — riferimento completo](#18-espressioni-regolari--riferimento-completo)
 19. [Scorciatoie da tastiera — riepilogo](#19-scorciatoie-da-tastiera--riepilogo)
+20. [LSP — Language Server Protocol](#20-lsp--language-server-protocol)
+21. [AI Assistant](#21-ai-assistant)
+22. [Foglio di Calcolo](#22-foglio-di-calcolo)
 
 ---
 
@@ -266,6 +269,8 @@ Quando il cursore si ferma su una parola per più di 300ms, tutte le sue occorre
 
 È separato dai 5 colori manuali e non interferisce con essi.
 
+**Attivazione/disattivazione:** **Cerca → Evidenziazione automatica parola** (voce con spunta). Lo stato viene salvato tra le sessioni.
+
 ---
 
 ## 6. Bookmark
@@ -486,6 +491,7 @@ I plugin vengono caricati automaticamente dalla cartella `plugins/`. Per install
 | **Compare & Merge** | Confronto visuale side-by-side di due file o tab |
 | **Encrypt/Decrypt** | Cifratura AES-256-GCM e ChaCha20-Poly1305 del testo selezionato o dell'intero file |
 | **FTP Browser** | Sfoglia e modifica file su server FTP |
+| **Foglio di Calcolo** | Editor completo per CSV, XLSX, XLS, ODS (vedi [sezione 22](#22-foglio-di-calcolo)) |
 | **Git Integration** | Pannello Git completo (vedi sotto) |
 | **Hex Viewer** | Visualizza il file corrente in formato esadecimale |
 
@@ -1002,4 +1008,195 @@ Claude (Anthropic) risponde in streaming: il testo appare progressivamente mentr
 
 ---
 
-*Manuale aggiornato — NotePadPQ 0.4.4*
+---
+
+## 22. Foglio di Calcolo
+
+Il plugin Foglio di Calcolo apre file CSV, TSV, XLSX, XLSM, XLS e ODS in un tab dedicato con funzionalità di editing, ordinamento, filtro, formule e grafici.
+
+### Apertura file
+
+I file con estensione `.csv`, `.tsv`, `.xlsx`, `.xlsm`, `.xls`, `.ods` vengono aperti automaticamente come foglio di calcolo quando li apri con **File → Apri**, trascini nell'editor o li riapri dalla sessione precedente.
+
+Puoi anche usare **Plugin → Foglio di calcolo → Apri foglio…** per scegliere il file manualmente.
+
+**CSV/TSV — Wizard di importazione:**  
+Al primo caricamento di un file CSV o TSV appare un wizard con:
+- Scelta del separatore di colonna: `,` `;` `\t` `|` `\` spazio o personalizzato
+- Checkbox "Prima riga come intestazione"
+- Combo codifica testo (UTF-8, Latin-1, Windows-1252, …) — rilevata automaticamente con chardet
+- Anteprima testo grezzo (prime 15 righe) e anteprima tabella aggiornata in tempo reale
+
+**File multi-foglio (XLSX/XLS):**  
+Se il file contiene più di un foglio, viene proposto un dialog di selezione foglio prima del caricamento.
+
+### Interfaccia
+
+```
+[ filename.xlsx ]  [+ Riga] [+ Colonna] [− Righe sel.] [🔍 Filtro] [💾 Salva] [📤 Esporta] [📊 Grafico]
+[ fx ▾ ] [ A1 ] [ formula bar .............................................. ]
+───────────────────────────────────────────────────────────────────────────────
+   A  Nome      B  Età      C  Città
+1  Mario        30          Roma
+2  Anna         25          Milano
+───────────────────────────────────────────────────────────────────────────────
+[ Stato: Selezione 2r×3c | Somma: 55 | Media: 27,5 | Min: 25 | Max: 30 ]
+[ Foglio1 ] [ Foglio2 ] [ Foglio3 ]     ← barra fogli (se multi-foglio)
+```
+
+**Intestazioni colonne:** ogni colonna mostra la lettera stile Excel (A, B, C, … Z, AA, AB, …) seguita dal nome dell'intestazione, così puoi costruire formule come `=SUM(A1:A10)` sapendo esattamente quale lettera corrisponde a quale colonna.
+
+**Barra formula (fx):**
+- La casella a sinistra mostra l'indirizzo della cella corrente (es. `B3`)
+- La barra testo mostra il contenuto grezzo della cella: se è una formula, mostra `=SUM(A1:A5)` anziché il risultato calcolato
+- La barra è **editabile**: clicca su una cella, scrivi o modifica il contenuto/formula, premi **Invio** per confermare, **Esc** per annullare
+
+**Pulsante "fx ▾":** apre un menu a cascata con tutte le funzioni disponibili raggruppate per categoria. Ogni voce ha un tooltip con firma ed esempio. Cliccando una funzione, il template (es. `=SUM(`) viene inserito nella formula bar alla posizione del cursore.
+
+**Barra fogli** (visibile solo per file multi-foglio): pulsanti in fondo al widget per passare da un foglio all'altro senza riaprire il file. Il foglio attivo è evidenziato.
+
+### Formule
+
+Le formule iniziano con `=`. Digitale nella cella o nella formula bar.
+
+#### Inserimento guidato
+
+1. Clicca sulla cella di destinazione
+2. Clicca sulla formula bar (o inizia a digitare `=` direttamente nella cella)
+3. Scrivi la formula: `=SUM(` oppure usa **fx ▾** per scegliere la funzione dal menu
+4. **Click-to-insert-reference:** mentre digiti una formula (il testo inizia con `=`), clicca su un'altra cella per inserire automaticamente le sue coordinate (es. `B3`) nella formula bar alla posizione del cursore. La selezione rimane sulla cella originale — la formula verrà confermata lì.
+5. Premi **Invio** per confermare
+
+#### Riferimenti cella
+
+| Sintassi | Significato |
+|---|---|
+| `A1` | Cella colonna A, riga 1 |
+| `$A$1` | Riferimento assoluto |
+| `A1:B5` | Range da A1 a B5 |
+
+#### Operatori
+
+| Operatore | Significato | Esempio |
+|---|---|---|
+| `+` `-` `*` `/` | Aritmetica | `=A1+B1*2` |
+| `^` | Potenza | `=A1^2` |
+| `&` | Concatena stringhe | `=A1&" "&B1` |
+| `=` `<>` `<` `>` `<=` `>=` | Confronto | `=A1>0` |
+
+#### Funzioni disponibili
+
+> I nomi delle funzioni sono in **inglese**.
+
+**Matematica**
+
+| Funzione | Descrizione | Esempio |
+|---|---|---|
+| `SUM(range)` | Somma | `=SUM(A1:A10)` |
+| `AVERAGE(range)` | Media | `=AVERAGE(B1:B5)` |
+| `MIN(range)` | Minimo | `=MIN(C1:C100)` |
+| `MAX(range)` | Massimo | `=MAX(C1:C100)` |
+| `COUNT(range)` | Celle numeriche | `=COUNT(A1:A50)` |
+| `COUNTA(range)` | Celle non vuote | `=COUNTA(A1:A50)` |
+| `ABS(n)` | Valore assoluto | `=ABS(A1)` |
+| `ROUND(n, dec)` | Arrotonda | `=ROUND(A1,2)` |
+| `SQRT(n)` | Radice quadrata | `=SQRT(A1)` |
+| `INT(n)` | Parte intera | `=INT(3.7)` → 3 |
+
+**Testo**
+
+| Funzione | Descrizione | Esempio |
+|---|---|---|
+| `LEN(testo)` | Lunghezza stringa | `=LEN(A1)` |
+| `CONCAT(…)` | Unisce stringhe | `=CONCAT(A1," ",B1)` |
+| `UPPER(testo)` | Maiuscolo | `=UPPER(A1)` |
+| `LOWER(testo)` | Minuscolo | `=LOWER(A1)` |
+| `TRIM(testo)` | Rimuove spazi | `=TRIM(A1)` |
+| `LEFT(testo,n)` | Primi n caratteri | `=LEFT(A1,3)` |
+| `RIGHT(testo,n)` | Ultimi n caratteri | `=RIGHT(A1,4)` |
+| `MID(testo,start,n)` | Sottostringa | `=MID(A1,2,5)` |
+
+**Logica**
+
+| Funzione | Descrizione | Esempio |
+|---|---|---|
+| `IF(cond,vero,falso)` | Condizione | `=IF(A1>0,"positivo","negativo")` |
+
+#### Errori formula
+
+| Codice | Causa |
+|---|---|
+| `#DIV/0!` | Divisione per zero |
+| `#REF!` | Riferimento circolare |
+| `#NOME?` | Funzione non riconosciuta |
+| `#ERRORE` | Errore di sintassi generico |
+
+Le celle contenenti formule sono visualizzate in azzurro; la barra fx mostra sempre la formula grezza (`=SUM(A1:A5)`) mentre la cella mostra il risultato calcolato.
+
+### Ordinamento
+
+- **Click su intestazione colonna** — ordina per quella colonna (primo click ASC ↑, secondo DESC ↓, terzo rimuove l'ordinamento)
+- **Shift+Click** — aggiunge la colonna all'ordinamento multi-colonna; le frecce nell'intestazione mostrano priorità (↑1, ↓2, …)
+- L'ordinamento distingue valori numerici da testo
+
+### Filtro (`Ctrl+F`)
+
+Clicca **🔍 Filtro** o premi `Ctrl+F` per aprire la barra filtri. Scegli la colonna (o "Tutte") e digita il testo da cercare. Il contatore mostra quante righe corrispondono sul totale. **✗ Pulisci** rimuove il filtro.
+
+### Editing celle
+
+- **Doppio click** o **tasto qualsiasi** su una cella avvia l'editing inline
+- **Invio** / **Tab** confermano e spostano alla cella successiva
+- **Esc** annulla l'editing
+- **Drag intestazione colonna** — sposta la colonna in un'altra posizione
+- **Drag intestazione riga** — sposta la riga in un'altra posizione
+- **Tasto destro su intestazione colonna** → "Rinomina colonna…"
+
+### Operazioni righe/colonne
+
+| Pulsante | Funzione |
+|---|---|
+| **+ Riga** | Inserisce una riga vuota sotto l'ultima selezionata |
+| **+ Colonna** | Aggiunge una colonna vuota a destra |
+| **− Righe sel.** | Elimina le righe selezionate |
+
+### Barra di stato
+
+Mostra statistiche sulla selezione corrente: dimensione (`Nr × Nc`), Somma, Media, Min, Max, conteggio valori numerici. Si aggiorna automaticamente al cambiare della selezione.
+
+### Grafici
+
+Seleziona le celle da visualizzare, poi clicca **📊 Grafico**. Nella finestra grafico:
+
+- Scegli il tipo: **Barre**, **Linea**, **Torta**
+- Se la prima colonna della selezione non è numerica, viene usata come etichette sull'asse X; le colonne successive sono le serie
+- Se tutte le colonne sono numeriche, l'asse X usa i numeri di riga
+- Il grafico della torta usa solo la prima serie numerica (max 12 valori)
+- **💾 Salva immagine…** esporta il grafico come PNG, SVG o PDF
+
+> Richiede `matplotlib`: `pip install matplotlib`
+
+### Salvataggio ed esportazione
+
+| Azione | Scorciatoia / pulsante |
+|---|---|
+| Salva (stesso formato) | `Ctrl+S` oppure **💾 Salva** |
+| Salva come / Esporta in altro formato | **📤 Esporta/Salva come…** |
+
+**Formati supportati in lettura:** CSV, TSV, XLSX, XLSM, XLS (sola lettura), ODS  
+**Formati supportati in scrittura:** CSV, TSV, XLSX, ODS
+
+Il dialog "Salva come" aggiorna automaticamente l'estensione proposta quando cambi il filtro formato. Per i file `.xls` (formato legacy sola lettura) viene proposto automaticamente il salvataggio in XLSX.
+
+**Dipendenze richieste:**
+
+| Formato | Libreria | Installazione |
+|---|---|---|
+| XLSX / XLSM (lettura + scrittura) | `openpyxl` | `pip install openpyxl` |
+| XLS (sola lettura) | `xlrd` | `pip install xlrd` |
+| ODS (scrittura) | `odfpy` | `pip install odfpy` |
+| Rilevamento encoding CSV | `chardet` | già incluso in requirements.txt |
+
+---
+
+*Manuale aggiornato — NotePadPQ 0.4.9*

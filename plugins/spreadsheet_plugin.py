@@ -75,8 +75,10 @@ class SpreadsheetPlugin(BasePlugin):
         encoding = "utf-8-sig"
         first_row_header = True
 
+        selected_sheet = None
+        sheet_names: list[str] = []
+
         if ext in (".csv", ".tsv"):
-            # Mostra wizard
             dlg = ImportWizardDialog(path, self._mw)
             if dlg.exec() != ImportWizardDialog.DialogCode.Accepted:
                 return
@@ -86,9 +88,21 @@ class SpreadsheetPlugin(BasePlugin):
                 first_row_header=first_row_header
             )
         else:
-            headers, data, error = SpreadsheetIO.load(path)
+            sheet_names = SpreadsheetIO.get_sheet_names(path)
+            if len(sheet_names) > 1:
+                chosen, ok = QInputDialog.getItem(
+                    self._mw,
+                    "Seleziona foglio",
+                    f"Il file contiene {len(sheet_names)} fogli.\n"
+                    f"Scegli il foglio da aprire:",
+                    sheet_names, 0, False
+                )
+                if not ok:
+                    return
+                selected_sheet = chosen
+            headers, data, error = SpreadsheetIO.load(path, sheet=selected_sheet)
 
-        if error:
+        if error and not headers:
             QMessageBox.critical(
                 self._mw, "Foglio di calcolo",
                 f"Impossibile aprire il file:\n{error}"
@@ -96,7 +110,6 @@ class SpreadsheetPlugin(BasePlugin):
             return
 
         if not headers and not data:
-            # File vuoto: avvia con una griglia minimale
             headers = [f"Col{i+1}" for i in range(5)]
             data = [[""] * 5 for _ in range(20)]
 
@@ -106,6 +119,8 @@ class SpreadsheetPlugin(BasePlugin):
             delimiter=delimiter,
             encoding=encoding,
             first_row_header=first_row_header,
+            sheet_names=sheet_names,
+            current_sheet=selected_sheet or (sheet_names[0] if sheet_names else ""),
             parent=self._mw
         )
         self._mw._tab_manager.add_spreadsheet_tab(widget, path.name, path)
@@ -123,15 +138,19 @@ class SpreadsheetPlugin(BasePlugin):
         ext = path.suffix.lower()
         read_only = ext == ".xls"
 
+        sheet_names: list[str] = []
         if ext in (".csv", ".tsv"):
             headers, data, error = SpreadsheetIO.load(
                 path, delimiter=delimiter, encoding=encoding,
                 first_row_header=first_row_header
             )
         else:
+            sheet_names = SpreadsheetIO.get_sheet_names(path)
             headers, data, error = SpreadsheetIO.load(path)
 
-        if error or (not headers and not data):
+        if error and not headers:
+            return
+        if not headers and not data:
             return
 
         widget = SpreadsheetWidget(
@@ -140,6 +159,8 @@ class SpreadsheetPlugin(BasePlugin):
             delimiter=delimiter,
             encoding=encoding,
             first_row_header=first_row_header,
+            sheet_names=sheet_names,
+            current_sheet=sheet_names[0] if sheet_names else "",
             parent=self._mw
         )
         self._mw._tab_manager.add_spreadsheet_tab(widget, path.name, path)

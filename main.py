@@ -123,7 +123,7 @@ def main():
     # ── Smart Highlight + Mark colori (Ctrl+1..5) ─────────────────────────────
     try:
         from ui.smart_highlight import SmartHighlighter, MultiMarkManager
-        win._smart_highlighter = SmartHighlighter(win)
+        win._smart_highlighter = SmartHighlighter.install_into_main_window(win)
         win._mark_manager = MultiMarkManager.install_into_main_window(win)
     except Exception as e:
         print(f"[main] SmartHighlight: {e}")

@@ -58,6 +58,142 @@ except ImportError:
 # Pattern per spell check — Unicode, copre IT/EN/DE/FR/ES e qualsiasi alfabeto latino esteso
 _RE_SPELL = re.compile(r"(?<![\\])\b[^\W\d_]+\b", re.UNICODE)
 
+# ─── Utilità conversione testo → tabella ──────────────────────────────────────
+
+def _detect_table_delimiter(lines: list[str]) -> str | None:
+    """Ritorna il delimitatore più probabile tra colonne, o None se il testo non è tabulare.
+
+    TAB: bastano 2 righe con ≥2 colonne non-vuote dopo lo split (numero variabile di tab
+    per riga è normale nell'allineamento visivo).
+
+    Pipe/semicolon/comma: almeno 1/3 delle righe con conteggio coerente.
+
+    Spazi multipli: almeno 1/3 delle righe con ≥1 gruppo di spazi coerente.
+    """
+    # TAB — soglia assoluta bassa: bastano 2 righe "tabulari"
+    tab_lines = [l for l in lines if "\t" in l]
+    if len(tab_lines) >= 2:
+        cols_counts = [len([p for p in l.split("\t") if p.strip()]) for l in tab_lines]
+        if all(c >= 2 for c in cols_counts):
+            return "\t"
+
+    min_lines = max(2, len(lines) // 3)
+
+    for delim in ("|", ";", ","):
+        counts = [line.count(delim) for line in lines]
+        nonzero = [c for c in counts if c > 0]
+        if len(nonzero) >= min_lines and min(nonzero) == max(nonzero):
+            return delim
+
+    counts = [len(re.findall(r"  +", line.rstrip())) for line in lines]
+    nonzero = [c for c in counts if c > 0]
+    if len(nonzero) >= min_lines and max(nonzero) - min(nonzero) <= 1:
+        return "  "
+
+    return None
+
+
+def _parse_tabular_text(text: str):
+    """
+    Prova a interpretare il testo come tabella.
+    Restituisce list[list[str]] (tutte le righe, già paddate a n_cols) o None.
+    - Include TUTTE le righe non vuote (quelle senza delimitatore primario vengono
+      trattate come riga a colonna singola + celle vuote, o tentano il fallback spazi).
+    - Il chiamante decide quale riga usare come intestazione.
+    """
+    raw_lines = [l for l in text.splitlines() if l.strip()]
+    if len(raw_lines) < 2:
+        return None
+    delim = _detect_table_delimiter(raw_lines)
+    if delim is None:
+        return None
+
+    def split_line(line: str) -> list[str]:
+        if delim == "\t":
+            parts = [p.strip() for p in line.split("\t") if p.strip()]
+            if len(parts) >= 2:
+                return parts
+            # fallback spazi per righe miste (es. allineate con spazi invece di tab)
+            space_parts = [p.strip() for p in re.split(r"  +", line.strip()) if p.strip()]
+            return space_parts if len(space_parts) >= 2 else [line.strip()]
+        if delim == "  ":
+            parts = [p.strip() for p in re.split(r"  +", line.strip()) if p.strip()]
+            return parts if parts else [line.strip()]
+        parts = [p.strip() for p in line.split(delim)]
+        return [c for c in parts if c] if delim == "|" else parts
+
+    rows = [split_line(l) for l in raw_lines]
+    # Scarta righe separatore tipo |---|---|  o  ====  ---
+    rows = [r for r in rows if not all(re.fullmatch(r"[-:=\s|]+", c) for c in r)]
+    if not rows:
+        return None
+    n_cols = max(len(r) for r in rows)
+    if n_cols < 2:
+        return None
+    # Padda righe con meno colonne (righe senza marcatore → cella vuota)
+    rows = [r + [""] * (n_cols - len(r)) for r in rows]
+    return rows
+
+
+def _build_md_table(headers: list[str], data: list[list[str]]) -> str:
+    def esc(s: str) -> str:
+        return str(s).replace("|", "\\|").replace("\n", " ")
+
+    widths = [max(3, len(esc(h))) for h in headers]
+    for row in data:
+        for i in range(len(headers)):
+            widths[i] = max(widths[i], len(esc(row[i] if i < len(row) else "")))
+
+    def pad(s: str, w: int) -> str:
+        return esc(s).ljust(w)
+
+    header_line = "| " + " | ".join(pad(h, widths[i]) for i, h in enumerate(headers)) + " |"
+    sep_line    = "|" + "|".join("-" * (w + 2) for w in widths) + "|"
+    rows = ["| " + " | ".join(pad(row[i] if i < len(row) else "", widths[i])
+                               for i in range(len(headers))) + " |"
+            for row in data]
+    return "\n".join([header_line, sep_line] + rows)
+
+
+def _build_tabularx_table(headers: list[str], data: list[list[str]]) -> str:
+    _TEX = str.maketrans({"&": "\\&", "%": "\\%", "$": "\\$", "#": "\\#",
+                           "_": "\\_", "{": "\\{", "}": "\\}", "~": "\\textasciitilde{}",
+                           "^": "\\textasciicircum{}", "\\": "\\textbackslash{}"})
+
+    def esc(s: str) -> str:
+        return str(s).translate(_TEX)
+
+    n = len(headers)
+    col_spec   = "X" * n if n else "X"
+    header_row = " & ".join(f"\\textbf{{{esc(h)}}}" for h in headers) + " \\\\"
+    rows_lines = [" & ".join(esc(row[i] if i < len(row) else "") for i in range(n)) + " \\\\"
+                  for row in data]
+    return "\n".join([
+        "% Richiede: \\usepackage{tabularx,booktabs}",
+        "\\begin{table}[htbp]",
+        "\\centering",
+        f"\\begin{{tabularx}}{{\\textwidth}}{{{col_spec}}}",
+        "\\toprule",
+        header_row,
+        "\\midrule",
+        *rows_lines,
+        "\\bottomrule",
+        "\\end{tabularx}",
+        "\\caption{}",
+        "\\label{tab:}",
+        "\\end{table}",
+    ])
+
+
+def _split_rows_for_table(all_rows: list[list[str]], first_row_is_header: bool):
+    """Restituisce (headers, data) a partire da tutte le righe parsed."""
+    if first_row_is_header:
+        return all_rows[0], all_rows[1:]
+    n = max(len(r) for r in all_rows)
+    headers = [str(i + 1) for i in range(n)]
+    return headers, all_rows
+
+
 # ─── Costanti ─────────────────────────────────────────────────────────────────
 
 class LineEnding(Enum):
@@ -1087,6 +1223,26 @@ class EditorWidget(QsciScintilla):
                     ign_act.triggered.connect(lambda _checked, w=word: self._spell_add_to_personal(w))
                     menu.addSeparator()
 
+        # Converti in tabella (visibile solo se la selezione è tabulare)
+        if self.hasSelectedText():
+            parsed = _parse_tabular_text(self.selectedText())
+            if parsed is not None:
+                conv_menu = menu.addMenu("Converti in tabella")
+
+                md_menu  = conv_menu.addMenu("Markdown")
+                a = md_menu.addAction("Prima riga come intestazione")
+                a.triggered.connect(lambda _: self._convert_selection_to_table("markdown", True))
+                a = md_menu.addAction("Tutte le righe come dati")
+                a.triggered.connect(lambda _: self._convert_selection_to_table("markdown", False))
+
+                tex_menu = conv_menu.addMenu("LaTeX tabularx")
+                a = tex_menu.addAction("Prima riga come intestazione")
+                a.triggered.connect(lambda _: self._convert_selection_to_table("tabularx", True))
+                a = tex_menu.addAction("Tutte le righe come dati")
+                a.triggered.connect(lambda _: self._convert_selection_to_table("tabularx", False))
+
+                menu.addSeparator()
+
         cut   = menu.addAction(tr("action.cut"))
         cut.triggered.connect(self.cut)
         cut.setEnabled(self.hasSelectedText())
@@ -1133,6 +1289,21 @@ class EditorWidget(QsciScintilla):
             self._spell_checker.word_frequency.load_words([w])
         self._spell_text_hash = 0
         self._do_spell_check()
+
+    # ── Conversione selezione → tabella ──────────────────────────────────────
+
+    def _convert_selection_to_table(self, fmt: str, first_row_is_header: bool) -> None:
+        all_rows = _parse_tabular_text(self.selectedText())
+        if all_rows is None:
+            return
+        headers, data = _split_rows_for_table(all_rows, first_row_is_header)
+        if fmt == "markdown":
+            table_text = _build_md_table(headers, data)
+        else:
+            table_text = _build_tabularx_table(headers, data)
+        self.beginUndoAction()
+        self.replaceSelectedText(table_text)
+        self.endUndoAction()
 
     # ── Autocompletamento BibTeX ──────────────────────────────────────────────
 

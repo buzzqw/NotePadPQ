@@ -53,7 +53,7 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 ### 🔍 Ricerca, navigazione e palette comandi
 - **Command Palette** (`Ctrl+Shift+P`) — accesso fuzzy-search a tutti i comandi dell'editor.
 - **Goto Anything** (`Ctrl+Shift+G`) — navigazione rapida stile Sublime: file aperti, `:riga`, `@simbolo`, `>comando`.
-- Trova/Sostituisci con **espressioni regolari** (sintassi Python completa).
+- Trova/Sostituisci con **espressioni regolari** (sintassi Python completa) e sostituzione con gruppi di cattura.
 - **Cerca in tutti i file** aperti nei tab contemporaneamente.
 - **Cerca nei file** su disco con filtro estensione e ricerca ricorsiva.
 - **Ricerca incrementale** inline (`Ctrl+Shift+F2`).
@@ -132,10 +132,10 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 
 ### 🌍 Interfaccia e UI
 - **Multilingua**: 5 lingue (Italiano, English, Deutsch, Français, Español) cambiabili a caldo.
-- **Temi**: editor di temi integrato con anteprima live; importa/esporta in JSON.
+- **Temi**: 17 temi integrati + editor di temi con anteprima live; importa/esporta in JSON.
 - **Set icone**: Lucide, Material, Sistema — download automatico al primo utilizzo.
 - **Orologio live** nella barra dei menu con data e ora localizzate.
-- **Controllo ortografico** (`F4`) — spell checker in tempo reale con sottolineatura rossa per IT, EN, DE, FR, ES. Lingua del dizionario selezionabile indipendentemente dalla lingua dell'interfaccia (menu Documento → Lingua dizionario). Click destro su una parola evidenziata per suggerimenti, "Aggiungi al dizionario" o "Ignora tutto".
+- **Controllo ortografico** (`F4`) — spell checker in tempo reale con sottolineatura rossa per IT, EN, DE, FR, ES. Lingua del dizionario selezionabile indipendentemente dalla lingua dell'interfaccia (Documento → Lingua dizionario). Click destro su una parola evidenziata per suggerimenti, "Aggiungi al dizionario" o "Ignora tutto".
 - **Modalità testo semplice** (`Ctrl+Alt+T`) — disabilita highlighting, brace matching e autocomplete per tab, ripristinabile in un click.
 - **Modalità scrittura distraction-free** (`F11`) — schermo intero senza toolbar, statusbar, menubar né pannelli. Ripristino completo all'uscita.
 - **Sessioni**: ripristino automatico all'avvio di tutti i file, posizioni cursore e layout pannelli. Auto-save opzionale su perdita del fuoco.
@@ -160,7 +160,7 @@ Lo script rileva il sistema operativo (Arch Linux, apt, dnf, Windows) e installa
 
 **Dipendenze base** (sempre richieste):
 ```bash
-pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pyspellchecker PyGithub python-gitlab keyring
+pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pygments pyspellchecker PyGithub python-gitlab keyring
 ```
 
 **Dipendenze LaTeX** (opzionali — solo se usi NotePadPQ per scrivere/compilare LaTeX):
@@ -200,42 +200,91 @@ Runs natively on Linux, Windows, and FreeBSD.
 
 ### 📝 Advanced Editor
 - **Syntax highlighting** for 40+ languages: native QScintilla lexers (Python, JavaScript, TypeScript, C/C++, Java, C#, Bash, SQL, LaTeX, Markdown, HTML, CSS, XML, JSON, YAML, Ruby, Perl, Lua, Pascal, Fortran, Verilog…) plus Pygments-backed lexers (Go, Rust, PHP, Swift, Kotlin, Scala, Dart, R, TOML, Haskell, Elixir, Julia). **Auto-detect** from extension, filename, or content.
+- **Code folding** — collapse code blocks, classes, and functions from the gutter.
 - **Smart Highlight** — all occurrences of the word under the cursor are highlighted automatically, with no typing lag.
 - **Dynamic line numbers** — column width adapts to file size automatically.
-- **Code folding**, minimap, word wrap, auto-indent, auto-close brackets.
-- **Markup shortcuts**: `Ctrl+B`, `Ctrl+I`, `Ctrl+Shift+X` work natively in Markdown and LaTeX.
-- **LSP support**, API dictionaries, snippet completion.
-- **Project Manager** (PSPad-style): group files into named projects saved as `.npqproj` JSON; toolbar to add/remove files and groups; double-click to open.
-- **Color Translator**: pick a color and get HTML/CSS name, `#HEX`, `rgb()`, `rgb(%)`, `hsl()` — insert or copy each format individually.
-- **Lorem Ipsum generator**: insert placeholder text with configurable paragraphs, sentences, and separator.
+- **Minimap** sidebar for quick navigation in long files.
+- **Word wrap** configurable (`Alt+Z`).
+- **Smart autocomplete**: words in document, per-language snippets, API dictionaries, LSP support.
+- **Auto-close** brackets, quotes, and tags.
+- **Show whitespace/tabs** and end-of-line characters.
+- **Markup shortcuts**: `Ctrl+B` (Bold), `Ctrl+I` (Italic), `Ctrl+Shift+X` (Strikethrough) — work natively in Markdown (`**`, `*`, `~~`) and LaTeX (`\textbf`, `\textit`, `\sout`).
+
+### 🗂️ Tab Management & Split View
+- **Multiple tabs** with drag & drop, modification indicator, session restore at startup.
+- **Horizontal and vertical split view** (`Ctrl+Alt+2` / `Ctrl+Alt+3`).
+- **Clone tab** to work on the same file at two positions simultaneously.
+- **Project Manager** (PSPad-style): group files into named projects saved as `.npqproj` (JSON); toolbar to create groups, add/remove files; double-click to open.
 
 ### 🔍 Search, Navigation & Command Palette
 - **Command Palette** (`Ctrl+Shift+P`) — fuzzy-search over all editor commands.
 - **Goto Anything** (`Ctrl+Shift+G`) — Sublime-style quick navigation: open files, `:line`, `@symbol`, `>command`.
-- Full regex search (Python syntax) with capture group replacement.
-- Search across all open tabs, search in files on disk.
-- Inline incremental search (`Ctrl+Shift+F2`), Go to line (`Ctrl+G`).
+- Find/Replace with full **regular expressions** (Python syntax) and capture group substitution.
+- **Search across all open tabs** simultaneously.
+- **Search in files** on disk with extension filter and recursive search.
+- **Inline incremental search** (`Ctrl+Shift+F2`).
+- **Go to line** (`Ctrl+G`) and jump to matching bracket.
+- **Bookmarks**: add (`Ctrl+F2`), navigate (`F2` / `Shift+F2`), remove.
 - **5-color Mark** system for highlighting blocks of text (`Ctrl+1..5`).
-- **Bookmarks** with keyboard navigation (`F2` / `Shift+F2`).
+
+### 🛠️ Editing Tools
+- **Multi-cursor**: select next occurrence (`Ctrl+D`), all occurrences (`Ctrl+Shift+D`), add cursor above/below (`Ctrl+Alt+↑↓`), insert incremental numbers.
+- **Macros**: record, save, load, and run N times.
+- **Case conversion**: UPPERCASE, lowercase, Title Case, Invert Case.
+- **Comment/uncomment** lines (`Ctrl+E`) with automatic language detection.
+- **Smart indentation**, tabs↔spaces. **Auto-indent on paste**: pasted lines align automatically to the cursor context.
+- **Sort lines** by 5 criteria: alphabetical, reverse, by length, random.
+- **Word frequency**: occurrence analysis on the document or selection.
+- **Table alignment** for Markdown/LaTeX, **wrap in environment/tag**.
+- **Color Translator**: pick a color and get HTML/CSS name, `#HEX`, `rgb()`, `rgb(%)`, `hsl()` — insert or copy each format individually.
+- **Lorem Ipsum generator**: insert placeholder text with configurable paragraphs, sentences, and separator.
+- Interactive regex tester, numeric converter (dec/hex/bin/oct).
 
 ### 🏗️ Build Panel
-- Configurable build profiles per language (LaTeX, Python, C/C++, Markdown, etc.).
+- Configurable **build profiles** per language (LaTeX, Python, C/C++, Markdown, etc.).
 - **Command variables**: `${FILE}` (full path), `${DIR}` (directory), `${BASENAME}` (name without extension), `${BASEFILE}` (full path without extension), `${FILENAME}`, `${EXT}`, `${LINE}`, `${COL}`. Also accepted as `$(VAR)`.
-- Real-time output with **clickable error list** — click an error to jump to the line.
-- Automatic PDF detection after successful LaTeX compilation.
+- Real-time output with **clickable error list** — click an error to jump directly to the line.
+- **Automatic PDF detection**: the preview button activates instantly if a compiled PDF is already present.
+- **Auto-save** before compilation.
 
 ### 👁️ Preview Panel
-- **Live preview** for Markdown, HTML, reStructuredText, LaTeX, PDF.
-- **Hover preview**: mouse over image paths to see a floating thumbnail — including vector PDF.
-- **Math equation rendering** on hover in LaTeX/Markdown files.
+- **Live preview** for Markdown, HTML, reStructuredText, LaTeX (structure), PDF.
+- **Hover preview**: mouse over `\includegraphics{...}`, `![img](...)`, or `<img src="...">` to see a floating image thumbnail — including vector PDF.
+- **Math equation rendering** on hover in LaTeX/Markdown files (`$...$`, `$$...$$`, `\[...\]`).
 - **SyncTeX**: bidirectional sync between editor cursor and PDF position.
-- **Smart Crop**: auto-trim PDF white margins.
+- **Smart Crop**: auto-trim PDF white margins (`✂`).
+- Zoom with `Ctrl+Wheel`, page navigation with the scroll wheel.
 
 ### 💻 Integrated Terminal
-- Full terminal based on native PTY (`` Ctrl+` ``).
-- Supports any interactive program: vim, Python REPL, ssh, compilers.
+- Full terminal based on **native PTY** in the bottom panel (`` Ctrl+` ``).
+- Supports any interactive program: vim, Python REPL, ssh, git, compilers.
+- No external dependencies — works on all supported platforms.
+
+### ⚡ LSP — Language Server Protocol
+
+Native Language Server integration: real-time errors/warnings, hover documentation, go to definition, find references, rename symbol, format document.
+
+Supported servers: `pylsp` (Python), `clangd` (C/C++), `rust-analyzer` (Rust), `gopls` (Go), `typescript-language-server` (TS/JS), `texlab` (LaTeX).
+
+### ⚡ Task Runner
+
+Dedicated tab in the bottom panel with auto-discovery of project tasks (Makefile, `npm scripts`, `pyproject.toml`) and a field for arbitrary manual commands.
+
+### 🤖 AI Assistant (plugin)
+
+Dock panel with multi-provider AI chat:
+
+| Provider | Special features |
+|---|---|
+| **Anthropic Claude** | SSE streaming, Extended Thinking (Opus), models claude-opus-4-7 / claude-sonnet-4-6 / claude-haiku |
+| **OpenAI** | GPT-4o, GPT-4o-mini, o3-mini |
+| **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro |
+| **Ollama** | Local models (no key, no cost) |
+
+Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) directly from right-click in the editor. Bring-your-own-key — each provider has its own configurable API key.
 
 ### 🔌 Plugin System
+
 | Plugin | Function |
 |--------|----------|
 | **AI Assistant** | Multi-provider AI chat with streaming and contextual actions |
@@ -249,11 +298,12 @@ Runs natively on Linux, Windows, and FreeBSD.
 
 ### 🌍 Interface
 - **5 languages**: Italian, English, German, French, Spanish — switch at runtime.
-- **Theme editor** with live preview, import/export JSON.
+- **17 built-in themes** + theme editor with live preview; import/export JSON.
 - **Icon sets**: Lucide, Material, System — auto-downloaded on first use.
+- **Live clock** in the menu bar with localized date and time.
 - **Spell checker** (`F4`) — real-time spell checking with red squiggles for IT, EN, DE, FR, ES. Dictionary language is selectable independently from the UI language (Document → Dictionary Language). Right-click a highlighted word for suggestions, "Add to dictionary", or "Ignore all".
-- **Plain text mode** (`Ctrl+Alt+T`) — disable highlighting, brace matching and autocomplete per tab.
-- **Distraction-free writing mode** (`F11`) — fullscreen with all UI elements hidden. Fully restored on exit.
+- **Plain text mode** (`Ctrl+Alt+T`) — disable highlighting, brace matching and autocomplete per tab, restorable in one click.
+- **Distraction-free writing mode** (`F11`) — fullscreen with toolbar, statusbar, menubar, and panels hidden. Fully restored on exit.
 - **Session restore**: all files, cursor positions, and panel layout restored at startup. Optional auto-save on focus loss.
 - **Single instance**: opening files from the file manager sends them to the running window.
 
@@ -274,7 +324,7 @@ python main.py
 
 **Core dependencies** (always required):
 ```bash
-pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pyspellchecker PyGithub python-gitlab keyring
+pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pygments pyspellchecker PyGithub python-gitlab keyring
 ```
 
 **LaTeX optional** (only if you write/compile LaTeX):

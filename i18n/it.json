@@ -498,6 +498,7 @@
     "ftp_edit_profile": "Modifica profilo",
     "ftp_del_profile": "Elimina profilo",
     "ftp_parent_dir": "Directory padre",
+    "ftp_new_file": "Nuovo file",
     "terminal_clear": "Pulisci schermo",
     "terminal_restart": "Riavvia la sessione terminale",
     "terminal_stop": "Termina processo",

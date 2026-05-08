@@ -594,21 +594,21 @@ class _FtpPanel(QWidget):
 
     def _context_menu(self, pos) -> None:
         item = self._tree.itemAt(pos)
-        if not item:
-            return
-        data = item.data(0, Qt.ItemDataRole.UserRole)
-        if not data:
-            return
-        parent_dir, name, is_dir = data
-        full_path = str(PurePosixPath(parent_dir) / name)
-
         menu = QMenu(self)
-        if not is_dir:
-            menu.addAction("Apri", lambda: self._download_and_open(full_path))
-        menu.addAction("Rinomina", lambda: self._rename(full_path, name))
-        menu.addAction("Elimina", lambda: self._delete(full_path, name))
-        menu.addSeparator()
-        menu.addAction("Nuova cartella", self._mkdir)
+
+        if item:
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data:
+                parent_dir, name, is_dir = data
+                full_path = str(PurePosixPath(parent_dir) / name)
+                if not is_dir:
+                    menu.addAction("Apri", lambda: self._download_and_open(full_path))
+                menu.addAction("Rinomina", lambda: self._rename(full_path, name))
+                menu.addAction("Elimina", lambda: self._delete(full_path, name))
+                menu.addSeparator()
+
+        menu.addAction("📄 Nuovo file", self._new_file)
+        menu.addAction("📁 Nuova cartella", self._mkdir)
         menu.exec(self._tree.viewport().mapToGlobal(pos))
 
     def _rename(self, path: str, old_name: str) -> None:
@@ -662,6 +662,27 @@ class _FtpPanel(QWidget):
             self._list_directory(self._current_dir)
         except Exception as e:
             QMessageBox.warning(self, "FTP Browser", f"Creazione fallita:\n{e}")
+
+    def _new_file(self) -> None:
+        if not self._conn:
+            QMessageBox.warning(self, "FTP Browser", "Non connesso.")
+            return
+        name, ok = QInputDialog.getText(self, "Nuovo file", "Nome file:")
+        if not ok or not name.strip():
+            return
+        remote_path = str(PurePosixPath(self._current_dir) / name.strip())
+        try:
+            kind = self._conn[0]
+            buf = io.BytesIO(b"")
+            if kind == "ftp":
+                self._conn[1].storbinary(f"STOR {remote_path}", buf)
+            elif kind == "sftp":
+                self._conn[1].putfo(buf, remote_path)
+            self._list_directory(self._current_dir)
+            self._open_in_editor(remote_path, b"")
+            self._status.setText(f"✓ Creato: {remote_path}")
+        except Exception as e:
+            QMessageBox.warning(self, "FTP Browser", f"Creazione file fallita:\n{e}")
 
     # ── Upload file corrente ──────────────────────────────────────────────────
 
@@ -760,9 +781,6 @@ class FtpBrowserPlugin(BasePlugin):
         self.add_menu_action(main_window, "plugins",
                              "🌐 FTP Browser",
                              lambda: self._dock.setVisible(not self._dock.isVisible()))
-        self.add_menu_action(main_window, "plugins",
-                             "↑ Carica file corrente (FTP)",
-                             self._panel.upload_current)
         main_window._menus["plugins"].menuAction().setVisible(True)
 
     def on_unload(self) -> None:

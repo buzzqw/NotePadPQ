@@ -497,6 +497,7 @@
     "ftp_edit_profile": "Edit profile",
     "ftp_del_profile": "Delete profile",
     "ftp_parent_dir": "Parent directory",
+    "ftp_new_file": "New file",
     "terminal_clear": "Clear screen",
     "terminal_restart": "Restart terminal session",
     "terminal_stop": "Terminate process",

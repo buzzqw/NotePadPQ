@@ -151,6 +151,40 @@ _NAME_TO_EXT: dict[str, str] = {
     "diff":          ".diff",
     "ini/config":    ".ini",
     "testo normale": "",
+    # Pygments-backed
+    "go":            ".go",
+    "rust":          ".rs",
+    "php":           ".php",
+    "swift":         ".swift",
+    "kotlin":        ".kt",
+    "scala":         ".scala",
+    "dart":          ".dart",
+    "r":             ".r",
+    "toml":          ".toml",
+    "haskell":       ".hs",
+    "elixir":        ".ex",
+    "julia":         ".jl",
+}
+
+# Estensioni gestite tramite Pygments (nessun lexer nativo QScintilla)
+_PYGMENTS_EXT_MAP: dict[str, tuple[str, str]] = {
+    # ext: (alias Pygments, nome display)
+    ".go":    ("go",      "Go"),
+    ".rs":    ("rust",    "Rust"),
+    ".php":   ("php",     "PHP"),
+    ".phtml": ("php",     "PHP"),
+    ".swift": ("swift",   "Swift"),
+    ".kt":    ("kotlin",  "Kotlin"),
+    ".kts":   ("kotlin",  "Kotlin"),
+    ".r":     ("r",       "R"),
+    ".scala": ("scala",   "Scala"),
+    ".dart":  ("dart",    "Dart"),
+    ".hs":    ("haskell", "Haskell"),
+    ".lhs":   ("haskell", "Haskell"),
+    ".ex":    ("elixir",  "Elixir"),
+    ".exs":   ("elixir",  "Elixir"),
+    ".jl":    ("julia",   "Julia"),
+    ".toml":  ("toml",    "TOML"),
 }
 
 # ─── Funzioni pubbliche ───────────────────────────────────────────────────────
@@ -162,11 +196,15 @@ def set_lexer_by_extension(editor: "EditorWidget", ext: str) -> bool:
     """
     ext = ext.lower()
     entry = _EXT_MAP.get(ext)
-    if entry is None:
-        # Filenames speciali senza estensione
-        return False
-    lexer_class, lang_name = entry
-    return _apply_lexer(editor, lexer_class, lang_name)
+    if entry is not None:
+        lexer_class, lang_name = entry
+        return _apply_lexer(editor, lexer_class, lang_name)
+    # Fallback Pygments per estensioni non supportate nativamente
+    pg = _PYGMENTS_EXT_MAP.get(ext)
+    if pg:
+        alias, display = pg
+        return _set_pygments_lexer(editor, alias, display)
+    return False
 
 
 def set_lexer_by_path(editor: "EditorWidget", path: Path) -> bool:
@@ -205,9 +243,31 @@ def set_lexer_by_path(editor: "EditorWidget", path: Path) -> bool:
     return False
 
 
+def set_lexer_auto(editor: "EditorWidget") -> bool:
+    """Rileva e imposta automaticamente il lexer (dal path o dal contenuto)."""
+    path = getattr(editor, "file_path", None)
+    if path:
+        if set_lexer_by_path(editor, path):
+            return True
+    # Nessun path: prova dal contenuto
+    try:
+        content = editor.text()[:500] if editor.text() else ""
+        detected = _detect_from_content(content)
+        if detected:
+            return set_lexer_by_extension(editor, detected)
+    except Exception:
+        pass
+    # Nessun linguaggio rilevato → testo normale
+    editor.setLexer(None)
+    editor._current_language = ""
+    return True
+
+
 def set_lexer_by_name(editor: "EditorWidget", lang_name: str) -> bool:
     """Imposta il lexer per nome linguaggio (dal menu Documento)."""
     key = lang_name.lower()
+    if key == "automatico":
+        return set_lexer_auto(editor)
     ext = _NAME_TO_EXT.get(key)
     if ext is None:
         return False
@@ -261,6 +321,16 @@ def get_comment_chars(language: str) -> tuple[str, str]:
         "vbscript":   "'",
         "ini":        ";",
         "properties": "#",
+        "php":        "//",
+        "swift":      "//",
+        "kotlin":     "//",
+        "scala":      "//",
+        "dart":       "//",
+        "r":          "#",
+        "toml":       "#",
+        "haskell":    "--",
+        "elixir":     "#",
+        "julia":      "#",
     }
     block_comments = {
         "c/c++":      ("/*", "*/"),
@@ -273,6 +343,15 @@ def get_comment_chars(language: str) -> tuple[str, str]:
         "xml":        ("<!--", "-->"),
         "lua":        ("--[[", "]]"),
         "python":     ('"""', '"""'),
+        "go":         ("/*", "*/"),
+        "rust":       ("/*", "*/"),
+        "php":        ("/*", "*/"),
+        "swift":      ("/*", "*/"),
+        "kotlin":     ("/*", "*/"),
+        "scala":      ("/*", "*/"),
+        "dart":       ("/*", "*/"),
+        "haskell":    ("{-", "-}"),
+        "julia":      ("#=", "=#"),
     }
     return (
         line_comments.get(lc, "#"),
@@ -356,6 +435,39 @@ def _apply_lexer(editor: "EditorWidget",
             editor._latex_checker = checker
         except Exception:
             pass
+
+    return True
+
+
+def _set_pygments_lexer(editor: "EditorWidget", alias: str, display_name: str) -> bool:
+    """Istanzia un PygmentsLexer e lo applica all'editor."""
+    try:
+        from editor.pygments_lexer import PygmentsLexer
+        lexer = PygmentsLexer(alias, display_name, editor)
+        if lexer._pygments_lexer is None:
+            return False
+    except Exception:
+        return False
+
+    editor.setLexer(lexer)
+    editor._current_language = display_name
+    editor.SendScintilla(editor.SCI_COLOURISE, 0, -1)
+
+    try:
+        from config.themes import ThemeManager
+        from PyQt6.QtCore import QTimer
+        tm = ThemeManager.instance()
+        tm.apply_to_editor(editor)
+        QTimer.singleShot(50, lambda: tm.apply_to_editor(editor))
+    except Exception:
+        pass
+
+    try:
+        ac = getattr(editor, "_autocomplete", None)
+        if ac:
+            ac.set_language(display_name.lower())
+    except Exception:
+        pass
 
     return True
 

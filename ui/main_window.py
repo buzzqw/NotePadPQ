@@ -1209,15 +1209,24 @@ class MainWindow(QMainWindow):
 
     def _populate_file_type_menu(self, menu: QMenu) -> None:
         """Popola il submenu Imposta tipo di file — ordinato alfabeticamente con checkmark."""
-        types = sorted([
-            "Bash/Shell", "C/C++", "C#", "CMake", "CSS", "Diff",
-            "Go", "HTML", "INI/Config", "Java", "JavaScript",
-            "JSON", "LaTeX", "Lua", "Makefile", "Markdown",
-            "PHP", "Python", "Ruby", "Rust", "SQL",
-            "Testo normale", "TypeScript", "XML", "YAML",
-        ])
-        # QActionGroup per checkmark esclusivo
+        # Voce speciale "Automatico" sempre in cima
         from PyQt6.QtGui import QActionGroup
+        auto_action = QAction("Automatico", self)
+        auto_action.triggered.connect(lambda: self.action_set_language("Automatico"))
+        menu.addAction(auto_action)
+        menu.addSeparator()
+
+        types = sorted([
+            # QScintilla nativi
+            "Bash/Shell", "C/C++", "C#", "CMake", "CSS", "Diff",
+            "HTML", "INI/Config", "Java", "JavaScript",
+            "JSON", "LaTeX", "Lua", "Makefile", "Markdown",
+            "Python", "Ruby", "SQL",
+            "Testo normale", "TypeScript", "XML", "YAML",
+            # Pygments
+            "Dart", "Elixir", "Go", "Haskell", "Julia",
+            "Kotlin", "PHP", "R", "Rust", "Scala", "Swift", "TOML",
+        ])
         grp = QActionGroup(self)
         grp.setExclusive(True)
         self._file_type_actions: dict[str, QAction] = {}
@@ -1241,6 +1250,8 @@ class MainWindow(QMainWindow):
                 "text": "testo normale", "plain": "testo normale",
                 "bash": "bash/shell", "shell": "bash/shell",
                 "c++": "c/c++", "c": "c/c++",
+                "ini": "ini/config", "config": "ini/config",
+                "properties": "ini/config", "toml": "toml",
             }
             lang = _aliases.get(lang, lang)
             for key, act in self._file_type_actions.items():

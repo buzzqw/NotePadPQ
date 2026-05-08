@@ -33,7 +33,7 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 ## ✨ Funzionalità principali
 
 ### 📝 Editor avanzato
-- **Syntax highlighting** per oltre 30 linguaggi: Python, JavaScript, TypeScript, C/C++, Java, C#, Bash, SQL, LaTeX, Markdown, HTML, CSS, XML, JSON, YAML, Ruby, Perl, Lua, Pascal, Fortran, Verilog e molti altri.
+- **Syntax highlighting** per oltre 40 linguaggi: lexer nativi QScintilla (Python, JavaScript, TypeScript, C/C++, Java, C#, Bash, SQL, LaTeX, Markdown, HTML, CSS, XML, JSON, YAML, Ruby, Perl, Lua, Pascal, Fortran, Verilog…) più lexer Pygments per Go, Rust, PHP, Swift, Kotlin, Scala, Dart, R, TOML, Haskell, Elixir, Julia. La voce **Automatico** nel menu rileva il linguaggio da estensione, nome file e contenuto.
 - **Code folding** — collassa blocchi di codice, classi e funzioni direttamente nel margine.
 - **Smart Highlight** — al posizionamento del cursore su una parola, tutte le sue occorrenze vengono evidenziate automaticamente in tutto il documento, in modo fluido e senza rallentare la digitazione.
 - **Numeri di riga dinamici** — la larghezza si adatta automaticamente alla dimensione del file.
@@ -125,6 +125,7 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 | **Clipboard History** | Cronologia degli appunti con selezione rapida |
 | **Compare & Merge** | Confronto visuale side-by-side tra due file o versioni |
 | **Encrypt/Decrypt** | Cifratura/decifratura con AES-256-GCM e ChaCha20-Poly1305 |
+| **Foglio di Calcolo** | Editing completo di CSV, TSV, XLSX, XLS, XLSM, ODS con ordinamento, filtro, formule e grafici |
 | **FTP Browser** | Navigazione e modifica file su server FTP |
 | **Git Integration** | Stato repo, commit, diff, branch, PR/MR direttamente dall'editor |
 | **Hex Viewer** | Visualizzazione esadecimale dei file binari |
@@ -198,7 +199,7 @@ Runs natively on Linux, Windows, and macOS.
 ## ✨ Key Features
 
 ### 📝 Advanced Editor
-- **Syntax highlighting** for 30+ languages.
+- **Syntax highlighting** for 40+ languages: native QScintilla lexers (Python, JavaScript, TypeScript, C/C++, Java, C#, Bash, SQL, LaTeX, Markdown, HTML, CSS, XML, JSON, YAML, Ruby, Perl, Lua, Pascal, Fortran, Verilog…) plus Pygments-backed lexers (Go, Rust, PHP, Swift, Kotlin, Scala, Dart, R, TOML, Haskell, Elixir, Julia). **Auto-detect** from extension, filename, or content.
 - **Smart Highlight** — all occurrences of the word under the cursor are highlighted automatically, with no typing lag.
 - **Dynamic line numbers** — column width adapts to file size automatically.
 - **Code folding**, minimap, word wrap, auto-indent, auto-close brackets.
@@ -237,9 +238,11 @@ Runs natively on Linux, Windows, and macOS.
 ### 🔌 Plugin System
 | Plugin | Function |
 |--------|----------|
+| **AI Assistant** | Multi-provider AI chat with streaming and contextual actions |
 | **Clipboard History** | Multi-entry clipboard with quick selection |
 | **Compare & Merge** | Visual side-by-side file comparison |
 | **Encrypt/Decrypt** | AES-256-GCM and ChaCha20-Poly1305 encryption |
+| **Spreadsheet** | Full CSV, TSV, XLSX, XLS, XLSM, ODS editor with sort, filter, formulas, and charts |
 | **FTP Browser** | Browse and edit files on FTP servers |
 | **Git Integration** | Full Git panel: status, log, diff, branch, PR/MR |
 | **Hex Viewer** | Hexadecimal view of binary files |

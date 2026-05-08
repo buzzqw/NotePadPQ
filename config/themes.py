@@ -1006,6 +1006,14 @@ class ThemeManager(QObject):
         self._themes: dict[str, dict] = dict(BUILTIN_THEMES)
         self._user_themes_dir: Optional[Path] = None
         self._load_user_themes()
+        # Ripristina il tema scelto dall'utente (salvato in QSettings)
+        try:
+            from config.settings import Settings
+            saved = Settings.instance().get("theme/active", "Dark")
+            if saved and saved in self._themes:
+                self._active_name = saved
+        except Exception:
+            pass
 
     @classmethod
     def instance(cls) -> "ThemeManager":
@@ -1142,6 +1150,15 @@ class ThemeManager(QObject):
         lexer.setDefaultFont(base_font)
         lexer.setDefaultPaper(editor_bg)
         lexer.setDefaultColor(editor_fg)
+
+        # ── Pygments custom lexer (Go, Rust, PHP, Swift, Kotlin, ...) ────────────
+        try:
+            from editor.pygments_lexer import PygmentsLexer as _PygLex
+            if isinstance(lexer, _PygLex):
+                lexer.set_colors(tokens, font_family, font_size, editor_bg, editor_fg)
+                return
+        except ImportError:
+            pass
 
         # Prima passo: imposta sfondo e font uniformi per tutti gli stili
         default_tok = tokens.get("default", {})

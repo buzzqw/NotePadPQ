@@ -384,7 +384,13 @@ Tenendo il cursore fermo per mezzo secondo su determinati elementi, NotePadPQ mo
 
 **Documento → Imposta tipo di file** — seleziona manualmente il linguaggio di colorazione. NotePadPQ rileva automaticamente il tipo dal suffisso del file e dallo shebang (`#!/usr/bin/env python3`).
 
-Linguaggi supportati: Bash/Shell, Batch, C/C++, C#, CMake, CSS, Diff, Fortran, HTML, INI/Config, Java, JavaScript, JSON, LaTeX, Lua, Makefile, Markdown, Pascal, Perl, PostScript, Properties, Python, reStructuredText, Ruby, SPICE, SQL, TypeScript, Verilog, VHDL, XML, YAML, Testo normale.
+La voce **Automatico** (in cima al menu) ri-esegue il rilevamento automatico basandosi sul suffisso del file, sul nome file speciale (Makefile, Dockerfile, .gitignore…) e sul contenuto (shebang, `<?xml`, `\\documentclass`, ecc.).
+
+**Linguaggi con lexer nativo QScintilla** (veloci, con code folding): Bash/Shell, Batch, C/C++, C#, CMake, CSS, Diff, Fortran, HTML, INI/Config, Java, JavaScript, JSON, LaTeX, Lua, Makefile, Markdown, Pascal, Perl, PostScript, Python, reStructuredText, Ruby, SPICE, SQL, TypeScript, Verilog, VHDL, XML, YAML.
+
+**Linguaggi aggiuntivi tramite Pygments** (copertura sintassi più precisa): Dart, Elixir, Go, Haskell, Julia, Kotlin, PHP, R, Rust, Scala, Swift, TOML.
+
+L'apertura di un file con estensione `.go`, `.rs`, `.php`, `.swift`, `.kt`, `.scala`, `.dart`, `.r`, `.toml`, `.hs`, `.ex`, `.jl` attiva automaticamente il lexer Pygments corrispondente.
 
 ### Codifica (encoding)
 

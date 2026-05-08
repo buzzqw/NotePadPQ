@@ -1411,6 +1411,8 @@ class MainWindow(QMainWindow):
         for key, action in self._actions.items():
             icon_file = current_map.get(key)
             if not icon_file:
+                if key in toolbar_system_fallbacks:
+                    action.setIcon(style.standardIcon(toolbar_system_fallbacks[key]))
                 continue
             icon_path = icons_dir / icon_file
             if icon_path.exists():

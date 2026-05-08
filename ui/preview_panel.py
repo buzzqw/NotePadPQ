@@ -21,10 +21,11 @@ Il pannello non dipende da compilatori LaTeX esterni.
 
 from __future__ import annotations
 
+import bisect
 import re
 from typing import Optional
 
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSlot, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QThread, QEvent, pyqtSlot, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QToolBar, QToolButton, QSplitter, QSizePolicy,
@@ -103,6 +104,37 @@ class _ClickableLabel(QLabel):
         super().mousePressEvent(event)
 
 
+# ─── Preprocessore Markdown per sync bidirezionale ───────────────────────────
+
+def _inject_md_line_anchors(text: str):
+    """
+    Pre-processa il sorgente Markdown iniettando ancoraggi HTML prima di ogni
+    blocco significativo (titoli, capoversi, blocchi di codice, blockquote, ecc.).
+    Ritorna (modified_text, sorted_anchor_lines) dove anchor_lines è la lista
+    ordinata dei numeri di riga (1-based) per cui è stato inserito un ancoraggio.
+    """
+    lines = text.split('\n')
+    result = []
+    anchor_lines = []
+    prev_empty = True
+    in_fence = False
+
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        is_empty = not stripped
+        if stripped.startswith('```') or stripped.startswith('~~~'):
+            in_fence = not in_fence
+        if not is_empty and not in_fence:
+            if prev_empty or stripped.startswith('#'):
+                lineno = i + 1
+                result.append(f'<a name="line-{lineno}"></a>')
+                anchor_lines.append(lineno)
+        result.append(line)
+        prev_empty = is_empty
+
+    return '\n'.join(result), anchor_lines
+
+
 # ─── Worker thread per rendering Markdown ────────────────────────────────────────
 
 class _MarkdownWorker(QThread):
@@ -111,7 +143,7 @@ class _MarkdownWorker(QThread):
     Il thread principale non viene mai bloccato, indipendentemente
     dalla dimensione del documento.
     """
-    result_ready = pyqtSignal(str)
+    result_ready = pyqtSignal(str, list)  # (html, anchor_lines)
 
     def __init__(self, text: str):
         super().__init__()
@@ -119,19 +151,22 @@ class _MarkdownWorker(QThread):
 
     def run(self) -> None:
         try:
+            preprocessed, anchor_lines = _inject_md_line_anchors(self._text)
             if _HAS_MARKDOWN:
                 body = _markdown_lib.markdown(
-                    self._text,
+                    preprocessed,
                     extensions=["tables", "fenced_code", "toc"],
                 )
             else:
                 import html as _html
                 body = "<pre>" + _html.escape(self._text) + "</pre>"
-            self.result_ready.emit(_wrap_html(body))
+                anchor_lines = []
+            self.result_ready.emit(_wrap_html(body), anchor_lines)
         except Exception as e:
             import html as _html
             self.result_ready.emit(
-                _wrap_html(f"<pre>Errore rendering: {_html.escape(str(e))}</pre>")
+                _wrap_html(f"<pre>Errore rendering: {_html.escape(str(e))}</pre>"),
+                [],
             )
 
 
@@ -156,8 +191,11 @@ class PreviewPanel(QWidget):
         self._last_hash: int = 0   # evita re-render se il testo non è cambiato
         self._md_worker = None             # thread markdown
         self._needs_refresh: bool = False  # aggiornamento pendente mentre nascosto
+        self._md_anchor_lines: list = []   # righe sorgente con ancoraggio (1-based, ordinata)
+        self._md_anchor_pos_map: list = [] # [(doc_pos, line_no), ...] per backward sync
 
         self._build_ui()
+        self._web_fallback.viewport().installEventFilter(self)
         self.setMinimumWidth(200)
 
     # ── UI ────────────────────────────────────────────────────────────────────
@@ -474,16 +512,14 @@ class PreviewPanel(QWidget):
 
     @pyqtSlot(int, int)
     def _on_cursor_changed(self, line: int, col: int) -> None:
-        # Se la sincronizzazione è disattivata nelle impostazioni, fermati
         if not self._sync_cursor:
             return
-            
-        # Se stiamo guardando la struttura ad albero del LaTeX
         if self._mode == "latex":
             self._highlight_tree_item(line)
-        # Se stiamo guardando il PDF compilato (SyncTeX in azione!)
         elif self._mode == "pdf":
             self.go_to_pdf_page_for_line(line + 1)
+        elif self._mode == "markdown":
+            self._scroll_preview_to_line(line + 1)
 
     # ── Aggiornamento contenuto ───────────────────────────────────────────────
 
@@ -542,14 +578,14 @@ class PreviewPanel(QWidget):
         self._md_worker.result_ready.connect(self._on_markdown_ready)
         self._md_worker.start()
 
-    def _on_markdown_ready(self, html: str) -> None:
+    def _on_markdown_ready(self, html: str, anchor_lines: list) -> None:
         """Slot chiamato dal thread MD quando il rendering è pronto."""
-        # FIX: Accetta il risultato solo se proviene dal thread corrente
         if self.sender() == self._md_worker:
             self._md_worker = None
-            
         if self._mode == "markdown":
+            self._md_anchor_lines = anchor_lines
             self._show_html(html, force_webengine=False)
+            self._build_anchor_pos_map()
 
    
 
@@ -691,6 +727,77 @@ class PreviewPanel(QWidget):
                 self._editor.ensureLineVisible(lineno)
             except Exception:
                 pass
+
+    # ── Sync bidirezionale Markdown ───────────────────────────────────────────
+
+    def _scroll_preview_to_line(self, line_1based: int) -> None:
+        """Forward sync: scorri l'anteprima Markdown alla riga sorgente indicata."""
+        if not self._md_anchor_lines:
+            return
+        idx = bisect.bisect_right(self._md_anchor_lines, line_1based) - 1
+        if idx >= 0:
+            self._web_fallback.scrollToAnchor(f"line-{self._md_anchor_lines[idx]}")
+
+    def _build_anchor_pos_map(self) -> None:
+        """
+        Dopo setHtml(), itera il QTextDocument per costruire la mappa
+        posizione-documento → numero-riga-sorgente usata dal backward sync.
+        """
+        self._md_anchor_pos_map = []
+        doc = self._web_fallback.document()
+        block = doc.begin()
+        while block.isValid():
+            it = block.begin()
+            while not it.atEnd():
+                fragment = it.fragment()
+                if fragment.isValid():
+                    fmt = fragment.charFormat()
+                    names = fmt.anchorNames()
+                    if names:
+                        for name in names:
+                            if name.startswith('line-'):
+                                try:
+                                    self._md_anchor_pos_map.append(
+                                        (fragment.position(), int(name[5:]))
+                                    )
+                                except ValueError:
+                                    pass
+                it += 1
+            block = block.next()
+        self._md_anchor_pos_map.sort()
+
+    def _line_for_doc_pos(self, pos: int) -> Optional[int]:
+        """Ritorna il numero di riga sorgente (1-based) più vicino alla posizione pos nel documento."""
+        if not self._md_anchor_pos_map:
+            return None
+        lo, hi, result = 0, len(self._md_anchor_pos_map) - 1, None
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if self._md_anchor_pos_map[mid][0] <= pos:
+                result = self._md_anchor_pos_map[mid][1]
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        return result
+
+    def eventFilter(self, obj, event) -> bool:
+        """Backward sync: click nell'anteprima Markdown → salta alla riga nell'editor."""
+        if (obj is self._web_fallback.viewport()
+                and event.type() == QEvent.Type.MouseButtonPress
+                and event.button() == Qt.MouseButton.LeftButton
+                and self._mode == "markdown"
+                and self._sync_cursor
+                and self._editor is not None):
+            cursor = self._web_fallback.cursorForPosition(event.pos())
+            line = self._line_for_doc_pos(cursor.position())
+            if line is not None:
+                try:
+                    self._editor.setCursorPosition(line - 1, 0)
+                    self._editor.ensureLineVisible(line - 1)
+                    self._editor.setFocus()
+                except Exception:
+                    pass
+        return super().eventFilter(obj, event)
 
     # ── Aggiornamento impostazioni ────────────────────────────────────────────
 

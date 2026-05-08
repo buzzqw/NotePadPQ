@@ -169,6 +169,7 @@ _NAME_TO_EXT: dict[str, str] = {
 # Estensioni gestite tramite Pygments (nessun lexer nativo QScintilla)
 _PYGMENTS_EXT_MAP: dict[str, tuple[str, str]] = {
     # ext: (alias Pygments, nome display)
+    # Linguaggi non supportati nativamente da QScintilla
     ".go":    ("go",      "Go"),
     ".rs":    ("rust",    "Rust"),
     ".php":   ("php",     "PHP"),

@@ -1290,12 +1290,12 @@ class ThemeManager(QObject):
         # ── LaTeX / TeX ───────────────────────────────────────────────────────
         elif isinstance(lexer, QsciLexerTeX):
             _apply({
-                0: "default",
-                1: "special_char",
-                2: "command",
-                3: "math",
-                4: "command",
-                5: "string",
+                0: "default",       # Default
+                1: "special_char",  # Special (\, { } when acting as escape)
+                2: "operator",      # Group (brace pairs)
+                3: "math",          # Symbol
+                4: "command",       # Command (\command)
+                5: "default",       # Text (regular body text)
             })
 
         # ── HTML / XML ────────────────────────────────────────────────────────

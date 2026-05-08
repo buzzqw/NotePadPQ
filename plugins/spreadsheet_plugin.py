@@ -123,6 +123,7 @@ class SpreadsheetPlugin(BasePlugin):
             current_sheet=selected_sheet or (sheet_names[0] if sheet_names else ""),
             parent=self._mw
         )
+        widget.convert_to_text.connect(self._open_as_text)
         self._mw._tab_manager.add_spreadsheet_tab(widget, path.name, path)
 
     def open_spreadsheet_silent(self, path: Path, delimiter: str = ",",
@@ -163,6 +164,7 @@ class SpreadsheetPlugin(BasePlugin):
             current_sheet=sheet_names[0] if sheet_names else "",
             parent=self._mw
         )
+        widget.convert_to_text.connect(self._open_as_text)
         self._mw._tab_manager.add_spreadsheet_tab(widget, path.name, path)
 
     def _action_open(self) -> None:
@@ -173,6 +175,12 @@ class SpreadsheetPlugin(BasePlugin):
         )
         for p in paths:
             self.open_spreadsheet(Path(p))
+
+    def _open_as_text(self, content: str, suggested_name: str) -> None:
+        """Apre il contenuto convertito in una nuova scheda editor."""
+        ext = Path(suggested_name).suffix.lower()
+        editor = self._mw._tab_manager.new_tab(template_ext=ext)
+        editor.load_content(content)
 
     def on_unload(self) -> None:
         if hasattr(self._mw, "_spreadsheet_plugin"):

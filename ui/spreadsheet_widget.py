@@ -1228,6 +1228,7 @@ class SpreadsheetWidget(QWidget):
     """Widget principale foglio di calcolo. Va inserito come tab nel TabManager."""
 
     modified_changed = pyqtSignal(bool)
+    convert_to_text  = pyqtSignal(str, str)   # (content, suggested_filename)
 
     def __init__(self, path: Path, headers: list[str], data: list[list[str]],
                  read_only: bool = False, delimiter: str = ",",
@@ -1322,6 +1323,24 @@ class SpreadsheetWidget(QWidget):
         )
         btn_save_as.clicked.connect(self._save_as)
         toolbar.addWidget(btn_save_as)
+
+        btn_md = QPushButton("→ Markdown")
+        btn_md.setFixedHeight(24)
+        btn_md.setToolTip(
+            "Converte il foglio in tabella Markdown\n"
+            "Apre il risultato in una nuova scheda"
+        )
+        btn_md.clicked.connect(self._convert_markdown)
+        toolbar.addWidget(btn_md)
+
+        btn_tex = QPushButton("→ tabularx")
+        btn_tex.setFixedHeight(24)
+        btn_tex.setToolTip(
+            "Converte il foglio in ambiente tabularx LaTeX\n"
+            "Apre il risultato in una nuova scheda"
+        )
+        btn_tex.clicked.connect(self._convert_tabularx)
+        toolbar.addWidget(btn_tex)
 
         btn_chart = QPushButton("📊 Grafico")
         btn_chart.setFixedHeight(24)
@@ -1970,6 +1989,125 @@ class SpreadsheetWidget(QWidget):
             self._read_only = False
             self._file_label.setText(dest_path.name)
             self._model.mark_saved()
+
+    # ── Conversione testo ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_markdown_table(headers: list[str], data: list[list[str]]) -> str:
+        def esc(s: str) -> str:
+            return str(s).replace("|", "\\|").replace("\n", " ")
+
+        widths = [max(3, len(esc(h))) for h in headers]
+        for row in data:
+            for i in range(len(headers)):
+                cell = esc(row[i]) if i < len(row) else ""
+                widths[i] = max(widths[i], len(cell))
+
+        def pad(s: str, w: int) -> str:
+            return esc(s).ljust(w)
+
+        header_line = "| " + " | ".join(pad(h, widths[i]) for i, h in enumerate(headers)) + " |"
+        sep_line = "|" + "|".join("-" * (w + 2) for w in widths) + "|"
+        rows = []
+        for row in data:
+            cells = [pad(row[i] if i < len(row) else "", widths[i]) for i in range(len(headers))]
+            rows.append("| " + " | ".join(cells) + " |")
+        return "\n".join([header_line, sep_line] + rows)
+
+    @staticmethod
+    def _build_tabularx_table(headers: list[str], data: list[list[str]],
+                               caption: str = "") -> str:
+        _TEX_SPECIAL = str.maketrans({
+            "&": "\\&", "%": "\\%", "$": "\\$", "#": "\\#",
+            "_": "\\_", "{": "\\{", "}": "\\}", "~": "\\textasciitilde{}",
+            "^": "\\textasciicircum{}", "\\": "\\textbackslash{}",
+        })
+
+        def esc(s: str) -> str:
+            return str(s).translate(_TEX_SPECIAL)
+
+        n = len(headers)
+        col_spec = "X" * n if n else "X"
+        header_row = " & ".join(f"\\textbf{{{esc(h)}}}" for h in headers) + " \\\\"
+        rows_lines = [" & ".join(esc(row[i] if i < len(row) else "") for i in range(n)) + " \\\\"
+                      for row in data]
+        return "\n".join([
+            "% Richiede: \\usepackage{tabularx,booktabs}",
+            "\\begin{table}[htbp]",
+            "\\centering",
+            f"\\begin{{tabularx}}{{\\textwidth}}{{{col_spec}}}",
+            "\\toprule",
+            header_row,
+            "\\midrule",
+            *rows_lines,
+            "\\bottomrule",
+            "\\end{tabularx}",
+            f"\\caption{{{esc(caption)}}}",
+            "\\label{tab:}",
+            "\\end{table}",
+        ])
+
+    def _ask_sheets_scope(self, title: str) -> str:
+        """Chiede all'utente se convertire il foglio corrente o tutti i fogli.
+        Restituisce 'current', 'all', o 'cancel'."""
+        from PyQt6.QtWidgets import QMessageBox
+        msg = QMessageBox(self)
+        msg.setWindowTitle(title)
+        msg.setText(
+            f"Il file contiene {len(self._sheet_names)} fogli.\n"
+            "Vuoi convertire solo il foglio corrente o tutti i fogli?"
+        )
+        btn_curr = msg.addButton("Solo foglio corrente", QMessageBox.ButtonRole.AcceptRole)
+        btn_all  = msg.addButton("Tutti i fogli",        QMessageBox.ButtonRole.ActionRole)
+        btn_cancel = msg.addButton("Annulla",            QMessageBox.ButtonRole.RejectRole)
+        msg.exec()
+        clicked = msg.clickedButton()
+        if clicked is btn_all:
+            return "all"
+        if clicked is btn_curr:
+            return "current"
+        return "cancel"
+
+    def _convert_markdown(self) -> None:
+        scope = "current"
+        if len(self._sheet_names) > 1:
+            scope = self._ask_sheets_scope("Converti in Markdown")
+            if scope == "cancel":
+                return
+
+        if scope == "all":
+            parts: list[str] = []
+            for sheet_name in self._sheet_names:
+                headers, data, _ = SpreadsheetIO.load(self.file_path, sheet=sheet_name)
+                parts.append(f"## {sheet_name}\n\n" + self._build_markdown_table(headers, data))
+            content = "\n\n---\n\n".join(parts)
+        else:
+            content = self._build_markdown_table(
+                self._model.get_headers(), self._model.get_data()
+            )
+
+        self.convert_to_text.emit(content, f"{self.file_path.stem}.md")
+
+    def _convert_tabularx(self) -> None:
+        scope = "current"
+        if len(self._sheet_names) > 1:
+            scope = self._ask_sheets_scope("Converti in tabularx")
+            if scope == "cancel":
+                return
+
+        if scope == "all":
+            parts: list[str] = []
+            for sheet_name in self._sheet_names:
+                headers, data, _ = SpreadsheetIO.load(self.file_path, sheet=sheet_name)
+                parts.append(f"% {sheet_name}\n" + self._build_tabularx_table(headers, data, caption=sheet_name))
+            content = "\n\n".join(parts)
+        else:
+            caption = self._current_sheet or self.file_path.stem
+            content = self._build_tabularx_table(
+                self._model.get_headers(), self._model.get_data(), caption=caption
+            )
+
+        self.convert_to_text.emit(content, f"{self.file_path.stem}.tex")
 
     # ── API pubblica ──────────────────────────────────────────────────────────
 

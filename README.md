@@ -11,7 +11,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://python.org)
 [![PyQt6](https://img.shields.io/badge/PyQt6-6.x-green?logo=qt)](https://riverbankcomputing.com/software/pyqt/)
 [![License](https://img.shields.io/badge/License-EUPL%201.2-blue.svg)](EUPL-1.2%20EN.txt)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey)]()
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20FreeBSD-lightgrey)]()
 [![Version](https://img.shields.io/badge/Version-0.5.3-orange)]()
 
 [🇮🇹 Italiano](#-italiano) · [🇬🇧 English](#-english) · [💖 Dona / Donate](https://www.paypal.com/donate/?business=azanzani%40gmail.com&currency_code=EUR)
@@ -26,7 +26,7 @@
 
 NotePadPQ è un editor di testo avanzato, libero e open source, pensato per sviluppatori, scrittori tecnici e appassionati. Ispirato alla potenza di Notepad++ ma costruito con tecnologie moderne e multipiattaforma, offre un'interfaccia pulita e un set di funzionalità professionale — senza rinunciare alla leggerezza.
 
-Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativamente su Linux, Windows e macOS.
+Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativamente su Linux, Windows e FreeBSD.
 
 ---
 
@@ -191,7 +191,7 @@ python main.py file1.py file2.md  # apre i file specificati
 
 NotePadPQ is an advanced, free and open source text editor built with **Python 3**, **PyQt6**, and **QScintilla**. Inspired by Notepad++ but cross-platform and modern, it offers a professional feature set without sacrificing performance.
 
-Runs natively on Linux, Windows, and macOS.
+Runs natively on Linux, Windows, and FreeBSD.
 
 ---
 

@@ -63,7 +63,12 @@ def main():
     app.setApplicationName("NotePadPQ")
     app.setOrganizationName("NotePadPQ")
     app.setApplicationVersion("0.5.8")
-    
+
+    # Su alcune configurazioni Linux il flag può essere True di default.
+    # Lo forziamo False per garantire che le icone nei menu siano visibili.
+    from PyQt6.QtCore import Qt
+    app.setAttribute(Qt.ApplicationAttribute.AA_DontShowIconsInMenus, False)
+
     # ... resto del file invariato ...
 
     # ── Single instance ───────────────────────────────────────────────────────

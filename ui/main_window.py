@@ -796,6 +796,8 @@ class MainWindow(QMainWindow):
         """Ricostruisce i menu dopo un cambio lingua."""
         self._build_menus()
         self._rebuild_toolbar()
+        for _a in self._actions.values():
+            _a.setIconVisibleInMenu(True)
 
     def _act(self, key: str, shortcut: str = "",
              slot=None, checkable: bool = False,
@@ -1382,7 +1384,12 @@ class MainWindow(QMainWindow):
         self._toolbar.setMovable(False)
         from PyQt6.QtCore import QSize
         self._toolbar.setIconSize(QSize(20, 20))
+        self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self._rebuild_toolbar()
+        # Secondo refresh dopo show(): la palette è completamente inizializzata
+        # solo dopo il primo ciclo eventi. Su Debian Qt 6.8 questo è necessario
+        # per avere il colore corretto nelle icone SVG e per forzare il ridisegno.
+        QTimer.singleShot(300, self._rebuild_toolbar)
 
     def _rebuild_toolbar(self) -> None:
         """Carica le icone dal disco e le applica a toolbar e voci di menu."""
@@ -1418,7 +1425,14 @@ class MainWindow(QMainWindow):
             "about": QStyle.StandardPixmap.SP_MessageBoxInformation,
         }
 
-        # Applica icone a tutte le azioni registrate (toolbar + menu)
+        # Applica icone a tutte le azioni registrate (toolbar + menu).
+        # Su Qt6/Linux, QIcon(path_svg) usa il QSvgIconEngine che su alcune
+        # distribuzioni (Debian) lascia availableSizes() vuoto: Qt non disegna
+        # l'icona nei menu. Pre-renderizzando l'SVG come QPixmap con il colore
+        # testo della palette corrente (currentColor), availableSizes() riporta
+        # [24x24] e le icone sono visibili su qualsiasi tema (chiaro o scuro).
+        from PyQt6.QtGui import QPixmap as _QPixmap, QPalette as _QPalette
+        _wtext = self.palette().color(_QPalette.ColorRole.WindowText).name()
         for key, action in self._actions.items():
             icon_file = current_map.get(key)
             if not icon_file:
@@ -1427,20 +1441,39 @@ class MainWindow(QMainWindow):
                 continue
             icon_path = icons_dir / icon_file
             if icon_path.exists():
-                action.setIcon(QIcon(str(icon_path)))
+                try:
+                    svg_data = icon_path.read_bytes().replace(
+                        b'currentColor', _wtext.encode()
+                    )
+                    pm = _QPixmap()
+                    if pm.loadFromData(svg_data, 'SVG') and not pm.isNull():
+                        action.setIcon(QIcon(pm))
+                    else:
+                        action.setIcon(QIcon(str(icon_path)))
+                except Exception:
+                    action.setIcon(QIcon(str(icon_path)))
             elif key in toolbar_system_fallbacks:
                 action.setIcon(style.standardIcon(toolbar_system_fallbacks[key]))
 
         # Ricostruzione fisica toolbar
+        from PyQt6.QtWidgets import QToolButton
         _groups = [["new", "open", "save", "save_all"], ["find", "replace"], ["undo", "redo"], ["compile", "run"]]
         for group in _groups:
             added = False
             for k in group:
                 if k in self._actions:
-                    tb.addAction(self._actions[k])
+                    action = self._actions[k]
+                    tb.addAction(action)
+                    # Imposta l'icona direttamente sul QToolButton perché su
+                    # Debian Qt 6.8 la propagazione QAction→QToolButton non
+                    # aggiorna la visualizzazione dell'icona in modo affidabile.
+                    btn = tb.widgetForAction(action)
+                    if isinstance(btn, QToolButton) and not action.icon().isNull():
+                        btn.setIcon(action.icon())
                     added = True
             if added:
                 tb.addSeparator()
+        tb.update()
 
     def download_icon_set(self, set_name: str) -> None:
         """Scarica un set di icone completo. Chiamato dal pannello Preferenze."""

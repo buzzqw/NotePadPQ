@@ -273,6 +273,12 @@ class Session:
                 main_window.restoreState(layout_bytes)
                 # Sincronizza i checkmark del menu con lo stato reale dei dock
                 self._sync_dock_actions(main_window)
+                # restoreState() può alterare lo stato interno della toolbar;
+                # forza un rebuild delle icone per garantirne la visibilità.
+                try:
+                    main_window._rebuild_toolbar()
+                except Exception:
+                    pass
 
         except Exception as le:
             print(f"[session] Layout dock non ripristinato: {le}")

@@ -299,7 +299,10 @@ class EditorWidget(QsciScintilla):
         # Invalida la cache smart-hl quando il testo cambia
         self.textChanged.connect(self._invalidate_hl_cache)
         # --- FINE SPELL CHECKER ---
-        
+
+        # Multi-cursore (Ctrl+D, Ctrl+Shift+D, Ctrl+Alt+↑/↓, …)
+        from editor.multicursor import MultiCursorManager
+        self._multicursor = MultiCursorManager(self)
 
         self._setup_base()
         self._setup_margins()

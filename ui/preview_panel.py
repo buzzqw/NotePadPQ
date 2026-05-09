@@ -127,7 +127,10 @@ def _inject_md_line_anchors(text: str):
         if not is_empty and not in_fence:
             if prev_empty or stripped.startswith('#'):
                 lineno = i + 1
+                if not prev_empty:
+                    result.append('')   # riga vuota prima dell'ancora se non c'è già
                 result.append(f'<a name="line-{lineno}"></a>')
+                result.append('')       # riga vuota dopo l'ancora per separare il blocco
                 anchor_lines.append(lineno)
         result.append(line)
         prev_empty = is_empty

@@ -800,25 +800,30 @@ class MainWindow(QMainWindow):
             _a.setIconVisibleInMenu(True)
 
     def _act(self, key: str, shortcut: str = "",
-             slot=None, checkable: bool = False,
-             checked: bool = False) -> QAction:
-        """
-        Crea o aggiorna un QAction identificato da key i18n.
-        Registra l'azione in self._actions per l'editor scorciatoie.
-        """
-        action = QAction(tr(f"action.{key}"), self)
-        if shortcut:
-            action.setShortcut(QKeySequence(shortcut))
-            action.setShortcutContext(
-                Qt.ShortcutContext.WindowShortcut
-            )
-        if checkable:
-            action.setCheckable(True)
-            action.setChecked(checked)
-        if slot:
-            action.triggered.connect(slot)
-        self._actions[key] = action
-        return action
+                 slot=None, checkable: bool = False,
+                 checked: bool = False) -> QAction:
+            """
+            Crea o aggiorna un QAction identificato da key i18n.
+            Registra l'azione in self._actions per l'editor scorciatoie.
+            """
+            action = QAction(tr(f"action.{key}"), self)
+            
+            # AGGIUNGI QUESTA RIGA: 
+            # Scavalca la restrizione di GNOME/Debian e forza l'icona nel menu
+            action.setIconVisibleInMenu(True)
+            
+            if shortcut:
+                action.setShortcut(QKeySequence(shortcut))
+                action.setShortcutContext(
+                    Qt.ShortcutContext.WindowShortcut
+                )
+            if checkable:
+                action.setCheckable(True)
+                action.setChecked(checked)
+            if slot:
+                action.triggered.connect(slot)
+            self._actions[key] = action
+            return action
 
     def _sep(self, menu: QMenu) -> None:
         menu.addSeparator()

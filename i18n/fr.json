@@ -328,7 +328,8 @@
     "update_available": "La version {version} est disponible.",
     "no_updates": "NotePadPQ est à jour.",
     "file_changed_on_disk": "Le fichier \"{name}\" a été modifié par un autre programme. Que voulez-vous faire?",
-    "about_text": "NotePadPQ {version}\nÉditeur de texte avancé pour Linux, FreeBSD et Windows.\n\nBasé sur PyQt6 + QScintilla."
+    "about_text": "NotePadPQ {version}\nÉditeur de texte avancé pour Linux, FreeBSD et Windows.\n\nBasé sur PyQt6 + QScintilla.",
+    "manual_not_found": "Manuel introuvable."
   },
   "pref": {
     "title": "Préférences",

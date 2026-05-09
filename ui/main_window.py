@@ -2638,12 +2638,20 @@ class MainWindow(QMainWindow):
 
     def action_open_manual(self) -> None:
         from pathlib import Path
-        manual_path = Path(__file__).parent.parent / "MANUALE.md"
-        if manual_path.is_file():
-            self.open_files([manual_path])
-        else:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, tr("action.manual"), "MANUALE.md non trovato.")
+        from i18n.i18n import I18n
+        root = Path(__file__).parent.parent
+        lang = I18n.instance().current_language().upper()  # "IT", "EN", "DE", "FR", "ES"
+        candidates = [
+            root / f"MANUAL_{lang}.md",
+            root / "MANUAL_EN.md",   # fallback inglese
+            root / "MANUALE.md",     # compatibilità con versioni precedenti
+        ]
+        for path in candidates:
+            if path.is_file():
+                self.open_files([path])
+                return
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.warning(self, tr("action.manual"), tr("msg.manual_not_found"))
 
     def action_about(self) -> None:
         from PyQt6.QtWidgets import QMessageBox, QLabel

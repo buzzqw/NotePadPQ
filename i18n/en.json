@@ -330,7 +330,8 @@
     "update_available": "Version {version} is available.",
     "no_updates": "NotePadPQ is up to date.",
     "file_changed_on_disk": "File \"{name}\" was modified by another program. What do you want to do?",
-    "about_text": "NotePadPQ {version}\nAdvanced text editor for Linux, FreeBSD and Windows.\n\nBased on PyQt6 + QScintilla."
+    "about_text": "NotePadPQ {version}\nAdvanced text editor for Linux, FreeBSD and Windows.\n\nBased on PyQt6 + QScintilla.",
+    "manual_not_found": "Manual not found."
   },
   "pref": {
     "title": "Preferences",

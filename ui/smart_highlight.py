@@ -35,6 +35,7 @@ from typing import Optional, TYPE_CHECKING
 from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QColor, QIcon, QKeySequence, QAction, QPixmap
 from PyQt6.QtWidgets import QApplication
+from i18n.i18n import tr 
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -141,7 +142,9 @@ class SmartHighlighter:
         search_menu = main_window._menus.get("search")
         if search_menu:
             search_menu.addSeparator()
-            act = QAction("Evidenziazione automatica parola", main_window)
+            # Usa tr() per la traduzione
+            testo = tr("action.smart_highlight", default="Evidenziazione automatica parola")
+            act = QAction(testo, main_window)
             act.setCheckable(True)
             act.setChecked(hl._enabled)
             act.triggered.connect(hl.set_enabled)
@@ -305,7 +308,6 @@ class MultiMarkManager:
             for line in range(editor.lines()):
                 text = editor.text(line)
                 for m in re.finditer(pattern, text):
-                    # Calcola i byte esatti per QScintilla (evita sfasamenti con accenti)
                     byte_start = len(text[:m.start()].encode('utf-8'))
                     byte_end   = len(text[:m.end()].encode('utf-8'))
                     editor.fillIndicatorRange(line, byte_start, line, byte_end, color_idx)
@@ -313,9 +315,8 @@ class MultiMarkManager:
         except Exception:
             pass
         color_num = color_idx - _MARK_INDICATOR_BASE + 1
-        self._mw.statusBar().showMessage(
-            f"🎨 Colore {color_num}: {count} occorrenze evidenziate", 3000
-        )
+        msg = tr("msg.mark_occurrences", default="🎨 Colore {color_num}: {count} occorrenze evidenziate", color_num=color_num, count=count)
+        self._mw.statusBar().showMessage(msg, 3000)
 
     def clear_color(self, color_index: int) -> None:
         """Rimuove tutti i mark del colore dato (0-based)."""
@@ -333,7 +334,8 @@ class MultiMarkManager:
         """Rimuove tutti i mark di tutti i colori."""
         for i in range(5):
             self.clear_color(i)
-        self._mw.statusBar().showMessage("🎨 Tutti i mark rimossi", 2000)
+        msg = tr("msg.marks_cleared", default="🎨 Tutti i mark rimossi")
+        self._mw.statusBar().showMessage(msg, 2000)
 
     def _word_range(self, editor: "EditorWidget"):
         """Restituisce (word, line_s, col_s, line_e, col_e) della parola al cursore."""
@@ -353,27 +355,31 @@ class MultiMarkManager:
 
     @staticmethod
     def install_into_main_window(main_window: "MainWindow") -> "MultiMarkManager":
-        """
-        Crea il MultiMarkManager e installa le shortcut Ctrl+0..5
-        nel menu Cerca di MainWindow.
-        Chiamare da MainWindow._setup_connections() o simile.
-        """
         mgr = MultiMarkManager(main_window)
 
         search_menu = main_window._menus.get("search")
         if search_menu:
-            color_names = ["Rosso", "Verde", "Blu", "Arancione", "Viola"]
+            color_keys = ["red", "green", "blue", "orange", "purple"]
+            color_defaults = ["Rosso", "Verde", "Blu", "Arancione", "Viola"]
+            
             for i in range(1, 6):
                 color = _MARK_COLORS[i - 1]
                 pm = QPixmap(12, 12)
                 pm.fill(color)
                 icon = QIcon(pm)
-                act = QAction(icon, f"Evidenzia in {color_names[i - 1]}  (Ctrl+{i})", main_window)
+                
+                # Traduciamo il nome del colore
+                c_name = tr(f"color.{color_keys[i-1]}", default=color_defaults[i-1])
+                # Traduciamo la stringa dell'azione intera
+                testo = tr("action.mark_color", default="Evidenzia in {color}  (Ctrl+{num})", color=c_name, num=i)
+                
+                act = QAction(icon, testo, main_window)
                 act.setShortcut(QKeySequence(f"Ctrl+{i}"))
                 act.triggered.connect(lambda checked, idx=i - 1: mgr.mark(idx))
                 search_menu.addAction(act)
 
-            act_clear = QAction("🎨 Rimuovi tutti i mark", main_window)
+            testo_clear = "🎨 " + tr("action.clear_marks", default="Rimuovi tutti i mark")
+            act_clear = QAction(testo_clear, main_window)
             act_clear.setShortcut(QKeySequence("Ctrl+0"))
             act_clear.triggered.connect(mgr.clear_all)
             search_menu.addAction(act_clear)

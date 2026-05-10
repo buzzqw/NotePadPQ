@@ -206,8 +206,12 @@
     "lsp_format": "Dokument formatieren (LSP)",
     "lsp_diag": "Diagnostik anzeigen",
     "view_json_xml_panel": "JSON/XML-Struktur",
+    "smart_highlight": "Wort automatisch hervorheben",
+    "mark_color": "In {color} hervorheben (Strg+{num})",
+    "clear_marks": "Alle Markierungen entfernen",
     "format_document": "Dokument formatieren"
   },
+  "color": { "red": "Rot", "green": "Grün", "blue": "Blau", "orange": "Orange", "purple": "Lila" },
   "label": {
     "language": "Sprache",
     "encoding": "Codierung",
@@ -329,6 +333,11 @@
     "no_updates": "NotePadPQ ist auf dem neuesten Stand.",
     "file_changed_on_disk": "Die Datei \"{name}\" wurde von einem anderen Programm geändert. Was möchten Sie tun?",
     "about_text": "NotePadPQ {version}\nErweiterter Texteditor für Linux, FreeBSD und Windows.\n\nBasiert auf PyQt6 + QScintilla.",
+    "update_prompt": "Eine neue Version ist verfügbar!\nAktuelle Version: {current}\nNeue Version: {latest}\n\nMöchten Sie die Seite öffnen, um das Update herunterzuladen?",
+    "update_ok": "Sie verwenden die neueste verfügbare Version ({current}).\nKein Update erforderlich.",
+    "update_error": "Nach Updates kann derzeit nicht gesucht werden.\nBitte überprüfen Sie Ihre Verbindung oder versuchen Sie es später noch einmal.\n\nDetails: {error}",
+    "mark_occurrences": "🎨 Farbe {color_num}: {count} Vorkommen hervorgehoben",
+    "marks_cleared": "🎨 Alle Markierungen entfernt",
     "manual_not_found": "Handbuch nicht gefunden."
   },
   "pref": {
@@ -373,6 +382,7 @@
       "whitespace": "Leerzeichen anzeigen",
       "eol": "Zeilenende anzeigen",
       "word_wrap": "Zeilenumbruch",
+      "git_gutter": "Git-Änderungen am Rand anzeigen",
       "minimap": "Minimap"
     },
     "aspect": {
@@ -434,6 +444,17 @@
   "preview": {
     "refresh": "Aktualisieren",
     "plain_text": "Klartext"
+  },
+  "plugin": {
+    "spreadsheet": {
+      "menu": "Tabellenkalkulation",
+      "open": "Tabelle öffnen...",
+      "select_sheet_title": "Tabelle auswählen",
+      "select_sheet_prompt": "Die Datei enthält {count} Tabellen.\nWählen Sie die zu öffnende Tabelle:",
+      "title": "Tabellenkalkulation",
+      "open_error": "Datei kann nicht geöffnet werden:\n{error}",
+      "open_dialog": "Tabelle öffnen"
+    }
   },
   "tooltip": {
     "build_profile_label": "Profil automatisch nach Dateityp ausgewählt.\nSie können es mit dem Auswahlfeld rechts überschreiben.",

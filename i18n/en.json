@@ -208,8 +208,12 @@
     "lsp_format": "Format Document (LSP)",
     "lsp_diag": "Show Diagnostics",
     "view_json_xml_panel": "JSON/XML Structure",
+    "smart_highlight": "Smart Highlight Word",
+    "mark_color": "Highlight in {color} (Ctrl+{num})",
+    "clear_marks": "Clear all marks",
     "format_document": "Format Document"
   },
+  "color": { "red": "Red", "green": "Green", "blue": "Blue", "orange": "Orange", "purple": "Purple" },
   "label": {
     "language": "Language",
     "encoding": "Encoding",
@@ -331,7 +335,12 @@
     "no_updates": "NotePadPQ is up to date.",
     "file_changed_on_disk": "File \"{name}\" was modified by another program. What do you want to do?",
     "about_text": "NotePadPQ {version}\nAdvanced text editor for Linux, FreeBSD and Windows.\n\nBased on PyQt6 + QScintilla.",
-    "manual_not_found": "Manual not found."
+    "manual_not_found": "Manual not found.",
+    "update_prompt": "A new version is available!\nCurrent version: {current}\nNew version: {latest}\n\nDo you want to open the page to download the update?",
+    "update_ok": "You are using the latest version available ({current}).\nNo update required.",
+    "mark_occurrences": "🎨 Color {color_num}: {count} occurrences highlighted",
+    "marks_cleared": "🎨 All marks cleared",
+    "update_error": "Unable to check for updates at this time.\nPlease check your connection or try again later.\n\nDetails: {error}"
   },
   "pref": {
     "title": "Preferences",
@@ -375,6 +384,7 @@
       "whitespace": "Show whitespace",
       "eol": "Show end of line",
       "word_wrap": "Word wrap",
+      "git_gutter": "Show Git changes in margin",
       "minimap": "Minimap"
     },
     "aspect": {
@@ -436,6 +446,17 @@
   "preview": {
     "refresh": "Refresh",
     "plain_text": "Plain text"
+  },
+  "plugin": {
+    "spreadsheet": {
+      "menu": "Spreadsheet",
+      "open": "Open spreadsheet...",
+      "select_sheet_title": "Select Sheet",
+      "select_sheet_prompt": "The file contains {count} sheets.\nChoose the sheet to open:",
+      "title": "Spreadsheet",
+      "open_error": "Cannot open file:\n{error}",
+      "open_dialog": "Open spreadsheet"
+    }
   },
   "tooltip": {
     "build_profile_label": "Profile selected automatically based on file type.\nYou can override it with the combo on the right.",

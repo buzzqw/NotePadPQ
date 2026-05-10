@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
 from plugins.base_plugin import BasePlugin
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -49,9 +50,14 @@ class SpreadsheetPlugin(BasePlugin):
             return
 
         from PyQt6.QtGui import QAction
-        sub = m.addMenu("📊 Foglio di calcolo")
+        
+        # Traduzione per il menu principale
+        menu_name = tr("plugin.spreadsheet.menu", default="Foglio di calcolo")
+        sub = m.addMenu(f"📊 {menu_name}")
 
-        act_open = QAction("Apri foglio...", main_window)
+        # Traduzione per l'azione "Apri foglio"
+        act_open_name = tr("plugin.spreadsheet.open", default="Apri foglio...")
+        act_open = QAction(act_open_name, main_window)
         act_open.triggered.connect(self._action_open)
         sub.addAction(act_open)
         self._menu_actions.append(act_open)
@@ -90,12 +96,12 @@ class SpreadsheetPlugin(BasePlugin):
         else:
             sheet_names = SpreadsheetIO.get_sheet_names(path)
             if len(sheet_names) > 1:
+                prompt = tr("plugin.spreadsheet.select_sheet_prompt", count=len(sheet_names), 
+                            default="Il file contiene {count} fogli.\nScegli il foglio da aprire:")
+                title = tr("plugin.spreadsheet.select_sheet_title", default="Seleziona foglio")
+                
                 chosen, ok = QInputDialog.getItem(
-                    self._mw,
-                    "Seleziona foglio",
-                    f"Il file contiene {len(sheet_names)} fogli.\n"
-                    f"Scegli il foglio da aprire:",
-                    sheet_names, 0, False
+                    self._mw, title, prompt, sheet_names, 0, False
                 )
                 if not ok:
                     return
@@ -103,10 +109,10 @@ class SpreadsheetPlugin(BasePlugin):
             headers, data, error = SpreadsheetIO.load(path, sheet=selected_sheet)
 
         if error and not headers:
-            QMessageBox.critical(
-                self._mw, "Foglio di calcolo",
-                f"Impossibile aprire il file:\n{error}"
-            )
+            msg_title = tr("plugin.spreadsheet.title", default="Foglio di calcolo")
+            msg_error = tr("plugin.spreadsheet.open_error", error=error, 
+                           default="Impossibile aprire il file:\n{error}")
+            QMessageBox.critical(self._mw, msg_title, msg_error)
             return
 
         if not headers and not data:
@@ -168,8 +174,9 @@ class SpreadsheetPlugin(BasePlugin):
         self._mw._tab_manager.add_spreadsheet_tab(widget, path.name, path)
 
     def _action_open(self) -> None:
+        dialog_title = tr("plugin.spreadsheet.open_dialog", default="Apri foglio di calcolo")
         paths, _ = QFileDialog.getOpenFileNames(
-            self._mw, "Apri foglio di calcolo",
+            self._mw, dialog_title,
             str(Path.home()),
             _FILTER
         )

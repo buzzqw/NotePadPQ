@@ -100,6 +100,9 @@ class GitGutter(QObject):
         super().__init__(main_window)
         self._mw = main_window
         self._active_editor: Optional["EditorWidget"] = None
+        
+        from config.settings import Settings
+        self._enabled = Settings.instance().get("editor/git_gutter", True)
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -113,6 +116,18 @@ class GitGutter(QObject):
         if ed:
             self._on_editor_changed(ed)
 
+    def set_enabled(self, enabled: bool) -> None:
+        """Attiva o disattiva il Git Gutter a caldo."""
+        self._enabled = enabled
+        if not enabled:
+            self._timer.stop()
+            # Pulisce i margini di tutti gli editor aperti
+            for ed in self._mw._tab_manager.all_editors():
+                if hasattr(ed, "update_git_gutter"):
+                    ed.update_git_gutter(set(), set(), set())
+        else:
+            self._refresh()
+
     def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
         if self._active_editor:
             try:
@@ -125,9 +140,13 @@ class GitGutter(QObject):
             self._refresh()
 
     def _schedule(self) -> None:
-        self._timer.start()
+        if self._enabled:
+            self._timer.start()
 
     def _refresh(self) -> None:
+        if not self._enabled:
+            return
+            
         editor = self._active_editor
         if not editor or not editor.file_path:
             return

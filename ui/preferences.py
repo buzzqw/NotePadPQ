@@ -124,26 +124,28 @@ class PreferencesDialog(QDialog):
 
         vl.addWidget(grp_indent)
 
-        # Visualizzazione (QUI IL FIX)
+        # Visualizzazione
         grp_view = QGroupBox(tr("pref.editor.view", default="Visualizzazione"))
-        vv = QVBoxLayout()  # Creazione layout senza padre immediato
-        grp_view.setLayout(vv)  # Assegnazione esplicita per forzare i ricalcoli
+        vv = QVBoxLayout()  
+        grp_view.setLayout(vv)  
         vv.setSpacing(6)
-
+        
         self._show_line_numbers = QCheckBox(tr("pref.editor.line_numbers", default="Numeri di riga"))
         self._show_fold_margin  = QCheckBox(tr("pref.editor.fold_margin",  default="Margine code folding"))
         self._show_whitespace   = QCheckBox(tr("pref.editor.whitespace",   default="Mostra spazi/tab"))
         self._show_eol          = QCheckBox(tr("pref.editor.eol",          default="Mostra fine riga"))
         self._word_wrap         = QCheckBox(tr("pref.editor.word_wrap",    default="A capo automatico"))
         self._show_minimap      = QCheckBox(tr("pref.editor.minimap",      default="Minimap (pannello laterale)"))
-
+        self._git_gutter_cb     = QCheckBox(tr("pref.editor.git_gutter",   default="Mostra modifiche Git a margine"))
+        
         vv.addWidget(self._show_line_numbers)
         vv.addWidget(self._show_fold_margin)
         vv.addWidget(self._show_whitespace)
         vv.addWidget(self._show_eol)
         vv.addWidget(self._word_wrap)
         vv.addWidget(self._show_minimap)
-
+        vv.addWidget(self._git_gutter_cb)
+        
         vl.addWidget(grp_view)
 
         # Edge column (riga guida verticale)
@@ -480,6 +482,7 @@ class PreferencesDialog(QDialog):
         self._show_eol.setChecked(s.get("editor/show_eol", False))
         self._word_wrap.setChecked(s.get("editor/word_wrap", False))
         self._show_minimap.setChecked(s.get("editor/show_minimap", False))
+        self._git_gutter_cb.setChecked(s.get("editor/git_gutter", True))
         self._edge_column.setValue(s.get("editor/edge_column", 0))
 
         # Aspetto
@@ -601,7 +604,24 @@ class PreferencesDialog(QDialog):
         s.set("editor/show_eol",          self._show_eol.isChecked())
         s.set("editor/word_wrap",         self._word_wrap.isChecked())
         s.set("editor/show_minimap",      self._show_minimap.isChecked())
+        s.set("editor/git_gutter",        self._git_gutter_cb.isChecked())
         s.set("editor/edge_column",       self._edge_column.value())
+        
+        # Hot reload per il Git Gutter
+        mw = self.parent()
+        while mw is not None and not hasattr(mw, "_tab_manager"):
+            mw = mw.parent()
+        if mw is not None:
+            is_git_gutter = self._git_gutter_cb.isChecked()
+            if hasattr(mw, "_git_gutter"):
+                mw._git_gutter.set_enabled(is_git_gutter)
+            elif is_git_gutter:
+                # Se non esisteva (era stato avviato da spento) e lo stiamo accendendo
+                try:
+                    from ui.git_gutter import GitGutter
+                    mw._git_gutter = GitGutter(mw)
+                except Exception:
+                    pass
 
         # Aspetto — applica tema a caldo
         theme_name = self._theme_combo.currentText()

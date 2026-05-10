@@ -2692,85 +2692,88 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, tr("action.manual"), tr("msg.manual_not_found"))
 
     def action_about(self) -> None:
-        from PyQt6.QtWidgets import QMessageBox, QLabel
-        from PyQt6.QtCore import Qt
-
-        # Creiamo l'istanza del messaggio
-        msg = QMessageBox(self)
-        msg.setWindowTitle(tr("action.about"))
-        
-        # Inseriamo il tuo HTML originale
-        content = (
-            f"<h2>NotePadPQ {self.APP_VERSION}</h2>"
-            "<p>Editor di testo avanzato multi-linguaggio.</p>"
-            "<hr>"
-            "<p><b>Sviluppato da:</b> Andres Zanzani<br>"
-            "<b>Contatto:</b> <a href='mailto:azanzani@gmail.com'>azanzani@gmail.com</a></p>"
-            "<p><b>Supporta il progetto:</b><br>"
-            "Dona via PayPal a <a href='https://paypal.me/azanzani'>azanzani@gmail.com</a></p>"
-            "<hr>"
-            f"<small>Python · PyQt6 · QScintilla</small>"
-        )
-        
-        msg.setText(content)
-        # Usiamo l'icona informativa standard (simile a .about)
-        msg.setIcon(QMessageBox.Icon.Information)
-
-        # --- LOGICA SEGRETA: Triplo click sulla scritta NotePadPQ ---
-        for label in msg.findChildren(QLabel):
-            if "NotePadPQ" in label.text():
-                # Cambiamo il cursore per dare un indizio che "c'è qualcosa"
-                label.setCursor(Qt.CursorShape.PointingHandCursor)
-                # Installiamo il filtro (assicurati che TripleClickFilter sia definito nel file)
-                self._about_arc_filter = TripleClickFilter(self, self._launch_arcade)
-                label.installEventFilter(self._about_arc_filter)
-        # ------------------------------------------------------------
-
-        msg.exec()
+            from PyQt6.QtWidgets import QMessageBox, QLabel
+            from PyQt6.QtCore import Qt
+    
+            # Creiamo l'istanza del messaggio
+            msg = QMessageBox(self)
+            msg.setWindowTitle(tr("action.about"))
+            
+            # 1. Recuperiamo il testo tradotto dal file JSON
+            # Sostituiamo gli "a capo" testuali (\n) con quelli in HTML (<br>)
+            testo_base = tr("msg.about_text", version=self.APP_VERSION).replace('\n', '<br>')
+            
+            # 2. Recuperiamo alcune etichette tradotte (Autore, Donazioni) per la parte inferiore
+            autore_label = tr("label.plugin_author")
+            dona_label = tr("action.donate").replace("...", "")
+    
+            # 3. Costruiamo l'HTML combinando le traduzioni e i tuoi link originali
+            content = (
+                f"<h2>{testo_base}</h2>"
+                "<hr>"
+                f"<p><b>{autore_label}:</b> Andres Zanzani<br>"
+                "<b>Email:</b> <a href='mailto:azanzani@gmail.com'>azanzani@gmail.com</a></p>"
+                f"<p><b>{dona_label}:</b><br>"
+                "<a href='https://paypal.me/azanzani'>paypal.me/azanzani</a></p>"
+            )
+            
+            msg.setText(content)
+            # Usiamo l'icona informativa standard
+            msg.setIcon(QMessageBox.Icon.Information)
+    
+            # --- LOGICA SEGRETA: Triplo click sulla scritta NotePadPQ ---
+            for label in msg.findChildren(QLabel):
+                if "NotePadPQ" in label.text():
+                    # Cambiamo il cursore per dare un indizio che "c'è qualcosa"
+                    label.setCursor(Qt.CursorShape.PointingHandCursor)
+                    # Installiamo il filtro
+                    self._about_arc_filter = TripleClickFilter(self, self._launch_arcade)
+                    label.installEventFilter(self._about_arc_filter)
+            # ------------------------------------------------------------
+    
+            msg.exec()
 
     def action_check_updates(self) -> None:
-        import urllib.request
-        import json
-        from PyQt6.QtGui import QDesktopServices
-        from PyQt6.QtCore import QUrl
-
-        # URL delle API di GitHub per l'ultima release del tuo progetto
-        api_url = "https://api.github.com/repos/buzzqw/NotePadPQ/releases/latest"
-        
-        try:
-            # Effettuiamo la richiesta (mettiamo un timeout breve per non bloccare l'editor)
-            req = urllib.request.Request(api_url, headers={"User-Agent": "NotePadPQ"})
-            with urllib.request.urlopen(req, timeout=5.0) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                
-                # Otteniamo il tag della versione su GitHub (es. "v0.2.1") e rimuoviamo la "v"
-                latest_version = data.get("tag_name", "").lstrip("v")
-                release_url = data.get("html_url", "https://github.com/buzzqw/NotePadPQ/releases")
-                
-                current_version = self.APP_VERSION
-                
-                # Confronto basilare tra stringhe di versione
-                if latest_version > current_version:
-                    reply = QMessageBox.question(
-                        self, tr("action.check_updates"),
-                        f"È disponibile una nuova versione di NotePadPQ!\n\n"
-                        f"Versione corrente: {current_version}\n"
-                        f"Nuova versione: {latest_version}\n\n"
-                        f"Vuoi aprire la pagina per scaricare l'aggiornamento?",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                    )
-                    if reply == QMessageBox.StandardButton.Yes:
-                        QDesktopServices.openUrl(QUrl(release_url))
-                else:
-                    QMessageBox.information(
-                        self, tr("action.check_updates"),
-                        f"Stai usando l'ultima versione disponibile ({current_version}).\nNessun aggiornamento necessario."
-                    )
-        except Exception as e:
-            QMessageBox.warning(
-                self, "Errore di Rete",
-                f"Impossibile controllare gli aggiornamenti al momento.\nVerifica la tua connessione o riprova più tardi.\n\nDettaglio: {str(e)}"
-            )
+            import urllib.request
+            import json
+            from PyQt6.QtGui import QDesktopServices
+            from PyQt6.QtCore import QUrl
+    
+            # URL delle API di GitHub per l'ultima release del tuo progetto
+            api_url = "https://api.github.com/repos/buzzqw/NotePadPQ/releases/latest"
+            
+            try:
+                # Effettuiamo la richiesta 
+                req = urllib.request.Request(api_url, headers={"User-Agent": "NotePadPQ"})
+                with urllib.request.urlopen(req, timeout=5.0) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    
+                    latest_version = data.get("tag_name", "").lstrip("v")
+                    release_url = data.get("html_url", "https://github.com/buzzqw/NotePadPQ/releases")
+                    
+                    current_version = self.APP_VERSION
+                    titolo = tr("action.check_updates")
+                    
+                    if latest_version > current_version:
+                        # Recupera il messaggio di aggiornamento disponibile dal JSON
+                        testo = tr("msg.update_prompt", current=current_version, latest=latest_version)
+                        reply = QMessageBox.question(
+                            self, titolo, testo,
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                        )
+                        if reply == QMessageBox.StandardButton.Yes:
+                            QDesktopServices.openUrl(QUrl(release_url))
+                    else:
+                        # Recupera il messaggio di software aggiornato dal JSON
+                        testo = tr("msg.update_ok", current=current_version)
+                        QMessageBox.information(self, titolo, testo)
+                        
+            except Exception as e:
+                # Recupera il messaggio di errore dal JSON
+                testo_errore = tr("msg.update_error", error=str(e))
+                titolo_errore = tr("dialog.error")
+                QMessageBox.warning(self, titolo_errore, testo_errore)
+            
 
     def action_donate(self) -> None:
         """Apre la pagina di donazione PayPal nel browser."""

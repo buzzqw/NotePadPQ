@@ -206,8 +206,12 @@
     "lsp_format": "Formatear documento (LSP)",
     "lsp_diag": "Mostrar diagnósticos",
     "view_json_xml_panel": "Estructura JSON/XML",
+    "smart_highlight": "Resaltado automático de palabra",
+    "mark_color": "Resaltar en {color} (Ctrl+{num})",
+    "clear_marks": "Borrar todas las marcas",
     "format_document": "Formatear documento"
   },
+  "color": { "red": "Rojo", "green": "Verde", "blue": "Azul", "orange": "Naranja", "purple": "Morado" },
   "label": {
     "language": "Idioma",
     "encoding": "Codificación",
@@ -329,7 +333,12 @@
     "no_updates": "NotePadPQ está actualizado.",
     "file_changed_on_disk": "El archivo \"{name}\" fue modificado por otro programa. ¿Qué desea hacer?",
     "about_text": "NotePadPQ {version}\nEditor de texto avanzado para Linux, FreeBSD y Windows.\n\nBasado en PyQt6 + QScintilla.",
-    "manual_not_found": "Manual no encontrado."
+    "manual_not_found": "Manual no encontrado.",
+    "update_prompt": "¡Hay una nueva versión disponible!\nVersión actual: {current}\nNueva versión: {latest}\n\n¿Deseas abrir la página para descargar la actualización?",
+    "update_ok": "Estás utilizando la última versión disponible ({current}).\nNo es necesario actualizar.",
+    "mark_occurrences": "🎨 Color {color_num}: {count} ocurrencias resaltadas",
+    "marks_cleared": "🎨 Todas las marcas borradas",
+    "update_error": "No se puede buscar actualizaciones en este momento.\nVerifica tu conexión o inténtalo de nuevo más tarde.\n\nDetalles: {error}"
   },
   "pref": {
     "title": "Preferencias",
@@ -373,6 +382,7 @@
       "whitespace": "Mostrar espacios en blanco",
       "eol": "Mostrar fin de línea",
       "word_wrap": "Ajuste de línea",
+      "git_gutter": "Mostrar cambios de Git en el margen",
       "minimap": "Minimapa"
     },
     "aspect": {
@@ -434,6 +444,17 @@
   "preview": {
     "refresh": "Actualizar",
     "plain_text": "Texto sin formato"
+  },
+  "plugin": {
+    "spreadsheet": {
+      "menu": "Hoja de cálculo",
+      "open": "Abrir hoja...",
+      "select_sheet_title": "Seleccionar hoja",
+      "select_sheet_prompt": "El archivo contiene {count} hojas.\nElige la hoja a abrir:",
+      "title": "Hoja de cálculo",
+      "open_error": "No se puede abrir el archivo:\n{error}",
+      "open_dialog": "Abrir hoja de cálculo"
+    }
   },
   "tooltip": {
     "build_profile_label": "Perfil seleccionado automáticamente según el tipo de archivo.\nPuede anularlo con el cuadro combinado de la derecha.",

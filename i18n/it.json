@@ -208,8 +208,12 @@
     "lsp_format": "Formatta documento (LSP)",
     "lsp_diag": "Mostra diagnostics",
     "view_json_xml_panel": "Struttura JSON/XML",
+    "smart_highlight": "Evidenziazione automatica parola",
+    "mark_color": "Evidenzia in {color} (Ctrl+{num})",
+    "clear_marks": "Rimuovi tutti i mark",
     "format_document": "Formatta documento"
   },
+  "color": { "red": "Rosso", "green": "Verde", "blue": "Blu", "orange": "Arancione", "purple": "Viola" },
   "label": {
     "language": "Lingua",
     "encoding": "Codifica",
@@ -331,6 +335,11 @@
     "no_updates": "NotePadPQ è aggiornato.",
     "file_changed_on_disk": "Il file \"{name}\" è stato modificato da un altro programma. Cosa vuoi fare?",
     "about_text": "NotePadPQ {version}\nEditor di testo avanzato per Linux, FreeBSD e Windows.\n\nBasato su PyQt6 + QScintilla.",
+    "update_prompt": "È disponibile una nuova versione!\nVersione corrente: {current}\nNuova versione: {latest}\n\nVuoi aprire la pagina per scaricare l'aggiornamento?",
+    "update_ok": "Stai usando l'ultima versione disponibile ({current}).\nNessun aggiornamento necessario.",
+    "update_error": "Impossibile controllare gli aggiornamenti al momento.\nVerifica la tua connessione o riprova più tardi.\n\nDettaglio: {error}",
+    "mark_occurrences": "🎨 Colore {color_num}: {count} occorrenze evidenziate",
+    "marks_cleared": "🎨 Tutti i mark rimossi",
     "manual_not_found": "Manuale non trovato."
   },
   "pref": {
@@ -375,7 +384,8 @@
       "whitespace": "Mostra spazi/tab",
       "eol": "Mostra fine riga",
       "word_wrap": "A capo automatico",
-      "minimap": "Minimap"
+      "minimap": "Minimap",
+      "git_gutter": "Mostra modifiche Git a margine"
     },
     "aspect": {
       "theme": "Tema",
@@ -437,6 +447,17 @@
   "preview": {
     "refresh": "Aggiorna",
     "plain_text": "Testo"
+  },
+  "plugin": {
+    "spreadsheet": {
+      "menu": "Foglio di calcolo",
+      "open": "Apri foglio...",
+      "select_sheet_title": "Seleziona foglio",
+      "select_sheet_prompt": "Il file contiene {count} fogli.\nScegli il foglio da aprire:",
+      "title": "Foglio di calcolo",
+      "open_error": "Impossibile aprire il file:\n{error}",
+      "open_dialog": "Apri foglio di calcolo"
+    }
   },
   "tooltip": {
     "build_profile_label": "Profilo selezionato automaticamente dal tipo di file.\nPuoi sovrascriverlo con il combo a destra.",

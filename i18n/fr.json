@@ -206,8 +206,12 @@
     "lsp_format": "Formater le document (LSP)",
     "lsp_diag": "Afficher les diagnostics",
     "view_json_xml_panel": "Structure JSON/XML",
+    "smart_highlight": "Surlignage automatique du mot",
+    "mark_color": "Surligner en {color} (Ctrl+{num})",
+    "clear_marks": "Effacer toutes les marques",
     "format_document": "Formater le document"
   },
+  "color": { "red": "Rouge", "green": "Vert", "blue": "Bleu", "orange": "Orange", "purple": "Violet" },
   "label": {
     "language": "Langue",
     "encoding": "Encodage",
@@ -329,7 +333,12 @@
     "no_updates": "NotePadPQ est à jour.",
     "file_changed_on_disk": "Le fichier \"{name}\" a été modifié par un autre programme. Que voulez-vous faire?",
     "about_text": "NotePadPQ {version}\nÉditeur de texte avancé pour Linux, FreeBSD et Windows.\n\nBasé sur PyQt6 + QScintilla.",
-    "manual_not_found": "Manuel introuvable."
+    "manual_not_found": "Manuel introuvable.",
+    "update_prompt": "Une nouvelle version est disponible !\nVersion actuelle : {current}\nNouvelle version : {latest}\n\nVoulez-vous ouvrir la page pour télécharger la mise à jour ?",
+    "mark_occurrences": "🎨 Couleur {color_num} : {count} occurrences surlignées",
+    "marks_cleared": "🎨 Toutes les marques effacées",
+    "update_ok": "Vous utilisez la dernière version disponible ({current}).\nAucune mise à jour nécessaire.",
+    "update_error": "Impossible de vérifier les mises à jour pour le moment.\nVeuillez vérifier votre connexion ou réessayer plus tard.\n\nDétails : {error}"
   },
   "pref": {
     "title": "Préférences",
@@ -373,6 +382,7 @@
       "whitespace": "Afficher les espaces",
       "eol": "Afficher les fins de ligne",
       "word_wrap": "Retour à la ligne automatique",
+      "git_gutter": "Afficher les modifications Git dans la marge",
       "minimap": "Minicarte"
     },
     "aspect": {
@@ -434,6 +444,17 @@
   "preview": {
     "refresh": "Actualiser",
     "plain_text": "Texte brut"
+  },
+  "plugin": {
+    "spreadsheet": {
+      "menu": "Feuille de calcul",
+      "open": "Ouvrir une feuille...",
+      "select_sheet_title": "Sélectionner une feuille",
+      "select_sheet_prompt": "Le fichier contient {count} feuilles.\nChoisissez la feuille à ouvrir :",
+      "title": "Feuille de calcul",
+      "open_error": "Impossible d'ouvrir le fichier :\n{error}",
+      "open_dialog": "Ouvrir une feuille de calcul"
+    }
   },
   "tooltip": {
     "build_profile_label": "Profil sélectionné automatiquement selon le type de fichier.\nVous pouvez le remplacer avec la liste déroulante à droite.",

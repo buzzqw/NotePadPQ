@@ -3630,10 +3630,9 @@ class MainWindow(QMainWindow):
     def _setup_resource_monitor(self) -> None:
         """Inizializza il widget nella statusbar per mostrare RAM e CPU del processo."""
         self._resource_label = QLabel(" RAM: -- MB | CPU: --% ")
-        # Stile minimale che si integra con la statusbar
-        self._resource_label.setStyleSheet("color: #888; font-size: 11px; padding: 0 8px;")
+        # Lasciamo solo un po' di margine ai lati, rimuovendo colore e dimensione fissa
+        self._resource_label.setStyleSheet("padding: 0 8px;")
         
-        # Aggiungiamo la label alla statusbar come "Permanent Widget" (rimane a destra)
         self._statusbar.addPermanentWidget(self._resource_label)
 
         self._resource_timer = QTimer(self)
@@ -3651,7 +3650,6 @@ class MainWindow(QMainWindow):
             self._process = None
             self._resource_label.setText(" [Installa 'psutil' per RAM/CPU] ")
             self._resource_label.setToolTip("Da terminale esegui: pip install psutil")
-
     def _update_resource_usage(self) -> None:
         """Calcola e aggiorna i valori di RAM e CPU nella statusbar."""
         if getattr(self, "_process", None):

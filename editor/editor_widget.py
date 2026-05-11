@@ -267,8 +267,9 @@ class EditorWidget(QsciScintilla):
         self._smart_highlight_enabled: bool = True
         self._plain_text_mode: bool = False
         self._saved_language: str = ""
-        self._auto_indent_paste: bool = True
+        self._auto_indent_paste: bool = False
         self._typewriter_mode: bool = False
+        self._in_paste: bool = False         # True durante incolla: sopprime SCN_CHARADDED
         self._smart_hl_word: str = ""           # cache: evita regex se parola invariata
         self._smart_hl_timer: QTimer = QTimer(self)
         self._smart_hl_timer.setSingleShot(True)
@@ -951,7 +952,24 @@ class EditorWidget(QsciScintilla):
                 and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
             cb_text = QApplication.clipboard().text()
             if cb_text and "\n" in cb_text:
-                self._paste_with_indent(cb_text)
+                # Applica il re-indent solo se il cursore è all'inizio di una
+                # riga o su una riga vuota; se è nel mezzo di una riga con
+                # testo prima del cursore il re-indent produce righe errate.
+                if self.hasSelectedText():
+                    cur_line, cur_col, _, _ = self.getSelection()
+                else:
+                    cur_line, cur_col = self.getCursorPosition()
+                text_before_cursor = self.text(cur_line)[:cur_col]
+                if text_before_cursor.strip() == "":
+                    # Cursore su riga vuota o a inizio riga: re-indent sicuro
+                    self._paste_with_indent(cb_text)
+                    return
+                # Altrimenti: paste nativo (sopprime SCN_CHARADDED via flag)
+                self._in_paste = True
+                try:
+                    super().keyPressEvent(event)
+                finally:
+                    self._in_paste = False
                 return
         # Registrazione macro: cattura tasti con testo stampabile
         try:
@@ -1030,6 +1048,14 @@ class EditorWidget(QsciScintilla):
     def set_auto_indent_paste(self, enabled: bool) -> None:
         self._auto_indent_paste = enabled
 
+    def paste(self) -> None:
+        """Override paste nativo: sopprime SCN_CHARADDED durante l'operazione."""
+        self._in_paste = True
+        try:
+            super().paste()
+        finally:
+            self._in_paste = False
+
     def _paste_with_indent(self, text: str) -> None:
         """Incolla testo riallineando l'indentazione al contesto corrente."""
         # Determina il punto di inserimento PRIMA di rimuovere la selezione
@@ -1038,7 +1064,7 @@ class EditorWidget(QsciScintilla):
         else:
             line, col = self.getCursorPosition()
 
-        cur_line_text = self.text(line)
+        cur_line_text = self.text(line).rstrip("\r\n")   # rimuove il \n che QScintilla include
         cur_indent = len(cur_line_text) - len(cur_line_text.lstrip())
         cur_indent_text = cur_line_text[:cur_indent]
 
@@ -1060,6 +1086,7 @@ class EditorWidget(QsciScintilla):
                 stripped = ln[min_indent:] if len(ln) >= min_indent else ln.lstrip()
                 result_lines.append(cur_indent_text + stripped)
 
+        self._in_paste = True
         self.beginUndoAction()
         if self.hasSelectedText():
             self.removeSelectedText()
@@ -1068,6 +1095,7 @@ class EditorWidget(QsciScintilla):
         new_col = (col + len(result_lines[0])) if len(result_lines) == 1 else len(result_lines[-1])
         self.setCursorPosition(new_line, new_col)
         self.endUndoAction()
+        self._in_paste = False
 
     # ── Bookmark ──────────────────────────────────────────────────────────────
 

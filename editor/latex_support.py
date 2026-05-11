@@ -779,6 +779,9 @@ class LaTeXSupport:
     @staticmethod
     def _on_char_added(editor: "EditorWidget", char_int: int) -> None:
         """Gestisce i caratteri speciali LaTeX."""
+        # Ignora durante operazioni di paste/insert programmatico
+        if getattr(editor, "_in_paste", False):
+            return
         char = chr(char_int)
 
         if char == "\n":

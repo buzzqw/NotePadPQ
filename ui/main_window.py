@@ -1178,7 +1178,7 @@ class MainWindow(QMainWindow):
         
         m.addAction(self._actions["view_word_wrap"])  # stessa action di Visualizza → checkbox sincronizzato
         m.addAction(self._act("auto_indent",       "", self._toggle_auto_indent,         checkable=True, checked=_S.instance().get("editor/auto_indent", True)))
-        m.addAction(self._act("auto_indent_paste", "", self._toggle_auto_indent_paste,   checkable=True, checked=_S.instance().get("editor/auto_indent_paste", True)))
+        m.addAction(self._act("auto_indent_paste", "", self._toggle_auto_indent_paste,   checkable=True, checked=_S.instance().get("editor/auto_indent_paste", False)))
         
         _spell_enabled = _S.instance().get("spellcheck/enabled", False)
         _spell_saved   = _S.instance().get("spellcheck/language", "it")

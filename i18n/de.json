@@ -110,6 +110,7 @@
     "view_zoom_reset": "Zoom zurücksetzen",
     "view_fullscreen": "Vollbild",
     "distraction_free": "Fokusmodus (ablenkungsfrei)",
+    "view_typewriter": "Schreibmaschinenmodus (zentrierte Zeile)",
     "view_plain_text_mode": "Nur-Text-Modus",
     "view_minimap": "Minimap",
     "view_build_panel": "Build- und Terminalfenster",
@@ -197,6 +198,7 @@
     "command_palette": "Befehlsliste...",
     "goto_anything": "Gehe zu... (Datei, Zeile, Symbol)",
     "word_frequency": "Worthäufigkeit...",
+    "writing_goal_set": "Schreibziel...",
     "sort_lines_menu": "Zeilen sortieren...",
     "auto_indent_paste": "Auto-Einrückung beim Einfügen",
     "view_document_map": "Dokumentkarte",
@@ -209,9 +211,17 @@
     "smart_highlight": "Wort automatisch hervorheben",
     "mark_color": "In {color} hervorheben (Strg+{num})",
     "clear_marks": "Alle Markierungen entfernen",
-    "format_document": "Dokument formatieren"
+    "format_document": "Dokument formatieren",
+    "view_git_blame_inline": "Git Blame Inline (Autor pro Zeile)",
+    "view_minimap_hover": "Minimap: Hover-Vorschau"
   },
-  "color": { "red": "Rot", "green": "Grün", "blue": "Blau", "orange": "Orange", "purple": "Lila" },
+  "color": {
+    "red": "Rot",
+    "green": "Grün",
+    "blue": "Blau",
+    "orange": "Orange",
+    "purple": "Lila"
+  },
   "label": {
     "language": "Sprache",
     "encoding": "Codierung",
@@ -221,6 +231,7 @@
     "column": "Sp",
     "lines_total": "Zeilen",
     "words": "Wörter",
+    "writing_goal_prompt": "Wortziel (0 = deaktiviert):",
     "chars": "Zeichen",
     "selection": "Auswahl",
     "insert_mode": "EIN",
@@ -383,7 +394,9 @@
       "eol": "Zeilenende anzeigen",
       "word_wrap": "Zeilenumbruch",
       "git_gutter": "Git-Änderungen am Rand anzeigen",
-      "minimap": "Minimap"
+      "minimap": "Minimap",
+      "minimap_hover": "Minimap: Hover-Vorschau",
+      "git_blame": "Git Blame inline"
     },
     "aspect": {
       "theme": "Design",

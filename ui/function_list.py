@@ -50,6 +50,7 @@ class FuncSymbol:
     signature: str = ""
     parent:    str = ""
     icon:      str = ""   # emoji usata come icona
+    level:     int = 0    # livello gerarchia (1=top) per MD/LaTeX; 0 = nessuna gerarchia
 
 
 # ─── Parser per linguaggio ────────────────────────────────────────────────────
@@ -203,24 +204,26 @@ class _BashParser(_Parser):
 
 
 class _LaTeXParser(_Parser):
+    # (pattern, kind, icon, level)  level=0 → mostrato flat in gruppo separato
     _CMDS = [
-        (r"\\chapter\*?\{([^}]+)\}",          "chapter", "📖"),
-        (r"\\section\*?\{([^}]+)\}",          "section", "§"),
-        (r"\\subsection\*?\{([^}]+)\}",       "subsection", "  §"),
-        (r"\\subsubsection\*?\{([^}]+)\}",    "subsubsection", "    §"),
-        (r"\\newcommand\{\\(\w+)\}",           "command", "⌘"),
-        (r"\\newenvironment\{(\w+)\}",         "environment", "⬜"),
+        (r"\\part\*?\{([^}]+)\}",             "part",          "📚", 1),
+        (r"\\chapter\*?\{([^}]+)\}",          "chapter",       "📖", 2),
+        (r"\\section\*?\{([^}]+)\}",          "section",       "§",  3),
+        (r"\\subsection\*?\{([^}]+)\}",       "subsection",    "§",  4),
+        (r"\\subsubsection\*?\{([^}]+)\}",    "subsubsection", "§",  5),
+        (r"\\newcommand\{\\(\w+)\}",           "command",       "⌘",  0),
+        (r"\\newenvironment\{(\w+)\}",         "environment",   "⬜", 0),
     ]
 
     def parse(self, text: str) -> List[FuncSymbol]:
         results = []
         for lineno, line in enumerate(text.splitlines(), 1):
-            for pattern, kind, icon in self._CMDS:
+            for pattern, kind, icon, lv in self._CMDS:
                 m = re.search(pattern, line)
                 if m:
                     results.append(FuncSymbol(
                         name=m.group(1), kind=kind, line=lineno,
-                        signature=line.strip()[:80], icon=icon
+                        signature=line.strip()[:80], icon=icon, level=lv,
                     ))
                     break
         return results
@@ -250,19 +253,17 @@ class _MarkdownParser(_Parser):
         for lineno, line in enumerate(text.splitlines(), 1):
             m = re.match(r"^(#{1,6})\s+(.*)", line)
             if m:
-                level = len(m.group(1))
+                lv = len(m.group(1))
                 title = m.group(2).strip()
-                
-                # Icone diverse in base all'importanza del titolo
                 icons = ["📖", "●", "○", "·", "▸", "▹"]
-                icon = icons[level - 1] if level <= len(icons) else "·"
-                
+                icon = icons[lv - 1] if lv <= len(icons) else "·"
                 results.append(FuncSymbol(
-                    name=f"{'  ' * (level - 1)}{title}", 
-                    kind="header", 
+                    name=title,
+                    kind="header",
                     line=lineno,
-                    signature=line.strip()[:80], 
-                    icon=icon
+                    signature=line.strip()[:80],
+                    icon=icon,
+                    level=lv,
                 ))
         return results
 
@@ -421,6 +422,59 @@ class _FunctionListPanel(QWidget):
         else:
             self._needs_refresh = True
 
+    # Parser che usano la vista gerarchica per level
+    _HIERARCHICAL_PARSERS = (_MarkdownParser, _LaTeXParser)
+
+    def _make_sym_item(self, sym: FuncSymbol) -> QStandardItem:
+        item = QStandardItem(f"{sym.icon}  {sym.name}  ({sym.line})")
+        item.setData(sym.line, Qt.ItemDataRole.UserRole)
+        item.setToolTip(sym.signature)
+        item.setEditable(False)
+        return item
+
+    def _make_group_header(self, label: str) -> QStandardItem:
+        g = QStandardItem(f"— {label.upper()} —")
+        g.setEnabled(False)
+        g.setData("group", Qt.ItemDataRole.UserRole)
+        font = g.font(); font.setBold(True); g.setFont(font)
+        g.setForeground(QColor("#888"))
+        return g
+
+    def _build_hierarchical(self, symbols: List[FuncSymbol]) -> None:
+        """Costruisce albero annidato per linguaggi con livelli (MD, LaTeX)."""
+        stack: list[tuple[int, QStandardItem]] = []  # (level, item)
+        flat: List[FuncSymbol] = []   # simboli senza gerarchia (level=0)
+
+        for sym in symbols:
+            if sym.level == 0:
+                flat.append(sym)
+                continue
+            item = self._make_sym_item(sym)
+            while stack and stack[-1][0] >= sym.level:
+                stack.pop()
+            if stack:
+                stack[-1][1].appendRow(item)
+            else:
+                self._model.appendRow(item)
+            stack.append((sym.level, item))
+
+        if flat:
+            grp = self._make_group_header("Comandi / Ambienti")
+            self._model.appendRow(grp)
+            for sym in flat:
+                grp.appendRow(self._make_sym_item(sym))
+
+    def _build_grouped(self, symbols: List[FuncSymbol]) -> None:
+        """Raggruppa simboli per kind (comportamento originale)."""
+        groups: Dict[str, QStandardItem] = {}
+        for sym in symbols:
+            kind = sym.kind
+            if kind not in groups:
+                g = self._make_group_header(kind)
+                self._model.appendRow(g)
+                groups[kind] = g
+            groups[kind].appendRow(self._make_sym_item(sym))
+
     def _refresh(self) -> None:
         self._model.clear()
         editor = self._editor
@@ -443,32 +497,10 @@ class _FunctionListPanel(QWidget):
             self._info.setText("Nessuna funzione trovata")
             return
 
-        # Raggruppa per kind
-        groups: Dict[str, QStandardItem] = {}
-        _KIND_ORDER = ["class", "function", "method", "section",
-                       "chapter", "subsection", "subsubsection",
-                       "command", "environment", "procedure", "other"]
-
-        for sym in self._symbols:
-            kind = sym.kind
-            if kind not in groups:
-                kind_label = kind.capitalize() + "i" if not kind.endswith("e") else kind.capitalize() + "i"
-                group_item = QStandardItem(f"— {kind.upper()} —")
-                group_item.setEnabled(False)
-                group_item.setData("group", Qt.ItemDataRole.UserRole)
-                font = group_item.font()
-                font.setBold(True)
-                group_item.setFont(font)
-                group_item.setForeground(QColor("#888"))
-                self._model.appendRow(group_item)
-                groups[kind] = group_item
-
-            icon = sym.icon or "·"
-            item = QStandardItem(f"{icon}  {sym.name}  ({sym.line})")
-            item.setData(sym.line, Qt.ItemDataRole.UserRole)
-            item.setToolTip(sym.signature)
-            item.setEditable(False)
-            groups[kind].appendRow(item)
+        if isinstance(parser, self._HIERARCHICAL_PARSERS):
+            self._build_hierarchical(self._symbols)
+        else:
+            self._build_grouped(self._symbols)
 
         self._tree.expandAll()
         self._apply_filter(self._filter.text())

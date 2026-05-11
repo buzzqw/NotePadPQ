@@ -212,14 +212,6 @@ class SplitViewManager(QWidget):
                 return panel.tab_manager
         return None
 
-    def toggle_minimap(self, enabled: bool) -> None:
-        for p in self._panels():
-            p.tab_manager.toggle_minimap(enabled)
-
-    def toggle_minimap_side(self) -> None:
-        for p in self._panels():
-            p.tab_manager.toggle_minimap_side()
-
     def currentIndex(self) -> int:
         return self._active.tab_manager.currentIndex()
 

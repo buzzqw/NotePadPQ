@@ -110,6 +110,7 @@
     "view_zoom_reset": "Zoom predefinito",
     "view_fullscreen": "Schermo intero",
     "distraction_free": "Modalità scrittura (senza distrazioni)",
+    "view_typewriter": "Modalità dattilografo (riga centrata)",
     "view_plain_text_mode": "Modalità testo semplice",
     "view_minimap": "Minimappa",
     "view_build_panel": "Pannello compilazione e terminale",
@@ -195,6 +196,7 @@
     "command_palette": "Elenco dei comandi...",
     "goto_anything": "Vai a... (file, riga, simbolo)",
     "word_frequency": "Frequenza parole...",
+    "writing_goal_set": "Obiettivo di scrittura...",
     "sort_lines_menu": "Ordina righe...",
     "auto_indent_paste": "Auto-indenta su incolla",
     "overwrite": "Sovrascrivi",
@@ -211,9 +213,17 @@
     "smart_highlight": "Evidenziazione automatica parola",
     "mark_color": "Evidenzia in {color} (Ctrl+{num})",
     "clear_marks": "Rimuovi tutti i mark",
-    "format_document": "Formatta documento"
+    "format_document": "Formatta documento",
+    "view_git_blame_inline": "Git Blame inline (autore per riga)",
+    "view_minimap_hover": "Minimap: anteprima hover"
   },
-  "color": { "red": "Rosso", "green": "Verde", "blue": "Blu", "orange": "Arancione", "purple": "Viola" },
+  "color": {
+    "red": "Rosso",
+    "green": "Verde",
+    "blue": "Blu",
+    "orange": "Arancione",
+    "purple": "Viola"
+  },
   "label": {
     "language": "Lingua",
     "encoding": "Codifica",
@@ -223,6 +233,7 @@
     "column": "Col",
     "lines_total": "righe",
     "words": "parole",
+    "writing_goal_prompt": "Obiettivo in parole (0 = disabilitato):",
     "chars": "caratteri",
     "selection": "selezione",
     "insert_mode": "INS",
@@ -385,7 +396,9 @@
       "eol": "Mostra fine riga",
       "word_wrap": "A capo automatico",
       "minimap": "Minimap",
-      "git_gutter": "Mostra modifiche Git a margine"
+      "git_gutter": "Mostra modifiche Git a margine",
+      "minimap_hover": "Minimap: anteprima hover",
+      "git_blame": "Git Blame inline"
     },
     "aspect": {
       "theme": "Tema",

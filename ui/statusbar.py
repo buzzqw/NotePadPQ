@@ -11,8 +11,9 @@ from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
-    QStatusBar, QLabel, QFrame, QSizePolicy
+    QStatusBar, QLabel, QFrame, QSizePolicy, QToolTip
 )
+from PyQt6.QtGui import QCursor
 
 from i18n.i18n import tr
 
@@ -56,6 +57,12 @@ class StatusBar(QStatusBar):
                     self._lbl_lang, self._lbl_readonly]:
             lbl.setContentsMargins(4, 0, 4, 0)
 
+        self._lbl_word_goal = QLabel("")
+        self._lbl_word_goal.setContentsMargins(4, 0, 4, 0)
+        self._lbl_word_goal.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._lbl_word_goal.hide()
+        self._word_goal_target: int = 0
+
         # Aggiunge da destra
         for widget in [
             self._lbl_readonly, _separator(),
@@ -64,6 +71,7 @@ class StatusBar(QStatusBar):
             self._lbl_le,       _separator(),
             self._lbl_encoding, _separator(),
             self._lbl_lang,     _separator(),
+            self._lbl_word_goal, _separator(),
             self._lbl_sel,      _separator(),
             self._lbl_cursor,
         ]:
@@ -131,3 +139,24 @@ class StatusBar(QStatusBar):
     def showMessage(self, msg: str, timeout: int = 0) -> None:  # type: ignore[override]
         """Override: reindirizza showMessage alla label dedicata."""
         self.show_message(msg, timeout if timeout > 0 else 4000)
+
+    def set_word_goal(self, words: int, goal: int) -> None:
+        self._word_goal_target = goal
+        if goal <= 0:
+            self._lbl_word_goal.hide()
+            return
+        pct = min(100, int(words * 100 / goal))
+        if pct >= 100:
+            color = "#73c991"
+        elif pct >= 60:
+            color = "#dcdcaa"
+        else:
+            color = "#888888"
+        self._lbl_word_goal.setStyleSheet(f"color: {color};")
+        bar = "█" * (pct // 10) + "░" * (10 - pct // 10)
+        self._lbl_word_goal.setText(f"{words}/{goal}  {bar}")
+        self._lbl_word_goal.setToolTip(f"{pct}% — {words} / {goal} {tr('label.words')}")
+        self._lbl_word_goal.show()
+
+    def hide_word_goal(self) -> None:
+        self._lbl_word_goal.hide()

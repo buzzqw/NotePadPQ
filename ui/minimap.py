@@ -12,14 +12,12 @@ from __future__ import annotations
 import re
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QRect, QTimer, pyqtSlot
+from PyQt6.QtCore import Qt, QRect, QTimer, QPoint, pyqtSlot
 from PyQt6.QtGui import (
     QColor, QPainter, QPen, QBrush, QFont,
     QFontMetrics, QPixmap,
 )
-from PyQt6.QtWidgets import QWidget, QAbstractScrollArea
-from i18n.i18n import tr
-
+from PyQt6.QtWidgets import QWidget, QAbstractScrollArea, QLabel
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
 
@@ -52,15 +50,22 @@ class MinimapWidget(QWidget):
         self._dirty  = True
         self._needs_refresh = False
 
-        self.setFixedWidth(MINIMAP_WIDTH)
+        self._popup: QLabel | None = None
+        self._popup_y: float = 0.0
+        self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setToolTip(tr("tooltip.minimap_nav"))
 
-        # Debounce aggiornamento
+        # Debounce aggiornamento minimap
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(UPDATE_DELAY_MS)
         self._timer.timeout.connect(self._rebuild)
+
+        # Debounce popup hover
+        self._popup_timer = QTimer(self)
+        self._popup_timer.setSingleShot(True)
+        self._popup_timer.setInterval(300)
+        self._popup_timer.timeout.connect(self._show_popup_now)
 
         # Connette i segnali dell'editor
         self._editor.textChanged.connect(self._schedule_rebuild)
@@ -69,6 +74,30 @@ class MinimapWidget(QWidget):
         )
 
         self._rebuild()
+
+    def set_editor(self, editor: "EditorWidget") -> None:
+        """Collega la minimap a un nuovo editor, disconnettendo il precedente."""
+        if editor is self._editor:
+            return
+        # Disconnetti dal vecchio editor
+        if self._editor is not None:
+            try:
+                self._editor.textChanged.disconnect(self._schedule_rebuild)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                self._editor.verticalScrollBar().valueChanged.disconnect(self.update)
+            except (RuntimeError, TypeError):
+                pass
+        self._editor = editor
+        if editor is None:
+            self._pixmap = None
+            self.update()
+        else:
+            editor.textChanged.connect(self._schedule_rebuild)
+            editor.verticalScrollBar().valueChanged.connect(self.update)
+            self._dirty = True
+            self._schedule_rebuild()
 
     def _schedule_rebuild(self) -> None:
         self._dirty = True
@@ -91,9 +120,6 @@ class MinimapWidget(QWidget):
         height = max(len(lines) * LINE_HEIGHT, self.height())
 
         self._pixmap = QPixmap(MINIMAP_WIDTH, height)
-        self._pixmap.fill(QColor("#1a1a1a"))
-
-        painter = QPainter(self._pixmap)
 
         # Determina i colori dal tema corrente
         try:
@@ -120,7 +146,7 @@ class MinimapWidget(QWidget):
             cmt_col = QColor("#6a9955")
 
         self._pixmap.fill(bg)
-        painter.begin(self._pixmap)
+        painter = QPainter(self._pixmap)
 
         for i, line in enumerate(lines):
             y = i * LINE_HEIGHT
@@ -188,11 +214,22 @@ class MinimapWidget(QWidget):
         painter.drawRect(rect)
 
     def mousePressEvent(self, event) -> None:
+        self._hide_popup()
         self._scroll_to(event.position().y())
 
     def mouseMoveEvent(self, event) -> None:
         if event.buttons() & Qt.MouseButton.LeftButton:
+            self._popup_timer.stop()
+            self._hide_popup()
             self._scroll_to(event.position().y())
+        else:
+            self._popup_y = event.position().y()
+            self._popup_timer.start()
+
+    def leaveEvent(self, event) -> None:
+        self._popup_timer.stop()
+        self._hide_popup()
+        super().leaveEvent(event)
 
     def _scroll_to(self, y: float) -> None:
         """Scrolla l'editor alla posizione corrispondente alla y nella minimap."""
@@ -201,3 +238,73 @@ class MinimapWidget(QWidget):
         sb = self._editor.verticalScrollBar()
         target = int(ratio * (sb.maximum() - sb.minimum()) + sb.minimum())
         sb.setValue(target)
+
+    def _line_from_y(self, y: float) -> int:
+        total = max(1, self._editor.lines())
+        ratio = max(0.0, min(1.0, y / max(1, self.height())))
+        return int(ratio * total)
+
+    def _show_popup_now(self) -> None:
+        from config.settings import Settings
+        if not Settings.instance().get("editor/minimap_hover_preview", False):
+            self._hide_popup()
+            return
+
+        y = self._popup_y
+        line = self._line_from_y(y)
+        all_lines = self._editor.text().splitlines()
+        if not all_lines:
+            return
+
+        CONTEXT = 9
+        start = max(0, line - CONTEXT)
+        end   = min(len(all_lines), line + CONTEXT + 1)
+        MAX_W = 72
+        excerpt = "\n".join(
+            (l[:MAX_W] + "…") if len(l) > MAX_W else l
+            for l in all_lines[start:end]
+        )
+        if not excerpt.strip():
+            self._hide_popup()
+            return
+
+        if self._popup is None:
+            self._popup = QLabel()
+            self._popup.setWindowFlags(
+                Qt.WindowType.Tool |
+                Qt.WindowType.FramelessWindowHint |
+                Qt.WindowType.WindowStaysOnTopHint
+            )
+            self._popup.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+            self._popup.setStyleSheet(
+                "QLabel{background:#252526;color:#d4d4d4;"
+                "font-family:monospace;font-size:11px;"
+                "padding:6px 10px;border:1px solid #555;}"
+            )
+
+        self._popup.setText(excerpt)
+        self._popup.adjustSize()
+
+        # Posiziona a destra della minimap se è sul bordo sinistro, altrimenti a sinistra
+        global_left  = self.mapToGlobal(QPoint(0, int(y)))
+        global_right = self.mapToGlobal(QPoint(self.width(), int(y)))
+        pw = self._popup.width()
+        ph = self._popup.height()
+        if global_left.x() >= pw + 10:
+            px = global_left.x() - pw - 6
+        else:
+            px = global_right.x() + 6
+        py = global_left.y() - ph // 2
+
+        from PyQt6.QtWidgets import QApplication
+        screen = QApplication.primaryScreen().availableGeometry()
+        px = max(screen.left(), min(px, screen.right() - pw))
+        py = max(screen.top(),  min(py, screen.bottom() - ph))
+
+        self._popup.move(px, py)
+        self._popup.show()
+        self._popup.raise_()
+
+    def _hide_popup(self) -> None:
+        if self._popup:
+            self._popup.hide()

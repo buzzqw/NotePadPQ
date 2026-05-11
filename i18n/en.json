@@ -110,6 +110,7 @@
     "view_zoom_reset": "Reset Zoom",
     "view_fullscreen": "Full Screen",
     "distraction_free": "Focus Mode (Distraction-Free)",
+    "view_typewriter": "Typewriter Mode (centered line)",
     "view_plain_text_mode": "Plain Text Mode",
     "view_minimap": "Minimap",
     "view_build_panel": "Build & Terminal Panel",
@@ -197,6 +198,7 @@
     "command_palette": "Command list...",
     "goto_anything": "Go to... (file, line, symbol)",
     "word_frequency": "Word Frequency...",
+    "writing_goal_set": "Writing Goal...",
     "sort_lines_menu": "Sort Lines...",
     "auto_indent_paste": "Auto-indent on Paste",
     "view_document_map": "Document Map",
@@ -211,9 +213,17 @@
     "smart_highlight": "Smart Highlight Word",
     "mark_color": "Highlight in {color} (Ctrl+{num})",
     "clear_marks": "Clear all marks",
-    "format_document": "Format Document"
+    "format_document": "Format Document",
+    "view_git_blame_inline": "Git Blame Inline (author per line)",
+    "view_minimap_hover": "Minimap: hover preview"
   },
-  "color": { "red": "Red", "green": "Green", "blue": "Blue", "orange": "Orange", "purple": "Purple" },
+  "color": {
+    "red": "Red",
+    "green": "Green",
+    "blue": "Blue",
+    "orange": "Orange",
+    "purple": "Purple"
+  },
   "label": {
     "language": "Language",
     "encoding": "Encoding",
@@ -223,6 +233,7 @@
     "column": "Col",
     "lines_total": "lines",
     "words": "words",
+    "writing_goal_prompt": "Word goal (0 = disabled):",
     "chars": "chars",
     "selection": "selection",
     "insert_mode": "INS",
@@ -385,7 +396,9 @@
       "eol": "Show end of line",
       "word_wrap": "Word wrap",
       "git_gutter": "Show Git changes in margin",
-      "minimap": "Minimap"
+      "minimap": "Minimap",
+      "minimap_hover": "Minimap: hover preview",
+      "git_blame": "Git Blame inline"
     },
     "aspect": {
       "theme": "Theme",

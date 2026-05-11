@@ -305,6 +305,8 @@ I bookmark vengono salvati nella sessione e ripristinati alla riapertura del fil
 | Mostra fine riga (¶) | (nessuna) |
 | A capo automatico | `Alt+Z` |
 | Minimap | (nessuna) |
+| Modalità macchina da scrivere | (nessuna) |
+| Git Blame inline | (nessuna) |
 
 > **A capo automatico** è presente sia in **Visualizza** che in **Documento**: sono la stessa azione: spuntarla in un menu aggiorna l'altra automaticamente.
 
@@ -342,7 +344,16 @@ Premi di nuovo `F11` (oppure `Ctrl+Shift+F11` o `Ctrl+F11`) per uscire e riprist
 Anche `Ctrl+Rotella mouse` direttamente nell'editor.
 
 ### Minimap
-Colonna stretta sul lato dell'editor che mostra una versione rimpicciolita dell'intero documento. Clicca per navigare velocemente a qualsiasi punto del file.
+La minimap è un pannello dock a tutti gli effetti, come File Browser, Anteprima e gli altri pannelli. Può essere spostata, flottata, agganciata a qualsiasi lato (alto, basso, sinistra, destra) o staccata come finestra indipendente. Per attivarla: **Visualizza → Minimap**. Una volta visibile, trascina la barra del titolo per riposizionarla come qualsiasi altro pannello.
+
+### Minimap: anteprima hover
+Quando abilitata (**Visualizza → Minimap: anteprima hover**, oppure in **Preferenze → Editor**), tenere il cursore fermo sulla minimap per circa 300ms mostra un popup flottante con l'anteprima del codice nella posizione corrispondente.
+
+### Modalità macchina da scrivere
+**Visualizza → Modalità macchina da scrivere**: quando attiva, la riga del cursore viene mantenuta sempre centrata verticalmente sullo schermo. Utile per sessioni di scrittura prolungate.
+
+### Git Blame inline
+**Visualizza → Git Blame inline**: mostra, sotto la riga in cui si trova il cursore, l'autore, l'età relativa ("3 giorni fa") e il messaggio dell'ultimo commit git che ha toccato quella riga. Usa le annotazioni di QScintilla. Funziona solo sui file all'interno di un repository git. Può essere abilitato dal menu Visualizza o da **Preferenze → Editor**.
 
 ### Anteprima (`F12`)
 Apre il pannello Anteprima affiancato all'editor. Supporta:
@@ -631,8 +642,7 @@ Apri con `Ctrl+Alt+P` oppure **Strumenti → Preferenze**. Le modifiche possono 
 - Font e dimensione
 - Larghezza tab e tipo indentazione (tab/spazi)
 - Indentazione automatica
-- Numeri di riga, fold margin, spazi/tab visibili, fine riga visibile
-- A capo automatico, minimap
+- La sezione Visualizzazione presenta le opzioni in un layout a 2 colonne. I checkbox includono: Numeri di riga, Margine code folding, Mostra spazi/tab, Mostra fine riga, A capo automatico, Minimap, Minimap: anteprima hover, Modifiche Git a margine, Git Blame inline
 - Pannelli visibili all'avvio (compilazione, struttura documento)
 
 ### Scheda Aspetto

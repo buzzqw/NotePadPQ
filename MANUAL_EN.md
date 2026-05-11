@@ -305,6 +305,8 @@ Bookmarks are saved in the session and restored when the file is reopened.
 | Show end of line (¶) | (nessuna) |
 | Word wrap | `Alt+Z` |
 | Minimap | (nessuna) |
+| Typewriter scrolling | (nessuna) |
+| Git Blame inline | (nessuna) |
 
 > **Word wrap** is present both in **View** and **Document**: it is the same action; checking it in one menu updates the other automatically.
 
@@ -342,7 +344,16 @@ Press `F11` again (or `Ctrl+Shift+F11` or `Ctrl+F11`) to exit and restore the pr
 Also `Ctrl+Mouse wheel` directly in the editor.
 
 ### Minimap
-Narrow column on the side of the editor showing a miniaturized version of the entire document. Click to navigate quickly to any point in the file.
+The minimap is a proper dock panel, just like the File Browser, Preview, and other panels. It can be moved, floated, docked to any side (top, bottom, left, right), or detached as an independent window. Activate it from **View → Minimap**. Once visible, drag the title bar to reposition it like any other panel.
+
+### Minimap: Hover Preview
+When enabled (**View → Minimap: hover preview**, or in **Preferences → Editor**), holding the mouse still on the minimap for approximately 300ms shows a floating popup with a preview of the code at that position.
+
+### Typewriter Scrolling
+**View → Typewriter scrolling**: when active, the cursor line is always kept vertically centered on screen. Useful for long writing sessions.
+
+### Git Blame Inline
+**View → Git Blame inline**: shows, below the line where the cursor is positioned, the author, relative age ("3 days ago"), and commit message of the last git commit that touched that line. Uses QScintilla annotations. Only works on files inside a git repository. Can be toggled from the View menu or **Preferences → Editor**.
 
 ### Preview (`F12`)
 Opens the Preview panel alongside the editor. Supports:
@@ -663,8 +674,7 @@ Open with `Ctrl+Alt+P` or **Tools → Preferences**. Changes can be applied imme
 - Font and size
 - Tab width and indentation type (tabs/spaces)
 - Auto-indent
-- Line numbers, fold margin, visible spaces/tabs, visible end of line
-- Word wrap, minimap
+- The Display section presents options in a 2-column layout. Checkboxes include: Line numbers, Code folding margin, Show spaces/tabs, Show end of line, Word wrap, Minimap, Minimap: hover preview, Git changes in margin, Git Blame inline
 - Panels visible at startup (build output, document structure)
 
 ### Appearance Tab

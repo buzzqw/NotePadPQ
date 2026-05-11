@@ -232,6 +232,7 @@ class MainWindow(QMainWindow):
         self._setup_git_gutter()
         self._setup_lsp()
         self._setup_clock()
+        self._setup_writing_goal()
 
         self.setAcceptDrops(True)
 
@@ -384,6 +385,23 @@ class MainWindow(QMainWindow):
             self._build_dock.hide()
         self._build_dock.visibilityChanged.connect(self._on_build_dock_visibility_changed)
 
+        # ── Dock destra: Minimap ─────────────────────────────────────────────
+        from ui.minimap import MinimapWidget
+        from config.settings import Settings as _S
+        self._minimap_dock = QDockWidget("Minimap", self)
+        self._minimap_dock.setObjectName("MinimapDock")
+        self._minimap_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+        self._minimap_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetClosable |
+            QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._minimap_dock)
+        if not _S.instance().get("editor/show_minimap", False):
+            self._minimap_dock.hide()
+        # Sync menu checkmark quando il dock viene chiuso tramite il pulsante X
+        self._minimap_dock.visibilityChanged.connect(self._on_minimap_dock_visibility)
+
     def _setup_statusbar(self) -> None:
         self.setStatusBar(self._statusbar)
 
@@ -394,6 +412,9 @@ class MainWindow(QMainWindow):
 
         # Notifica il PluginManager quando cambia l'editor attivo
         tm.current_editor_changed.connect(self._notify_plugins_editor_changed)
+
+        # Aggiorna la minimap dock al cambio di editor
+        tm.current_editor_changed.connect(self._on_minimap_editor_changed)
 
         # i18n: ricostruisce i menu quando cambia la lingua
         I18n.instance().language_changed.connect(self._rebuild_menus)
@@ -1069,7 +1090,9 @@ class MainWindow(QMainWindow):
         self._sep(m)
 
         # --- DA QUI IN POI IL MENU RIMANE UGUALE A PRIMA ---
-        m.addAction(self._act("view_minimap",       "", self._toggle_minimap,        checkable=True, checked=False))
+        m.addAction(self._act("view_minimap",       "", self._toggle_minimap,        checkable=True, checked=s.get("editor/show_minimap", False)))
+        m.addAction(self._act("view_minimap_hover", "", self._toggle_minimap_hover,
+                               checkable=True, checked=s.get("editor/minimap_hover_preview", False)))
         m.addAction(self._act("view_build_panel",  "Ctrl+`", self._toggle_build_panel,   checkable=True, checked=False))
         m.addAction(self._act("view_file_browser", "Ctrl+Shift+E", self._toggle_file_browser, checkable=True, checked=False))
         m.addAction(self._act("view_project_manager",  "", self._toggle_project_manager, checkable=True, checked=False))
@@ -1083,6 +1106,10 @@ class MainWindow(QMainWindow):
         _df_act = self._act("distraction_free", "F11", self._toggle_distraction_free, checkable=True, checked=False)
         _df_act.setShortcuts([QKeySequence("F11"), QKeySequence("Ctrl+Shift+F11"), QKeySequence("Ctrl+F11")])
         m.addAction(_df_act)
+        m.addAction(self._act("view_typewriter", "", self._toggle_typewriter,
+                               checkable=True, checked=s.get("editor/typewriter_mode", False)))
+        m.addAction(self._act("view_git_blame_inline", "", self._toggle_git_blame_inline,
+                               checkable=True, checked=s.get("editor/git_blame_inline", False)))
         self._sep(m)
         m.addAction(self._act("view_plain_text_mode", "Ctrl+Alt+T",
                                self._toggle_plain_text_mode,
@@ -1213,6 +1240,8 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("remove_error_markers", "", self.action_remove_error_markers))
         self._sep(m)
         m.addAction(self._act("format_document", "Alt+Shift+F", self._action_format_document))
+        self._sep(m)
+        m.addAction(self._act("writing_goal_set", "", self.action_writing_goal))
 
     def _populate_file_type_menu(self, menu: QMenu) -> None:
         """Popola il submenu Imposta tipo di file — ordinato alfabeticamente con checkmark."""
@@ -1629,6 +1658,8 @@ class MainWindow(QMainWindow):
         # Applica edge column dalla impostazione corrente
         from config.settings import Settings
         editor.set_edge_column(Settings.instance().get("editor/edge_column", 0))
+        if "view_typewriter" in self._actions:
+            editor.set_typewriter_mode(self._actions["view_typewriter"].isChecked())
         # Applica spell check se abilitato (il nuovo tab potrebbe non averlo ancora)
         if Settings.instance().get("spellcheck/enabled", False):
             if hasattr(editor, "set_spellcheck_enabled") and editor._spell_checker is None:
@@ -1666,6 +1697,15 @@ class MainWindow(QMainWindow):
         )
         editor.overwrite_changed.connect(self._statusbar.set_overwrite)
         editor.zoom_changed.connect(self._statusbar.set_zoom)
+
+        # Writing goal — ricollega al nuovo editor se l'obiettivo è attivo
+        if getattr(self, "_writing_goal", 0) > 0:
+            try:
+                editor.textChanged.disconnect(self._wg_timer.start)
+            except (RuntimeError, TypeError):
+                pass
+            editor.textChanged.connect(self._wg_timer.start)
+            self._update_writing_goal_display()
 
         # LSP — connette il server per il linguaggio corrente (no-op se non disponibile)
         self._lsp_connect_editor(editor)
@@ -2260,18 +2300,49 @@ class MainWindow(QMainWindow):
         Settings.instance().set("editor/word_wrap", checked)
 
     def _toggle_minimap(self, checked: bool) -> None:
-        """Attiva/disattiva la minimap per tutti i tab."""
-        self._tab_manager.toggle_minimap(checked)
-
-    def _action_minimap_side(self) -> None:
-        """Sposta la minimap a sinistra o destra dell'editor."""
+        """Attiva/disattiva la minimap dock."""
         from config.settings import Settings
-        self._tab_manager.toggle_minimap_side()
-        side = Settings.instance().get("editor/minimap_side", "right")
-        side_label = tr("label.left") if side == "left" else tr("label.right")
-        self.statusBar().showMessage(
-            f"🗺  Minimap spostata a {side_label}", 3000
-        )
+        Settings.instance().set("editor/show_minimap", checked)
+        if checked:
+            editor = self._current_editor()
+            if editor:
+                self._on_minimap_editor_changed(editor)
+            self._minimap_dock.show()
+        else:
+            self._minimap_dock.hide()
+
+    def _on_minimap_dock_visibility(self, visible: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("editor/show_minimap", visible)
+        if "view_minimap" in self._actions:
+            act = self._actions["view_minimap"]
+            act.blockSignals(True)
+            act.setChecked(visible)
+            act.blockSignals(False)
+
+    def _on_minimap_editor_changed(self, editor) -> None:
+        if not hasattr(self, "_minimap_dock"):
+            return
+        if editor is None:
+            return
+        w = self._minimap_dock.widget()
+        if w is not None and hasattr(w, "set_editor"):
+            w.set_editor(editor)
+        else:
+            from ui.minimap import MinimapWidget
+            mm = MinimapWidget(editor)
+            mm.setMinimumWidth(60)
+            self._minimap_dock.setWidget(mm)
+
+    def _toggle_minimap_hover(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("editor/minimap_hover_preview", checked)
+        if "view_minimap_hover" in self._actions:
+            act = self._actions["view_minimap_hover"]
+            if act.isChecked() != checked:
+                act.blockSignals(True)
+                act.setChecked(checked)
+                act.blockSignals(False)
 
     def _toggle_build_panel(self, checked: bool) -> None:
         """Mostra/nasconde il pannello build."""
@@ -2410,6 +2481,19 @@ class MainWindow(QMainWindow):
         if act and act.isChecked():
             act.setChecked(False)
             self._toggle_distraction_free(False)
+
+    def _toggle_typewriter(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("editor/typewriter_mode", checked)
+        editor = self._current_editor()
+        if editor:
+            editor.set_typewriter_mode(checked)
+
+    def _toggle_git_blame_inline(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("editor/git_blame_inline", checked)
+        if hasattr(self, "_git_blame_mgr"):
+            self._git_blame_mgr.set_enabled(checked)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -3267,6 +3351,49 @@ class MainWindow(QMainWindow):
     # ── Orologio in alto a destra ─────────────────────────────────────────────
 
     # ── Orologio in alto a destra ─────────────────────────────────────────────
+
+    def _setup_writing_goal(self) -> None:
+        self._writing_goal: int = 0
+        self._wg_timer = QTimer(self)
+        self._wg_timer.setSingleShot(True)
+        self._wg_timer.setInterval(600)
+        self._wg_timer.timeout.connect(self._update_writing_goal_display)
+
+    def _update_writing_goal_display(self) -> None:
+        if self._writing_goal <= 0:
+            self._statusbar.hide_word_goal()
+            return
+        editor = self._current_editor()
+        if not editor:
+            self._statusbar.hide_word_goal()
+            return
+        words = len(editor.text().split())
+        self._statusbar.set_word_goal(words, self._writing_goal)
+
+    def action_writing_goal(self) -> None:
+        from PyQt6.QtWidgets import QInputDialog
+        current = self._writing_goal
+        val, ok = QInputDialog.getInt(
+            self,
+            tr("action.writing_goal_set"),
+            tr("label.writing_goal_prompt"),
+            current, 0, 999999, 100
+        )
+        if not ok:
+            return
+        self._writing_goal = val
+        if val <= 0:
+            self._statusbar.hide_word_goal()
+        else:
+            self._update_writing_goal_display()
+            # Collega textChanged dell'editor corrente al timer
+            editor = self._current_editor()
+            if editor:
+                try:
+                    editor.textChanged.disconnect(self._wg_timer.start)
+                except (RuntimeError, TypeError):
+                    pass
+                editor.textChanged.connect(self._wg_timer.start)
 
     def _setup_clock(self):
         self._clock_label = QLabel()

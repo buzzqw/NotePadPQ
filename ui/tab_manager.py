@@ -32,140 +32,44 @@ from i18n.i18n import tr
 class TabContainer(QWidget):
     """
     Container per un tab dell'editor.
-    Gestisce il layout tra Editor, Minimap e PreviewPanel.
-    Reagisce ai cambiamenti di impostazioni e linguaggio dell'editor.
+    Gestisce il layout tra Editor e PreviewPanel.
     """
 
     def __init__(self, editor: EditorWidget, tab_manager: "TabManager"):
         super().__init__()
         self._editor = editor
         self._tab_manager = tab_manager
-        self._minimap: Optional[QWidget] = None
         self._preview: Optional[QWidget] = None
-        
+
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
-        
+
         # Splitter inizializzati a None, verranno creati in _setup_ui
         self._main_splitter = None
         self._editor_splitter = None
-        
+
         self._setup_ui()
-        
-        # Connessioni
-        self._editor.language_changed.connect(self._on_language_changed)
 
     def _setup_ui(self) -> None:
-        """Costruisce il layout: editor + minimap opzionale.
-        La preview è ora un dock spostabile in MainWindow, non uno split inline.
+        """Costruisce il layout: editor.
+        La preview e la minimap sono dock spostabili in MainWindow.
         """
-        from config.settings import Settings
-        settings = Settings.instance()
-
-        show_minimap = settings.get("editor/show_minimap", False)
-
         # Pulisci layout
         while self._layout.count():
             item = self._layout.takeAt(0)
             if item.widget():
                 item.widget().setParent(None)
 
-        # Splitter editor + minimap
+        # Splitter editor
         self._editor_splitter = QSplitter(Qt.Orientation.Horizontal)
         self._editor_splitter.addWidget(self._editor)
 
-        if show_minimap:
-            self._minimap = self._create_minimap()
-            if self._minimap:
-                minimap_side = settings.get("editor/minimap_side", "right")
-                if minimap_side == "left":
-                    self._editor_splitter.insertWidget(0, self._minimap)
-                    self._editor_splitter.setSizes([100, 800])
-                else:
-                    self._editor_splitter.addWidget(self._minimap)
-                    self._editor_splitter.setSizes([800, 100])
-
         self._layout.addWidget(self._editor_splitter)
 
-    def _create_minimap(self) -> Optional[QWidget]:
-        """Crea la minimap appropriata per l'editor (normale o LaTeX)."""
-        try:
-            # Determina se è LaTeX
-            is_latex = False
-            path = self._editor.file_path
-            if path:
-                ext = path.suffix.lower()
-                is_latex = ext in ['.tex', '.sty', '.cls']
-            
-            # Se non dal path, guarda il lexer
-            if not is_latex:
-                lexer = self._editor.lexer()
-                if lexer and hasattr(lexer, 'language'):
-                    is_latex = lexer.language().lower() in ['latex', 'tex']
-            
-            if is_latex:
-                from ui.latex_minimap import LaTeXMinimapWidget
-                return LaTeXMinimapWidget(self._editor)
-            else:
-                from ui.minimap import MinimapWidget
-                return MinimapWidget(self._editor)
-        except Exception:
-            try:
-                from ui.minimap import MinimapWidget
-                return MinimapWidget(self._editor)
-            except Exception:
-                return None
-
-    def _on_language_changed(self, lang: str) -> None:
-        """Aggiorna la minimap se il linguaggio cambia a/da LaTeX."""
-        from config.settings import Settings
-        if not Settings.instance().get("editor/show_minimap", False):
-            return
-            
-        is_latex = lang.lower() in ["latex", "tex"]
-        
-        # Se abbiamo già una minimap LaTeX e il nuovo lang è LaTeX, non fare nulla
-        try:
-            from ui.latex_minimap import LaTeXMinimapWidget
-            if is_latex and isinstance(self._minimap, LaTeXMinimapWidget):
-                return
-        except ImportError:
-            pass
-            
-        # Altrimenti se abbiamo una minimap normale e il nuovo lang NON è LaTeX, non fare nulla
-        from ui.minimap import MinimapWidget
-        if not is_latex and isinstance(self._minimap, MinimapWidget):
-            # Assicurati che non sia una sottoclasse (LaTeXMinimapWidget)
-            try:
-                from ui.latex_minimap import LaTeXMinimapWidget
-                if not isinstance(self._minimap, LaTeXMinimapWidget):
-                    return
-            except ImportError:
-                return
-            
-        # Ricostruisci UI per cambiare tipo minimap
-        self._refresh()
-
     def _refresh(self) -> None:
-        """Ricarica i componenti del tab conservando lo stato se possibile."""
-        # Salva stato splitter
-        e_sizes = self._editor_splitter.sizes() if self._editor_splitter else None
-        m_sizes = self._main_splitter.sizes() if self._main_splitter else None
-        
-        # Rimuovi vecchi widget dal layout
-        if self._minimap:
-            self._minimap.deleteLater()
-            self._minimap = None
-        # preview è gestita dal dock in MainWindow
-            
+        """Ricarica i componenti del tab."""
         self._setup_ui()
-        
-        # Ripristina dimensioni se possibile
-        if e_sizes and self._editor_splitter:
-            self._editor_splitter.setSizes(e_sizes)
-        if m_sizes and self._main_splitter:
-            self._main_splitter.setSizes(m_sizes)
 
     def editor(self) -> EditorWidget:
         return self._editor
@@ -347,10 +251,6 @@ class TabManager(QTabWidget):
     def _make_container(self, editor: EditorWidget) -> TabContainer:
         """Crea il widget container per il tab."""
         return TabContainer(editor, self)
-
-    def _create_minimap(self, editor: EditorWidget) -> Optional[QWidget]:
-        # Logica spostata in TabContainer
-        return None
 
     def _get_template(self, ext: str) -> str:
         """Restituisce il contenuto template per un'estensione."""
@@ -570,53 +470,6 @@ class TabManager(QTabWidget):
         except Exception:
             pass
         # Non ricicrea i container — la preview è un dock esterno
-
-    def toggle_minimap(self, enabled: bool) -> None:
-        """
-        Attiva/disattiva la minimap per tutti i tab.
-        I tab esistenti vengono ricreati con/senza minimap.
-        """
-        from config.settings import Settings
-        Settings.instance().set("editor/show_minimap", enabled)
-        self._recreate_all_containers()
-
-    def toggle_minimap_side(self) -> None:
-        """Sposta la minimap dall'altro lato (sinistra ↔ destra)."""
-        from config.settings import Settings
-        s = Settings.instance()
-        current = s.get("editor/minimap_side", "right")
-        new_side = "left" if current == "right" else "right"
-        s.set("editor/minimap_side", new_side)
-        self._recreate_all_containers()
-
-    def _recreate_all_containers(self) -> None:
-        """Ricrea tutti i container dei tab per applicare le nuove impostazioni."""
-        for i in range(self.count()):
-            editor = self.editor_at(i)
-            if not editor:
-                continue
-            old_container = self._containers.get(editor)
-            if old_container is None:
-                continue
-
-            # Rimuove temporaneamente l'editor dal vecchio container
-            editor.setParent(None)
-
-            new_container = self._make_container(editor)
-            self.removeTab(i)
-
-            path = editor.file_path
-            name = path.name if path else tr("label.untitled")
-            mod  = "* " if editor.is_modified() else ""
-            self.insertTab(i, new_container, f"{mod}{name}")
-
-            # Aggiorna le mappe
-            if old_container in self._editors:
-                del self._editors[old_container]
-            self._editors[new_container] = editor
-            self._containers[editor] = new_container
-
-        self.setCurrentIndex(min(self.currentIndex(), self.count()-1))
 
     # ── Context menu tab ──────────────────────────────────────────────────────
 

@@ -196,17 +196,12 @@ class Session:
                 pass
 
         # Minimap
-        minimap_side = state.get("minimap_side", "right")
-        try:
-            from config.settings import Settings
-            Settings.instance().set("editor/minimap_side", minimap_side)
-        except Exception:
-            pass
         if state.get("minimap"):
             act = main_window._actions.get("view_minimap")
             if act:
                 act.setChecked(True)
-                main_window._tab_manager.toggle_minimap(True)
+            if hasattr(main_window, "_toggle_minimap"):
+                main_window._toggle_minimap(True)
 
         # Word wrap
         if state.get("word_wrap"):

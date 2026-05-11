@@ -154,6 +154,13 @@ def main():
     except Exception as e:
         print(f"[main] JsonXmlPanel: {e}")
 
+    # ── Git Blame Inline ───────────────────────────────────────────────────────
+    try:
+        from ui.git_blame_inline import install as install_git_blame
+        install_git_blame(win)
+    except Exception as e:
+        print(f"[main] GitBlameInline: {e}")
+
     # ── Avvia server single-instance ────────────────────────────────────────
     # Fatto dopo win.show() così open_files funziona subito
     _si.start_server(

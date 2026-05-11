@@ -280,6 +280,7 @@ class EditorWidget(QsciScintilla):
         self._plain_text_mode: bool = False
         self._saved_language: str = ""
         self._auto_indent_paste: bool = True
+        self._typewriter_mode: bool = False
         self._smart_hl_word: str = ""           # cache: evita regex se parola invariata
         self._smart_hl_timer: QTimer = QTimer(self)
         self._smart_hl_timer.setSingleShot(True)
@@ -476,6 +477,7 @@ class EditorWidget(QsciScintilla):
         """Connette i segnali Scintilla ai segnali pubblici del widget."""
         self.modificationChanged.connect(self._on_modification_changed)
         self.cursorPositionChanged.connect(self._on_cursor_changed)
+        self.cursorPositionChanged.connect(self._apply_typewriter_scroll)
         self.selectionChanged.connect(self._on_selection_changed)
         self.SCN_ZOOM.connect(self._on_zoom_changed)
 
@@ -754,6 +756,16 @@ class EditorWidget(QsciScintilla):
 
     def set_show_eol(self, visible: bool) -> None:
         self.setEolVisibility(visible)
+
+    def set_typewriter_mode(self, enabled: bool) -> None:
+        self._typewriter_mode = enabled
+
+    def _apply_typewriter_scroll(self, line: int, _col: int) -> None:
+        if not self._typewriter_mode:
+            return
+        visible = self.SendScintilla(self.SCI_LINESONSCREEN)
+        target = max(0, line - visible // 2)
+        self.setFirstVisibleLine(target)
 
     def set_word_wrap(self, enabled: bool) -> None:
         mode = (QsciScintilla.WrapMode.WrapWord

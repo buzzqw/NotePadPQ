@@ -110,6 +110,7 @@
     "view_zoom_reset": "Réinitialiser le zoom",
     "view_fullscreen": "Plein écran",
     "distraction_free": "Mode focus (sans distraction)",
+    "view_typewriter": "Mode machine à écrire (ligne centrée)",
     "view_plain_text_mode": "Mode texte brut",
     "view_minimap": "Minicarte",
     "view_build_panel": "Panneau compilation et terminal",
@@ -197,6 +198,7 @@
     "command_palette": "Liste des commandes...",
     "goto_anything": "Aller à... (fichier, ligne, symbole)",
     "word_frequency": "Fréquence des mots...",
+    "writing_goal_set": "Objectif d'écriture...",
     "sort_lines_menu": "Trier les lignes...",
     "auto_indent_paste": "Auto-indentation au collage",
     "view_document_map": "Carte du document",
@@ -209,9 +211,17 @@
     "smart_highlight": "Surlignage automatique du mot",
     "mark_color": "Surligner en {color} (Ctrl+{num})",
     "clear_marks": "Effacer toutes les marques",
-    "format_document": "Formater le document"
+    "format_document": "Formater le document",
+    "view_git_blame_inline": "Git Blame Inline (auteur par ligne)",
+    "view_minimap_hover": "Minimap: aperçu au survol"
   },
-  "color": { "red": "Rouge", "green": "Vert", "blue": "Bleu", "orange": "Orange", "purple": "Violet" },
+  "color": {
+    "red": "Rouge",
+    "green": "Vert",
+    "blue": "Bleu",
+    "orange": "Orange",
+    "purple": "Violet"
+  },
   "label": {
     "language": "Langue",
     "encoding": "Encodage",
@@ -221,6 +231,7 @@
     "column": "Col",
     "lines_total": "lignes",
     "words": "mots",
+    "writing_goal_prompt": "Objectif en mots (0 = désactivé) :",
     "chars": "caractères",
     "selection": "sélection",
     "insert_mode": "INS",
@@ -383,7 +394,9 @@
       "eol": "Afficher les fins de ligne",
       "word_wrap": "Retour à la ligne automatique",
       "git_gutter": "Afficher les modifications Git dans la marge",
-      "minimap": "Minicarte"
+      "minimap": "Minicarte",
+      "minimap_hover": "Minimap: aperçu au survol",
+      "git_blame": "Git Blame inline"
     },
     "aspect": {
       "theme": "Thème",

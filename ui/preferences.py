@@ -124,28 +124,33 @@ class PreferencesDialog(QDialog):
 
         vl.addWidget(grp_indent)
 
-        # Visualizzazione
+        # Visualizzazione — griglia a 2 colonne
         grp_view = QGroupBox(tr("pref.editor.view", default="Visualizzazione"))
-        vv = QVBoxLayout()  
-        grp_view.setLayout(vv)  
+        from PyQt6.QtWidgets import QGridLayout
+        vv = QGridLayout()
+        grp_view.setLayout(vv)
         vv.setSpacing(6)
-        
+
         self._show_line_numbers = QCheckBox(tr("pref.editor.line_numbers", default="Numeri di riga"))
         self._show_fold_margin  = QCheckBox(tr("pref.editor.fold_margin",  default="Margine code folding"))
         self._show_whitespace   = QCheckBox(tr("pref.editor.whitespace",   default="Mostra spazi/tab"))
         self._show_eol          = QCheckBox(tr("pref.editor.eol",          default="Mostra fine riga"))
         self._word_wrap         = QCheckBox(tr("pref.editor.word_wrap",    default="A capo automatico"))
         self._show_minimap      = QCheckBox(tr("pref.editor.minimap",      default="Minimap (pannello laterale)"))
-        self._git_gutter_cb     = QCheckBox(tr("pref.editor.git_gutter",   default="Mostra modifiche Git a margine"))
-        
-        vv.addWidget(self._show_line_numbers)
-        vv.addWidget(self._show_fold_margin)
-        vv.addWidget(self._show_whitespace)
-        vv.addWidget(self._show_eol)
-        vv.addWidget(self._word_wrap)
-        vv.addWidget(self._show_minimap)
-        vv.addWidget(self._git_gutter_cb)
-        
+        self._minimap_hover_cb  = QCheckBox(tr("pref.editor.minimap_hover", default="Minimap: anteprima hover"))
+        self._git_gutter_cb     = QCheckBox(tr("pref.editor.git_gutter",   default="Modifiche Git a margine"))
+        self._git_blame_cb      = QCheckBox(tr("pref.editor.git_blame",    default="Git Blame inline"))
+
+        _cbs = [
+            self._show_line_numbers, self._show_fold_margin,
+            self._show_whitespace,   self._show_eol,
+            self._word_wrap,         self._show_minimap,
+            self._minimap_hover_cb,  self._git_gutter_cb,
+            self._git_blame_cb,
+        ]
+        for i, cb in enumerate(_cbs):
+            vv.addWidget(cb, i // 2, i % 2)
+
         vl.addWidget(grp_view)
 
         # Edge column (riga guida verticale)
@@ -482,7 +487,9 @@ class PreferencesDialog(QDialog):
         self._show_eol.setChecked(s.get("editor/show_eol", False))
         self._word_wrap.setChecked(s.get("editor/word_wrap", False))
         self._show_minimap.setChecked(s.get("editor/show_minimap", False))
+        self._minimap_hover_cb.setChecked(s.get("editor/minimap_hover_preview", False))
         self._git_gutter_cb.setChecked(s.get("editor/git_gutter", True))
+        self._git_blame_cb.setChecked(s.get("editor/git_blame_inline", False))
         self._edge_column.setValue(s.get("editor/edge_column", 0))
 
         # Aspetto
@@ -603,9 +610,11 @@ class PreferencesDialog(QDialog):
         s.set("editor/show_whitespace",   self._show_whitespace.isChecked())
         s.set("editor/show_eol",          self._show_eol.isChecked())
         s.set("editor/word_wrap",         self._word_wrap.isChecked())
-        s.set("editor/show_minimap",      self._show_minimap.isChecked())
-        s.set("editor/git_gutter",        self._git_gutter_cb.isChecked())
-        s.set("editor/edge_column",       self._edge_column.value())
+        s.set("editor/show_minimap",           self._show_minimap.isChecked())
+        s.set("editor/minimap_hover_preview",  self._minimap_hover_cb.isChecked())
+        s.set("editor/git_gutter",             self._git_gutter_cb.isChecked())
+        s.set("editor/git_blame_inline",       self._git_blame_cb.isChecked())
+        s.set("editor/edge_column",            self._edge_column.value())
         
         # Hot reload per il Git Gutter
         mw = self.parent()
@@ -616,12 +625,27 @@ class PreferencesDialog(QDialog):
             if hasattr(mw, "_git_gutter"):
                 mw._git_gutter.set_enabled(is_git_gutter)
             elif is_git_gutter:
-                # Se non esisteva (era stato avviato da spento) e lo stiamo accendendo
                 try:
                     from ui.git_gutter import GitGutter
                     mw._git_gutter = GitGutter(mw)
                 except Exception:
                     pass
+
+            # Hot reload Git Blame Inline
+            if hasattr(mw, "_git_blame_mgr"):
+                mw._git_blame_mgr.set_enabled(self._git_blame_cb.isChecked())
+            if "view_git_blame_inline" in getattr(mw, "_actions", {}):
+                act = mw._actions["view_git_blame_inline"]
+                act.blockSignals(True)
+                act.setChecked(self._git_blame_cb.isChecked())
+                act.blockSignals(False)
+
+            # Sync checkmark menu Minimap hover
+            if "view_minimap_hover" in getattr(mw, "_actions", {}):
+                act = mw._actions["view_minimap_hover"]
+                act.blockSignals(True)
+                act.setChecked(self._minimap_hover_cb.isChecked())
+                act.blockSignals(False)
 
         # Aspetto — applica tema a caldo
         theme_name = self._theme_combo.currentText()

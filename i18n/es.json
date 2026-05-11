@@ -110,6 +110,7 @@
     "view_zoom_reset": "Restablecer zoom",
     "view_fullscreen": "Pantalla completa",
     "distraction_free": "Modo enfoque (sin distracciones)",
+    "view_typewriter": "Modo máquina de escribir (línea centrada)",
     "view_plain_text_mode": "Modo texto simple",
     "view_minimap": "Minimapa",
     "view_build_panel": "Panel compilación y terminal",
@@ -197,6 +198,7 @@
     "command_palette": "Lista de comandos...",
     "goto_anything": "Ir a... (archivo, línea, símbolo)",
     "word_frequency": "Frecuencia de palabras...",
+    "writing_goal_set": "Objetivo de escritura...",
     "sort_lines_menu": "Ordenar líneas...",
     "auto_indent_paste": "Auto-indentar al pegar",
     "view_document_map": "Mapa del documento",
@@ -209,9 +211,17 @@
     "smart_highlight": "Resaltado automático de palabra",
     "mark_color": "Resaltar en {color} (Ctrl+{num})",
     "clear_marks": "Borrar todas las marcas",
-    "format_document": "Formatear documento"
+    "format_document": "Formatear documento",
+    "view_git_blame_inline": "Git Blame Inline (autor por línea)",
+    "view_minimap_hover": "Minimap: vista previa al pasar"
   },
-  "color": { "red": "Rojo", "green": "Verde", "blue": "Azul", "orange": "Naranja", "purple": "Morado" },
+  "color": {
+    "red": "Rojo",
+    "green": "Verde",
+    "blue": "Azul",
+    "orange": "Naranja",
+    "purple": "Morado"
+  },
   "label": {
     "language": "Idioma",
     "encoding": "Codificación",
@@ -221,6 +231,7 @@
     "column": "Col",
     "lines_total": "líneas",
     "words": "palabras",
+    "writing_goal_prompt": "Objetivo en palabras (0 = desactivado):",
     "chars": "caracteres",
     "selection": "selección",
     "insert_mode": "INS",
@@ -383,7 +394,9 @@
       "eol": "Mostrar fin de línea",
       "word_wrap": "Ajuste de línea",
       "git_gutter": "Mostrar cambios de Git en el margen",
-      "minimap": "Minimapa"
+      "minimap": "Minimapa",
+      "minimap_hover": "Minimap: vista previa al pasar",
+      "git_blame": "Git Blame inline"
     },
     "aspect": {
       "theme": "Tema",

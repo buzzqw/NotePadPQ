@@ -225,6 +225,7 @@ class MainWindow(QMainWindow):
         self._setup_statusbar()
         self._setup_central()
         self._setup_dock_panels()
+        self._setup_language_toolbar()
         self._setup_connections()
         self._setup_i18n()
         self._setup_autobackup()
@@ -265,7 +266,18 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(icon)
 
     def _setup_central(self) -> None:
-        self.setCentralWidget(self._tab_manager)
+        # Crea un container con QVBoxLayout che ospiterà:
+        #   riga 0 → language toolbar (inserita da LanguageToolbar.install())
+        #   riga 1 → tab manager (editor)
+        # Questo garantisce che la toolbar linguaggio sia sempre SOTTO
+        # la toolbar principale e non sulla stessa riga.
+        from PyQt6.QtWidgets import QVBoxLayout
+        container = QWidget(self)
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.setSpacing(0)
+        vbox.addWidget(self._tab_manager)
+        self.setCentralWidget(container)
 
     def _setup_dock_panels(self) -> None:
         """Inizializza i pannelli dockable (build, output, file browser, terminale)."""
@@ -1082,6 +1094,7 @@ class MainWindow(QMainWindow):
 
         # Ora usiamo s.get(...) per leggere le tue preferenze salvate al posto di forzare True o False!
         m.addAction(self._act("view_toolbar",     "", self._toggle_toolbar,     checkable=True, checked=s.get("view/toolbar", True)))
+        m.addAction(self._act("view_lang_toolbar", "Ctrl+Shift+L", self._toggle_lang_toolbar, checkable=True, checked=s.get("view/lang_toolbar", False)))
         m.addAction(self._act("view_statusbar",   "", self._toggle_statusbar,   checkable=True, checked=s.get("view/statusbar", True)))
         self._sep(m)
         m.addAction(self._act("view_line_numbers","", self._toggle_line_numbers,checkable=True, checked=s.get("editor/show_line_numbers", True)))
@@ -1429,6 +1442,14 @@ class MainWindow(QMainWindow):
         # solo dopo il primo ciclo eventi. Su Debian Qt 6.8 questo è necessario
         # per avere il colore corretto nelle icone SVG e per forzare il ridisegno.
         QTimer.singleShot(300, self._rebuild_toolbar)
+
+    def _setup_language_toolbar(self) -> None:
+        """Installa la toolbar contestuale LaTeX/Markdown."""
+        try:
+            from ui.language_toolbar import LanguageToolbar
+            LanguageToolbar.install(self)
+        except Exception as e:
+            print(f"[LanguageToolbar] errore installazione: {e}")
 
     def _rebuild_toolbar(self) -> None:
         """Carica le icone dal disco e le applica a toolbar e voci di menu."""
@@ -2267,6 +2288,18 @@ class MainWindow(QMainWindow):
         self._toolbar.setVisible(checked)
         from config.settings import Settings
         Settings.instance().set("view/toolbar", checked)
+
+    def _toggle_lang_toolbar(self, checked: bool) -> None:
+        """Mostra/nasconde la toolbar contestuale LaTeX/Markdown."""
+        from config.settings import Settings
+        Settings.instance().set("view/lang_toolbar", checked)
+        if hasattr(self, "_lang_toolbar"):
+            self._lang_toolbar._user_hidden = not checked
+            if not checked:
+                self._lang_toolbar.setVisible(False)
+            else:
+                editor = self._tab_manager.current_editor()
+                self._lang_toolbar._on_editor_changed(editor)
 
     def _toggle_statusbar(self, checked: bool) -> None:
         self._statusbar.setVisible(checked)

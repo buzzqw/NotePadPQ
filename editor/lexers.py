@@ -403,6 +403,14 @@ def _apply_lexer(editor: "EditorWidget",
     except Exception:
         pass
 
+    # Attiva il supporto Markdown avanzato (auto-chiusura marcatori, continuazione liste)
+    if lang_name == "Markdown":
+        try:
+            from editor.markdown_support import MarkdownSupport
+            MarkdownSupport.activate(editor)
+        except Exception:
+            pass
+
     # Attiva il supporto LaTeX avanzato (auto-end, completamento contestuale)
     if lang_name in ("LaTeX", "BibTeX"):
         try:

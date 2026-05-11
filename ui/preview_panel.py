@@ -174,7 +174,12 @@ class _MarkdownWorker(QThread):
                 import html as _html
                 body = "<pre>" + _html.escape(self._text) + "</pre>"
                 anchor_lines = []
-            self.result_ready.emit(_wrap_html(body), anchor_lines)
+            # Abilita MathJax se il documento contiene formule $...$ o $$...$$
+            has_math = bool(
+                "$" in self._text and
+                __import__("re").search(r'\$[\s\S]+?\$', self._text)
+            )
+            self.result_ready.emit(_wrap_html(body, math=has_math), anchor_lines)
         except Exception as e:
             import html as _html
             self.result_ready.emit(
@@ -1181,11 +1186,19 @@ def _detect_mode(editor) -> str:
     return "text"
 
 
-def _wrap_html(body: str) -> str:
+def _wrap_html(body: str, math: bool = False) -> str:
+    # MathJax 3 caricato da CDN solo se richiesto (documenti Markdown/HTML con math)
+    mathjax_tag = (
+        "<script>MathJax={tex:{inlineMath:[['$','$'],['\\\\(','\\\\)']]},"
+        "svg:{fontCache:'global'}};</script>"
+        "<script src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'"
+        " async></script>"
+    ) if math else ""
     return (
         f"<!DOCTYPE html><html><head>"
         f"<meta charset='utf-8'>"
         f"<style>{_CSS_BASE}</style>"
+        f"{mathjax_tag}"
         f"</head><body>{body}</body></html>"
     )
 

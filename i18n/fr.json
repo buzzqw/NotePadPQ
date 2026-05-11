@@ -213,7 +213,20 @@
     "clear_marks": "Effacer toutes les marques",
     "format_document": "Formater le document",
     "view_git_blame_inline": "Git Blame Inline (auteur par ligne)",
-    "view_minimap_hover": "Minimap: aperçu au survol"
+    "view_minimap_hover": "Minimap: aperçu au survol",
+    "view_lang_toolbar": "Barre d'outils langue (LaTeX/Markdown)",
+    "lang_toolbar_table": "Tableau",
+    "lang_toolbar_link": "Lien",
+    "lang_toolbar_image": "Image",
+    "lang_toolbar_heading": "Titre",
+    "lang_toolbar_structure": "Structure",
+    "lang_toolbar_insert_link": "Insérer un lien",
+    "lang_toolbar_url": "URL :",
+    "lang_toolbar_link_text": "Texte du lien :",
+    "lang_toolbar_link_default": "lien",
+    "lang_toolbar_select_image": "Sélectionner une image",
+    "lang_toolbar_image_filter": "Images (*.png *.jpg *.jpeg *.gif *.svg *.webp);;Tous les fichiers (*)",
+    "lang_toolbar_image_alt": "image"
   },
   "color": {
     "red": "Rouge",

@@ -213,7 +213,20 @@
     "clear_marks": "Alle Markierungen entfernen",
     "format_document": "Dokument formatieren",
     "view_git_blame_inline": "Git Blame Inline (Autor pro Zeile)",
-    "view_minimap_hover": "Minimap: Hover-Vorschau"
+    "view_minimap_hover": "Minimap: Hover-Vorschau",
+    "view_lang_toolbar": "Sprach-Toolbar (LaTeX/Markdown)",
+    "lang_toolbar_table": "Tabelle",
+    "lang_toolbar_link": "Link",
+    "lang_toolbar_image": "Bild",
+    "lang_toolbar_heading": "Überschrift",
+    "lang_toolbar_structure": "Struktur",
+    "lang_toolbar_insert_link": "Link einfügen",
+    "lang_toolbar_url": "URL:",
+    "lang_toolbar_link_text": "Linktext:",
+    "lang_toolbar_link_default": "Link",
+    "lang_toolbar_select_image": "Bild auswählen",
+    "lang_toolbar_image_filter": "Bilder (*.png *.jpg *.jpeg *.gif *.svg *.webp);;Alle Dateien (*)",
+    "lang_toolbar_image_alt": "Bild"
   },
   "color": {
     "red": "Rot",

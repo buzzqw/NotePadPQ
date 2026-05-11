@@ -215,7 +215,20 @@
     "clear_marks": "Clear all marks",
     "format_document": "Format Document",
     "view_git_blame_inline": "Git Blame Inline (author per line)",
-    "view_minimap_hover": "Minimap: hover preview"
+    "view_minimap_hover": "Minimap: hover preview",
+    "view_lang_toolbar": "Language Toolbar (LaTeX/Markdown)",
+    "lang_toolbar_table": "Table",
+    "lang_toolbar_link": "Link",
+    "lang_toolbar_image": "Image",
+    "lang_toolbar_heading": "Heading",
+    "lang_toolbar_structure": "Structure",
+    "lang_toolbar_insert_link": "Insert link",
+    "lang_toolbar_url": "URL:",
+    "lang_toolbar_link_text": "Link text:",
+    "lang_toolbar_link_default": "link",
+    "lang_toolbar_select_image": "Select image",
+    "lang_toolbar_image_filter": "Images (*.png *.jpg *.jpeg *.gif *.svg *.webp);;All files (*)",
+    "lang_toolbar_image_alt": "image"
   },
   "color": {
     "red": "Red",
@@ -438,7 +451,7 @@
     "build": {
       "general": "Build",
       "save_before": "Auto-save before building",
-      "panel_always": "Show always build panel"      
+      "panel_always": "Show always build panel"
     },
     "lang": {
       "choose": "Interface language",

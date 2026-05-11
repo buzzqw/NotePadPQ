@@ -7,7 +7,8 @@ PyQt6>=6.0.0
 PyQt6-QScintilla>=2.13.0
 PyQt6-WebEngine>=6.0.0   # Terminale integrato
 chardet>=4.0.0
-pygments>=2.10.0          # Syntax highlighting (Go, Rust, PHP, Swift, Kotlin, Scala, Dart, R, TOML, Haskell, Elixir, Julia…)
+pygments>=2.10.0         # Syntax highlighting (Go, Rust, PHP, Swift, Kotlin, Scala, Dart, R, TOML, Haskell, Elixir, Julia…)
+psutil>=5.9.0            # Monitoraggio risorse (RAM/CPU) nella statusbar
 
 # --- Anteprima e PDF (Opzionali) ---
 pymupdf>=1.20.0        # Anteprima PDF e SyncTeX
@@ -28,7 +29,6 @@ odfpy>=1.4.1           # Lettura/scrittura ODS (fallback se openpyxl non support
 PyGithub>=1.55         # Plugin GitHub PR
 python-gitlab>=3.0.0   # Plugin GitLab MR
 keyring>=23.5.0        # Gestione sicura dei token
-
 
 # --- LSP (Language Server Protocol) ---
 # Il client LSP usa solo librerie standard (subprocess, json, threading).

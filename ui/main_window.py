@@ -233,6 +233,8 @@ class MainWindow(QMainWindow):
         self._setup_lsp()
         self._setup_clock()
         self._setup_writing_goal()
+        self.setAcceptDrops(True)
+        self._setup_resource_monitor()
 
         self.setAcceptDrops(True)
 
@@ -1158,10 +1160,12 @@ class MainWindow(QMainWindow):
         m = mb.addMenu(tr("menu.document"))
         self._menus["document"] = m
 
-        m.addAction(self._actions["view_word_wrap"])  # stessa action di Visualizza → checkbox sincronizzato
-        m.addAction(self._act("auto_indent",       "", self._toggle_auto_indent,         checkable=True, checked=True))
-        m.addAction(self._act("auto_indent_paste", "", self._toggle_auto_indent_paste,   checkable=True, checked=True))
         from config.settings import Settings as _S
+        
+        m.addAction(self._actions["view_word_wrap"])  # stessa action di Visualizza → checkbox sincronizzato
+        m.addAction(self._act("auto_indent",       "", self._toggle_auto_indent,         checkable=True, checked=_S.instance().get("editor/auto_indent", True)))
+        m.addAction(self._act("auto_indent_paste", "", self._toggle_auto_indent_paste,   checkable=True, checked=_S.instance().get("editor/auto_indent_paste", True)))
+        
         _spell_enabled = _S.instance().get("spellcheck/enabled", False)
         _spell_saved   = _S.instance().get("spellcheck/language", "it")
         m.addAction(self._act("spell_check", "F4", self._toggle_spellcheck,
@@ -2533,6 +2537,8 @@ class MainWindow(QMainWindow):
         editor = self._current_editor()
         if editor:
             editor.setAutoIndent(checked)
+        from config.settings import Settings
+        Settings.instance().set("editor/auto_indent", checked)
 
     def _toggle_auto_indent_paste(self, checked: bool) -> None:
         for ed in self._tab_manager.all_editors():
@@ -3618,6 +3624,48 @@ class MainWindow(QMainWindow):
             for ed in self._tab_manager.all_editors():
                 if hasattr(ed, "set_spell_language"):
                     ed.set_spell_language(lang)
+                    
+    # ── Monitoraggio Risorse (RAM / CPU) ──────────────────────────────────────
+
+    def _setup_resource_monitor(self) -> None:
+        """Inizializza il widget nella statusbar per mostrare RAM e CPU del processo."""
+        self._resource_label = QLabel(" RAM: -- MB | CPU: --% ")
+        # Stile minimale che si integra con la statusbar
+        self._resource_label.setStyleSheet("color: #888; font-size: 11px; padding: 0 8px;")
+        
+        # Aggiungiamo la label alla statusbar come "Permanent Widget" (rimane a destra)
+        self._statusbar.addPermanentWidget(self._resource_label)
+
+        self._resource_timer = QTimer(self)
+        self._resource_timer.timeout.connect(self._update_resource_usage)
+        self._resource_timer.start(2000) # Aggiorna i dati ogni 2 secondi
+        
+        try:
+            import psutil
+            import os
+            self._process = psutil.Process(os.getpid())
+            self._cpu_count = psutil.cpu_count() or 1
+            # La prima chiamata a cpu_percent serve a psutil per inizializzare il delta
+            self._process.cpu_percent(interval=None) 
+        except ImportError:
+            self._process = None
+            self._resource_label.setText(" [Installa 'psutil' per RAM/CPU] ")
+            self._resource_label.setToolTip("Da terminale esegui: pip install psutil")
+
+    def _update_resource_usage(self) -> None:
+        """Calcola e aggiorna i valori di RAM e CPU nella statusbar."""
+        if getattr(self, "_process", None):
+            try:
+                # Memoria Residente (RSS) convertita in Megabyte
+                mem_mb = self._process.memory_info().rss / (1024 * 1024)
+                
+                # CPU divisa per il numero di core per avere la percentuale reale di sistema
+                # (su thread multipli psutil.cpu_percent() può superare il 100%)
+                cpu_perc = self._process.cpu_percent(interval=None) / self._cpu_count
+                
+                self._resource_label.setText(f" RAM: {mem_mb:.1f} MB | CPU: {cpu_perc:.1f}% ")
+            except Exception:
+                pass                
 
 
 # ─── Test standalone ──────────────────────────────────────────────────────────

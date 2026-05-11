@@ -37,23 +37,11 @@ from PyQt6.Qsci import (
 from core.platform import get_preferred_monospace_font, IS_WINDOWS
 from i18n.i18n import tr
 
-# Dipendenze opzionali per hover preview
-try:
-    import fitz as _fitz
-    _HAS_FITZ = True
-except ImportError:
-    _fitz = None
-    _HAS_FITZ = False
-
-try:
-    import matplotlib as _mpl
-    _mpl.use('Agg')
-    import matplotlib.pyplot as _plt
-    _HAS_MATPLOTLIB = True
-except ImportError:
-    _mpl = None
-    _plt = None
-    _HAS_MATPLOTLIB = False
+# Dipendenze opzionali per hover preview — caricate in lazy loading al primo utilizzo
+_fitz = None          # PyMuPDF — importato solo se richiesto
+_HAS_FITZ: bool | None = None   # None = non ancora verificato
+_plt = None           # matplotlib.pyplot — importato solo se richiesto
+_HAS_MATPLOTLIB: bool | None = None
 
 # Pattern per spell check — Unicode, copre IT/EN/DE/FR/ES e qualsiasi alfabeto latino esteso
 _RE_SPELL = re.compile(r"(?<![\\])\b[^\W\d_]+\b", re.UNICODE)
@@ -983,7 +971,6 @@ class EditorWidget(QsciScintilla):
                     mm._actions.append({"type": "backspace"})
                 elif key == Qt.Key.Key_Delete:
                     mm._actions.append({"type": "delete"})
-        # ... (codice macro esistente) ...
         except Exception:
             pass
         super().keyPressEvent(event)
@@ -1414,6 +1401,14 @@ class EditorWidget(QsciScintilla):
                 pixmap = None
                 if img_path.suffix.lower() == '.pdf':
                     try:
+                        global _fitz, _HAS_FITZ
+                        if _HAS_FITZ is None:
+                            try:
+                                import fitz as _fitz
+                                _HAS_FITZ = True
+                            except ImportError:
+                                _fitz = None
+                                _HAS_FITZ = False
                         if not _HAS_FITZ:
                             raise ImportError("PyMuPDF non installato")
                         doc = _fitz.open(str(img_path))
@@ -1460,6 +1455,16 @@ class EditorWidget(QsciScintilla):
 
         if formula_text:
             try:
+                global _plt, _HAS_MATPLOTLIB
+                if _HAS_MATPLOTLIB is None:
+                    try:
+                        import matplotlib as _mpl
+                        _mpl.use('Agg')
+                        import matplotlib.pyplot as _plt
+                        _HAS_MATPLOTLIB = True
+                    except ImportError:
+                        _plt = None
+                        _HAS_MATPLOTLIB = False
                 if not _HAS_MATPLOTLIB:
                     raise ImportError("matplotlib non installato")
                 import io

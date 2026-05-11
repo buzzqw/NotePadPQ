@@ -112,7 +112,7 @@ class I18n(QObject):
             self._fallback = data
         else:
             self._data = data
-        self._language = code
+            self._language = code
 
     def set_language(self, code: str) -> bool:
         """

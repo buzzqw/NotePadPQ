@@ -30,7 +30,6 @@ def check_dependencies() -> bool:
 
     try:
         from PyQt6.Qsci import QsciScintilla
-    # ... resto invariato ...
     except ImportError:
         missing.append(
             "QScintilla  →  Su Arch: sudo pacman -S python-qscintilla\n"
@@ -193,9 +192,6 @@ def main():
     # Ripristina layout dock/toolbar DOPO show() e dopo che i file sono stati aperti.
     # Il QTimer garantisce che Qt abbia completato il rendering iniziale
     # prima di applicare restoreState() (che richiede tutti i dock inizializzati).
-    # Ripristina layout dock/toolbar DOPO show() e dopo che i file sono stati aperti.
-    # Il QTimer garantisce che Qt abbia completato il rendering iniziale
-    # prima di applicare restoreState() (che richiede tutti i dock inizializzati).
     try:
         from core.session import Session
         from PyQt6.QtCore import QTimer
@@ -203,16 +199,11 @@ def main():
             try:
                 Session.instance().restore_ui_state(win)
 
-                # --- INIZIO AGGIUNTA: FORZA APERTURA DA PREFERENZE ---
-                from config.settings import Settings
-                s = Settings.instance()
-                
-                # Usiamo il NOME CORRETTO trovato nel tuo preferences.py!
-                mostra_struttura = s.get("ui/show_symbol_panel_on_start", False)
+                # Mostra il pannello simboli se l'impostazione è attiva
+                mostra_struttura = settings.get("ui/show_symbol_panel_on_start", False)
                 
                 if mostra_struttura and hasattr(win, "_function_list_dock"):
                     win._function_list_dock.show()
-                # --- FINE AGGIUNTA ---
 
             except Exception as e:
                 print(f"[main] restore_ui_state: {e}")

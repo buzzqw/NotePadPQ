@@ -58,12 +58,22 @@ try:
 except ImportError:
     _HAS_DOCUTILS = False
 
-# PyMuPDF opzionale — per anteprima PDF
-try:
-    import fitz as _fitz
-    _HAS_PYMUPDF = True
-except ImportError:
-    _HAS_PYMUPDF = False
+# PyMuPDF opzionale — caricato in lazy loading al primo utilizzo
+_fitz = None
+_HAS_PYMUPDF: bool | None = None   # None = non ancora verificato
+
+def _get_fitz():
+    """Carica PyMuPDF (fitz) al primo utilizzo e ne memorizza l'esito."""
+    global _fitz, _HAS_PYMUPDF
+    if _HAS_PYMUPDF is None:
+        try:
+            import fitz as _fitz_mod
+            _fitz = _fitz_mod
+            _HAS_PYMUPDF = True
+        except ImportError:
+            _fitz = None
+            _HAS_PYMUPDF = False
+    return _HAS_PYMUPDF
 
 
 # ─── Costanti ────────────────────────────────────────────────────────────────
@@ -446,7 +456,7 @@ class PreviewPanel(QWidget):
         self._set_mode("pdf")
         self._update_synctex_label(path)
 
-        if not _HAS_PYMUPDF:
+        if not _get_fitz():
             self._stack.setCurrentIndex(2)
             self._text_fallback.setPlainText("PyMuPDF non installato. Esegui: pip install pymupdf")
             return
@@ -808,7 +818,7 @@ class PreviewPanel(QWidget):
 
     def _render_pdf(self) -> None:
         """Apre/renderizza il PDF dal path corrente usando PyMuPDF."""
-        if not _HAS_PYMUPDF:
+        if not _get_fitz():
             self._stack.setCurrentIndex(2)
             self._text_fallback.setPlainText("PyMuPDF non installato. Esegui: pip install pymupdf")
             return

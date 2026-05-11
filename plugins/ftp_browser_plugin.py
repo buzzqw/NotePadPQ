@@ -720,7 +720,6 @@ class _FtpPanel(QWidget):
 
         content = editor.get_content()
         raw = content.encode(editor.encoding, errors="replace")
-        # ... (codice precedente del caricamento sftp/ftp) ...
         try:
             kind = self._conn[0]
             buf = io.BytesIO(raw)

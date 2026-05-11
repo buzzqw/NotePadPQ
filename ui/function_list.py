@@ -22,6 +22,7 @@ Uso da MainWindow:
 from __future__ import annotations
 
 import re
+from abc import ABC, abstractmethod
 from typing import Optional, List, Dict, TYPE_CHECKING
 from dataclasses import dataclass, field
 
@@ -55,11 +56,12 @@ class FuncSymbol:
 
 # ─── Parser per linguaggio ────────────────────────────────────────────────────
 
-class _Parser:
-    """Base class per i parser di linguaggio."""
+class _Parser(ABC):
+    """Base class astratta per i parser di linguaggio."""
 
+    @abstractmethod
     def parse(self, text: str) -> List[FuncSymbol]:
-        raise NotImplementedError
+        ...
 
 
 class _PythonParser(_Parser):

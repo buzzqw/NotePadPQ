@@ -1,4 +1,5 @@
 """Dialog per conversioni di testo: ROT13, URL, Base64, HTML entities."""
+import base64
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
     QTextEdit, QPushButton, QLabel, QDialogButtonBox, QSizePolicy,
@@ -108,11 +109,9 @@ def _url_dec(text: str) -> str:
     return unquote(text)
 
 def _b64_enc(text: str) -> str:
-    import base64
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 def _b64_dec(text: str) -> str:
-    import base64
     return base64.b64decode(text.strip()).decode("utf-8")
 
 def _html_enc(text: str) -> str:

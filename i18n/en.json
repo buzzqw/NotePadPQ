@@ -437,7 +437,8 @@
     },
     "build": {
       "general": "Build",
-      "save_before": "Auto-save before building"
+      "save_before": "Auto-save before building",
+      "panel_always": "Show always build panel"      
     },
     "lang": {
       "choose": "Interface language",

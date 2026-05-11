@@ -232,6 +232,7 @@ class MainWindow(QMainWindow):
         self._setup_git_gutter()
         self._setup_lsp()
         self._setup_clock()
+        self._setup_logo_corner()
         self._setup_writing_goal()
         self.setAcceptDrops(True)
         self._setup_resource_monitor()
@@ -3400,6 +3401,43 @@ class MainWindow(QMainWindow):
                 except (RuntimeError, TypeError):
                     pass
                 editor.textChanged.connect(self._wg_timer.start)
+
+    def _setup_logo_corner(self) -> None:
+        """Aggiunge l'icona dell'app nel corner sinistro della menubar."""
+        from PyQt6.QtWidgets import QToolButton
+        from PyQt6.QtCore import QSize
+        from pathlib import Path
+
+        btn = QToolButton(self)
+        btn.setAutoRaise(True)
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn.setToolTip(f"{self.APP_NAME}  v{self.APP_VERSION}")
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(self.action_about)
+
+        # Carica l'icona dell'app nelle dimensioni disponibili
+        icons_dir = Path(__file__).parent.parent / "icons"
+        icon = QIcon()
+        for size in [32, 48, 64, 128, 256]:
+            p = icons_dir / f"NotePadPQ_{size}.png"
+            if p.exists():
+                icon.addFile(str(p))
+        if icon.isNull():
+            for name in ["NotePadPQ.png", "NotePadPQ.svg"]:
+                p = icons_dir / name
+                if p.exists():
+                    icon = QIcon(str(p))
+                    break
+        if not icon.isNull():
+            btn.setIcon(icon)
+            btn.setIconSize(QSize(18, 18))
+
+        btn.setStyleSheet(
+            "QToolButton { border: none; margin: 0 4px; background: transparent; }"
+            "QToolButton:hover { background: rgba(128,128,128,0.15); border-radius: 4px; }"
+        )
+        self.menuBar().setCornerWidget(btn, Qt.Corner.TopLeftCorner)
+        self._logo_btn = btn
 
     def _setup_clock(self):
         self._clock_label = QLabel()

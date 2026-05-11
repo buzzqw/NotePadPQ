@@ -13,7 +13,6 @@ Gestisce lettura e scrittura file con:
 from __future__ import annotations
 
 import shutil
-import sys
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 

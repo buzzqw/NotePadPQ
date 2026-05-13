@@ -1040,7 +1040,8 @@ class _SettingsDialog(QDialog):
 
 class _AIPanel(QWidget):
 
-    _ollama_ready = pyqtSignal(object)  # list[str] | None — thread-safe
+    _ollama_ready     = pyqtSignal(object)  # list[str] | None — thread-safe
+    _anthropic_ready  = pyqtSignal(object)  # list[str] | None — thread-safe
 
     def __init__(self, main_window: "MainWindow", parent=None):
         super().__init__(parent)
@@ -1050,6 +1051,7 @@ class _AIPanel(QWidget):
         self._streaming_block = False
         self._inline_selection: Optional[tuple] = None  # (lf, cf, lt, ct) o None = intero file
         self._ollama_ready.connect(self._set_ollama_models)
+        self._anthropic_ready.connect(self._set_anthropic_models)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -1068,6 +1070,11 @@ class _AIPanel(QWidget):
         self._model_combo.setMinimumWidth(180)
         self._model_combo.setToolTip(tr("tooltip.ai_model"))
         self._model_combo.currentTextChanged.connect(self._on_model_changed)
+        self._btn_refresh_models = QPushButton("↻")
+        self._btn_refresh_models.setFixedWidth(26)
+        self._btn_refresh_models.setToolTip("Ricarica la lista modelli disponibili")
+        self._btn_refresh_models.clicked.connect(self._manual_refresh_models)
+        self._btn_refresh_models.setVisible(False)
         btn_settings = QPushButton("⚙")
         btn_settings.setFixedWidth(28)
         btn_settings.setToolTip(tr("tooltip.ai_settings"))
@@ -1076,6 +1083,7 @@ class _AIPanel(QWidget):
         top.addWidget(self._provider_combo, 1)
         top.addWidget(QLabel("Modello:"))
         top.addWidget(self._model_combo, 1)
+        top.addWidget(self._btn_refresh_models)
         top.addWidget(btn_settings)
         layout.addLayout(top)
 
@@ -1245,6 +1253,7 @@ class _AIPanel(QWidget):
     def _on_provider_changed(self, _idx: int) -> None:
         name = self._provider_combo.currentText()
         info = PROVIDERS.get(name, {})
+        pid  = info.get("id", "")
         self._model_combo.setEnabled(True)
         self._model_combo.clear()
         for m in info.get("models", []):
@@ -1253,8 +1262,11 @@ class _AIPanel(QWidget):
         idx = self._model_combo.findText(default)
         if idx >= 0:
             self._model_combo.setCurrentIndex(idx)
-        if info.get("id") == "ollama":
+        self._btn_refresh_models.setVisible(pid in ("anthropic", "ollama"))
+        if pid == "ollama":
             self._refresh_ollama_models()
+        elif pid == "anthropic":
+            self._refresh_anthropic_models()
 
     def _on_model_changed(self, model: str) -> None:
         name    = self._provider_combo.currentText()
@@ -1302,6 +1314,68 @@ class _AIPanel(QWidget):
         idx = self._model_combo.findText(current)
         if idx >= 0:
             self._model_combo.setCurrentIndex(idx)
+
+    def _refresh_anthropic_models(self) -> None:
+        """Interroga /v1/models Anthropic in background e aggiorna il combo."""
+        import threading
+        from config.settings import Settings
+        api_key = Settings.instance().get("ai/anthropic_key", "").strip()
+        if not api_key:
+            return  # nessuna chiave — lascia i modelli statici
+
+        self._btn_refresh_models.setEnabled(False)
+        self._btn_refresh_models.setText("…")
+
+        def _fetch():
+            try:
+                req = urllib.request.Request(
+                    "https://api.anthropic.com/v1/models",
+                    method="GET",
+                    headers={
+                        "x-api-key":         api_key,
+                        "anthropic-version": "2023-06-01",
+                    }
+                )
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read())
+                model_ids = [
+                    m["id"] for m in data.get("data", [])
+                    if m.get("id", "").startswith("claude-")
+                ]
+                # Ordina: metti prima i modelli già nella lista statica
+                static = PROVIDERS["Anthropic (Claude)"]["models"]
+                known   = [m for m in static   if m in model_ids]
+                extra   = [m for m in model_ids if m not in static]
+                self._anthropic_ready.emit(known + extra if (known or extra) else None)
+            except Exception:
+                self._anthropic_ready.emit(None)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _set_anthropic_models(self, models: Optional[list[str]]) -> None:
+        """Popola il combo con i modelli Anthropic effettivamente disponibili."""
+        self._btn_refresh_models.setEnabled(True)
+        self._btn_refresh_models.setText("↻")
+        if PROVIDERS.get(self._provider_combo.currentText(), {}).get("id") != "anthropic":
+            return
+        if not models:
+            return  # errore rete — lascia quelli statici già nel combo
+        current = self._model_combo.currentText()
+        self._model_combo.clear()
+        for m in models:
+            self._model_combo.addItem(m)
+        # Riseleziona il modello precedente se ancora disponibile
+        idx = self._model_combo.findText(current)
+        default_idx = self._model_combo.findText(PROVIDERS["Anthropic (Claude)"]["default"])
+        self._model_combo.setCurrentIndex(idx if idx >= 0 else max(default_idx, 0))
+
+    def _manual_refresh_models(self) -> None:
+        """Bottone ↻ — forza il ricaricamento indipendentemente dal provider."""
+        pid = PROVIDERS.get(self._provider_combo.currentText(), {}).get("id", "")
+        if pid == "anthropic":
+            self._refresh_anthropic_models()
+        elif pid == "ollama":
+            self._refresh_ollama_models()
 
     # ── Azioni contestuali ────────────────────────────────────────────────────
 
@@ -1370,6 +1444,12 @@ class _AIPanel(QWidget):
     def _open_settings(self) -> None:
         dlg = _SettingsDialog(self)
         dlg.exec()
+        # Dopo il salvataggio ricarica i modelli del provider corrente
+        pid = PROVIDERS.get(self._provider_combo.currentText(), {}).get("id", "")
+        if pid == "anthropic":
+            self._refresh_anthropic_models()
+        elif pid == "ollama":
+            self._refresh_ollama_models()
 
     def _get_key(self, pid: str) -> str:
         from config.settings import Settings

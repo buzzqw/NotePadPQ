@@ -1,6 +1,6 @@
 # NotePadPQ: Manuale d'uso
 
-> Versione 0.5.7: Editor di testo avanzato basato su **QScintilla/PyQt6**  
+> Versione 0.6.6: Editor di testo avanzato basato su **QScintilla/PyQt6**  
 > Piattaforme: Linux, Windows, macOS
 
 ---
@@ -17,6 +17,7 @@
 8. [Documento](#8-documento)
 9. [Strumenti](#9-strumenti)
 10. [Plugin](#10-plugin)
+23. [Editor Rich Text](#23-editor-rich-text)
 11. [Pannelli laterali e inferiori](#11-pannelli-laterali-e-inferiori)
 12. [Multi-cursore](#12-multi-cursore)
 13. [Split View](#13-split-view)
@@ -109,12 +110,19 @@ NotePadPQ monitora i file aperti e reagisce in due modi distinti:
 | Copia nome file | (nessuna) |
 | Inserisci data/ora | (nessuna) |
 | Conta parole | (nessuna) |
-| **Frequenza parole** | (nessuna) |
-| **Ordina righe (dialog)** | (nessuna) |
+| Frequenza parole | (nessuna) |
+| Ordina righe (dialog) | (nessuna) |
+| Column Editor | `Alt+C` |
+
+**Copia percorso file / Copia nome file**: copia negli appunti il percorso completo del file corrente oppure solo il nome (senza percorso). Utile per incollare il riferimento in un terminale o in un altro documento.
+
+**Inserisci data/ora**: inserisce la data e ora corrente alla posizione del cursore nel formato ISO `YYYY-MM-DD HH:MM:SS` (es. `2026-05-12 14:30:00`).
+
+**Conta parole**: mostra un dialog con il numero di caratteri, parole e righe. Se è attiva una selezione, conta solo il testo selezionato; altrimenti conta l'intero documento.
 
 ### Frequenza parole
 
-**Modifica → Frequenza parole** analizza il documento (o la selezione) e mostra una tabella ordinata per occorrenze con le prime 50 parole più frequenti, il totale di parole e il numero di parole uniche.
+**Modifica → Frequenza parole** analizza il documento (o la selezione) e mostra una tabella con le 50 parole più frequenti ordinate per numero di occorrenze. La tabella riporta anche il totale di parole nel testo e il numero di parole distinte (uniche). Le parole vengono confrontate in minuscolo (case-insensitive). Utile per trovare ridondanze in testi tecnici o letterari.
 
 ### Ordina righe
 
@@ -130,6 +138,21 @@ NotePadPQ monitora i file aperti e reagisce in due modi distinti:
 
 L'ordinamento si applica alla selezione (se attiva) o all'intero documento.  
 Ulteriori operazioni sulle righe (rimuovi duplicati, rimuovi righe vuote, ecc.) sono in **Strumenti → Line Operations**.
+
+### Column Editor (`Alt+C`)
+
+Apre un dialog per inserire valori su più righe alla stessa colonna. La colonna di inserimento corrisponde alla colonna iniziale della selezione corrente (o alla posizione del cursore se non c'è selezione). Il dialog ha due modalità:
+
+**Modalità Numeri**: genera una sequenza numerica con le seguenti opzioni:
+- **Valore iniziale**: il numero con cui iniziare (può essere negativo)
+- **Incremento**: di quanto aumenta (o diminuisce) ogni riga
+- **Formato**: Decimale, Esadecimale, Ottale, Binario
+- **Padding**: larghezza minima con zeri iniziali (es. padding=3 → `001`, `002`)
+- **Prefisso / Suffisso**: testo aggiunto prima/dopo ogni numero (es. prefisso `0x` → `0x1A`)
+
+**Modalità Testo**: inserisce lo stesso testo fisso su tutte le righe dell'intervallo selezionato.
+
+Una preview mostra in tempo reale i valori che verranno inseriti prima di confermare.
 
 ### Formattazione testo
 
@@ -162,6 +185,86 @@ Accessibile da **Modifica → Formatta**:
 > **Nota: A capo automatico vs. Spezza righe:**  
 > **Visualizza / Documento → A capo automatico** (`Alt+Z`) è una visualizzazione: il testo appare mandato a capo a schermo senza modificare il file.  
 > **Modifica → Formatta → Spezza righe lunghe** inserisce fisicamente `\n` nel testo; il file viene modificato. Usare con attenzione.
+
+#### Dettaglio delle operazioni di formattazione
+
+**Unisci righe**: unisce in una sola riga tutte le righe selezionate, separandole con uno spazio. Le righe vuote vengono ignorate. Opera sulla selezione oppure, se non c'è selezione, sull'intero documento. Esempio: tre righe `alfa`, `beta`, `gamma` diventano `alfa beta gamma`.
+
+**Vai a capo forzato**: inserisce un carattere di nuova riga (`\n`) alla posizione esatta del cursore, spingendo il testo a destra sulla riga successiva. Equivalente a premere Invio, ma accessibile come azione di menu (utile nelle macro).
+
+**Spezza righe lunghe a N colonne**: apre un dialog che chiede la larghezza target in colonne (default 80, min 20, max 500). Rifluisce il testo selezionato (o l'intero documento) distribuendo le parole sulle righe in modo che nessuna superi la larghezza indicata. I paragrafi separati da righe vuote vengono preservati come blocchi separati. Questa operazione **modifica fisicamente il file**, a differenza di "A capo automatico".
+
+**MAIUSCOLO**: converte tutto il testo selezionato in lettere maiuscole. Esempio: `Ciao Mondo` → `CIAO MONDO`. Senza selezione non ha effetto.
+
+**minuscolo**: converte tutto il testo selezionato in lettere minuscole. Esempio: `Ciao Mondo` → `ciao mondo`.
+
+**Prima Lettera Maiuscola**: converte la prima lettera di ogni parola in maiuscolo e le restanti in minuscolo (Title Case). Esempio: `ciao bel mondo` → `Ciao Bel Mondo`.
+
+**Inverti maiuscolo/minuscolo** (`Ctrl+Alt+U`): scambia maiuscole e minuscole carattere per carattere nel testo selezionato. Esempio: `Ciao` → `cIAO`, `ALPHA beta` → `alpha BETA`. Particolarmente utile per correggere testo digitato con il tasto CAPS LOCK attivo per errore.
+
+**Attiva/disattiva commento** (`Ctrl+E`): analizza la prima riga selezionata (o la riga corrente) per decidere automaticamente se commentare o decommentare l'intera selezione:
+- Se la prima riga è già commentata → rimuove il commento da tutte le righe selezionate
+- Se la prima riga non è commentata → aggiunge il commento a tutte le righe selezionate
+
+Il prefisso di commento dipende dal linguaggio del file corrente:
+
+| Linguaggio | Prefisso |
+|---|---|
+| Python, Bash, Ruby, R | `#` |
+| C, C++, Java, JavaScript, TypeScript | `//` |
+| LaTeX | `%` |
+| SQL, Lua, Haskell | `--` |
+| VHDL | `--` |
+
+L'indentazione viene preservata: il commento viene inserito dopo gli spazi iniziali, non all'inizio assoluto della riga. Le righe vuote vengono saltate.
+
+**Commenta righe**: aggiunge sempre il prefisso di commento alle righe selezionate, indipendentemente dal loro stato attuale. A differenza del toggle, non verifica se le righe siano già commentate.
+
+**Decommenta righe**: rimuove il prefisso di commento dalle righe selezionate (se presente). Non ha effetto sulle righe già prive di commento.
+
+**Indenta** (`Ctrl+Shift+I`): aggiunge un livello di indentazione alla riga corrente. Se c'è una selezione multi-riga, indenta tutte le righe comprese. La larghezza dell'indentazione (tab o spazi) segue le impostazioni del documento (Documento → Tipo indentazione e Larghezza indentazione).
+
+**Deindenta** (`Ctrl+U`): rimuove un livello di indentazione dalla riga corrente o da tutte le righe selezionate, rispettando la larghezza tab configurata.
+
+**Indentazione intelligente**: adatta l'indentazione della riga corrente al contesto del codice circostante tramite il motore di auto-indent nativo di QScintilla. Utile per riallineare una riga dopo averla spostata manualmente.
+
+**Rimuovi spazi finali**: percorre ogni riga del documento (o della selezione) e rimuove tutti gli spazi e tab presenti in fondo alla riga, prima del terminatore di riga. Non tocca il contenuto delle righe né gli spazi iniziali di indentazione. Questa operazione è anche eseguibile automaticamente al salvataggio tramite la preferenza "Rimuovi spazi in coda al salvataggio".
+
+**Tab → spazi**: converte ogni carattere di tabulazione (`\t`) in N spazi, dove N è la larghezza tab configurata per il documento corrente (visibile nella statusbar e modificabile da Documento → Larghezza indentazione). Opera sull'intero documento.
+
+**Spazi → tab**: apre un dialog che chiede la dimensione del tab da usare. Converte i gruppi di spazi iniziali di ogni riga in tabulazioni: solo gli spazi di indentazione a inizio riga vengono convertiti, quelli nel mezzo del testo rimangono invariati. I gruppi incompleti (es. 3 spazi con tab da 4) rimangono come spazi.
+
+**Grassetto** (`Ctrl+B`): avvolge il testo selezionato nel markup appropriato per il linguaggio corrente:
+- **Markdown**: `**testo selezionato**`
+- **LaTeX**: `\textbf{testo selezionato}`
+
+Senza selezione inserisce i delimitatori vuoti (`****` o `\textbf{}`) e posiziona il cursore all'interno, pronto per digitare. Non ha effetto su altri tipi di file.
+
+**Corsivo** (`Ctrl+I`): funziona come Grassetto ma per il corsivo:
+- **Markdown**: `*testo*`
+- **LaTeX**: `\textit{testo}`
+
+**Barrato** (`Ctrl+Shift+X`): applica la formattazione barrato:
+- **Markdown**: `~~testo~~`
+- **LaTeX**: `\sout{testo}` (richiede `\usepackage{ulem}` nel preambolo)
+
+**Avvolgi in Ambiente / Tag HTML** (`Alt+E`): chiede il nome di un ambiente (LaTeX) o tag (HTML). In base al tipo di file:
+- **LaTeX** (e per default): genera `\begin{nome}` ... `\end{nome}` con il testo selezionato indentato di 4 spazi all'interno
+- **HTML / Markdown**: genera `<nome>` ... `</nome>`
+
+Senza selezione crea l'ambiente vuoto e posiziona il cursore sulla riga interna indentata, pronta per la digitazione. Esempio: digitare `itemize` in un file LaTeX con del testo selezionato produce:
+```latex
+\begin{itemize}
+    testo selezionato
+\end{itemize}
+```
+
+**Allinea Tabella** (`Alt+T`): allinea verticalmente le colonne di una tabella selezionata aggiungendo spazi per portare ogni cella alla larghezza della colonna più larga. Il separatore viene scelto automaticamente:
+- **Markdown**: separatore `|`; la riga separatrice (`|---|---|`) viene estesa con trattini
+- **LaTeX**: separatore `&`; il terminatore di riga `\\` viene preservato
+- **File generici e testo**: il separatore viene rilevato automaticamente contando quale tra `|`, `&` e `tab` è più presente nelle righe selezionate
+
+È necessario selezionare le righe della tabella prima di attivare la funzione. Se nel testo generico non viene trovato nessun separatore riconoscibile, appare un avviso nella statusbar.
 
 ### Auto-chiusura parentesi
 **Modifica → Auto-chiusura parentesi** (toggle): chiude automaticamente `(`, `[`, `{`, `"`, `'` quando li digiti.
@@ -496,6 +599,42 @@ Registra e riproduce sequenze di tasti:
 | **Editor scorciatoie** | Personalizzazione dei tasti di scelta rapida |
 | **Sessioni con nome** | Salva e ripristina gruppi di file come sessioni nominate |
 
+### Line Operations (Strumenti → Line Operations)
+
+Operazioni avanzate sulle righe del documento. Si applicano alla selezione (se presente) o all'intero documento.
+
+**Ordinamento:**
+
+| Voce | Effetto |
+|---|---|
+| Ordina A→Z | Ordine lessicografico crescente (case-sensitive) |
+| Ordina Z→A | Ordine lessicografico decrescente |
+| Ordina per lunghezza (↑) | Righe più corte prima |
+| Ordina per lunghezza (↓) | Righe più lunghe prima |
+| Ordina casualmente | Permutazione casuale delle righe |
+
+**Duplicati:**
+
+| Voce | Effetto |
+|---|---|
+| Rimuovi duplicati (ordinato) | Rimuove le righe duplicate dopo aver ordinato; il risultato è ordinato |
+| Rimuovi duplicati (ordine originale) | Mantiene la prima occorrenza di ogni riga e rimuove le successive, preservando l'ordine originale |
+| Rimuovi righe uniche | Mantiene solo le righe che compaiono più di una volta (rimuove i singleton) |
+| Mantieni solo righe uniche | Mantiene solo le righe che compaiono esattamente una volta (rimuove i duplicati) |
+
+**Righe vuote:**
+
+| Voce | Effetto |
+|---|---|
+| Rimuovi righe vuote | Elimina le righe che non contengono nessun carattere |
+| Rimuovi righe con soli spazi | Elimina le righe composte unicamente da spazi e/o tab |
+
+**Altro:**
+
+| Voce | Effetto |
+|---|---|
+| Rimuovi ogni N-esima riga | Apre un dialog: chiede N, poi elimina la riga 1, 1+N, 1+2N, ... (utile per dati tabulati con righe di intestazione periodiche) |
+
 ---
 
 ## 10. Plugin
@@ -508,6 +647,7 @@ I plugin vengono caricati automaticamente dalla cartella `plugins/`. Per install
 | **Compare & Merge** | Confronto visuale side-by-side di due file o tab |
 | **Encrypt/Decrypt** | Cifratura AES-256-GCM e ChaCha20-Poly1305 del testo selezionato o dell'intero file |
 | **FTP Browser** | Sfoglia e modifica file su server FTP |
+| **Editor Rich Text** | Editor WYSIWYG per .docx, .odt, .rtf, .html basato su Jodit (vedi [sezione 23](#23-editor-rich-text)) |
 | **Foglio di Calcolo** | Editor completo per CSV, XLSX, XLS, ODS (vedi [sezione 22](#22-foglio-di-calcolo)) |
 | **Git Integration** | Pannello Git completo (vedi sotto) |
 | **Hex Viewer** | Visualizza il file corrente in formato esadecimale |
@@ -980,19 +1120,21 @@ Il plugin AI Assistant (attivabile da Plugin Manager) aggiunge un pannello dock 
 
 | Provider | Modelli principali | Chiave API |
 |---|---|---|
-| **Anthropic (Claude)** | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5 | console.anthropic.com |
+| **Anthropic (Claude)** | Lista dinamica dalla chiave inserita | console.anthropic.com |
 | **OpenAI** | gpt-4o, gpt-4o-mini, gpt-4-turbo | platform.openai.com |
 | **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro | aistudio.google.com |
-| **Ollama** | llama3, mistral, codestral, qwen2.5-coder | nessuna (locale) |
+| **Ollama** | Lista dinamica dai modelli installati | nessuna (locale) |
 
 > **Nota Anthropic:** l'abbonamento *Claude Pro* (claude.ai) dà accesso alla chat web. Le API richiedono credito separato da console.anthropic.com.
+
+> **Modelli dinamici:** per Anthropic e Ollama il combo modelli si aggiorna automaticamente interrogando l'API al cambio provider. Il pulsante **↻** forza il ricaricamento manuale. Se la chiave non è ancora inserita viene mostrata la lista statica di default.
 
 ### Configurazione
 
 1. Apri il pannello con `Ctrl+Alt+A`
 2. Clicca **⚙** per aprire le impostazioni
 3. Incolla la chiave API del provider desiderato
-4. Seleziona provider e modello dal pannello
+4. Seleziona provider e modello dal pannello; il combo si aggiorna automaticamente con i modelli disponibili per la chiave inserita
 
 ### Utilizzo
 
@@ -1215,4 +1357,52 @@ Il dialog "Salva come" aggiorna automaticamente l'estensione proposta quando cam
 
 ---
 
-*Manuale aggiornato: NotePadPQ 0.5.7*
+---
+
+## 23. Editor Rich Text
+
+Il plugin **Editor Rich Text** apre documenti `.docx`, `.odt`, `.rtf` e `.html` in un tab WYSIWYG completo, basato su **Jodit 4** (MIT) incorporato via QWebEngineView.
+
+### Apertura file
+
+I file con estensione `.docx`, `.odt`, `.rtf` vengono aperti automaticamente come documento rich text quando li apri con **File → Apri** o li trascini nell'editor.
+
+Puoi anche usare **Plugin → Editor Rich Text → Apri documento…** per scegliere il file manualmente, oppure **Nuovo documento** per creare un documento vuoto.
+
+### Interfaccia
+
+La toolbar superiore dell'editor offre:
+
+| Pulsante | Funzione |
+|---|---|
+| 💾 Salva | Salva nel formato originale (`Ctrl+S`) |
+| 📁 Salva come… | Sceglie formato e percorso (`Ctrl+Shift+S`) |
+| 📄 Esporta PDF | Esporta il documento come PDF tramite Qt |
+| ✎ Apri come testo | Converte l'HTML corrente in un nuovo tab testo |
+
+La barra degli strumenti di Jodit (integrata nell'area editor) include: grassetto, corsivo, sottolineato, barrato, apice/pedice, liste, rientri, font, dimensione, colore, tabelle, immagini, link, allinea, annulla/ripristina, cerca, sorgente HTML, schermo intero.
+
+### Formati supportati
+
+| Formato | Lettura | Scrittura | Dipendenza |
+|---|---|---|---|
+| `.html` / `.htm` | nativo | nativo | — |
+| `.docx` | `mammoth` | `htmldocx` / `python-docx` | `pip install mammoth htmldocx` |
+| `.odt` / `.rtf` | `pandoc` | `pandoc` | installare pandoc di sistema |
+| `.pdf` | — | Qt (stampa) | PyQt6-WebEngine |
+
+### Prima installazione — Jodit
+
+Gli asset di Jodit sono inclusi in `ui/assets/jodit/`. Se mancassero (installazione manuale incompleta) usa **Plugin → Editor Rich Text → Scarica dipendenze Jodit…** per scaricarli automaticamente via internet.
+
+### Dipendenze opzionali
+
+```bash
+pip install mammoth htmldocx        # lettura/scrittura DOCX
+pip install PyQt6-WebEngine         # obbligatoria per il widget
+# pandoc: installazione di sistema per ODT/RTF
+```
+
+---
+
+*Manuale aggiornato: NotePadPQ 0.6.6*

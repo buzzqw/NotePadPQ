@@ -226,7 +226,13 @@
     "lang_toolbar_link_default": "Link",
     "lang_toolbar_select_image": "Bild auswählen",
     "lang_toolbar_image_filter": "Bilder (*.png *.jpg *.jpeg *.gif *.svg *.webp);;Alle Dateien (*)",
-    "lang_toolbar_image_alt": "Bild"
+    "lang_toolbar_image_alt": "Bild",
+    "lang_toolbar_align_left": "Linksbündig",
+    "lang_toolbar_align_center": "Zentrieren",
+    "lang_toolbar_align_right": "Rechtsbündig",
+    "lang_toolbar_begin_env": "Umgebung beginnen",
+    "lang_toolbar_end_env": "Umgebung beenden",
+    "lang_toolbar_env_name": "Umgebungsname:"
   },
   "color": {
     "red": "Rot",
@@ -471,6 +477,19 @@
     "refresh": "Aktualisieren",
     "plain_text": "Klartext"
   },
+  "richtext": {
+    "downloading_jodit": "Jodit-Editor wird heruntergeladen…",
+    "download_failed": "Jodit-Download fehlgeschlagen:\n{exc}\n\nBitte Internetverbindung prüfen.",
+    "pandoc_missing": "Pandoc nicht gefunden. Installiere pandoc oder mammoth für dieses Format.",
+    "save_as": "Speichern unter…",
+    "export_pdf": "Als PDF exportieren",
+    "open_as_text": "Als Text öffnen",
+    "jodit_not_ready": "Jodit nicht verfügbar. Plugin → Rich-Text-Editor → Abhängigkeiten herunterladen.",
+    "load_error": "Datei kann nicht geöffnet werden:\n{err}",
+    "save_error": "Speichern fehlgeschlagen:\n{err}",
+    "docx_lib_missing": "Installiere htmldocx oder python-docx für DOCX-Export:\npip install htmldocx",
+    "word_count": "{count} Wörter"
+  },
   "plugin": {
     "spreadsheet": {
       "menu": "Tabellenkalkulation",
@@ -480,6 +499,17 @@
       "title": "Tabellenkalkulation",
       "open_error": "Datei kann nicht geöffnet werden:\n{error}",
       "open_dialog": "Tabelle öffnen"
+    },
+    "richtext": {
+      "menu": "Rich-Text-Editor",
+      "new": "Neues Dokument",
+      "open": "Dokument öffnen…",
+      "open_dialog": "Rich-Text-Dokument öffnen",
+      "download_deps": "Jodit-Abhängigkeiten herunterladen…",
+      "new_doc_title": "Neues Dokument",
+      "no_webengine": "PyQt6-WebEngine ist nicht installiert.\npip install PyQt6-WebEngine",
+      "deps_ok": "Jodit ist bereits verfügbar.",
+      "deps_downloaded": "Jodit erfolgreich heruntergeladen."
     }
   },
   "tooltip": {

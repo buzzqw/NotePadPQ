@@ -12,7 +12,7 @@
 [![PyQt6](https://img.shields.io/badge/PyQt6-6.x-green?logo=qt)](https://riverbankcomputing.com/software/pyqt/)
 [![License](https://img.shields.io/badge/License-EUPL%201.2-blue.svg)](EUPL-1.2%20EN.txt)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20FreeBSD-lightgrey)]()
-[![Version](https://img.shields.io/badge/Version-0.6.5-orange)]()
+[![Version](https://img.shields.io/badge/Version-0.6.6-orange)]()
 
 [🇮🇹 Italiano](#-italiano) · [🇬🇧 English](#-english) · [💖 Dona / Donate](https://www.paypal.com/donate/?business=azanzani%40gmail.com&currency_code=EUR)
 
@@ -110,10 +110,10 @@ Panel dock con chat AI multi-provider:
 
 | Provider | Funzionalità speciali |
 |---|---|
-| **Anthropic Claude** | Streaming SSE, Extended Thinking (Opus), modelli claude-opus-4-7 / claude-sonnet-4-6 / claude-haiku |
+| **Anthropic Claude** | Streaming SSE, Extended Thinking (Opus), **lista modelli dinamica** dalla chiave API |
 | **OpenAI** | GPT-4o, GPT-4o-mini, o3-mini |
 | **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro |
-| **Ollama** | Modelli locali (nessuna chiave, nessun costo) |
+| **Ollama** | Modelli locali rilevati automaticamente (nessuna chiave, nessun costo) |
 
 Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, Review) direttamente da tasto destro nell'editor. Bring-your-own-key; ogni provider ha la propria chiave configurabile.
 
@@ -121,9 +121,10 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 
 | Plugin | Funzione |
 |--------|----------|
-| **AI Assistant** | Chat AI multi-provider con streaming e azioni contestuali |
+| **AI Assistant** | Chat AI multi-provider con streaming, Extended Thinking e lista modelli dinamica |
 | **Clipboard History** | Cronologia degli appunti con selezione rapida |
 | **Compare & Merge** | Confronto visuale side-by-side tra due file o versioni |
+| **Editor Rich Text** | Editor WYSIWYG per .docx, .odt, .rtf, .html basato su Jodit 4 |
 | **Encrypt/Decrypt** | Cifratura/decifratura con AES-256-GCM e ChaCha20-Poly1305 |
 | **Foglio di Calcolo** | Editing completo di CSV, TSV, XLSX, XLS, XLSM, ODS con ordinamento, filtro, formule e grafici |
 | **FTP Browser** | Navigazione e modifica file su server FTP |
@@ -161,6 +162,12 @@ Lo script rileva il sistema operativo (Arch Linux, apt, dnf, Windows) e installa
 **Dipendenze base** (sempre richieste):
 ```bash
 pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pygments pyspellchecker PyGithub python-gitlab keyring
+```
+
+**Plugin Editor Rich Text** (opzionali):
+```bash
+pip install mammoth htmldocx   # lettura/scrittura DOCX
+# pandoc: installazione di sistema per ODT/RTF
 ```
 
 **Dipendenze LaTeX** (opzionali (solo se usi NotePadPQ per scrivere/compilare LaTeX):
@@ -276,10 +283,10 @@ Dock panel with multi-provider AI chat:
 
 | Provider | Special features |
 |---|---|
-| **Anthropic Claude** | SSE streaming, Extended Thinking (Opus), models claude-opus-4-7 / claude-sonnet-4-6 / claude-haiku |
+| **Anthropic Claude** | SSE streaming, Extended Thinking (Opus), **dynamic model list** from the API key |
 | **OpenAI** | GPT-4o, GPT-4o-mini, o3-mini |
 | **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro |
-| **Ollama** | Local models (no key, no cost) |
+| **Ollama** | Local models auto-detected (no key, no cost) |
 
 Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) directly from right-click in the editor. Bring-your-own-key; each provider has its own configurable API key.
 
@@ -287,10 +294,11 @@ Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) d
 
 | Plugin | Function |
 |--------|----------|
-| **AI Assistant** | Multi-provider AI chat with streaming and contextual actions |
+| **AI Assistant** | Multi-provider AI chat with streaming, Extended Thinking, and dynamic model list |
 | **Clipboard History** | Multi-entry clipboard with quick selection |
 | **Compare & Merge** | Visual side-by-side file comparison |
 | **Encrypt/Decrypt** | AES-256-GCM and ChaCha20-Poly1305 encryption |
+| **Rich Text Editor** | WYSIWYG editor for .docx, .odt, .rtf, .html powered by Jodit 4 |
 | **Spreadsheet** | Full CSV, TSV, XLSX, XLS, XLSM, ODS editor with sort, filter, formulas, and charts |
 | **FTP Browser** | Browse and edit files on FTP servers |
 | **Git Integration** | Full Git panel: status, log, diff, branch, PR/MR |
@@ -325,6 +333,12 @@ python main.py
 **Core dependencies** (always required):
 ```bash
 pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pygments pyspellchecker PyGithub python-gitlab keyring
+```
+
+**Rich Text Editor plugin** (optional):
+```bash
+pip install mammoth htmldocx   # DOCX read/write
+# pandoc: system-level install for ODT/RTF
 ```
 
 **LaTeX optional** (only if you write/compile LaTeX):

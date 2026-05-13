@@ -228,7 +228,13 @@
     "lang_toolbar_link_default": "link",
     "lang_toolbar_select_image": "Select image",
     "lang_toolbar_image_filter": "Images (*.png *.jpg *.jpeg *.gif *.svg *.webp);;All files (*)",
-    "lang_toolbar_image_alt": "image"
+    "lang_toolbar_image_alt": "image",
+    "lang_toolbar_align_left": "Align left",
+    "lang_toolbar_align_center": "Center",
+    "lang_toolbar_align_right": "Align right",
+    "lang_toolbar_begin_env": "Begin environment",
+    "lang_toolbar_end_env": "End environment",
+    "lang_toolbar_env_name": "Environment name:"
   },
   "color": {
     "red": "Red",
@@ -474,6 +480,19 @@
     "refresh": "Refresh",
     "plain_text": "Plain text"
   },
+  "richtext": {
+    "downloading_jodit": "Downloading Jodit editor…",
+    "download_failed": "Jodit download failed:\n{exc}\n\nCheck your internet connection.",
+    "pandoc_missing": "Pandoc not found. Install pandoc or mammoth to open this format.",
+    "save_as": "Save as…",
+    "export_pdf": "Export PDF",
+    "open_as_text": "Open as text",
+    "jodit_not_ready": "Jodit not available. Use Plugin → Rich Text Editor → Download dependencies.",
+    "load_error": "Cannot open file:\n{err}",
+    "save_error": "Save failed:\n{err}",
+    "docx_lib_missing": "Install htmldocx or python-docx to save as DOCX:\npip install htmldocx",
+    "word_count": "{count} words"
+  },
   "plugin": {
     "spreadsheet": {
       "menu": "Spreadsheet",
@@ -483,6 +502,17 @@
       "title": "Spreadsheet",
       "open_error": "Cannot open file:\n{error}",
       "open_dialog": "Open spreadsheet"
+    },
+    "richtext": {
+      "menu": "Rich Text Editor",
+      "new": "New document",
+      "open": "Open document…",
+      "open_dialog": "Open rich text document",
+      "download_deps": "Download Jodit dependencies…",
+      "new_doc_title": "New document",
+      "no_webengine": "PyQt6-WebEngine is not installed.\npip install PyQt6-WebEngine",
+      "deps_ok": "Jodit is already available.",
+      "deps_downloaded": "Jodit downloaded successfully."
     }
   },
   "tooltip": {

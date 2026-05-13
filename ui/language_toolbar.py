@@ -115,13 +115,19 @@ class _LanguageToolbarWidget(QWidget):
         self._fl_conn = None  # connessione visibilityChanged del function-list dock
 
         self.setObjectName("LanguageToolbar")
+        # Necessario perché QWidget non è una QToolBar: senza questo attributo
+        # il repaint dei QToolButton:hover causa un refresh del parent con
+        # background non inizializzato (appare tutto bianco su certi temi/WM).
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         # Layout orizzontale stile toolbar
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(4, 2, 4, 2)
         self._layout.setSpacing(2)
 
-        # Stile visivo uguale alla toolbar principale
+        # Stile visivo uguale alla toolbar principale.
+        # Hover: rgba semi-trasparente invece di palette(highlight) per evitare
+        # che temi con highlighted-text=bianco rendano il testo invisibile.
         self.setStyleSheet(
             "QWidget#LanguageToolbar {"
             "  background: palette(window);"
@@ -133,11 +139,10 @@ class _LanguageToolbarWidget(QWidget):
             "  border-radius: 3px;"
             "}"
             "QToolButton:hover {"
-            "  background: palette(highlight);"
-            "  color: palette(highlighted-text);"
+            "  background-color: rgba(128, 128, 128, 50);"
             "}"
             "QToolButton:pressed {"
-            "  background: palette(dark);"
+            "  background-color: rgba(0, 0, 0, 70);"
             "}"
             "QToolButton:checked {"
             "  background: palette(midlight);"
@@ -179,7 +184,9 @@ class _LanguageToolbarWidget(QWidget):
 
         self._current_lang = lang
         is_md  = "markdown" in lang
-        is_tex = "latex" in lang or "tex" in lang or "bibtex" in lang
+        # Confronto a parole intere: "tex" in "plain text" darebbe True per falso positivo
+        _lw    = set(lang.split())
+        is_tex = "latex" in lang or bool(_lw & {"tex", "bibtex", "plaintex"})
 
         if self._user_hidden or (not is_md and not is_tex):
             self.setVisible(False)
@@ -311,6 +318,23 @@ class _LanguageToolbarWidget(QWidget):
         btn_h = self._add_new_button(label, tip)
         btn_h.clicked.connect(self._cycle_md_heading)
 
+        self._add_separator()
+
+        # Allineamento testo
+        for symbol, key, default in [
+            ("⬅", "lang_toolbar_align_left",   "Allinea a sinistra"),
+            ("↔", "lang_toolbar_align_center",  "Centra"),
+            ("➡", "lang_toolbar_align_right",   "Allinea a destra"),
+        ]:
+            tip = tr(f"action.{key}", default=default)
+            btn = self._add_new_button(symbol, tip)
+            align = default.split()[-1].lower()  # left / center / destra→right
+            # Mappa italiano→HTML
+            align_map = {"sinistra": "left", "center": "center",
+                         "centra": "center", "destra": "right"}
+            html_align = align_map.get(align, align)
+            btn.clicked.connect(lambda checked, a=html_align: self._insert_md_align(a))
+
     def _add_latex_actions(self, acts: dict) -> None:
         """Bottoni specifici per LaTeX."""
         # Tabella con griglia picker
@@ -326,6 +350,29 @@ class _LanguageToolbarWidget(QWidget):
         # Allinea tabella (riusa azione esistente)
         if "align_table" in acts:
             self._add_action_button(acts["align_table"])
+
+        self._add_separator()
+
+        # Allineamento testo LaTeX
+        for symbol, env, key, default in [
+            ("⬅", "flushleft",  "lang_toolbar_align_left",   "Allinea a sinistra"),
+            ("↔", "center",     "lang_toolbar_align_center",  "Centra"),
+            ("➡", "flushright", "lang_toolbar_align_right",   "Allinea a destra"),
+        ]:
+            tip = tr(f"action.{key}", default=default)
+            btn = self._add_new_button(symbol, tip)
+            btn.clicked.connect(lambda checked, e=env: self._wrap_latex_env(e))
+
+        self._add_separator()
+
+        # Begin / End ambiente
+        tip_begin = tr("action.lang_toolbar_begin_env", default="Inizio ambiente")
+        btn_begin = self._add_new_button(r"\begin{}", tip_begin)
+        btn_begin.clicked.connect(self._latex_begin)
+
+        tip_end = tr("action.lang_toolbar_end_env", default="Fine ambiente")
+        btn_end = self._add_new_button(r"\end{}", tip_end)
+        btn_end.clicked.connect(self._latex_end)
 
         self._add_separator()
 
@@ -433,6 +480,66 @@ class _LanguageToolbarWidget(QWidget):
         editor.replaceSelectedText(new_line)
         editor.setCursorPosition(line, min(col, len(new_line)))
         editor.endUndoAction()
+        editor.setFocus()
+
+    # ── Handler allineamento ─────────────────────────────────────────────────
+
+    def _insert_md_align(self, align: str) -> None:
+        """Avvolge la selezione (o inserisce) un div HTML con text-align."""
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        sel = editor.selectedText()
+        if sel:
+            editor.replaceSelectedText(f'<div align="{align}">{sel}</div>')
+        else:
+            line, col = editor.getCursorPosition()
+            tag = f'<div align="{align}"></div>'
+            editor.insert(tag)
+            editor.setCursorPosition(line, col + len(tag) - len("</div>"))
+        editor.setFocus()
+
+    def _wrap_latex_env(self, env: str) -> None:
+        """Avvolge la selezione (o crea vuoto) in un ambiente LaTeX."""
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        if editor.hasSelectedText():
+            text = editor.selectedText()
+            indented = "\n".join("    " + l for l in text.split("\n"))
+            editor.replaceSelectedText(
+                f"\\begin{{{env}}}\n{indented}\n\\end{{{env}}}"
+            )
+        else:
+            line, col = editor.getCursorPosition()
+            editor.insert(f"\\begin{{{env}}}\n    \n\\end{{{env}}}")
+            editor.setCursorPosition(line + 1, 4)
+        editor.setFocus()
+
+    def _latex_begin(self) -> None:
+        """Inserisce \\begin{nome} alla posizione del cursore."""
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        prompt = tr("action.lang_toolbar_env_name", default="Nome ambiente:")
+        env, ok = QInputDialog.getText(self._mw,
+                                       tr("action.lang_toolbar_begin_env", default="Inizio ambiente"),
+                                       prompt)
+        if ok and env.strip():
+            editor.insert(f"\\begin{{{env.strip()}}}")
+        editor.setFocus()
+
+    def _latex_end(self) -> None:
+        """Inserisce \\end{nome} alla posizione del cursore."""
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        prompt = tr("action.lang_toolbar_env_name", default="Nome ambiente:")
+        env, ok = QInputDialog.getText(self._mw,
+                                       tr("action.lang_toolbar_end_env", default="Fine ambiente"),
+                                       prompt)
+        if ok and env.strip():
+            editor.insert(f"\\end{{{env.strip()}}}")
         editor.setFocus()
 
     # ── Handler picker tabella ────────────────────────────────────────────────

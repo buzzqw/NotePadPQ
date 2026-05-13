@@ -228,7 +228,13 @@
     "lang_toolbar_link_default": "link",
     "lang_toolbar_select_image": "Seleziona immagine",
     "lang_toolbar_image_filter": "Immagini (*.png *.jpg *.jpeg *.gif *.svg *.webp);;Tutti i file (*)",
-    "lang_toolbar_image_alt": "immagine"
+    "lang_toolbar_image_alt": "immagine",
+    "lang_toolbar_align_left": "Allinea a sinistra",
+    "lang_toolbar_align_center": "Centra",
+    "lang_toolbar_align_right": "Allinea a destra",
+    "lang_toolbar_begin_env": "Inizio ambiente",
+    "lang_toolbar_end_env": "Fine ambiente",
+    "lang_toolbar_env_name": "Nome ambiente:"
   },
   "color": {
     "red": "Rosso",
@@ -474,6 +480,19 @@
     "refresh": "Aggiorna",
     "plain_text": "Testo"
   },
+  "richtext": {
+    "downloading_jodit": "Download editor Jodit in corso…",
+    "download_failed": "Download Jodit fallito:\n{exc}\n\nControlla la connessione internet.",
+    "pandoc_missing": "Pandoc non trovato. Installa pandoc o mammoth per aprire questo formato.",
+    "save_as": "Salva come…",
+    "export_pdf": "Esporta PDF",
+    "open_as_text": "Apri come testo",
+    "jodit_not_ready": "Jodit non disponibile. Usa Plugin → Editor Rich Text → Scarica dipendenze.",
+    "load_error": "Impossibile aprire il file:\n{err}",
+    "save_error": "Salvataggio fallito:\n{err}",
+    "docx_lib_missing": "Installa htmldocx o python-docx per salvare in DOCX:\npip install htmldocx",
+    "word_count": "{count} parole"
+  },
   "plugin": {
     "spreadsheet": {
       "menu": "Foglio di calcolo",
@@ -483,6 +502,17 @@
       "title": "Foglio di calcolo",
       "open_error": "Impossibile aprire il file:\n{error}",
       "open_dialog": "Apri foglio di calcolo"
+    },
+    "richtext": {
+      "menu": "Editor Rich Text",
+      "new": "Nuovo documento",
+      "open": "Apri documento…",
+      "open_dialog": "Apri documento rich text",
+      "download_deps": "Scarica dipendenze Jodit…",
+      "new_doc_title": "Nuovo documento",
+      "no_webengine": "PyQt6-WebEngine non è installato.\npip install PyQt6-WebEngine",
+      "deps_ok": "Jodit è già disponibile.",
+      "deps_downloaded": "Jodit scaricato con successo."
     }
   },
   "tooltip": {

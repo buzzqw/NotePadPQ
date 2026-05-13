@@ -1803,6 +1803,7 @@ class MainWindow(QMainWindow):
             )
 
     _SPREADSHEET_EXTS = frozenset({".csv", ".tsv", ".xlsx", ".xlsm", ".xls", ".ods"})
+    _RICHTEXT_EXTS    = frozenset({".docx", ".odt", ".rtf"})
 
     def open_files(self, paths: list[Path]) -> None:
         """Apre una lista di file in nuovi tab (chiamato anche da drag&drop)."""
@@ -1815,6 +1816,13 @@ class MainWindow(QMainWindow):
                 plugin = getattr(self, "_spreadsheet_plugin", None)
                 if plugin is not None:
                     plugin.open_spreadsheet(path)
+                    continue
+                # Plugin non caricato: apre come testo normale
+            # Intercetta file richtext
+            if path.suffix.lower() in self._RICHTEXT_EXTS:
+                plugin = getattr(self, "_richtext_plugin", None)
+                if plugin is not None:
+                    plugin.open_document(path)
                     continue
                 # Plugin non caricato: apre come testo normale
             # Controlla se il file è già aperto
@@ -3605,7 +3613,7 @@ class MainWindow(QMainWindow):
             editor.setFocus()
             
     def action_align_table(self) -> None:
-        """Allinea automaticamente le colonne di una tabella in LaTeX (&) o Markdown (|)."""
+        """Allinea automaticamente le colonne di una tabella in LaTeX (&), Markdown (|) o testo generico."""
         editor = self._current_editor()
         if not editor or not editor.hasSelectedText():
             self.statusBar().showMessage("⚠️ Seleziona prima le righe della tabella da allineare!", 3000)
@@ -3613,65 +3621,80 @@ class MainWindow(QMainWindow):
 
         from editor.lexers import get_language_name
         lang = get_language_name(editor).lower()
-        
-        # Capisce se stiamo lavorando in Markdown o LaTeX
-        is_md = "markdown" in lang
-        sep = "|" if is_md else "&"
-
         text = editor.selectedText()
         lines = text.splitlines()
         if not lines:
             return
 
+        # Determina il separatore: linguaggio → auto-detect sul testo selezionato.
+        # NOTA: "tex" in "plain text" è True → usare parole intere per LaTeX.
+        _lang_words = set(lang.split())
+        _is_latex_lang = "latex" in lang or bool(_lang_words & {"tex", "bibtex", "plaintex"})
+        if "markdown" in lang:
+            sep = "|"
+        elif _is_latex_lang:
+            sep = "&"
+        else:
+            # File generico: rileva il separatore più frequente nel testo selezionato
+            pipe_count = sum(line.count("|") for line in lines)
+            amp_count  = sum(line.count("&")  for line in lines)
+            tab_count  = sum(line.count("\t")  for line in lines)
+            if tab_count >= max(pipe_count, amp_count) and tab_count > 0:
+                sep = "\t"
+            elif pipe_count >= amp_count and pipe_count > 0:
+                sep = "|"
+            elif amp_count > 0:
+                sep = "&"
+            else:
+                self.statusBar().showMessage("⚠️ Nessun separatore rilevato nel testo selezionato (|, &, tab).", 3000)
+                return
+
+        is_md = "markdown" in lang
+
         # 1. Suddivide le righe nelle loro singole celle
         parsed_rows = []
         for line in lines:
             end_marker = ""
-            
+
             # Preserva la fine riga tipica di LaTeX (\\)
             if sep == "&":
                 line_stripped = line.rstrip()
                 if line_stripped.endswith(r"\\"):
                     end_marker = r" \\"
-                    line = line_stripped[:-2] # Taglia via i due backslash per analizzare la cella nuda
-            
-            # Spezza la riga e pulisce gli spazi attorno al testo
+                    line = line_stripped[:-2]
+
             cells = [c.strip() for c in line.split(sep)]
             parsed_rows.append((cells, end_marker))
 
-        # 2. Calcola quanto deve essere larga al massimo ogni colonna
+        # 2. Calcola la larghezza massima di ogni colonna
         max_cols = max((len(c) for c, _ in parsed_rows), default=0)
         col_widths = [0] * max_cols
         for cells, _ in parsed_rows:
             for i, cell in enumerate(cells):
                 col_widths[i] = max(col_widths[i], len(cell))
 
-        # 3. Ricostruisce le righe della tabella aggiungendo gli spazi vuoti necessari
+        # 3. Ricostruisce le righe allineate
         new_lines = []
         for cells, end_marker in parsed_rows:
             padded_cells = []
             for i, cell in enumerate(cells):
-                # Gestione speciale per la riga di divisione del Markdown (es: |---|---|)
+                # Riga separatore Markdown (es: |---|---|)
                 if is_md and set(cell) <= {"-", ":"}:
-                    if len(cell) > 0:
-                        padded_cells.append(cell.ljust(col_widths[i], "-"))
-                    else:
-                        padded_cells.append("")
+                    padded_cells.append(cell.ljust(col_widths[i], "-") if cell else "")
                 else:
                     padded_cells.append(cell.ljust(col_widths[i]))
-            
-            # Ricuce i pezzi mettendo il separatore in mezzo
-            joined_line = f" {sep} ".join(padded_cells)
-            
-            # Pulizia dei bordi esterni (utile specialmente per Markdown)
-            joined_line = joined_line.strip()
-            
+
+            if sep == "\t":
+                joined_line = "\t".join(padded_cells)
+            else:
+                joined_line = f" {sep} ".join(padded_cells)
+                joined_line = joined_line.strip()
+
             if end_marker:
                 joined_line += end_marker
-                
+
             new_lines.append(joined_line)
 
-        # 4. Sostituisce il pasticcio nell'editor con la tabella perfettamente allineata!
         aligned_text = "\n".join(new_lines)
         editor.replaceSelectedText(aligned_text)
         self.statusBar().showMessage("✨ Tabella allineata con successo!", 3000)

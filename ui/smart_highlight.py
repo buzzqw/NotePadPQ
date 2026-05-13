@@ -378,8 +378,21 @@ class MultiMarkManager:
                 act.triggered.connect(lambda checked, idx=i - 1: mgr.mark(idx))
                 search_menu.addAction(act)
 
-            testo_clear = "🎨 " + tr("action.clear_marks", default="Rimuovi tutti i mark")
-            act_clear = QAction(testo_clear, main_window)
+            testo_clear = tr("action.clear_marks", default="Rimuovi tutti i mark")
+            pm_clear = QPixmap(12, 12)
+            from PyQt6.QtGui import QPainter, QPen
+            from PyQt6.QtCore import Qt as _Qt
+            painter = QPainter(pm_clear)
+            strip_h = 12 // len(_MARK_COLORS)
+            for _i, _c in enumerate(_MARK_COLORS):
+                h = strip_h + (12 % len(_MARK_COLORS) if _i == len(_MARK_COLORS) - 1 else 0)
+                painter.fillRect(0, _i * strip_h, 12, h, _c)
+            pen = QPen(QColor(255, 255, 255), 2, _Qt.PenStyle.SolidLine, _Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            painter.drawLine(2, 2, 10, 10)
+            painter.drawLine(10, 2, 2, 10)
+            painter.end()
+            act_clear = QAction(QIcon(pm_clear), testo_clear, main_window)
             act_clear.setShortcut(QKeySequence("Ctrl+0"))
             act_clear.triggered.connect(mgr.clear_all)
             search_menu.addAction(act_clear)

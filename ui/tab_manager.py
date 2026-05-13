@@ -339,6 +339,11 @@ class TabManager(QTabWidget):
         w = self.currentWidget()
         return self._custom_tabs.get(w) if w else None
 
+    def current_custom_widget(self) -> Optional[QWidget]:
+        """Se il tab corrente è un tab custom, restituisce il widget; altrimenti None."""
+        w = self.currentWidget()
+        return w if (w is not None and w in self._custom_tabs) else None
+
     # ── Chiusura tab ─────────────────────────────────────────────────────────
 
     def _on_close_requested(self, index: int) -> None:

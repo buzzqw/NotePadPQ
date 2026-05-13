@@ -1,6 +1,6 @@
 # NotePadPQ: User Manual
 
-> Version 0.5.7: Advanced text editor based on **QScintilla/PyQt6**
+> Version 0.6.6: Advanced text editor based on **QScintilla/PyQt6**
 > Platforms: Linux, Windows, macOS
 
 ---
@@ -105,16 +105,23 @@ NotePadPQ monitors open files and responds in two distinct ways:
 | Paste | `Ctrl+V` |
 | Select all | `Ctrl+A` |
 | Delete selection | `Del` |
-| Copy file path | (nessuna) |
-| Copy file name | (nessuna) |
-| Insert date/time | (nessuna) |
-| Word count | (nessuna) |
-| **Word frequency** | (nessuna) |
-| **Sort lines (dialog)** | (nessuna) |
+| Copy file path | (none) |
+| Copy file name | (none) |
+| Insert date/time | (none) |
+| Word count | (none) |
+| Word frequency | (none) |
+| Sort lines (dialog) | (none) |
+| Column Editor | `Alt+C` |
+
+**Copy file path / Copy file name**: copies the full path of the current file, or just the filename (without directory), to the clipboard. Useful for pasting into a terminal or another document.
+
+**Insert date/time**: inserts the current date and time at the cursor position in ISO format `YYYY-MM-DD HH:MM:SS` (e.g. `2026-05-12 14:30:00`).
+
+**Word count**: shows a dialog with the number of characters, words, and lines. If text is selected, counts only the selection; otherwise counts the entire document.
 
 ### Word Frequency
 
-**Edit → Word Frequency** analyzes the document (or selection) and shows a table sorted by occurrences with the top 50 most frequent words, total word count, and number of unique words.
+**Edit → Word Frequency** analyzes the document (or selection) and shows a table with the top 50 most frequent words sorted by occurrence count. The dialog also reports the total number of words and the number of distinct (unique) words. Words are compared case-insensitively. Useful for detecting redundancy in technical or literary texts.
 
 ### Sort Lines
 
@@ -131,28 +138,43 @@ NotePadPQ monitors open files and responds in two distinct ways:
 The sort applies to the selection (if active) or the entire document.
 Additional line operations (remove duplicates, remove empty lines, etc.) are in **Tools → Line Operations**.
 
+### Column Editor (`Alt+C`)
+
+Opens a dialog to insert values on multiple lines at the same column position. The insertion column is determined by the starting column of the current selection (or the cursor position if there is no selection). The dialog has two modes:
+
+**Numbers mode**: generates a numeric sequence with the following options:
+- **Initial value**: the number to start from (can be negative)
+- **Increment**: how much to increase (or decrease) per line
+- **Format**: Decimal, Hexadecimal, Octal, Binary
+- **Padding**: minimum width with leading zeros (e.g. padding=3 → `001`, `002`)
+- **Prefix / Suffix**: text added before/after each number (e.g. prefix `0x` → `0x1A`)
+
+**Text mode**: inserts the same fixed text on all lines in the selected range.
+
+A real-time preview shows the values that will be inserted before you confirm.
+
 ### Text Formatting
 
 Accessible from **Edit → Format**:
 
 | Action | Shortcut |
 |---|---|
-| Join lines | (nessuna) |
-| Hard wrap | (nessuna) |
-| Break long lines at N columns | (nessuna) |
-| UPPERCASE | (nessuna) |
-| lowercase | (nessuna) |
-| Title Case | (nessuna) |
+| Join lines | (none) |
+| Hard wrap | (none) |
+| Break long lines at N columns | (none) |
+| UPPERCASE | (none) |
+| lowercase | (none) |
+| Title Case | (none) |
 | Invert case | `Ctrl+Alt+U` |
 | Toggle comment | `Ctrl+E` |
-| Comment lines | (nessuna) |
-| Uncomment lines | (nessuna) |
+| Comment lines | (none) |
+| Uncomment lines | (none) |
 | Indent | `Ctrl+Shift+I` |
 | Unindent | `Ctrl+U` |
-| Smart indentation | (nessuna) |
-| Remove trailing spaces | (nessuna) |
-| Tabs to spaces | (nessuna) |
-| Spaces to tabs | (nessuna) |
+| Smart indentation | (none) |
+| Remove trailing spaces | (none) |
+| Tabs to spaces | (none) |
+| Spaces to tabs | (none) |
 | Bold (Markdown/LaTeX) | `Ctrl+B` |
 | Italic (Markdown/LaTeX) | `Ctrl+I` |
 | Strikethrough (Markdown/LaTeX) | `Ctrl+Shift+X` |
@@ -162,6 +184,86 @@ Accessible from **Edit → Format**:
 > **Note: Word wrap vs. Break lines**
 > **View / Document → Word wrap** (`Alt+Z`) is a display option: text appears wrapped on screen without modifying the file.
 > **Edit → Format → Break long lines** physically inserts `\n` into the text; the file is modified. Use with care.
+
+#### Formatting operations in detail
+
+**Join lines**: merges all selected lines into a single line, joining them with a space. Empty lines are ignored. Operates on the selection or the entire document if there is no selection. Example: three lines `alpha`, `beta`, `gamma` become `alpha beta gamma`.
+
+**Hard wrap (line break)**: inserts a newline character (`\n`) at the exact cursor position, pushing the text to the right onto the next line. Equivalent to pressing Enter, but accessible as a menu action (useful in macros).
+
+**Break long lines at N columns**: opens a dialog asking for the target column width (default 80, min 20, max 500). Reflows the selected text (or the entire document) distributing words across lines so that none exceeds the specified width. Paragraphs separated by blank lines are preserved as separate blocks. This operation **physically modifies the file**, unlike "Word wrap".
+
+**UPPERCASE**: converts all selected text to uppercase. Example: `Hello World` → `HELLO WORLD`. Has no effect without a selection.
+
+**lowercase**: converts all selected text to lowercase. Example: `Hello World` → `hello world`.
+
+**Title Case**: capitalizes the first letter of every word and lowercases the rest. Example: `hello beautiful world` → `Hello Beautiful World`.
+
+**Invert case** (`Ctrl+Alt+U`): swaps uppercase and lowercase character by character in the selected text. Example: `Hello` → `hELLO`, `ALPHA beta` → `alpha BETA`. Particularly useful for correcting text accidentally typed with CAPS LOCK on.
+
+**Toggle comment** (`Ctrl+E`): inspects the first selected line (or the current line) to automatically decide whether to comment or uncomment the entire selection:
+- If the first line is already commented → removes the comment from all selected lines
+- If the first line is not commented → adds a comment to all selected lines
+
+The comment prefix depends on the current file's language:
+
+| Language | Prefix |
+|---|---|
+| Python, Bash, Ruby, R | `#` |
+| C, C++, Java, JavaScript, TypeScript | `//` |
+| LaTeX | `%` |
+| SQL, Lua, Haskell | `--` |
+| VHDL | `--` |
+
+Indentation is preserved: the comment is inserted after the leading whitespace, not at the absolute start of the line. Empty lines are skipped.
+
+**Comment lines**: always adds the comment prefix to the selected lines, regardless of their current state. Unlike the toggle, it does not check whether lines are already commented.
+
+**Uncomment lines**: removes the comment prefix from the selected lines (if present). Has no effect on lines that are not commented.
+
+**Indent** (`Ctrl+Shift+I`): adds one indentation level to the current line. With a multi-line selection, indents all lines in the selection. The indentation width (tabs or spaces) follows the document settings (Document → Indentation type and Indentation width).
+
+**Unindent** (`Ctrl+U`): removes one indentation level from the current line or all selected lines, respecting the configured tab width.
+
+**Smart indentation**: adapts the current line's indentation to the surrounding code context using QScintilla's native auto-indent engine. Useful for realigning a line after manually moving it.
+
+**Remove trailing spaces**: scans every line of the document (or the selection) and removes all spaces and tabs at the end of the line, before the line terminator. Does not affect line content or leading indentation. This operation can also run automatically on save via the preference "Remove trailing spaces on save".
+
+**Tabs to spaces**: converts every tab character (`\t`) to N spaces, where N is the tab width configured for the current document (shown in the status bar and adjustable from Document → Indentation width). Operates on the entire document.
+
+**Spaces to tabs**: opens a dialog asking for the tab size to use. Converts groups of leading spaces on each line into tabs: only indentation spaces at the start of the line are converted; spaces in the middle of the text are left unchanged. Incomplete groups (e.g. 3 spaces with tab size 4) remain as spaces.
+
+**Bold** (`Ctrl+B`): wraps the selected text in the appropriate markup for the current language:
+- **Markdown**: `**selected text**`
+- **LaTeX**: `\textbf{selected text}`
+
+Without a selection, inserts empty delimiters (`****` or `\textbf{}`) and places the cursor inside, ready to type. Has no effect on other file types.
+
+**Italic** (`Ctrl+I`): works like Bold but for italic:
+- **Markdown**: `*text*`
+- **LaTeX**: `\textit{text}`
+
+**Strikethrough** (`Ctrl+Shift+X`): applies strikethrough formatting:
+- **Markdown**: `~~text~~`
+- **LaTeX**: `\sout{text}` (requires `\usepackage{ulem}` in the preamble)
+
+**Wrap in Environment / HTML Tag** (`Alt+E`): asks for an environment name (LaTeX) or tag name (HTML). Based on the file type:
+- **LaTeX** (and by default): generates `\begin{name}` ... `\end{name}` with the selected text indented by 4 spaces inside
+- **HTML / Markdown**: generates `<name>` ... `</name>`
+
+Without a selection, creates the empty environment and positions the cursor on the indented inner line, ready for typing. Example: typing `itemize` in a LaTeX file with text selected produces:
+```latex
+\begin{itemize}
+    selected text
+\end{itemize}
+```
+
+**Align Table** (`Alt+T`): aligns the columns of a selected table vertically by padding each cell with spaces to match the widest cell in its column. The separator is chosen automatically:
+- **Markdown**: separator `|`; the separator row (`|---|---|`) is extended with dashes
+- **LaTeX**: separator `&`; the row terminator `\\` is preserved
+- **Generic files and plain text**: the separator is auto-detected by counting which of `|`, `&`, or `tab` appears most in the selected lines
+
+You must select the table rows before activating this function. If no recognizable separator is found in generic text, a warning appears in the status bar.
 
 ### Auto-close Brackets
 **Edit → Auto-close Brackets** (toggle): automatically closes `(`, `[`, `{`, `"`, `'` when you type them.
@@ -496,6 +598,42 @@ Record and replay keystroke sequences:
 | **Shortcut Editor** | Customize keyboard shortcuts |
 | **Named Sessions** | Save and restore groups of files as named sessions |
 
+### Line Operations (Tools → Line Operations)
+
+Advanced operations on document lines. Applied to the selection (if present) or the entire document.
+
+**Sorting:**
+
+| Entry | Effect |
+|---|---|
+| Sort A→Z | Ascending lexicographic order (case-sensitive) |
+| Sort Z→A | Descending lexicographic order |
+| Sort by length (↑) | Shorter lines first |
+| Sort by length (↓) | Longer lines first |
+| Sort randomly | Random permutation of lines |
+
+**Duplicates:**
+
+| Entry | Effect |
+|---|---|
+| Remove duplicates (sorted) | Removes duplicate lines after sorting; the result is sorted |
+| Remove duplicates (original order) | Keeps the first occurrence of each line and removes subsequent ones, preserving original order |
+| Remove unique lines | Keeps only lines that appear more than once (removes singletons) |
+| Keep only unique lines | Keeps only lines that appear exactly once (removes duplicates) |
+
+**Blank lines:**
+
+| Entry | Effect |
+|---|---|
+| Remove empty lines | Deletes lines that contain no characters at all |
+| Remove whitespace-only lines | Deletes lines composed entirely of spaces and/or tabs |
+
+**Other:**
+
+| Entry | Effect |
+|---|---|
+| Remove every N-th line | Opens a dialog asking for N, then deletes lines 1, 1+N, 1+2N, ... (useful for tabular data with periodic header rows) |
+
 ---
 
 ## 10. Plugins
@@ -508,6 +646,7 @@ Plugins are loaded automatically from the `plugins/` folder. To install them, co
 | **Compare & Merge** | Visual side-by-side comparison of two files or tabs |
 | **Encrypt/Decrypt** | AES-256-GCM and ChaCha20-Poly1305 encryption of selected text or the entire file |
 | **FTP Browser** | Browse and edit files on FTP servers |
+| **Rich Text Editor** | WYSIWYG editor for .docx, .odt, .rtf, .html powered by Jodit (see [section 23](#23-rich-text-editor)) |
 | **Spreadsheet** | Full editor for CSV, XLSX, XLS, ODS (see [section 22](#22-spreadsheet)) |
 | **Git Integration** | Full Git panel (see below) |
 | **Hex Viewer** | View the current file in hexadecimal format |
@@ -1012,19 +1151,21 @@ The AI Assistant plugin (activatable from Plugin Manager) adds a dock panel with
 
 | Provider | Main Models | API Key |
 |---|---|---|
-| **Anthropic (Claude)** | claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5 | console.anthropic.com |
+| **Anthropic (Claude)** | Dynamic list from the inserted key | console.anthropic.com |
 | **OpenAI** | gpt-4o, gpt-4o-mini, gpt-4-turbo | platform.openai.com |
 | **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro | aistudio.google.com |
-| **Ollama** | llama3, mistral, codestral, qwen2.5-coder | none (local) |
+| **Ollama** | Dynamic list from installed models | none (local) |
 
 > **Note for Anthropic:** a *Claude Pro* subscription (claude.ai) gives access to the web chat. The API requires separate credit from console.anthropic.com.
+
+> **Dynamic model list:** for Anthropic and Ollama, the model combo updates automatically by querying the API when the provider is selected. The **↻** button forces a manual refresh. If no key is configured yet, the default static list is shown.
 
 ### Configuration
 
 1. Open the panel with `Ctrl+Alt+A`
 2. Click **⚙** to open settings
 3. Paste the API key for the desired provider
-4. Select provider and model from the panel
+4. Select provider and model; the combo updates automatically with models available for the inserted key
 
 ### Usage
 
@@ -1245,4 +1386,52 @@ The "Save as" dialog automatically updates the suggested extension when you chan
 
 ---
 
-*Manual updated: NotePadPQ 0.5.7*
+---
+
+## 23. Rich Text Editor
+
+The **Rich Text Editor** plugin opens `.docx`, `.odt`, `.rtf`, and `.html` documents in a full WYSIWYG tab powered by **Jodit 4** (MIT licence), embedded via QWebEngineView.
+
+### Opening files
+
+Files with extension `.docx`, `.odt`, `.rtf` are opened automatically as rich text when you use **File → Open** or drag them into the editor.
+
+You can also use **Plugin → Rich Text Editor → Open document…** to browse manually, or **New document** to start a blank document.
+
+### Interface
+
+The top toolbar provides:
+
+| Button | Function |
+|---|---|
+| 💾 Save | Save in the original format (`Ctrl+S`) |
+| 📁 Save as… | Choose format and path (`Ctrl+Shift+S`) |
+| 📄 Export PDF | Export the document as PDF via Qt |
+| ✎ Open as text | Convert current HTML to a new text tab |
+
+The Jodit built-in toolbar (inside the editor area) includes: bold, italic, underline, strikethrough, superscript/subscript, lists, indents, font, size, colour, tables, images, links, alignment, undo/redo, find, HTML source, fullscreen.
+
+### Supported formats
+
+| Format | Read | Write | Dependency |
+|---|---|---|---|
+| `.html` / `.htm` | native | native | — |
+| `.docx` | `mammoth` | `htmldocx` / `python-docx` | `pip install mammoth htmldocx` |
+| `.odt` / `.rtf` | `pandoc` | `pandoc` | system pandoc install |
+| `.pdf` | — | Qt (print) | PyQt6-WebEngine |
+
+### First-time setup — Jodit
+
+Jodit assets are bundled in `ui/assets/jodit/`. If they are missing (incomplete manual install) use **Plugin → Rich Text Editor → Download Jodit dependencies…** to fetch them automatically.
+
+### Optional dependencies
+
+```bash
+pip install mammoth htmldocx        # DOCX read/write
+pip install PyQt6-WebEngine         # required for the widget
+# pandoc: system-level install for ODT/RTF
+```
+
+---
+
+*Manual updated: NotePadPQ 0.6.6*

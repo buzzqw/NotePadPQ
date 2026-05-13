@@ -226,7 +226,13 @@
     "lang_toolbar_link_default": "enlace",
     "lang_toolbar_select_image": "Seleccionar imagen",
     "lang_toolbar_image_filter": "Imágenes (*.png *.jpg *.jpeg *.gif *.svg *.webp);;Todos los archivos (*)",
-    "lang_toolbar_image_alt": "imagen"
+    "lang_toolbar_image_alt": "imagen",
+    "lang_toolbar_align_left": "Alinear a la izquierda",
+    "lang_toolbar_align_center": "Centrar",
+    "lang_toolbar_align_right": "Alinear a la derecha",
+    "lang_toolbar_begin_env": "Iniciar entorno",
+    "lang_toolbar_end_env": "Finalizar entorno",
+    "lang_toolbar_env_name": "Nombre del entorno:"
   },
   "color": {
     "red": "Rojo",
@@ -471,6 +477,19 @@
     "refresh": "Actualizar",
     "plain_text": "Texto sin formato"
   },
+  "richtext": {
+    "downloading_jodit": "Descargando el editor Jodit…",
+    "download_failed": "Error al descargar Jodit:\n{exc}\n\nComprueba tu conexión a internet.",
+    "pandoc_missing": "Pandoc no encontrado. Instala pandoc o mammoth para este formato.",
+    "save_as": "Guardar como…",
+    "export_pdf": "Exportar PDF",
+    "open_as_text": "Abrir como texto",
+    "jodit_not_ready": "Jodit no disponible. Plugin → Editor de texto enriquecido → Descargar dependencias.",
+    "load_error": "No se puede abrir el archivo:\n{err}",
+    "save_error": "Error al guardar:\n{err}",
+    "docx_lib_missing": "Instala htmldocx o python-docx para guardar en DOCX:\npip install htmldocx",
+    "word_count": "{count} palabras"
+  },
   "plugin": {
     "spreadsheet": {
       "menu": "Hoja de cálculo",
@@ -480,6 +499,17 @@
       "title": "Hoja de cálculo",
       "open_error": "No se puede abrir el archivo:\n{error}",
       "open_dialog": "Abrir hoja de cálculo"
+    },
+    "richtext": {
+      "menu": "Editor de texto enriquecido",
+      "new": "Nuevo documento",
+      "open": "Abrir documento…",
+      "open_dialog": "Abrir documento de texto enriquecido",
+      "download_deps": "Descargar dependencias de Jodit…",
+      "new_doc_title": "Nuevo documento",
+      "no_webengine": "PyQt6-WebEngine no está instalado.\npip install PyQt6-WebEngine",
+      "deps_ok": "Jodit ya está disponible.",
+      "deps_downloaded": "Jodit descargado correctamente."
     }
   },
   "tooltip": {

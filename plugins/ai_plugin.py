@@ -417,6 +417,10 @@ class _AIWorker(QThread):
         self._max_tokens  = max_tokens
         self._thinking    = thinking
         self._ollama_url  = ollama_url
+        self._stop_event  = threading.Event()
+
+    def stop(self) -> None:
+        self._stop_event.set()
 
     def run(self) -> None:
         try:
@@ -498,6 +502,8 @@ class _AIWorker(QThread):
 
         with urllib.request.urlopen(req, timeout=120) as resp:
             for raw_line in resp:
+                if self._stop_event.is_set():
+                    break
                 line = raw_line.decode("utf-8").rstrip()
                 if not line.startswith("data: "):
                     continue
@@ -604,8 +610,10 @@ class _AIWorker(QThread):
                 full_text += text
                 self.stream_chunk.emit(text)
 
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=600) as resp:
             for raw_line in resp:
+                if self._stop_event.is_set():
+                    break
                 line = raw_line.decode("utf-8").strip()
                 if not line:
                     continue
@@ -1050,6 +1058,11 @@ class _AIPanel(QWidget):
         self._worker:   Optional[_AIWorker] = None
         self._streaming_block = False
         self._inline_selection: Optional[tuple] = None  # (lf, cf, lt, ct) o None = intero file
+        self._elapsed_timer = QTimer(self)
+        self._elapsed_timer.timeout.connect(self._tick_elapsed)
+        self._elapsed_start  = 0.0
+        self._has_thinking   = False
+        self._has_streaming  = False
         self._ollama_ready.connect(self._set_ollama_models)
         self._anthropic_ready.connect(self._set_anthropic_models)
         self._build_ui()
@@ -1192,7 +1205,7 @@ class _AIPanel(QWidget):
         self._btn_clear.clicked.connect(self._clear)
         self._btn_send = QPushButton("▶ Invia  Ctrl+↵")
         self._btn_send.setToolTip(tr("tooltip.ai_send"))
-        self._btn_send.clicked.connect(self._send)
+        self._btn_send.clicked.connect(self._on_send_btn)
         btn_row.addWidget(self._btn_ctx)
         btn_row.addStretch()
         btn_row.addWidget(self._btn_apply)
@@ -1508,10 +1521,14 @@ class _AIPanel(QWidget):
         self._append_msg("user", text, "#9cdcfe")
         self._input.clear()
 
-        self._status.setText(f"⟳  {model} sta elaborando…")
-        self._btn_send.setEnabled(False)
+        self._elapsed_start = time.time()
+        self._has_thinking  = False
+        self._has_streaming = False
+        self._elapsed_timer.start(1000)
+        self._btn_send.setText("⏹ Ferma")
         self._streaming_block = False
         self._think_box.clear()
+        self._status.setText(f"⟳ {model} sta elaborando… (0s)")
 
         self._worker = _AIWorker(pid, model, key_to_use, list(self._history),
                                   system, max_tokens, thinking, ollama_url)
@@ -1523,6 +1540,7 @@ class _AIPanel(QWidget):
         self._worker.start()
 
     def _on_stream_chunk(self, chunk: str) -> None:
+        self._has_streaming = True
         cursor = self._chat_view.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
@@ -1550,7 +1568,8 @@ class _AIPanel(QWidget):
             self._streaming_block = False
 
         self._history.append({"role": "assistant", "content": text})
-        self._btn_send.setEnabled(True)
+        self._elapsed_timer.stop()
+        self._btn_send.setText("▶ Invia  Ctrl+↵")
         self._btn_apply.setEnabled(True)
         self._btn_new_tab.setEnabled(True)
         self._status.setText("")
@@ -1560,12 +1579,46 @@ class _AIPanel(QWidget):
 
     def _on_error(self, msg: str) -> None:
         self._append_msg("system", f"❌ Errore: {msg}", "#f44747")
-        self._btn_send.setEnabled(True)
+        self._elapsed_timer.stop()
+        self._btn_send.setText("▶ Invia  Ctrl+↵")
         self._status.setText("")
         self._streaming_block = False
         self._inline_selection = None
         if self._history and self._history[-1]["role"] == "user":
             self._history.pop()
+
+    def _on_send_btn(self) -> None:
+        if self._worker and self._worker.isRunning():
+            self._stop_generation()
+        else:
+            self._send()
+
+    def _stop_generation(self) -> None:
+        if self._worker:
+            self._worker.stop()
+            try:
+                self._worker.stream_chunk.disconnect()
+                self._worker.think_chunk.disconnect()
+                self._worker.result_ready.disconnect()
+                self._worker.error_occurred.disconnect()
+                self._worker.usage_ready.disconnect()
+            except Exception:
+                pass
+            self._worker = None
+        self._elapsed_timer.stop()
+        self._btn_send.setText("▶ Invia  Ctrl+↵")
+        self._status.setText("⏹ Generazione interrotta")
+        self._streaming_block = False
+
+    def _tick_elapsed(self) -> None:
+        elapsed = int(time.time() - self._elapsed_start)
+        model   = self._model_combo.currentText()
+        if self._has_thinking and not self._has_streaming:
+            self._status.setText(f"💭 {model} sta ragionando… ({elapsed}s)")
+        elif self._has_streaming:
+            self._status.setText(f"⟳ {model} sta generando… ({elapsed}s)")
+        else:
+            self._status.setText(f"⟳ {model} sta elaborando… ({elapsed}s)")
 
     def _on_usage(self, in_tok: int, out_tok: int) -> None:
         model = self._model_combo.currentText()
@@ -1578,6 +1631,7 @@ class _AIPanel(QWidget):
         self._status.setText(f"↑{in_tok} tok  ↓{out_tok} tok{cost_str}")
 
     def _on_think_chunk(self, chunk: str) -> None:
+        self._has_thinking = True
         if not self._think_btn.isVisible():
             self._think_btn.show()
             self._think_btn.setChecked(True)
@@ -1603,6 +1657,8 @@ class _AIPanel(QWidget):
     def _clear(self) -> None:
         self._history.clear()
         self._chat_view.clear()
+        self._elapsed_timer.stop()
+        self._btn_send.setText("▶ Invia  Ctrl+↵")
         self._status.setText("")
         self._streaming_block = False
         self._btn_apply.setEnabled(False)

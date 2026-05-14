@@ -1,4 +1,4 @@
-<img width="1920" alt="NotePadPQ" src="NotePadPQ.png" />
+<img width="1920" alt="NotePadPQ" src="immagini/NotePadPQ.png" />
 
 <div align="center">
 
@@ -124,7 +124,8 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 | **AI Assistant** | Chat AI multi-provider con streaming, Extended Thinking e lista modelli dinamica |
 | **Clipboard History** | Cronologia degli appunti con selezione rapida |
 | **Compare & Merge** | Confronto visuale side-by-side tra due file o versioni |
-| **Editor Rich Text** | Editor WYSIWYG per .docx, .odt, .rtf, .html basato su Jodit 4 |
+| **Database** | Browser e query editor per SQLite, PostgreSQL, MySQL/MariaDB con AI SQL generation |
+| **Editor Rich Text** | Editor WYSIWYG per .doc, .docx, .odt, .rtf, .html basato su Jodit 4 |
 | **Encrypt/Decrypt** | Cifratura/decifratura con AES-256-GCM e ChaCha20-Poly1305 |
 | **Foglio di Calcolo** | Editing completo di CSV, TSV, XLSX, XLS, XLSM, ODS con ordinamento, filtro, formule e grafici |
 | **FTP Browser** | Navigazione e modifica file su server FTP |
@@ -138,7 +139,7 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 - **Orologio live** nella barra dei menu con data e ora localizzate.
 - **Controllo ortografico** (`F4`): spell checker in tempo reale con sottolineatura rossa per IT, EN, DE, FR, ES. Lingua del dizionario selezionabile indipendentemente dalla lingua dell'interfaccia (Documento → Lingua dizionario). Click destro su una parola evidenziata per suggerimenti, "Aggiungi al dizionario" o "Ignora tutto".
 - **Modalità testo semplice** (`Ctrl+Alt+T`): disabilita highlighting, brace matching e autocomplete per tab, ripristinabile in un click.
-- **Modalità scrittura distraction-free** (`F11`): schermo intero senza senza toolbar, statusbar, menubar né pannelli. Ripristino completo all'uscita.
+- **Modalità scrittura distraction-free** (`F11`): schermo intero senza toolbar, statusbar, menubar né pannelli. Ripristino completo all'uscita.
 - **Sessioni**: ripristino automatico all'avvio di tutti i file, posizioni cursore e layout pannelli. Auto-save opzionale su perdita del fuoco.
 - **Istanza singola**: aprire un file da file manager lo invia alla finestra già aperta.
 
@@ -168,9 +169,18 @@ pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pyg
 ```bash
 pip install mammoth htmldocx   # lettura/scrittura DOCX
 # pandoc: installazione di sistema per ODT/RTF
+# libreoffice: installazione di sistema per file .doc (Word 97-2003)
 ```
 
-**Dipendenze LaTeX** (opzionali (solo se usi NotePadPQ per scrivere/compilare LaTeX):
+**Plugin Database** (opzionali):
+```bash
+pip install psycopg2-binary    # PostgreSQL
+pip install pymysql            # MySQL/MariaDB
+pip install cx_Oracle          # Oracle
+# SQLite: incluso in Python standard library
+```
+
+**Dipendenze LaTeX** (opzionali, solo se usi NotePadPQ per scrivere/compilare LaTeX):
 ```bash
 pip install pymupdf matplotlib sympy
 # synctex: incluso in TeX Live (pacchetto di sistema)
@@ -189,7 +199,55 @@ python main.py file1.py file2.md  # apre i file specificati
 
 ## 🖥️ Screenshot
 
-<img width="1920" alt="notepadpq2" src="notepadpq2.png" />
+### Editor principale
+
+<img width="1920" alt="NotePadPQ editor" src="immagini/notepadpq2.png" />
+
+*Editor con syntax highlighting, minimap, pannelli split view e Function List*
+
+---
+
+### 📄 Visualizzatore PDF
+
+<img width="1920" alt="PDF viewer" src="immagini/pdf.png" />
+
+*Anteprima PDF integrata con SyncTeX, zoom e navigazione pagine*
+
+---
+
+### 📊 Foglio di Calcolo
+
+<img width="1920" alt="Spreadsheet" src="immagini/spreadsheet.png" />
+
+*Plugin Foglio di Calcolo: apertura di CSV/XLSX/ODS con ordinamento, filtro e grafici*
+
+<img width="1920" alt="Spreadsheet con filtro" src="immagini/spreadsheet2.png" />
+
+*Filtro attivo e paginazione risultati (100 righe per pagina)*
+
+---
+
+### 📝 Editor Rich Text
+
+<img width="1920" alt="Rich text DOCX" src="immagini/docx.png" />
+
+*Editor WYSIWYG Jodit per file .doc, .docx, .odt, .rtf, .html*
+
+<img width="1920" alt="Rich text ODT" src="immagini/odt.png" />
+
+*Apertura file ODT con formattazione completa*
+
+---
+
+### 🗄️ Plugin Database
+
+<img width="1920" alt="Database browser" src="immagini/db.png" />
+
+*Browser database: schema tabelle, connessioni salvate, AI SQL generation*
+
+<img width="1920" alt="Database query" src="immagini/query.png" />
+
+*Query editor con risultati paginati, esportazione e navigazione ◀ ▶*
 
 ---
 
@@ -297,8 +355,9 @@ Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) d
 | **AI Assistant** | Multi-provider AI chat with streaming, Extended Thinking, and dynamic model list |
 | **Clipboard History** | Multi-entry clipboard with quick selection |
 | **Compare & Merge** | Visual side-by-side file comparison |
+| **Database** | Browser and query editor for SQLite, PostgreSQL, MySQL/MariaDB with AI SQL generation |
 | **Encrypt/Decrypt** | AES-256-GCM and ChaCha20-Poly1305 encryption |
-| **Rich Text Editor** | WYSIWYG editor for .docx, .odt, .rtf, .html powered by Jodit 4 |
+| **Rich Text Editor** | WYSIWYG editor for .doc, .docx, .odt, .rtf, .html powered by Jodit 4 |
 | **Spreadsheet** | Full CSV, TSV, XLSX, XLS, XLSM, ODS editor with sort, filter, formulas, and charts |
 | **FTP Browser** | Browse and edit files on FTP servers |
 | **Git Integration** | Full Git panel: status, log, diff, branch, PR/MR |
@@ -339,6 +398,15 @@ pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pyg
 ```bash
 pip install mammoth htmldocx   # DOCX read/write
 # pandoc: system-level install for ODT/RTF
+# libreoffice: system-level install for .doc (Word 97-2003)
+```
+
+**Database plugin** (optional):
+```bash
+pip install psycopg2-binary    # PostgreSQL
+pip install pymysql            # MySQL/MariaDB
+pip install cx_Oracle          # Oracle
+# SQLite: included in Python standard library
 ```
 
 **LaTeX optional** (only if you write/compile LaTeX):

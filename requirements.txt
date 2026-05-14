@@ -17,6 +17,15 @@ docutils>=0.18         # Anteprima .rst
 matplotlib>=3.5.0      # Anteprima formule matematiche
 sympy>=1.10            # Parsing formule matematiche
 
+# --- Plugin Rich Text / Editor WYSIWYG (Opzionali) ---
+mammoth>=0.11.0        # Lettura DOCX → HTML (plugin rich text)
+htmldocx>=0.0.6        # Scrittura HTML → DOCX (plugin rich text)
+pypandoc>=1.8.0        # ODT/RTF conversione (richiede pandoc di sistema)
+# pandoc: installazione di sistema — sudo apt install pandoc / sudo pacman -S pandoc
+# libreoffice: installazione di sistema per file .doc (Word 97-2003)
+#   sudo apt install libreoffice / sudo pacman -S libreoffice-still
+#   Se non installato, aprire un .doc mostra un messaggio di errore (nessun crash)
+
 # --- Strumenti di Scrittura ---
 pyspellchecker>=0.7.0  # Controllo ortografico
 

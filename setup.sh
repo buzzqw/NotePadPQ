@@ -16,6 +16,9 @@ PIP_LATEX="pymupdf matplotlib sympy"
 # Pacchetti per il plugin Foglio di Calcolo
 PIP_SPREADSHEET="openpyxl xlrd odfpy"
 
+# Pacchetti per il plugin Rich Text (WYSIWYG docx/odt/rtf)
+PIP_RICHTEXT="mammoth htmldocx"
+
 # ─── Helper ───────────────────────────────────────────────────────────────────
 
 _print_latex_hint() {
@@ -97,7 +100,7 @@ echo "Installazione dipendenze base: editor, spellcheck, plugin Git."
 echo
 
 if [[ "$OS" == MINGW* ]] || [[ "$OS" == CYGWIN* ]] || [[ "$OS" == MSYS* ]]; then
-    $PYTHON -m pip install $PIP_CORE $PIP_SPREADSHEET
+    $PYTHON -m pip install $PIP_CORE $PIP_SPREADSHEET $PIP_RICHTEXT
 
 elif command -v pacman &>/dev/null; then
     echo "Arch Linux: installo dipendenze native via pacman..."
@@ -107,6 +110,7 @@ elif command -v pacman &>/dev/null; then
         python-pygithub python-gitlab \
         python-pyspellchecker python-keyring \
         python-openpyxl python-xlrd python-odfpy 2>/dev/null || true
+    $PYTHON -m pip install $PIP_RICHTEXT 2>/dev/null || true
 
 elif command -v apt-get &>/dev/null; then
     BREAK="--break-system-packages"
@@ -115,14 +119,14 @@ elif command -v apt-get &>/dev/null; then
         python3-pyqt6 python3-pyqt6.qsci python3-chardet \
         python3-markdown python3-pyqt6.qtwebengine \
         python3-openpyxl python3-xlrd python3-odf 2>/dev/null || true
-    $PYTHON -m pip install $BREAK $PIP_CORE $PIP_SPREADSHEET 2>/dev/null || true
+    $PYTHON -m pip install $BREAK $PIP_CORE $PIP_SPREADSHEET $PIP_RICHTEXT 2>/dev/null || true
 
 elif command -v dnf &>/dev/null; then
     sudo dnf install -y \
         python3-qt6 python3-qscintilla-qt6 python3-qt6-webengine \
         python3-chardet python3-markdown \
         python3-openpyxl 2>/dev/null || true
-    $PYTHON -m pip install --user $PIP_CORE $PIP_SPREADSHEET || true
+    $PYTHON -m pip install --user $PIP_CORE $PIP_SPREADSHEET $PIP_RICHTEXT || true
 
 elif [[ "$OS" == "FreeBSD" ]]; then
     echo "FreeBSD: rilevazione versione Python..."
@@ -143,14 +147,14 @@ elif [[ "$OS" == "FreeBSD" ]]; then
     # PyQt6, PyQt6-WebEngine, pyspellchecker, PyGithub non sono nei ports -> pip
     PIPBIN=$(command -v pip3 || command -v pip || true)
     if [[ -n "$PIPBIN" ]]; then
-        $PIPBIN install --user PyQt6 PyQt6-WebEngine PyQt6-QScintilla pyspellchecker PyGithub || true
+        $PIPBIN install --user PyQt6 PyQt6-WebEngine PyQt6-QScintilla pyspellchecker PyGithub $PIP_RICHTEXT || true
     else
         echo "  ERRORE: pip non trovato dopo installazione py${PY_VER}-pip"
         echo "  Riprova: sudo pkg install py${PY_VER}-pip"
     fi
 
 else
-    $PYTHON -m pip install $PIP_CORE $PIP_SPREADSHEET || true
+    $PYTHON -m pip install $PIP_CORE $PIP_SPREADSHEET $PIP_RICHTEXT || true
 fi
 
 # ─── Verifica finale ──────────────────────────────────────────────────────────
@@ -191,6 +195,26 @@ check_opt('openpyxl',   'import openpyxl',  'XLSX / ODS lettura e scrittura')
 check_opt('xlrd',       'import xlrd',      'XLS legacy (sola lettura)')
 check_opt('odfpy',      'import odf',       'ODS (fallback se openpyxl < 3.1)')
 "
+
+echo
+echo "--- Plugin Rich Text (opzionali) ---"
+$PYTHON -c "
+def check_opt(name, cmd, desc):
+    try:
+        exec(cmd)
+        print(f'  {name:15}: OK')
+    except:
+        print(f'  {name:15}: non installato  ({desc})')
+
+check_opt('mammoth',    'import mammoth',   'lettura DOCX → HTML')
+check_opt('htmldocx',   'import htmldocx',  'scrittura HTML → DOCX')
+check_opt('pypandoc',   'import pypandoc',  'conversione ODT/RTF')
+"
+if command -v pandoc &>/dev/null; then
+    echo "  pandoc         : OK  (fallback ODT/RTF se pypandoc non disponibile)"
+else
+    echo "  pandoc         : non installato  (opzionale, fallback per ODT/RTF)"
+fi
 
 echo
 echo "--- LaTeX avanzato (opzionali) ---"
@@ -235,6 +259,20 @@ echo "  Ollama:    http://localhost:11434 (nessuna chiave necessaria)"
 _print_latex_hint
 
 echo
+echo "┌─────────────────────────────────────────────────────────────────┐"
+echo "│  Plugin Rich Text / Editor WYSIWYG (opzionale)                  │"
+echo "│                                                                 │"
+echo "│  Per aprire DOCX, ODT, RTF come rich text editabile:            │"
+echo "│                                                                 │"
+echo "│  • mammoth   — lettura DOCX (conversione a HTML)                │"
+echo "│  • htmldocx  — scrittura DOCX (esportazione da HTML)            │"
+echo "│  • pypandoc  — ODT/RTF (richiede pandoc di sistema)             │"
+echo "│                                                                 │"
+echo "│  Installazione rapida (pip):                                    │"
+echo "│    pip install mammoth htmldocx                                 │"
+echo "└─────────────────────────────────────────────────────────────────┘"
+echo
+
 echo "┌─────────────────────────────────────────────────────────────────┐"
 echo "│  Plugin Foglio di Calcolo (opzionale)                           │"
 echo "│                                                                 │"

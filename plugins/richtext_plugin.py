@@ -21,10 +21,10 @@ if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
 
-_RICHTEXT_EXTS = frozenset({".docx", ".odt", ".rtf", ".html", ".htm"})
+_RICHTEXT_EXTS = frozenset({".doc", ".docx", ".odt", ".rtf", ".html", ".htm"})
 _FILTER = (
-    "Documenti (*.docx *.odt *.rtf *.html *.htm);;"
-    "Word (*.docx);;"
+    "Documenti (*.doc *.docx *.odt *.rtf *.html *.htm);;"
+    "Word (*.doc *.docx);;"
     "OpenDocument (*.odt);;"
     "RTF (*.rtf);;"
     "HTML (*.html *.htm);;"

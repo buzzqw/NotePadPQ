@@ -152,6 +152,9 @@ class RichTextIO:
         if ext == ".docx":
             return RichTextIO._docx_to_html(path)
 
+        if ext == ".doc":
+            return RichTextIO._doc_to_html(path)
+
         if ext in (".odt", ".rtf"):
             return RichTextIO._pandoc_to_html(path)
 
@@ -177,14 +180,51 @@ class RichTextIO:
             return "", str(e)
 
     @staticmethod
+    def _doc_to_html(path: Path) -> tuple[str, str]:
+        """Converte .doc (Word 97-2003) → HTML via LibreOffice → mammoth."""
+        import subprocess, tempfile, shutil
+        tmp = Path(tempfile.mkdtemp(prefix="npq_doc_"))
+        try:
+            res = subprocess.run(
+                ["libreoffice", "--headless", "--convert-to", "docx",
+                 "--outdir", str(tmp), str(path)],
+                capture_output=True, text=True, timeout=60
+            )
+            if res.returncode != 0:
+                return "", f"LibreOffice: {res.stderr.strip() or res.stdout.strip()}"
+            docx = tmp / (path.stem + ".docx")
+            if not docx.exists():
+                # LibreOffice may keep original stem with spaces/accents
+                candidates = list(tmp.glob("*.docx"))
+                if not candidates:
+                    return "", "LibreOffice non ha prodotto un file .docx"
+                docx = candidates[0]
+            return RichTextIO._docx_to_html(docx)
+        except FileNotFoundError:
+            return "", "LibreOffice non trovato — installa libreoffice per aprire file .doc"
+        except Exception as e:
+            return "", str(e)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    @staticmethod
+    def _extract_body(html: str) -> str:
+        """Estrae il contenuto del <body> da un documento HTML completo."""
+        import re
+        m = re.search(r"<body(?:[^>]*)>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
+        return m.group(1).strip() if m else html
+
+    @staticmethod
     def _pandoc_to_html(path: Path) -> tuple[str, str]:
         try:
             import pypandoc
+            # --self-contained embeds images; extract body to drop pandoc's
+            # CSS template (max-width, padding…) that would constrain Jodit
             html = pypandoc.convert_file(str(path), "html", extra_args=["--self-contained"])
-            return html, ""
+            return RichTextIO._extract_body(html), ""
         except ImportError:
             pass
-        # Fallback: pandoc subprocess
+        # Fallback: pandoc subprocess (no -s → fragment output, no CSS wrapper)
         import subprocess
         try:
             result = subprocess.run(
@@ -330,11 +370,24 @@ _HTML_TEMPLATE = """\
 <meta charset="utf-8">
 <link rel="stylesheet" href="jodit.min.css">
 <style>
-  * {{ margin:0; padding:0; box-sizing:border-box; }}
-  html, body {{ height:100%; background:#f0f0f0; }}
-  .jodit-container {{ height:100% !important; }}
-  .jodit-wysiwyg {{ min-height:calc(100vh - 80px) !important; }}
-  #editor {{ width:100%; height:100%; }}
+  html, body {{
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+  }}
+  #editor {{ display: block; width: 100%; }}
+  .jodit-container {{
+    width: 100% !important;
+    max-width: none !important;
+    box-sizing: border-box !important;
+  }}
+  .jodit-workplace,
+  .jodit-wysiwyg,
+  .jodit-workplace__area,
+  .jodit-wysiwyg-iframe {{
+    width: 100% !important;
+    max-width: none !important;
+  }}
 </style>
 </head>
 <body>
@@ -349,9 +402,22 @@ var jodit   = null;
 var _pendingContent = null;
 var _changing = false;
 
+// ── Resize helper ─────────────────────────────────────────────────────────────
+window.joditForceSize = function() {{
+  if (!jodit || !jodit.container) return;
+  var h = window.innerHeight;
+  jodit.container.style.height = h + "px";
+  jodit.e.fire("resize");
+}};
+
+window.addEventListener("resize", function() {{
+  window.joditForceSize();
+}});
+
 // ── Jodit config ──────────────────────────────────────────────────────────────
 var JODIT_CONFIG = {{
-  height: "100%",
+  height: window.innerHeight,
+  width:  '100%',
   minHeight: 400,
   autofocus: false,
   spellcheck: true,
@@ -421,6 +487,11 @@ new QWebChannel(qt.webChannelTransport, function(channel) {{
   bridge = channel.objects.bridge;
 
   jodit = Jodit.make("#editor", JODIT_CONFIG);
+
+  jodit.events.on("afterInit", function() {{
+    window.joditForceSize();
+    setTimeout(window.joditForceSize, 150);
+  }});
 
   if (_pendingContent !== null) {{
     jodit.value = _pendingContent;
@@ -521,6 +592,13 @@ class RichTextWidget(QWidget):
         # Shortcut salvataggio
         QShortcut(QKeySequence("Ctrl+S"), self, self.save)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, self.save_as)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._js_ready and hasattr(self, "_view"):
+            self._view.page().runJavaScript(
+                "if(typeof joditForceSize==='function') joditForceSize();"
+            )
 
     def _make_toolbar(self) -> QWidget:
         bar = QToolBar(self)

@@ -513,7 +513,43 @@
       "no_webengine": "PyQt6-WebEngine non è installato.\npip install PyQt6-WebEngine",
       "deps_ok": "Jodit è già disponibile.",
       "deps_downloaded": "Jodit scaricato con successo."
+    },
+    "pdf": {
+      "menu": "Visualizzatore PDF",
+      "open": "Apri PDF…",
+      "open_dialog": "Apri PDF",
+      "no_webengine": "PyQt6-WebEngine non è installato.\npip install PyQt6-WebEngine"
+    },
+    "db": {
+      "menu": "Database",
+      "new_connection": "Nuova connessione…",
+      "saved_connections": "Connessioni salvate…",
+      "manage_drivers": "Gestione driver…"
     }
+  },
+  "db": {
+    "driver_missing_title": "Driver mancante",
+    "install_driver": "✦ Installa ora",
+    "connect_dialog_title": "Nuova connessione",
+    "conn_name": "Nome connessione:",
+    "db_type": "Tipo:",
+    "conn_details": "Dettagli connessione",
+    "host": "Host:",
+    "port": "Porta:",
+    "database": "Database:",
+    "username": "Utente:",
+    "password": "Password:",
+    "test_conn": "Testa connessione",
+    "saved_conns_title": "Connessioni salvate",
+    "connect": "Connetti",
+    "edit": "Modifica",
+    "delete": "Elimina",
+    "new_conn": "+ Nuova…",
+    "driver_manager_title": "Gestione driver",
+    "install_selected": "Installa driver selezionato",
+    "results_placeholder": "I risultati appariranno qui dopo l'esecuzione della query.",
+    "connect_error": "Errore di connessione:\n{error}",
+    "confirm_delete": "Eliminare la connessione \"{name}\"?"
   },
   "tooltip": {
     "build_profile_label": "Profilo selezionato automaticamente dal tipo di file.\nPuoi sovrascriverlo con il combo a destra.",

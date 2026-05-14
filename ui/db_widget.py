@@ -1,0 +1,1720 @@
+"""
+ui/db_widget.py — Plugin Database: connessione, schema browser, query editor
+NotePadPQ
+
+Layout ispirato a DBeaver / Beekeeper Studio:
+  Sinistra  : schema browser persistente (tabelle → colonne con tipi)
+  Destra    : tab multipli per query; ogni tab ha editor SQL (sopra) e
+              risultati SpreadsheetWidget (sotto), con pannello messaggi.
+
+Supporta: SQLite (stdlib), PostgreSQL (psycopg2-binary),
+          MySQL/MariaDB (mysql-connector-python), Oracle (oracledb).
+Driver mancanti: offerta di installazione via pip.
+"""
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Optional, TYPE_CHECKING
+
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRegularExpression
+from PyQt6.QtGui import (
+    QFont, QKeySequence, QColor,
+    QSyntaxHighlighter, QTextCharFormat,
+)
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
+    QTreeWidget, QTreeWidgetItem, QPlainTextEdit,
+    QLabel, QPushButton, QComboBox, QLineEdit,
+    QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
+    QMessageBox, QApplication, QFileDialog,
+    QTabWidget, QFrame, QSizePolicy, QTabBar,
+)
+
+from i18n.i18n import tr
+
+if TYPE_CHECKING:
+    from ui.main_window import MainWindow
+
+# ── Driver registry ───────────────────────────────────────────────────────────
+
+_DRIVERS: dict[str, dict] = {
+    "sqlite": {
+        "display": "SQLite",
+        "module":  "sqlite3",
+        "pip":     None,
+        "default_port": 0,
+        "needs_host": False,
+    },
+    "postgresql": {
+        "display": "PostgreSQL",
+        "module":  "psycopg2",
+        "pip":     "psycopg2-binary",
+        "default_port": 5432,
+        "needs_host": True,
+    },
+    "mysql": {
+        "display": "MySQL / MariaDB",
+        "module":  "mysql.connector",
+        "pip":     "mysql-connector-python",
+        "default_port": 3306,
+        "needs_host": True,
+    },
+    "oracle": {
+        "display": "Oracle",
+        "module":  "oracledb",
+        "pip":     "oracledb",
+        "default_port": 1521,
+        "needs_host": True,
+    },
+}
+
+
+def _driver_available(db_type: str) -> bool:
+    drv = _DRIVERS.get(db_type, {})
+    if not drv:
+        return False
+    if drv.get("pip") is None:
+        return True
+    try:
+        __import__(drv["module"])
+        return True
+    except ImportError:
+        return False
+
+
+# ── SQL syntax highlighter ────────────────────────────────────────────────────
+
+class _SqlHighlighter(QSyntaxHighlighter):
+    _KEYWORDS = (
+        "SELECT FROM WHERE AND OR NOT IN IS NULL LIKE BETWEEN EXISTS "
+        "INSERT INTO VALUES UPDATE SET DELETE CREATE DROP ALTER TABLE "
+        "INDEX VIEW TRIGGER PROCEDURE FUNCTION SCHEMA DATABASE "
+        "JOIN INNER OUTER LEFT RIGHT FULL CROSS ON USING AS "
+        "GROUP BY ORDER HAVING LIMIT OFFSET DISTINCT UNION ALL "
+        "BEGIN COMMIT ROLLBACK TRANSACTION WITH RECURSIVE "
+        "PRIMARY KEY FOREIGN REFERENCES CONSTRAINT UNIQUE DEFAULT "
+        "CASE WHEN THEN ELSE END IF RETURN DECLARE"
+    ).split()
+
+    def __init__(self, document):
+        super().__init__(document)
+        kw_fmt = QTextCharFormat()
+        kw_fmt.setForeground(QColor("#0055aa"))
+        kw_fmt.setFontWeight(700)
+
+        fn_fmt = QTextCharFormat()
+        fn_fmt.setForeground(QColor("#7b2a8b"))
+
+        str_fmt = QTextCharFormat()
+        str_fmt.setForeground(QColor("#007a00"))
+
+        num_fmt = QTextCharFormat()
+        num_fmt.setForeground(QColor("#aa4400"))
+
+        cmt_fmt = QTextCharFormat()
+        cmt_fmt.setForeground(QColor("#888888"))
+        cmt_fmt.setFontItalic(True)
+
+        self._rules: list[tuple[QRegularExpression, QTextCharFormat]] = []
+
+        # Keywords (case-insensitive, whole words)
+        kw_pat = r"\b(?:" + "|".join(self._KEYWORDS) + r")\b"
+        self._rules.append((QRegularExpression(kw_pat, QRegularExpression.PatternOption.CaseInsensitiveOption), kw_fmt))
+
+        # Functions: name followed by (
+        self._rules.append((QRegularExpression(r"\b[A-Z_][A-Z0-9_]*(?=\s*\()",
+                                                QRegularExpression.PatternOption.CaseInsensitiveOption), fn_fmt))
+        # Strings
+        self._rules.append((QRegularExpression(r"'[^']*'"), str_fmt))
+        self._rules.append((QRegularExpression(r'"[^"]*"'), str_fmt))
+        # Numbers
+        self._rules.append((QRegularExpression(r"\b\d+(\.\d+)?\b"), num_fmt))
+        # Line comments
+        self._rules.append((QRegularExpression(r"--[^\n]*"), cmt_fmt))
+
+    def highlightBlock(self, text: str) -> None:
+        for pattern, fmt in self._rules:
+            it = pattern.globalMatch(text)
+            while it.hasNext():
+                m = it.next()
+                self.setFormat(m.capturedStart(), m.capturedLength(), fmt)
+
+
+# ── Driver installer dialog ───────────────────────────────────────────────────
+
+class DBDriverInstallerDialog(QDialog):
+    def __init__(self, db_type: str, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._db_type = db_type
+        drv = _DRIVERS[db_type]
+        self.setWindowTitle(tr("db.driver_missing_title", default="Driver mancante"))
+        self.setMinimumWidth(440)
+
+        layout = QVBoxLayout(self)
+        lbl = QLabel(
+            f"Il driver per <b>{drv['display']}</b> non è installato.<br>"
+            f"Pacchetto richiesto: <code>pip install {drv['pip']}</code>"
+        )
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+
+        self._status = QLabel("")
+        self._status.setStyleSheet("color: gray; font-size: 11px;")
+        layout.addWidget(self._status)
+
+        btns = QDialogButtonBox()
+        self._btn_install = btns.addButton(
+            tr("db.install_driver", default="✦ Installa ora"),
+            QDialogButtonBox.ButtonRole.AcceptRole
+        )
+        btns.addButton(QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(self._do_install)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _do_install(self) -> None:
+        drv = _DRIVERS[self._db_type]
+        self._btn_install.setEnabled(False)
+        self._status.setText(f"Installazione {drv['pip']}…")
+        QApplication.processEvents()
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", drv["pip"]],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode == 0:
+                self._status.setText("✓ Completato.")
+                QApplication.processEvents()
+                self.accept()
+            else:
+                self._status.setText("✗ Errore.")
+                QMessageBox.critical(self, "NotePadPQ",
+                                     f"pip install fallito:\n{result.stderr[-500:]}")
+                self._btn_install.setEnabled(True)
+        except Exception as exc:
+            self._status.setText("✗ Errore.")
+            QMessageBox.critical(self, "NotePadPQ", str(exc))
+            self._btn_install.setEnabled(True)
+
+
+# ── Connect dialog ────────────────────────────────────────────────────────────
+
+class DBConnectDialog(QDialog):
+    def __init__(self, conn_info: Optional[dict] = None,
+                 parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._initial = conn_info or {}
+        self.setWindowTitle(tr("db.connect_dialog_title",
+                               default="Connessione database"))
+        self.setMinimumWidth(480)
+        self._build_ui()
+        if conn_info:
+            self._fill(conn_info)
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+
+        form = QFormLayout()
+        form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self._name = QLineEdit()
+        self._name.setPlaceholderText("Es. Produzione PostgreSQL")
+        form.addRow(tr("db.conn_name", default="Nome connessione:"), self._name)
+
+        self._type = QComboBox()
+        for key, drv in _DRIVERS.items():
+            self._type.addItem(drv["display"], key)
+        self._type.currentIndexChanged.connect(self._on_type_changed)
+        form.addRow(tr("db.db_type", default="Tipo:"), self._type)
+        layout.addLayout(form)
+
+        # SQLite file
+        self._grp_sqlite = QGroupBox("SQLite — file database")
+        sl = QHBoxLayout(self._grp_sqlite)
+        self._sqlite_path = QLineEdit()
+        self._sqlite_path.setPlaceholderText("/percorso/database.db  (vuoto = memoria)")
+        sl.addWidget(self._sqlite_path)
+        btn_br = QPushButton("…")
+        btn_br.setFixedWidth(30)
+        btn_br.clicked.connect(self._browse_sqlite)
+        sl.addWidget(btn_br)
+        layout.addWidget(self._grp_sqlite)
+
+        # Network params
+        self._grp_net = QGroupBox(tr("db.conn_details",
+                                     default="Parametri di connessione"))
+        nf = QFormLayout(self._grp_net)
+        nf.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self._host     = QLineEdit("localhost")
+        self._port     = QLineEdit()
+        self._database = QLineEdit()
+        self._username = QLineEdit()
+        self._password = QLineEdit()
+        self._password.setEchoMode(QLineEdit.EchoMode.Password)
+        nf.addRow(tr("db.host", default="Host:"),         self._host)
+        nf.addRow(tr("db.port", default="Porta:"),        self._port)
+        nf.addRow(tr("db.database", default="Database:"), self._database)
+        nf.addRow(tr("db.username", default="Utente:"),   self._username)
+        nf.addRow(tr("db.password", default="Password:"), self._password)
+        layout.addWidget(self._grp_net)
+
+        test_row = QHBoxLayout()
+        btn_test = QPushButton(tr("db.test_conn", default="Testa connessione"))
+        btn_test.clicked.connect(self._test)
+        self._test_lbl = QLabel("")
+        self._test_lbl.setStyleSheet("font-size: 11px;")
+        test_row.addWidget(btn_test)
+        test_row.addWidget(self._test_lbl)
+        test_row.addStretch()
+        layout.addLayout(test_row)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        btns.accepted.connect(self._accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+        self._on_type_changed()
+
+    def _on_type_changed(self) -> None:
+        db_type = self._type.currentData()
+        self._grp_sqlite.setVisible(db_type == "sqlite")
+        self._grp_net.setVisible(db_type != "sqlite")
+        if db_type != "sqlite":
+            dp = str(_DRIVERS[db_type]["default_port"])
+            if not self._port.text() or self._port.text().isdigit():
+                self._port.setText(dp)
+
+    def _browse_sqlite(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Seleziona database SQLite", str(Path.home()),
+            "SQLite (*.db *.sqlite *.sqlite3);;Tutti i file (*)"
+        )
+        if path:
+            self._sqlite_path.setText(path)
+            if not self._name.text():
+                self._name.setText(Path(path).stem)
+
+    def _fill(self, info: dict) -> None:
+        self._name.setText(info.get("name", ""))
+        db_type = info.get("type", "sqlite")
+        for i in range(self._type.count()):
+            if self._type.itemData(i) == db_type:
+                self._type.setCurrentIndex(i)
+                break
+        self._sqlite_path.setText(info.get("sqlite_path", ""))
+        self._host.setText(info.get("host", "localhost"))
+        self._port.setText(str(info.get("port", "")))
+        self._database.setText(info.get("database", ""))
+        self._username.setText(info.get("username", ""))
+        self._password.setText(info.get("password", ""))
+
+    def _test(self) -> None:
+        info = self.get_info()
+        if not _driver_available(info["type"]):
+            dlg = DBDriverInstallerDialog(info["type"], self)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+        try:
+            conn = _open_connection(info)
+            conn.close()
+            self._test_lbl.setText("✓ Connessione riuscita")
+            self._test_lbl.setStyleSheet("color: green; font-size: 11px;")
+        except Exception as exc:
+            self._test_lbl.setText(f"✗ {exc}")
+            self._test_lbl.setStyleSheet("color: red; font-size: 11px;")
+
+    def _accept(self) -> None:
+        if not self._name.text().strip():
+            QMessageBox.warning(self, "NotePadPQ",
+                                "Inserisci un nome per la connessione.")
+            return
+        self.accept()
+
+    def get_info(self) -> dict:
+        db_type = self._type.currentData()
+        return {
+            "name":        self._name.text().strip(),
+            "type":        db_type,
+            "sqlite_path": self._sqlite_path.text().strip(),
+            "host":        self._host.text().strip(),
+            "port":        int(self._port.text() or
+                               _DRIVERS[db_type]["default_port"]),
+            "database":    self._database.text().strip(),
+            "username":    self._username.text().strip(),
+            "password":    self._password.text(),
+        }
+
+
+# ── Connection storage ────────────────────────────────────────────────────────
+
+class DBConnectionsManager:
+    _KEY = "db/connections"
+
+    @staticmethod
+    def load() -> list[dict]:
+        from config.settings import Settings
+        raw = Settings.instance().get(DBConnectionsManager._KEY, "[]")
+        try:
+            return json.loads(raw)
+        except Exception:
+            return []
+
+    @staticmethod
+    def save(connections: list[dict]) -> None:
+        from config.settings import Settings
+        Settings.instance().set(
+            DBConnectionsManager._KEY, json.dumps(connections))
+
+    @staticmethod
+    def add(conn_info: dict) -> None:
+        conns = DBConnectionsManager.load()
+        for i, c in enumerate(conns):
+            if c.get("name") == conn_info["name"]:
+                conns[i] = conn_info
+                DBConnectionsManager.save(conns)
+                return
+        conns.append(conn_info)
+        DBConnectionsManager.save(conns)
+
+    @staticmethod
+    def remove(name: str) -> None:
+        conns = [c for c in DBConnectionsManager.load()
+                 if c.get("name") != name]
+        DBConnectionsManager.save(conns)
+
+
+# ── Saved connections dialog ──────────────────────────────────────────────────
+
+class DBSavedConnectionsDialog(QDialog):
+    connection_selected = pyqtSignal(dict)
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("db.saved_conns_title",
+                               default="Connessioni salvate"))
+        self.setMinimumSize(540, 360)
+        self._build_ui()
+        self._refresh()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+
+        self._list = QTreeWidget()
+        self._list.setHeaderLabels([
+            tr("db.conn_name", default="Nome"),
+            tr("db.db_type",   default="Tipo"),
+            "Host / File",
+        ])
+        self._list.setRootIsDecorated(False)
+        self._list.setAlternatingRowColors(True)
+        self._list.itemDoubleClicked.connect(self._connect)
+        layout.addWidget(self._list)
+
+        row = QHBoxLayout()
+        for label, slot in [
+            (tr("db.connect", default="Connetti"),  self._connect),
+            (tr("db.edit",    default="Modifica"),  self._edit),
+            (tr("db.delete",  default="Elimina"),   self._delete),
+        ]:
+            b = QPushButton(label)
+            b.clicked.connect(slot)
+            row.addWidget(b)
+        row.addStretch()
+        b_new = QPushButton(tr("db.new_conn", default="+ Nuova…"))
+        b_new.clicked.connect(self._new)
+        row.addWidget(b_new)
+        layout.addLayout(row)
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _refresh(self) -> None:
+        self._list.clear()
+        for c in DBConnectionsManager.load():
+            db_type = c.get("type", "")
+            hf = (c.get("sqlite_path") or
+                  f"{c.get('host','')}:{c.get('port','')}/{c.get('database','')}")
+            item = QTreeWidgetItem([
+                c.get("name", ""),
+                _DRIVERS.get(db_type, {}).get("display", db_type),
+                hf,
+            ])
+            item.setData(0, Qt.ItemDataRole.UserRole, c)
+            self._list.addTopLevelItem(item)
+        for i in range(3):
+            self._list.resizeColumnToContents(i)
+
+    def _selected(self) -> Optional[dict]:
+        item = self._list.currentItem()
+        return item.data(0, Qt.ItemDataRole.UserRole) if item else None
+
+    def _connect(self) -> None:
+        info = self._selected()
+        if info:
+            self.connection_selected.emit(info)
+            self.accept()
+
+    def _edit(self) -> None:
+        info = self._selected()
+        if not info:
+            return
+        dlg = DBConnectDialog(info, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            DBConnectionsManager.add(dlg.get_info())
+            self._refresh()
+
+    def _delete(self) -> None:
+        info = self._selected()
+        if not info:
+            return
+        if QMessageBox.question(
+            self, "NotePadPQ",
+            tr("db.confirm_delete", default="Eliminare la connessione \"{name}\"?",
+               name=info.get("name", ""))
+        ) == QMessageBox.StandardButton.Yes:
+            DBConnectionsManager.remove(info["name"])
+            self._refresh()
+
+    def _new(self) -> None:
+        dlg = DBConnectDialog(parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            info = dlg.get_info()
+            DBConnectionsManager.add(info)
+            self._refresh()
+
+
+# ── Driver manager dialog ─────────────────────────────────────────────────────
+
+class DBDriverManagerDialog(QDialog):
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("db.driver_manager_title",
+                               default="Gestione driver database"))
+        self.setMinimumWidth(500)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        lbl = QLabel("Stato dei driver Python per i database supportati:")
+        lbl.setWordWrap(True)
+        layout.addWidget(lbl)
+
+        self._tree = QTreeWidget()
+        self._tree.setHeaderLabels(["Database", "Pacchetto pip", "Stato"])
+        self._tree.setRootIsDecorated(False)
+        self._tree.setAlternatingRowColors(True)
+        layout.addWidget(self._tree)
+
+        btn_install = QPushButton(
+            tr("db.install_selected", default="Installa driver selezionato"))
+        btn_install.clicked.connect(self._install_selected)
+        layout.addWidget(btn_install)
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+        self._refresh()
+
+    def _refresh(self) -> None:
+        self._tree.clear()
+        for key, drv in _DRIVERS.items():
+            ok = _driver_available(key)
+            pip_pkg = drv["pip"] or "stdlib (built-in)"
+            status = "✓ Installato" if ok else "✗ Non installato"
+            item = QTreeWidgetItem([drv["display"], pip_pkg, status])
+            item.setForeground(
+                2, Qt.GlobalColor.darkGreen if ok else Qt.GlobalColor.red)
+            item.setData(0, Qt.ItemDataRole.UserRole, key)
+            self._tree.addTopLevelItem(item)
+        for i in range(3):
+            self._tree.resizeColumnToContents(i)
+
+    def _install_selected(self) -> None:
+        item = self._tree.currentItem()
+        if not item:
+            return
+        key = item.data(0, Qt.ItemDataRole.UserRole)
+        if _DRIVERS[key]["pip"] is None:
+            QMessageBox.information(
+                self, "NotePadPQ", "Questo driver è nella libreria standard Python.")
+            return
+        if _driver_available(key):
+            QMessageBox.information(self, "NotePadPQ", "Driver già installato.")
+            return
+        dlg = DBDriverInstallerDialog(key, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._refresh()
+
+
+# ── Low-level DB helpers ──────────────────────────────────────────────────────
+
+def _open_connection(info: dict):
+    db_type = info["type"]
+    if db_type == "sqlite":
+        import sqlite3
+        return sqlite3.connect(info.get("sqlite_path") or ":memory:")
+    if db_type == "postgresql":
+        import psycopg2
+        return psycopg2.connect(
+            host=info["host"], port=info["port"],
+            dbname=info["database"],
+            user=info["username"], password=info["password"])
+    if db_type == "mysql":
+        import mysql.connector
+        return mysql.connector.connect(
+            host=info["host"], port=info["port"],
+            database=info["database"],
+            user=info["username"], password=info["password"])
+    if db_type == "oracle":
+        import oracledb
+        return oracledb.connect(
+            user=info["username"], password=info["password"],
+            dsn=f"{info['host']}:{info['port']}/{info['database']}")
+    raise ValueError(f"Tipo non supportato: {db_type}")
+
+
+def _get_tables(conn, db_type: str) -> list[tuple[str, str]]:
+    cur = conn.cursor()
+    if db_type == "sqlite":
+        cur.execute(
+            "SELECT name, type FROM sqlite_master "
+            "WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        return cur.fetchall()
+    if db_type == "postgresql":
+        cur.execute(
+            "SELECT table_name, table_type FROM information_schema.tables "
+            "WHERE table_schema NOT IN ('pg_catalog','information_schema') ORDER BY table_name")
+        return [(r[0], "table" if r[1] == "BASE TABLE" else "view")
+                for r in cur.fetchall()]
+    if db_type == "mysql":
+        cur.execute(
+            "SELECT table_name, table_type FROM information_schema.tables "
+            "WHERE table_schema = DATABASE() ORDER BY table_name")
+        return [(r[0], "table" if r[1] == "BASE TABLE" else "view")
+                for r in cur.fetchall()]
+    if db_type == "oracle":
+        cur.execute("SELECT table_name,'table' FROM user_tables ORDER BY table_name")
+        t = cur.fetchall()
+        cur.execute("SELECT view_name,'view' FROM user_views ORDER BY view_name")
+        return [(r[0], r[1]) for r in t + cur.fetchall()]
+    return []
+
+
+def _get_columns(conn, db_type: str, table: str) -> list[tuple[str, str]]:
+    cur = conn.cursor()
+    if db_type == "sqlite":
+        cur.execute(f'PRAGMA table_info("{table}")')
+        return [(r[1], r[2]) for r in cur.fetchall()]
+    if db_type == "postgresql":
+        cur.execute(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_name = %s ORDER BY ordinal_position", (table,))
+        return cur.fetchall()
+    if db_type == "mysql":
+        cur.execute(f"DESCRIBE `{table}`")
+        return [(r[0], r[1]) for r in cur.fetchall()]
+    if db_type == "oracle":
+        cur.execute(
+            "SELECT column_name, data_type FROM user_tab_columns "
+            "WHERE table_name = :1 ORDER BY column_id", (table.upper(),))
+        return cur.fetchall()
+    return []
+
+
+# ── Query worker ──────────────────────────────────────────────────────────────
+
+import re as _re
+
+def _is_select(sql: str) -> bool:
+    return bool(_re.match(r"\s*SELECT\b", sql, _re.IGNORECASE))
+
+def _wrap_page(sql: str, page_size: int, offset: int, db_type: str) -> str:
+    """Avvolge una SELECT con LIMIT/OFFSET per la paginazione server-side."""
+    inner = sql.rstrip("; \t\n")
+    if db_type == "oracle":
+        return (f"SELECT * FROM ({inner}) "
+                f"OFFSET {offset} ROWS FETCH NEXT {page_size + 1} ROWS ONLY")
+    return f"SELECT * FROM ({inner}) AS _npq_ LIMIT {page_size + 1} OFFSET {offset}"
+
+
+class _QueryWorker(QThread):
+    # headers, rows, error, elapsed, has_more
+    finished = pyqtSignal(list, list, str, float, bool)
+
+    def __init__(self, conn_info: dict, sql: str,
+                 page_size: int = 0, offset: int = 0):
+        super().__init__()
+        self._conn_info = conn_info
+        self._sql       = sql
+        self._page_size = page_size   # 0 = no pagination (fetch all)
+        self._offset    = offset
+
+    def run(self) -> None:
+        t0 = time.perf_counter()
+        conn = None
+        try:
+            conn = _open_connection(self._conn_info)
+            cur = conn.cursor()
+            db_type  = self._conn_info.get("type", "")
+            paginate = self._page_size > 0 and _is_select(self._sql)
+
+            if paginate:
+                exec_sql = _wrap_page(self._sql, self._page_size,
+                                      self._offset, db_type)
+            else:
+                exec_sql = self._sql
+
+            cur.execute(exec_sql)
+            if cur.description:
+                headers = [d[0] for d in cur.description]
+                if paginate:
+                    raw  = cur.fetchmany(self._page_size + 1)
+                    has_more = len(raw) > self._page_size
+                    rows = [[str(v) if v is not None else "" for v in r]
+                            for r in raw[:self._page_size]]
+                else:
+                    rows     = [[str(v) if v is not None else "" for v in r]
+                                for r in cur.fetchall()]
+                    has_more = False
+            else:
+                headers  = ["Info"]
+                rows     = [["Query eseguita."]]
+                has_more = False
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+            self.finished.emit(headers, rows, "", time.perf_counter() - t0, has_more)
+        except Exception as exc:
+            self.finished.emit([], [], str(exc), time.perf_counter() - t0, False)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+
+# ── Single query tab ──────────────────────────────────────────────────────────
+
+class _QueryTab(QWidget):
+    """
+    Un tab di query: editor SQL in alto, risultati SpreadsheetWidget in basso.
+    Layout a QSplitter verticale, simile a DBeaver.
+    """
+
+    PAGE_SIZE = 100
+
+    def __init__(self, conn, conn_info: dict,
+                 main_window: "MainWindow",
+                 tab_index: int,
+                 parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._conn         = conn
+        self._conn_info    = conn_info
+        self._mw           = main_window
+        self._tab_index    = tab_index
+        self._worker: Optional[_QueryWorker] = None
+        self._result_widget: Optional[QWidget] = None
+        self._raw_sql:   str  = ""
+        self._page_offset: int = 0
+        self._has_more:  bool = False
+        self._last_headers: list = []
+        self._last_rows:    list = []
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # --- Toolbar ---
+        toolbar = QWidget()
+        toolbar.setStyleSheet(
+            "QWidget { background: palette(window); border-bottom: 1px solid palette(mid); }"
+        )
+        trow = QHBoxLayout(toolbar)
+        trow.setContentsMargins(6, 3, 6, 3)
+        trow.setSpacing(4)
+
+        self._btn_run = QPushButton("▶  Esegui")
+        self._btn_run.setStyleSheet("font-weight: bold;")
+        self._btn_run.setFixedHeight(26)
+        self._btn_run.clicked.connect(self._execute)
+
+        self._btn_cancel = QPushButton("✕ Annulla")
+        self._btn_cancel.setFixedHeight(26)
+        self._btn_cancel.setEnabled(False)
+        self._btn_cancel.clicked.connect(self._cancel)
+
+        btn_clear = QPushButton("⌫ Pulisci")
+        btn_clear.setFixedHeight(26)
+        btn_clear.clicked.connect(self._clear_editor)
+
+        self._btn_export = QPushButton("⬇ Esporta…")
+        self._btn_export.setFixedHeight(26)
+        self._btn_export.setEnabled(False)
+        self._btn_export.clicked.connect(self._export_results)
+
+        self._status_lbl = QLabel("")
+        self._status_lbl.setStyleSheet("font-size: 11px; color: gray; padding: 0 6px;")
+
+        trow.addWidget(self._btn_run)
+        trow.addWidget(self._btn_cancel)
+        trow.addWidget(btn_clear)
+        trow.addWidget(self._btn_export)
+        trow.addWidget(self._status_lbl)
+        trow.addStretch()
+
+        hint = QLabel("F5 = esegui  |  Ctrl+Enter = esegui selezione")
+        hint.setStyleSheet("font-size: 10px; color: gray;")
+        trow.addWidget(hint)
+        layout.addWidget(toolbar)
+
+        # --- Vertical splitter: editor + results ---
+        self._splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # SQL editor
+        self._editor = QPlainTextEdit()
+        self._editor.setPlaceholderText(
+            "Scrivi una query SQL…\n"
+            "F5 = esegui tutto   Ctrl+Enter = esegui selezione"
+        )
+        mono = QFont("Monospace")
+        mono.setStyleHint(QFont.StyleHint.TypeWriter)
+        mono.setPointSize(11)
+        self._editor.setFont(mono)
+        _SqlHighlighter(self._editor.document())
+        self._splitter.addWidget(self._editor)
+
+        # Results area: container + pagination bar
+        results_area = QWidget()
+        ra_layout = QVBoxLayout(results_area)
+        ra_layout.setContentsMargins(0, 0, 0, 0)
+        ra_layout.setSpacing(0)
+
+        self._results_container = QWidget()
+        self._results_container.setLayout(QVBoxLayout())
+        self._results_container.layout().setContentsMargins(0, 0, 0, 0)
+        placeholder = QLabel(
+            tr("db.results_placeholder",
+               default="I risultati appariranno qui dopo l'esecuzione della query.")
+        )
+        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        placeholder.setStyleSheet("color: gray; font-size: 12px; padding: 40px;")
+        self._results_container.layout().addWidget(placeholder)
+        ra_layout.addWidget(self._results_container, 1)
+
+        # Pagination bar
+        self._pager = QWidget()
+        self._pager.setStyleSheet(
+            "QWidget { background: palette(window); border-top: 1px solid palette(mid); }"
+        )
+        prow = QHBoxLayout(self._pager)
+        prow.setContentsMargins(6, 2, 6, 2)
+        prow.setSpacing(4)
+        self._btn_prev = QPushButton("◀")
+        self._btn_prev.setFixedSize(24, 22)
+        self._btn_prev.clicked.connect(self._page_prev)
+        self._page_lbl = QLabel("")
+        self._page_lbl.setStyleSheet("font-size: 10px; color: gray;")
+        self._btn_next = QPushButton("▶")
+        self._btn_next.setFixedSize(24, 22)
+        self._btn_next.clicked.connect(self._page_next)
+        prow.addStretch()
+        prow.addWidget(self._btn_prev)
+        prow.addWidget(self._page_lbl)
+        prow.addWidget(self._btn_next)
+        prow.addStretch()
+        self._pager.setVisible(False)
+        ra_layout.addWidget(self._pager)
+
+        self._splitter.addWidget(results_area)
+
+        self._splitter.setSizes([300, 200])
+        layout.addWidget(self._splitter)
+
+        # Shortcuts
+        from PyQt6.QtGui import QShortcut
+        QShortcut(QKeySequence("F5"), self, self._execute)
+        QShortcut(QKeySequence("Ctrl+Return"), self, self._execute_selection)
+
+    def _clear_editor(self) -> None:
+        self._editor.clear()
+
+    def set_sql(self, sql: str) -> None:
+        self._editor.setPlainText(sql)
+
+    def focus_editor(self) -> None:
+        self._editor.setFocus()
+
+    # ── Execution ─────────────────────────────────────────────────────────────
+
+    def _get_sql(self) -> str:
+        tc = self._editor.textCursor()
+        sel = tc.selectedText().strip()
+        return sel or self._editor.toPlainText().strip()
+
+    def _execute_selection(self) -> None:
+        tc = self._editor.textCursor()
+        if tc.hasSelection():
+            self._execute()
+
+    def _execute(self) -> None:
+        if not self._conn_info:
+            return
+        if self._worker and self._worker.isRunning():
+            return
+        sql = self._get_sql()
+        if not sql:
+            return
+        self._raw_sql    = sql
+        self._page_offset = 0
+        self._run_worker(sql, offset=0)
+
+    def _run_worker(self, sql: str, offset: int) -> None:
+        self._btn_run.setEnabled(False)
+        self._btn_cancel.setEnabled(True)
+        self._status_lbl.setStyleSheet("color: gray; font-size: 11px;")
+        self._status_lbl.setText("Esecuzione…")
+        self._worker = _QueryWorker(
+            self._conn_info, sql,
+            page_size=self.PAGE_SIZE, offset=offset
+        )
+        self._worker.finished.connect(self._on_done)
+        self._worker.start()
+
+    def _cancel(self) -> None:
+        if self._worker and self._worker.isRunning():
+            self._worker.terminate()
+            self._worker.wait(2000)
+        self._btn_run.setEnabled(True)
+        self._btn_cancel.setEnabled(False)
+        self._status_lbl.setText("Annullata.")
+
+    def _on_done(self, headers: list, rows: list,
+                 error: str, elapsed: float, has_more: bool) -> None:
+        self._btn_run.setEnabled(True)
+        self._btn_cancel.setEnabled(False)
+
+        if error:
+            self._status_lbl.setStyleSheet("color: red; font-size: 11px;")
+            self._status_lbl.setText("✗ Errore")
+            self._show_error(error)
+            self._pager.setVisible(False)
+            self._btn_export.setEnabled(False)
+            return
+
+        self._last_headers = headers
+        self._last_rows    = rows
+        self._has_more     = has_more
+        n = len(rows)
+        offset = self._page_offset
+        row_from = offset + 1
+        row_to   = offset + n
+        suffix   = "+" if has_more else ""
+        self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
+        self._status_lbl.setText(
+            f"✓ righe {row_from}–{row_to}{suffix}  ({elapsed:.3f}s)"
+        )
+        self._btn_export.setEnabled(bool(rows))
+        self._show_results(headers, rows)
+
+        # Pager
+        show_pager = (offset > 0) or has_more
+        self._pager.setVisible(show_pager)
+        if show_pager:
+            self._page_lbl.setText(
+                f"Righe {row_from}–{row_to}{suffix}"
+            )
+            self._btn_prev.setEnabled(offset > 0)
+            self._btn_next.setEnabled(has_more)
+
+    def _page_prev(self) -> None:
+        self._page_offset = max(0, self._page_offset - self.PAGE_SIZE)
+        self._run_worker(self._raw_sql, self._page_offset)
+
+    def _page_next(self) -> None:
+        self._page_offset += self.PAGE_SIZE
+        self._run_worker(self._raw_sql, self._page_offset)
+
+    def _export_results(self) -> None:
+        if not self._last_rows:
+            return
+        page_count = len(self._last_rows)
+
+        from PyQt6.QtWidgets import QDialog, QRadioButton, QSpinBox, QDialogButtonBox
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Esporta risultati")
+        v = QVBoxLayout(dlg)
+
+        r_page = QRadioButton(f"Pagina corrente  ({page_count} righe)")
+        r_page.setChecked(True)
+        r_all  = QRadioButton("Tutte le righe  (ri-esegue la query senza limite)")
+        r_n    = QRadioButton("Prime N righe:")
+        spin   = QSpinBox()
+        spin.setRange(1, 1_000_000)
+        spin.setValue(1000)
+        spin.setEnabled(False)
+        r_n.toggled.connect(spin.setEnabled)
+
+        row_n = QHBoxLayout()
+        row_n.addWidget(r_n)
+        row_n.addWidget(spin)
+        row_n.addStretch()
+
+        v.addWidget(r_page)
+        v.addWidget(r_all)
+        v.addLayout(row_n)
+
+        bb = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        v.addWidget(bb)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        if r_page.isChecked():
+            self._show_results(self._last_headers, self._last_rows, for_export=True)
+        else:
+            # Ri-esegue senza paginazione per ottenere tutte (o N) le righe
+            limit = spin.value() if r_n.isChecked() else 0
+            self._export_fetch(limit)
+
+    def _export_fetch(self, limit: int) -> None:
+        """Ri-esegue la query senza paginazione per l'export."""
+        if not self._raw_sql or not self._conn_info:
+            return
+        try:
+            conn = _open_connection(self._conn_info)
+            cur  = conn.cursor()
+            db_type = self._conn_info.get("type", "")
+            if limit > 0:
+                sql = _wrap_page(self._raw_sql, limit, 0, db_type).replace(
+                    f"LIMIT {limit + 1}", f"LIMIT {limit}"
+                )
+            else:
+                sql = self._raw_sql
+            cur.execute(sql)
+            if cur.description:
+                headers = [d[0] for d in cur.description]
+                rows    = [[str(v) if v is not None else "" for v in r]
+                           for r in cur.fetchall()]
+                self._show_results(headers, rows, for_export=True)
+            conn.close()
+        except Exception as exc:
+            QMessageBox.critical(self, "NotePadPQ",
+                                 f"Errore export:\n{exc}")
+
+    def _show_results(self, headers: list, rows: list, for_export: bool = False) -> None:
+        layout = self._results_container.layout()
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        try:
+            from ui.spreadsheet_widget import SpreadsheetWidget
+            conn_name = self._conn_info.get("name", "db")
+            path = Path(f"{conn_name}_query_{self._tab_index}")
+            widget = SpreadsheetWidget(
+                path, headers, rows,
+                read_only=not for_export, parent=self
+            )
+            layout.addWidget(widget)
+            self._result_widget = widget
+            sizes = self._splitter.sizes()
+            if sizes[1] < 150:
+                total = sum(sizes)
+                self._splitter.setSizes([int(total * 0.55), int(total * 0.45)])
+        except Exception as exc:
+            err_lbl = QLabel(f"Errore visualizzazione risultati:\n{exc}")
+            err_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(err_lbl)
+
+    def _show_error(self, error: str) -> None:
+        layout = self._results_container.layout()
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        lbl = QLabel(f"<pre style='color:red'>{error}</pre>")
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        lbl.setWordWrap(True)
+        lbl.setContentsMargins(12, 12, 12, 12)
+        layout.addWidget(lbl)
+        sizes = self._splitter.sizes()
+        if sizes[1] < 100:
+            total = sum(sizes)
+            self._splitter.setSizes([int(total * 0.6), int(total * 0.4)])
+
+
+# ── DB Browser widget ─────────────────────────────────────────────────────────
+
+class DBBrowserWidget(QWidget):
+    """
+    Widget principale per una connessione database.
+
+    Layout:
+      ┌─────────────────────────────────────────────────┐
+      │  [Nome connessione]  [Tipo]          [↺] stato  │
+      ├──────────────┬──────────────────────────────────┤
+      │ 📋 Tabelle   │ [Query 1] [Query 2] [+]           │
+      │  ├ orders    │  ┌──────────────────────────────┐ │
+      │  │  ├ id INT │  │  SELECT * FROM orders…       │ │
+      │  │  └ ...    │  └──────────────────────────────┘ │
+      │ 👁 Viste     │  ──── risultati SpreadsheetWidget ─│
+      └──────────────┴──────────────────────────────────┘
+    """
+
+    modified_changed    = pyqtSignal(bool)
+    _ai_ollama_ready    = pyqtSignal(object)   # list[str] | None
+    _ai_anthropic_ready = pyqtSignal(object)   # list[str] | None
+
+    def __init__(self, conn_info: dict,
+                 main_window: "MainWindow",
+                 parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.file_path: Optional[Path] = None
+        self._conn_info  = conn_info
+        self._mw         = main_window
+        self._conn       = None
+        self._query_count = 0
+
+        self._build_ui()
+        self._connect()
+
+    # ── Build ─────────────────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Header ────────────────────────────────────────────────────────────
+        header = QFrame()
+        header.setFrameShape(QFrame.Shape.StyledPanel)
+        header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        header.setStyleSheet(
+            "QFrame { background: palette(mid); border: none; border-bottom: 1px solid palette(dark); }"
+        )
+        hrow = QHBoxLayout(header)
+        hrow.setContentsMargins(8, 4, 8, 4)
+
+        db_type  = self._conn_info.get("type", "")
+        drv_name = _DRIVERS.get(db_type, {}).get("display", db_type)
+        name     = self._conn_info.get("name", "")
+        lbl = QLabel(f"<b>{name}</b>  <span style='color:gray; font-size:11px'>{drv_name}</span>")
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        hrow.addWidget(lbl)
+        hrow.addStretch()
+
+        self._status_lbl = QLabel("…")
+        self._status_lbl.setStyleSheet("font-size: 11px; color: gray;")
+        hrow.addWidget(self._status_lbl)
+
+        btn_refresh = QPushButton("↺")
+        btn_refresh.setFixedWidth(28)
+        btn_refresh.setFixedHeight(24)
+        btn_refresh.setToolTip("Aggiorna schema")
+        btn_refresh.clicked.connect(self._load_schema)
+        hrow.addWidget(btn_refresh)
+
+        btn_new_q = QPushButton("+ Query")
+        btn_new_q.setFixedHeight(24)
+        btn_new_q.setToolTip("Apri un nuovo tab di query")
+        btn_new_q.clicked.connect(self._add_query_tab)
+        hrow.addWidget(btn_new_q)
+
+        root.addWidget(header)
+
+        # ── Main splitter: schema | query tabs ────────────────────────────────
+        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+
+        # --- Schema tree ---
+        schema_panel = QWidget()
+        sp_layout = QVBoxLayout(schema_panel)
+        sp_layout.setContentsMargins(0, 0, 0, 0)
+        sp_layout.setSpacing(0)
+
+        self._search_box = QLineEdit()
+        self._search_box.setPlaceholderText("🔍  Filtra oggetti…")
+        self._search_box.setFixedHeight(26)
+        self._search_box.textChanged.connect(self._filter_tree)
+        sp_layout.addWidget(self._search_box)
+
+        # ── AI Query panel ────────────────────────────────────────────────────
+        self._ai_panel = self._build_ai_panel()
+        sp_layout.addWidget(self._ai_panel)
+
+        self._schema_tree = QTreeWidget()
+        self._schema_tree.setHeaderHidden(True)
+        self._schema_tree.setMinimumWidth(180)
+        self._schema_tree.itemExpanded.connect(self._on_item_expanded)
+        self._schema_tree.itemDoubleClicked.connect(self._on_table_double_click)
+        self._schema_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._schema_tree.customContextMenuRequested.connect(
+            self._schema_context_menu)
+        sp_layout.addWidget(self._schema_tree)
+
+        schema_panel.setMinimumWidth(180)
+        schema_panel.setMaximumWidth(340)
+        splitter.addWidget(schema_panel)
+
+        # --- Query tab widget ---
+        self._query_tabs = QTabWidget()
+        self._query_tabs.setTabsClosable(True)
+        self._query_tabs.tabCloseRequested.connect(self._close_query_tab)
+        self._query_tabs.setMovable(True)
+        splitter.addWidget(self._query_tabs)
+
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 4)
+        splitter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        root.addWidget(splitter, 1)
+
+        # Initial query tab
+        self._add_query_tab()
+
+    # ── Connection ────────────────────────────────────────────────────────────
+
+    def _connect(self) -> None:
+        db_type = self._conn_info.get("type", "")
+        if not _driver_available(db_type):
+            dlg = DBDriverInstallerDialog(db_type, self)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                self._status_lbl.setText("✗ Driver non disponibile")
+                return
+
+        try:
+            self._conn = _open_connection(self._conn_info)
+            self._status_lbl.setText("✓ Connesso")
+            self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
+            self._load_schema()
+        except Exception as exc:
+            self._status_lbl.setText(f"✗ {str(exc)[:60]}")
+            self._status_lbl.setStyleSheet("color: red; font-size: 11px;")
+            QMessageBox.critical(
+                self, "NotePadPQ",
+                tr("db.connect_error", default="Errore di connessione:\n{error}",
+                   error=str(exc))
+            )
+
+    # ── Schema tree ───────────────────────────────────────────────────────────
+
+    # ── AI panel ──────────────────────────────────────────────────────────────
+
+    def _build_ai_panel(self) -> QWidget:
+        container = QWidget()
+        container.setObjectName("ai_panel")
+        container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        container.setStyleSheet(
+            "#ai_panel { border: 1px solid palette(mid); border-radius: 4px; }"
+        )
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(3)
+
+        # Toggle header
+        header_row = QHBoxLayout()
+        self._ai_toggle = QPushButton("🤖  AI Query  ▾")
+        self._ai_toggle.setStyleSheet(
+            "QPushButton { border: none; text-align: left; font-size: 11px; "
+            "font-weight: bold; color: palette(text); background: transparent; }"
+            "QPushButton:hover { color: palette(highlight); }"
+        )
+        self._ai_toggle.setFixedHeight(22)
+        self._ai_toggle.clicked.connect(self._toggle_ai_panel)
+        header_row.addWidget(self._ai_toggle)
+        header_row.addStretch()
+        layout.addLayout(header_row)
+
+        # Body (collapsible)
+        self._ai_body = QWidget()
+        body_layout = QVBoxLayout(self._ai_body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(3)
+
+        # Provider selector row
+        prov_row = QHBoxLayout()
+        prov_lbl = QLabel("Provider:")
+        prov_lbl.setStyleSheet("font-size: 10px;")
+        prov_row.addWidget(prov_lbl)
+        self._ai_provider_combo = QComboBox()
+        self._ai_provider_combo.setFixedHeight(22)
+        self._ai_provider_combo.setStyleSheet("font-size: 10px;")
+        self._ai_provider_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._ai_populate_providers()
+        self._ai_provider_combo.currentIndexChanged.connect(self._ai_on_provider_changed)
+        prov_row.addWidget(self._ai_provider_combo)
+        body_layout.addLayout(prov_row)
+
+        # Model selector row
+        model_row = QHBoxLayout()
+        model_lbl = QLabel("Modello:")
+        model_lbl.setStyleSheet("font-size: 10px;")
+        model_row.addWidget(model_lbl)
+        self._ai_model_combo = QComboBox()
+        self._ai_model_combo.setFixedHeight(22)
+        self._ai_model_combo.setStyleSheet("font-size: 10px;")
+        self._ai_model_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        model_row.addWidget(self._ai_model_combo)
+        self._ai_refresh_btn = QPushButton("↻")
+        self._ai_refresh_btn.setFixedSize(22, 22)
+        self._ai_refresh_btn.setToolTip("Aggiorna lista modelli")
+        self._ai_refresh_btn.setStyleSheet("font-size: 11px; padding: 0;")
+        self._ai_refresh_btn.clicked.connect(self._ai_refresh_models)
+        self._ai_refresh_btn.setVisible(False)
+        model_row.addWidget(self._ai_refresh_btn)
+        body_layout.addLayout(model_row)
+
+        # Connect dynamic model signals
+        self._ai_ollama_ready.connect(self._ai_set_ollama_models)
+        self._ai_anthropic_ready.connect(self._ai_set_anthropic_models)
+
+        self._ai_on_provider_changed()  # populate models for default provider
+
+        self._ai_input = QPlainTextEdit()
+        self._ai_input.setPlaceholderText(
+            "Descrivi la query in linguaggio naturale…\n"
+            "Es. «Mostra i 10 clienti con più ordini nell'ultimo mese»"
+        )
+        self._ai_input.setFixedHeight(70)
+        self._ai_input.setFont(QFont("sans-serif"))
+        body_layout.addWidget(self._ai_input)
+
+        ai_row = QHBoxLayout()
+        self._btn_ai_gen = QPushButton("✨ Genera SQL")
+        self._btn_ai_gen.setFixedHeight(24)
+        self._btn_ai_gen.clicked.connect(self._ai_generate_sql)
+        self._ai_status = QLabel("")
+        self._ai_status.setStyleSheet("font-size: 10px; color: gray;")
+        ai_row.addWidget(self._btn_ai_gen)
+        ai_row.addWidget(self._ai_status)
+        ai_row.addStretch()
+        body_layout.addLayout(ai_row)
+
+        self._ai_body.setVisible(False)
+        layout.addWidget(self._ai_body)
+        return container
+
+    def _ai_populate_providers(self) -> None:
+        """Popola il combo dei provider con quelli che hanno una chiave configurata."""
+        self._ai_provider_combo.clear()
+        try:
+            from plugins.ai_plugin import PROVIDERS
+            from config.settings import Settings
+        except ImportError:
+            return
+        s = Settings.instance()
+        for name, info in PROVIDERS.items():
+            pid = info["id"]
+            if pid == "ollama":
+                self._ai_provider_combo.addItem(name, userData=info)
+            else:
+                key = s.get(f"ai/{pid}_key", "").strip()
+                if key:
+                    self._ai_provider_combo.addItem(name, userData=info)
+        if self._ai_provider_combo.count() == 0:
+            self._ai_provider_combo.addItem("(nessun provider configurato)", userData=None)
+
+    def _ai_on_provider_changed(self, _index: int = 0) -> None:
+        """Aggiorna il combo dei modelli in base al provider selezionato."""
+        self._ai_model_combo.clear()
+        info = self._ai_provider_combo.currentData()
+        if not info:
+            if hasattr(self, "_ai_refresh_btn"):
+                self._ai_refresh_btn.setVisible(False)
+            return
+        try:
+            from config.settings import Settings
+        except ImportError:
+            return
+        s = Settings.instance()
+        pid = info["id"]
+        saved_model = s.get(f"ai/{pid}_model", info.get("default", ""))
+        models = info.get("models", [])
+        for m in models:
+            self._ai_model_combo.addItem(m)
+        if saved_model in models:
+            self._ai_model_combo.setCurrentText(saved_model)
+        elif saved_model:
+            self._ai_model_combo.insertItem(0, saved_model)
+            self._ai_model_combo.setCurrentIndex(0)
+
+        show_refresh = pid in ("anthropic", "ollama")
+        if hasattr(self, "_ai_refresh_btn"):
+            self._ai_refresh_btn.setVisible(show_refresh)
+        if pid == "ollama":
+            self._ai_fetch_ollama_models()
+        elif pid == "anthropic":
+            self._ai_fetch_anthropic_models()
+
+    def _toggle_ai_panel(self) -> None:
+        visible = not self._ai_body.isVisible()
+        self._ai_body.setVisible(visible)
+        self._ai_toggle.setText("🤖  AI Query  " + ("▴" if visible else "▾"))
+        if visible:
+            self._ai_populate_providers()  # refresh in case keys were added
+
+    def _ai_refresh_models(self) -> None:
+        info = self._ai_provider_combo.currentData()
+        if not info:
+            return
+        pid = info["id"]
+        if pid == "ollama":
+            self._ai_fetch_ollama_models()
+        elif pid == "anthropic":
+            self._ai_fetch_anthropic_models()
+
+    def _ai_fetch_ollama_models(self) -> None:
+        import threading
+        try:
+            from config.settings import Settings
+        except ImportError:
+            return
+        self._ai_refresh_btn.setEnabled(False)
+        ollama_url = Settings.instance().get("ai/ollama_key", "") or "http://localhost:11434"
+
+        def _fetch():
+            try:
+                import urllib.request as _ur, json as _json
+                req = _ur.Request(f"{ollama_url.rstrip('/')}/api/tags", method="GET")
+                with _ur.urlopen(req, timeout=3) as resp:
+                    data = _json.loads(resp.read())
+                models = [m["name"] for m in data.get("models", [])]
+                self._ai_ollama_ready.emit(models or None)
+            except Exception:
+                self._ai_ollama_ready.emit(None)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _ai_set_ollama_models(self, models) -> None:
+        self._ai_refresh_btn.setEnabled(True)
+        info = self._ai_provider_combo.currentData()
+        if not info or info.get("id") != "ollama":
+            return
+        current = self._ai_model_combo.currentText()
+        self._ai_model_combo.clear()
+        if models is None:
+            self._ai_model_combo.addItem("⚠ ollama non raggiungibile")
+            self._ai_model_combo.setEnabled(False)
+            return
+        self._ai_model_combo.setEnabled(True)
+        for m in models:
+            self._ai_model_combo.addItem(m)
+        idx = self._ai_model_combo.findText(current)
+        if idx >= 0:
+            self._ai_model_combo.setCurrentIndex(idx)
+
+    def _ai_fetch_anthropic_models(self) -> None:
+        import threading
+        try:
+            from config.settings import Settings
+        except ImportError:
+            return
+        api_key = Settings.instance().get("ai/anthropic_key", "").strip()
+        if not api_key:
+            return
+        self._ai_refresh_btn.setEnabled(False)
+
+        def _fetch():
+            try:
+                import urllib.request as _ur, json as _json
+                req = _ur.Request(
+                    "https://api.anthropic.com/v1/models",
+                    method="GET",
+                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                )
+                with _ur.urlopen(req, timeout=8) as resp:
+                    data = _json.loads(resp.read())
+                try:
+                    from plugins.ai_plugin import PROVIDERS
+                    static = PROVIDERS["Anthropic (Claude)"]["models"]
+                except Exception:
+                    static = []
+                ids = [m["id"] for m in data.get("data", []) if m.get("id","").startswith("claude-")]
+                known = [m for m in static if m in ids]
+                extra = [m for m in ids   if m not in static]
+                self._ai_anthropic_ready.emit((known + extra) or None)
+            except Exception:
+                self._ai_anthropic_ready.emit(None)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _ai_set_anthropic_models(self, models) -> None:
+        self._ai_refresh_btn.setEnabled(True)
+        info = self._ai_provider_combo.currentData()
+        if not info or info.get("id") != "anthropic":
+            return
+        if not models:
+            return
+        current = self._ai_model_combo.currentText()
+        self._ai_model_combo.clear()
+        for m in models:
+            self._ai_model_combo.addItem(m)
+        idx = self._ai_model_combo.findText(current)
+        if idx >= 0:
+            self._ai_model_combo.setCurrentIndex(idx)
+
+    def _build_schema_context(self) -> str:
+        """Costruisce una stringa testuale con lo schema per il prompt AI."""
+        lines = [f"Database: {self._conn_info.get('name','')} ({self._conn_info.get('type','')})"]
+        db_type = self._conn_info.get("type", "")
+        if self._conn is None:
+            return "\n".join(lines)
+        try:
+            tables = _get_tables(self._conn, db_type)
+            for name, kind in tables[:50]:   # limit context size
+                cols = _get_columns(self._conn, db_type, name)
+                col_str = ", ".join(f"{c}({t})" for c, t in cols[:30])
+                lines.append(f"{'TABLE' if kind == 'table' else 'VIEW'} {name}: {col_str}")
+        except Exception:
+            pass
+        return "\n".join(lines)
+
+    def _ai_generate_sql(self) -> None:
+        question = self._ai_input.toPlainText().strip()
+        if not question:
+            return
+
+        try:
+            from config.settings import Settings
+            from plugins.ai_plugin import _AIWorker
+        except ImportError:
+            QMessageBox.warning(self, "NotePadPQ", "Plugin AI non disponibile.")
+            return
+
+        pinfo = self._ai_provider_combo.currentData()
+        if not pinfo:
+            QMessageBox.warning(
+                self, "NotePadPQ",
+                "Nessun provider AI configurato.\n"
+                "Configura una chiave API nel pannello AI (Ctrl+Alt+A → ⚙)."
+            )
+            return
+
+        s = Settings.instance()
+        pid   = pinfo["id"]
+        model = self._ai_model_combo.currentText() or pinfo.get("default", "")
+        if pid == "ollama":
+            api_key = s.get("ai/ollama_key", "") or "http://localhost:11434"
+        else:
+            api_key = s.get(f"ai/{pid}_key", "").strip()
+
+        schema_ctx = self._build_schema_context()
+        system_prompt = (
+            "You are an expert SQL assistant.\n"
+            "Given the following database schema, write a SQL query that answers "
+            "the user's question.\n"
+            "Respond with ONLY the raw SQL query — no markdown, no code fences, "
+            "no explanation.\n\n"
+            f"Schema:\n{schema_ctx}"
+        )
+        messages = [{"role": "user", "content": question}]
+
+        self._btn_ai_gen.setEnabled(False)
+        self._ai_status.setText("Generazione…")
+
+        self._ai_worker = _AIWorker(
+            pid, model, api_key,
+            messages, system=system_prompt, max_tokens=512
+        )
+        self._ai_worker.result_ready.connect(self._on_ai_sql_ready)
+        self._ai_worker.error_occurred.connect(self._on_ai_error)
+        self._ai_worker.start()
+
+    def _on_ai_sql_ready(self, text: str) -> None:
+        self._btn_ai_gen.setEnabled(True)
+        self._ai_status.setText("✓ Pronto")
+        # Strip markdown fences if the AI added them despite instructions
+        sql = text.strip()
+        import re as _re
+        sql = _re.sub(r'^```[a-z]*\n?', '', sql, flags=_re.IGNORECASE)
+        sql = _re.sub(r'\n?```$', '', sql)
+        sql = sql.strip()
+        tab = self._current_query_tab()
+        if tab:
+            tab.set_sql(sql)
+            tab.focus_editor()
+
+    def _on_ai_error(self, error: str) -> None:
+        self._btn_ai_gen.setEnabled(True)
+        self._ai_status.setText("✗ Errore")
+        QMessageBox.critical(self, "NotePadPQ",
+                             f"Errore AI:\n{error}")
+
+    def _load_schema(self) -> None:
+        if self._conn is None:
+            return
+        self._schema_tree.clear()
+        db_type = self._conn_info.get("type", "")
+
+        try:
+            tables = _get_tables(self._conn, db_type)
+        except Exception as exc:
+            self._status_lbl.setText(f"Schema: {exc}")
+            return
+
+        table_root = QTreeWidgetItem(["📋  Tabelle"])
+        view_root  = QTreeWidgetItem(["👁  Viste"])
+        table_root.setExpanded(True)
+
+        for name, kind in tables:
+            icon = "  📄  " if kind == "table" else "  👁  "
+            parent = table_root if kind == "table" else view_root
+            item = QTreeWidgetItem([icon + name])
+            item.setData(0, Qt.ItemDataRole.UserRole, {"table": name, "loaded": False})
+            # Placeholder child so expand arrow appears
+            item.addChild(QTreeWidgetItem(["  ⌛ caricamento…"]))
+            parent.addChild(item)
+
+        self._schema_tree.addTopLevelItem(table_root)
+        if view_root.childCount() > 0:
+            self._schema_tree.addTopLevelItem(view_root)
+
+        n = table_root.childCount() + view_root.childCount()
+        self._status_lbl.setText(f"✓ {n} oggetti")
+        self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
+
+    def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data or data.get("loaded"):
+            return
+        table = data["table"]
+        db_type = self._conn_info.get("type", "")
+        item.takeChildren()  # remove placeholder
+        try:
+            cols = _get_columns(self._conn, db_type, table)
+            for col_name, col_type in cols:
+                child = QTreeWidgetItem([f"    🔹 {col_name}  ({col_type})"])
+                child.setForeground(0, Qt.GlobalColor.gray)
+                item.addChild(child)
+        except Exception as exc:
+            item.addChild(QTreeWidgetItem([f"  ✗ {exc}"]))
+        data["loaded"] = True
+        item.setData(0, Qt.ItemDataRole.UserRole, data)
+
+    def _filter_tree(self, text: str) -> None:
+        text = text.lower()
+        for i in range(self._schema_tree.topLevelItemCount()):
+            root = self._schema_tree.topLevelItem(i)
+            any_visible = False
+            for j in range(root.childCount()):
+                child = root.child(j)
+                data = child.data(0, Qt.ItemDataRole.UserRole)
+                table = data["table"].lower() if data else ""
+                visible = not text or text in table
+                child.setHidden(not visible)
+                if visible:
+                    any_visible = True
+            root.setHidden(not any_visible and bool(text))
+
+    def _on_table_double_click(self, item: QTreeWidgetItem, _col: int) -> None:
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data or "table" not in data:
+            return
+        table = data["table"]
+        self._run_select(table)
+
+    def _schema_context_menu(self, pos) -> None:
+        from PyQt6.QtWidgets import QMenu
+        item = self._schema_tree.itemAt(pos)
+        if not item:
+            return
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data or "table" not in data:
+            return
+        table = data["table"]
+        menu = QMenu(self)
+        menu.addAction("SELECT * … LIMIT 100",
+                       lambda: self._run_select(table, 100))
+        menu.addAction("SELECT * (tutto)",
+                       lambda: self._run_select(table))
+        menu.addAction("Mostra struttura",
+                       lambda: self._show_structure(table))
+        menu.exec(self._schema_tree.viewport().mapToGlobal(pos))
+
+    def _run_select(self, table: str, limit: Optional[int] = None) -> None:
+        sql = f"SELECT * FROM {table}"
+        if limit:
+            sql += f"\nLIMIT {limit}"
+        sql += ";"
+        tab = self._current_query_tab()
+        if tab:
+            tab.set_sql(sql)
+            tab._execute()
+
+    def _show_structure(self, table: str) -> None:
+        db_type = self._conn_info.get("type", "")
+        try:
+            cols = _get_columns(self._conn, db_type, table)
+            sql = f"-- Struttura di {table}\n"
+            for col, typ in cols:
+                sql += f"--   {col}  {typ}\n"
+            tab = self._current_query_tab()
+            if tab:
+                tab.set_sql(sql)
+        except Exception as exc:
+            QMessageBox.critical(self, "NotePadPQ", str(exc))
+
+    # ── Query tabs ────────────────────────────────────────────────────────────
+
+    def _add_query_tab(self) -> _QueryTab:
+        self._query_count += 1
+        tab = _QueryTab(
+            self._conn, self._conn_info, self._mw,
+            self._query_count, self
+        )
+        label = f"Query {self._query_count}"
+        self._query_tabs.addTab(tab, label)
+        self._query_tabs.setCurrentWidget(tab)
+        tab.focus_editor()
+        return tab
+
+    def _current_query_tab(self) -> Optional[_QueryTab]:
+        w = self._query_tabs.currentWidget()
+        return w if isinstance(w, _QueryTab) else None
+
+    def _close_query_tab(self, index: int) -> None:
+        if self._query_tabs.count() <= 1:
+            # Keep at least one tab
+            return
+        self._query_tabs.removeTab(index)
+
+    # ── Stubs ─────────────────────────────────────────────────────────────────
+
+    def is_modified(self) -> bool:
+        return False
+
+    def save(self) -> bool:
+        return True
+
+    def closeEvent(self, event) -> None:
+        if self._conn:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+        super().closeEvent(event)

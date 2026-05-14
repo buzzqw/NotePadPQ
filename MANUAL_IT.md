@@ -1361,11 +1361,11 @@ Il dialog "Salva come" aggiorna automaticamente l'estensione proposta quando cam
 
 ## 23. Editor Rich Text
 
-Il plugin **Editor Rich Text** apre documenti `.docx`, `.odt`, `.rtf` e `.html` in un tab WYSIWYG completo, basato su **Jodit 4** (MIT) incorporato via QWebEngineView.
+Il plugin **Editor Rich Text** apre documenti `.doc`, `.docx`, `.odt`, `.rtf` e `.html` in un tab WYSIWYG completo, basato su **Jodit 4** (MIT) incorporato via QWebEngineView.
 
 ### Apertura file
 
-I file con estensione `.docx`, `.odt`, `.rtf` vengono aperti automaticamente come documento rich text quando li apri con **File → Apri** o li trascini nell'editor.
+I file con estensione `.doc`, `.docx`, `.odt`, `.rtf` vengono aperti automaticamente come documento rich text quando li apri con **File → Apri** o li trascini nell'editor.
 
 Puoi anche usare **Plugin → Editor Rich Text → Apri documento…** per scegliere il file manualmente, oppure **Nuovo documento** per creare un documento vuoto.
 
@@ -1388,8 +1388,11 @@ La barra degli strumenti di Jodit (integrata nell'area editor) include: grassett
 |---|---|---|---|
 | `.html` / `.htm` | nativo | nativo | — |
 | `.docx` | `mammoth` | `htmldocx` / `python-docx` | `pip install mammoth htmldocx` |
-| `.odt` / `.rtf` | `pandoc` | `pandoc` | installare pandoc di sistema |
+| `.doc` (Word 97-2003) | `libreoffice` + `mammoth` | — | LibreOffice di sistema |
+| `.odt` / `.rtf` | `pandoc` | `pandoc` | pandoc di sistema |
 | `.pdf` | — | Qt (stampa) | PyQt6-WebEngine |
+
+> **Nota scrittura `.doc`**: il formato binario Word 97-2003 è obsoleto e non supportato in scrittura. Per salvare usa `.docx` o `.odt`.
 
 ### Prima installazione — Jodit
 
@@ -1401,7 +1404,26 @@ Gli asset di Jodit sono inclusi in `ui/assets/jodit/`. Se mancassero (installazi
 pip install mammoth htmldocx        # lettura/scrittura DOCX
 pip install PyQt6-WebEngine         # obbligatoria per il widget
 # pandoc: installazione di sistema per ODT/RTF
+# libreoffice: installazione di sistema per .doc (Word 97-2003)
 ```
+
+#### Cosa succede se LibreOffice non è installato?
+
+Se apri un file `.doc` senza LibreOffice installato, NotePadPQ mostra un messaggio di errore:
+
+> *"LibreOffice non trovato — installa libreoffice per aprire file .doc"*
+
+Il file **non** viene aperto come testo grezzo: il formato `.doc` è binario e illeggibile senza conversione. Per aprire il file hai due opzioni:
+- Installa LibreOffice (`sudo pacman -S libreoffice-still` / `sudo apt install libreoffice` / `sudo dnf install libreoffice`)
+- Converti prima il file in `.docx` con LibreOffice o Word, poi aprilo normalmente
+
+#### Cosa succede se pandoc non è installato?
+
+Per i file `.odt` e `.rtf`, se né `pypandoc` né il comando `pandoc` sono disponibili, NotePadPQ mostra:
+
+> *"pandoc non trovato — installa pandoc per aprire file ODT/RTF"*
+
+Installa pandoc con: `sudo pacman -S pandoc` / `sudo apt install pandoc` / `sudo dnf install pandoc`
 
 ---
 

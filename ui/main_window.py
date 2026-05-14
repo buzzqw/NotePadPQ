@@ -1803,7 +1803,8 @@ class MainWindow(QMainWindow):
             )
 
     _SPREADSHEET_EXTS = frozenset({".csv", ".tsv", ".xlsx", ".xlsm", ".xls", ".ods"})
-    _RICHTEXT_EXTS    = frozenset({".docx", ".odt", ".rtf"})
+    _RICHTEXT_EXTS    = frozenset({".doc", ".docx", ".odt", ".rtf"})
+    _PDF_EXTS         = frozenset({".pdf"})
 
     def open_files(self, paths: list[Path]) -> None:
         """Apre una lista di file in nuovi tab (chiamato anche da drag&drop)."""
@@ -1821,6 +1822,13 @@ class MainWindow(QMainWindow):
             # Intercetta file richtext
             if path.suffix.lower() in self._RICHTEXT_EXTS:
                 plugin = getattr(self, "_richtext_plugin", None)
+                if plugin is not None:
+                    plugin.open_document(path)
+                    continue
+                # Plugin non caricato: apre come testo normale
+            # Intercetta PDF
+            if path.suffix.lower() in self._PDF_EXTS:
+                plugin = getattr(self, "_pdf_plugin", None)
                 if plugin is not None:
                     plugin.open_document(path)
                     continue

@@ -1390,11 +1390,11 @@ The "Save as" dialog automatically updates the suggested extension when you chan
 
 ## 23. Rich Text Editor
 
-The **Rich Text Editor** plugin opens `.docx`, `.odt`, `.rtf`, and `.html` documents in a full WYSIWYG tab powered by **Jodit 4** (MIT licence), embedded via QWebEngineView.
+The **Rich Text Editor** plugin opens `.doc`, `.docx`, `.odt`, `.rtf`, and `.html` documents in a full WYSIWYG tab powered by **Jodit 4** (MIT licence), embedded via QWebEngineView.
 
 ### Opening files
 
-Files with extension `.docx`, `.odt`, `.rtf` are opened automatically as rich text when you use **File → Open** or drag them into the editor.
+Files with extension `.doc`, `.docx`, `.odt`, `.rtf` are opened automatically as rich text when you use **File → Open** or drag them into the editor.
 
 You can also use **Plugin → Rich Text Editor → Open document…** to browse manually, or **New document** to start a blank document.
 
@@ -1417,8 +1417,11 @@ The Jodit built-in toolbar (inside the editor area) includes: bold, italic, unde
 |---|---|---|---|
 | `.html` / `.htm` | native | native | — |
 | `.docx` | `mammoth` | `htmldocx` / `python-docx` | `pip install mammoth htmldocx` |
+| `.doc` (Word 97-2003) | `libreoffice` + `mammoth` | — | system LibreOffice install |
 | `.odt` / `.rtf` | `pandoc` | `pandoc` | system pandoc install |
 | `.pdf` | — | Qt (print) | PyQt6-WebEngine |
+
+> **Note on writing `.doc`**: the legacy binary Word 97-2003 format is not supported for writing. Save as `.docx` or `.odt` instead.
 
 ### First-time setup — Jodit
 
@@ -1430,7 +1433,26 @@ Jodit assets are bundled in `ui/assets/jodit/`. If they are missing (incomplete 
 pip install mammoth htmldocx        # DOCX read/write
 pip install PyQt6-WebEngine         # required for the widget
 # pandoc: system-level install for ODT/RTF
+# libreoffice: system-level install for .doc (Word 97-2003)
 ```
+
+#### What happens if LibreOffice is not installed?
+
+If you open a `.doc` file without LibreOffice installed, NotePadPQ shows an error dialog:
+
+> *"LibreOffice not found — install libreoffice to open .doc files"*
+
+The file is **not** opened as raw text: the `.doc` format is binary and unreadable without conversion. To open the file you have two options:
+- Install LibreOffice (`sudo pacman -S libreoffice-still` / `sudo apt install libreoffice` / `sudo dnf install libreoffice`)
+- Convert the file to `.docx` first using LibreOffice or Word, then open normally
+
+#### What happens if pandoc is not installed?
+
+For `.odt` and `.rtf` files, if neither `pypandoc` nor the `pandoc` command are available, NotePadPQ shows:
+
+> *"pandoc not found — install pandoc to open ODT/RTF files"*
+
+Install pandoc with: `sudo pacman -S pandoc` / `sudo apt install pandoc` / `sudo dnf install pandoc`
 
 ---
 

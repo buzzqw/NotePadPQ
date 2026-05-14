@@ -241,8 +241,6 @@ python main.py file1.py file2.md  # apre i file specificati
 
 ### 🗄️ Plugin Database
 
-<img width="1920" alt="Database browser" src="immagini/db.png" />
-
 *Browser database: schema tabelle, connessioni salvate, AI SQL generation*
 
 <img width="1920" alt="Database query" src="immagini/query.png" />

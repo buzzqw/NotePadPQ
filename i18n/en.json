@@ -115,6 +115,7 @@
     "view_minimap": "Minimap",
     "view_build_panel": "Build & Terminal Panel",
     "view_file_browser": "File Browser",
+    "context_help": "Context Help",
     "manual": "Manual",
     "about": "About NotePadPQ...",
     "about_qt": "About Qt...",
@@ -330,7 +331,8 @@
     "enable": "Enable",
     "disable": "Disable",
     "install": "Install",
-    "uninstall": "Uninstall"
+    "uninstall": "Uninstall",
+    "download_icons": "Download icons"
   },
   "msg": {
     "unsaved_changes": "File \"{name}\" has unsaved changes.\nSave before closing?",
@@ -366,11 +368,14 @@
     "file_changed_on_disk": "File \"{name}\" was modified by another program. What do you want to do?",
     "about_text": "NotePadPQ {version}\nAdvanced text editor for Linux, FreeBSD and Windows.\n\nBased on PyQt6 + QScintilla.",
     "manual_not_found": "Manual not found.",
+    "help_search_placeholder": "Search a topic in the manual…",
+    "help_search_hint": "↵ Enter or double-click to open the section in the manual",
     "update_prompt": "A new version is available!\nCurrent version: {current}\nNew version: {latest}\n\nDo you want to open the page to download the update?",
     "update_ok": "You are using the latest version available ({current}).\nNo update required.",
     "mark_occurrences": "🎨 Color {color_num}: {count} occurrences highlighted",
     "marks_cleared": "🎨 All marks cleared",
-    "update_error": "Unable to check for updates at this time.\nPlease check your connection or try again later.\n\nDetails: {error}"
+    "update_error": "Unable to check for updates at this time.\nPlease check your connection or try again later.\n\nDetails: {error}",
+    "icons_missing": "ℹ  {count} icons from set «{icon_set}» not found on disk."
   },
   "pref": {
     "title": "Preferences",
@@ -632,6 +637,17 @@
     "json_xml_expand": "Expand all",
     "json_xml_collapse": "Collapse all",
     "json_xml_format": "Format",
-    "json_xml_filter": "Filter keys…"
+    "json_xml_filter": "Filter keys…",
+    "lang_toolbar_h1": "Heading 1",
+    "lang_toolbar_h2": "Heading 2",
+    "lang_toolbar_h3": "Heading 3",
+    "lang_toolbar_underline": "Underline",
+    "lang_toolbar_code": "Inline code",
+    "lang_toolbar_code_block": "Code block",
+    "lang_toolbar_quote": "Blockquote",
+    "lang_toolbar_ul": "Bullet list",
+    "lang_toolbar_ol": "Numbered list",
+    "lang_toolbar_task": "Task list",
+    "lang_toolbar_hr": "Horizontal rule"
   }
 }

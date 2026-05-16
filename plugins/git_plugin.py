@@ -797,7 +797,7 @@ class GitPlugin(BasePlugin):
         self._panel = _GitPanel(main_window)
         self._last_editor = None
 
-        self._dock = QDockWidget("⎇  Git", main_window)
+        self._dock = QDockWidget("Git", main_window)
         self._dock.setObjectName("GitDock")
         self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(300)
@@ -815,8 +815,9 @@ class GitPlugin(BasePlugin):
 
         # Una sola voce nel menu Plugin
         self.add_menu_action(main_window, "plugins",
-                             "⎇  Git",
-                             lambda: self._dock.setVisible(not self._dock.isVisible()))
+                             "Git",
+                             lambda: self._dock.setVisible(not self._dock.isVisible()),
+                             icon_key="plugin_git")
         main_window._menus["plugins"].menuAction().setVisible(True)
 
     def _on_dock_visibility(self, visible: bool) -> None:

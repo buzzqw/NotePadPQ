@@ -13,7 +13,7 @@
 4. [Cerca e Sostituisci](#4-cerca-e-sostituisci)
 5. [Evidenziazione colori (Mark)](#5-evidenziazione-colori-mark)
 6. [Bookmark](#6-bookmark)
-7. [Visualizzazione](#7-visualizzazione)
+7. [Visualizzazione](#7-visualizzazione) *(incl. Barra del linguaggio Markdown/LaTeX)*
 8. [Documento](#8-documento)
 9. [Strumenti](#9-strumenti)
 10. [Plugin](#10-plugin)
@@ -44,7 +44,7 @@ Se NotePadPQ è già aperto, i file vengono inviati alla sessione esistente senz
 
 L'interfaccia è composta da:
 
-- **Menubar**: File / Modifica / Cerca / Visualizza / Documento / Strumenti / Plugin / Aiuto (la voce **Aiuto → Manuale** apre il manuale nell'editor come tab normale)
+- **Menubar**: File / Modifica / Cerca / Visualizza / Documento / Strumenti / Plugin / Aiuto (la voce **Aiuto → Manuale** apre il manuale nell'editor come tab normale; **F1** apre l'aiuto contestuale alla parola sotto al cursore)
 - **Toolbar**: azioni comuni con icone (set selezionabile: Lucide, Material, Sistema)
 - **Tab bar**: un tab per ogni file aperto; i file modificati mostrano `*` nel titolo
 - **Editor**: area di testo principale con syntax highlighting, numeri di riga, fold margin, margine simboli (bookmark)
@@ -458,6 +458,25 @@ Quando abilitata (**Visualizza → Minimap: anteprima hover**, oppure in **Prefe
 ### Git Blame inline
 **Visualizza → Git Blame inline**: mostra, sotto la riga in cui si trova il cursore, l'autore, l'età relativa ("3 giorni fa") e il messaggio dell'ultimo commit git che ha toccato quella riga. Usa le annotazioni di QScintilla. Funziona solo sui file all'interno di un repository git. Può essere abilitato dal menu Visualizza o da **Preferenze → Editor**.
 
+### Barra del linguaggio (`Visualizza → Language Toolbar`)
+
+Una toolbar contestuale che appare automaticamente quando il file aperto è **Markdown** o **LaTeX**. Contiene i pulsanti più comuni per quel formato, con icone Lucide uniformi alla toolbar principale.
+
+**Markdown** — in ordine, da sinistra a destra:
+
+| Gruppo | Pulsanti |
+|---|---|
+| Titoli | H1, H2, H3 |
+| Formattazione carattere | Grassetto, Corsivo, Sottolineato, Barrato |
+| Blocchi | Citazione, Codice inline, Blocco codice |
+| Liste | Lista puntata, Lista numerata, Lista task, Separatore (`---`) |
+| Elementi | Tabella, Link, Immagine |
+| Allineamento | Sinistra, Centro, Destra |
+
+Tutti i pulsanti operano sulla selezione corrente o inseriscono il segnaposto nella posizione del cursore. La toolbar si aggiorna automaticamente quando si apre un nuovo file o si salva un file con estensione `.md`.
+
+**LaTeX** — mostra i pulsanti per gli ambienti più comuni (begin/end, align, equazione, lista, tabella, etc.) contestualmente al cursore.
+
 ### Anteprima (`F12`)
 Apre il pannello Anteprima affiancato all'editor. Supporta:
 
@@ -641,16 +660,20 @@ Operazioni avanzate sulle righe del documento. Si applicano alla selezione (se p
 
 I plugin vengono caricati automaticamente dalla cartella `plugins/`. Per installarli, copiali in `plugins/` oppure inseriscili in `plugins_to_copy/` e riesegui `setup.sh`.
 
-| Plugin | Funzione |
-|---|---|
-| **Clipboard History** | Cronologia degli appunti con possibilità di incollare elementi precedenti |
-| **Compare & Merge** | Confronto visuale side-by-side di due file o tab |
-| **Encrypt/Decrypt** | Cifratura AES-256-GCM e ChaCha20-Poly1305 del testo selezionato o dell'intero file |
-| **FTP Browser** | Sfoglia e modifica file su server FTP |
-| **Editor Rich Text** | Editor WYSIWYG per .docx, .odt, .rtf, .html basato su Jodit (vedi [sezione 23](#23-editor-rich-text)) |
-| **Foglio di Calcolo** | Editor completo per CSV, XLSX, XLS, ODS (vedi [sezione 22](#22-foglio-di-calcolo)) |
-| **Git Integration** | Pannello Git completo (vedi sotto) |
-| **Hex Viewer** | Visualizza il file corrente in formato esadecimale |
+Tutti i plugin mostrano icone Lucide nel menu Plugin (stesso stile della toolbar principale). Se le icone non sono state ancora scaricate, usa **Aiuto → Scarica icone** oppure il banner che appare all'avvio.
+
+| Plugin | Scorciatoia | Funzione |
+|---|---|---|
+| **Clipboard History** | `Ctrl+Shift+V` | Cronologia degli appunti con possibilità di incollare elementi precedenti |
+| **Compare & Merge** | `F7` | Confronto visuale side-by-side di due file o tab |
+| **Database** | — | Client SQL per SQLite, PostgreSQL, MySQL con generazione query AI |
+| **Encrypt/Decrypt** | `Ctrl+Shift+E` / `Ctrl+Shift+W` | Cifratura AES-256-GCM e ChaCha20-Poly1305 del testo selezionato o dell'intero file |
+| **FTP Browser** | — | Sfoglia e modifica file su server FTP |
+| **Editor Rich Text** | — | Editor WYSIWYG per .docx, .odt, .rtf, .html basato su Jodit (vedi [sezione 23](#23-editor-rich-text)) |
+| **Foglio di Calcolo** | — | Editor completo per CSV, XLSX, XLS, ODS (vedi [sezione 22](#22-foglio-di-calcolo)) |
+| **Git Integration** | — | Pannello Git completo (vedi sotto) |
+| **Hex Viewer** | `Ctrl+Alt+H` | Visualizza il file corrente in formato esadecimale |
+| **PDF Viewer** | — | Visualizza file PDF in un tab dedicato |
 
 ### Plugin Git: dettaglio
 
@@ -1079,6 +1102,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Shift+F6` | LSP: Rinomina simbolo |
 | `Alt+Shift+F` | LSP: Formatta documento |
 | `Ctrl+Alt+A` | Apri/chiudi pannello AI Assistant |
+| `F1` | Aiuto contestuale (apre il manuale alla parola sotto al cursore) |
 
 ---
 

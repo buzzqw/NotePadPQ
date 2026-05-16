@@ -277,7 +277,7 @@ class ClipboardHistoryPlugin(BasePlugin):
         super().on_load(main_window)
         self._panel = _ClipboardPanel(main_window)
 
-        self._dock = QDockWidget("📋  Clipboard History", main_window)
+        self._dock = QDockWidget("Clipboard History", main_window)
         self._dock.setObjectName("ClipboardHistoryDock")
         self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(220)
@@ -292,9 +292,10 @@ class ClipboardHistoryPlugin(BasePlugin):
 
         self.add_menu_action(
             main_window, "plugins",
-            "📋 Clipboard History",
+            "Clipboard History",
             self._toggle,
-            shortcut="Ctrl+Shift+V"
+            shortcut="Ctrl+Shift+V",
+            icon_key="plugin_clipboard"
         )
         main_window._menus["plugins"].menuAction().setVisible(True)
 

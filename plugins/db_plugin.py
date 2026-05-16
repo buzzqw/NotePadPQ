@@ -35,7 +35,11 @@ class DatabasePlugin(BasePlugin):
             return
 
         from PyQt6.QtGui import QAction
-        sub = m.addMenu("🗄  " + tr("plugin.db.menu", default="Database"))
+        sub = m.addMenu(tr("plugin.db.menu", default="Database"))
+        _icon = self.load_plugin_icon("plugin_db", main_window)
+        if not _icon.isNull():
+            sub.setIcon(_icon)
+        self._register_icon(sub, "plugin_db", main_window)
 
         act_new = QAction(
             tr("plugin.db.new_connection", default="Nuova connessione…"), main_window)
@@ -97,7 +101,7 @@ class DatabasePlugin(BasePlugin):
                     return
 
         widget = DBBrowserWidget(conn_info, self._mw, parent=self._mw)
-        title = f"🗄 {conn_info.get('name', 'DB')}"
+        title = conn_info.get('name', 'DB')
         sv.add_spreadsheet_tab(widget, title, None)
 
     def on_unload(self) -> None:

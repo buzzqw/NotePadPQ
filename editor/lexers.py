@@ -441,6 +441,11 @@ def _apply_lexer(editor: "EditorWidget",
         except Exception:
             pass
 
+    try:
+        editor.language_changed.emit(lang_name)
+    except Exception:
+        pass
+
     return True
 
 
@@ -471,6 +476,11 @@ def _set_pygments_lexer(editor: "EditorWidget", alias: str, display_name: str) -
         ac = getattr(editor, "_autocomplete", None)
         if ac:
             ac.set_language(display_name.lower())
+    except Exception:
+        pass
+
+    try:
+        editor.language_changed.emit(display_name)
     except Exception:
         pass
 

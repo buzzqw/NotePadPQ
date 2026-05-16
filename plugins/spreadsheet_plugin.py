@@ -53,7 +53,11 @@ class SpreadsheetPlugin(BasePlugin):
         
         # Traduzione per il menu principale
         menu_name = tr("plugin.spreadsheet.menu", default="Foglio di calcolo")
-        sub = m.addMenu(f"📊 {menu_name}")
+        sub = m.addMenu(menu_name)
+        _icon = self.load_plugin_icon("plugin_spreadsheet", main_window)
+        if not _icon.isNull():
+            sub.setIcon(_icon)
+        self._register_icon(sub, "plugin_spreadsheet", main_window)
 
         # Traduzione per l'azione "Apri foglio"
         act_open_name = tr("plugin.spreadsheet.open", default="Apri foglio...")

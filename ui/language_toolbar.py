@@ -2,35 +2,22 @@
 ui/language_toolbar.py — Toolbar contestuale LaTeX / Markdown
 NotePadPQ
 
-Toolbar attivabile che appare automaticamente (o su richiesta) quando
-il documento corrente è LaTeX o Markdown. Raggruppa le azioni già
-registrate in MainWindow._actions (nessun duplicato) più un set di
-bottoni specifici non presenti nella toolbar principale.
+Toolbar icon-only (stile Jodit) che appare automaticamente quando il documento
+corrente è LaTeX o Markdown. Utilizza le icone Lucide già presenti nell'app,
+caricandole con la stessa tecnica di _rebuild_toolbar() (currentColor → colore
+testo palette). Degrada a testo breve se le icone non sono ancora scaricate.
 
-Uso:
-    LanguageToolbar.install(main_window)
-    → aggiunge il widget nel layout del centralWidget
-    → si mostra/nasconde al cambio tab in base al linguaggio
-
-Sezioni della toolbar:
-    -- Markdown --
-    [B]  [I]  [~~]  [Tabella]  [Link]  [Immagine]  [# Intestazione]  |  [Anteprima]
-    -- LaTeX --
-    [B]  [I]  [~~]  [Tabella]  [Env]  [Allinea]  |  [Compila F6]  [Esegui F5]  [Build F7]
-    -- Comuni --
-    [Anteprima]  [Struttura (Function List)]  [Conteggio parole]
-
-Nota: il widget è inserito direttamente nel QVBoxLayout del centralWidget
-(container), NON come QToolBar di Qt — così la riga è garantita SOTTO
-la toolbar principale, indipendentemente dalle aree toolbar di Qt.
+Markdown: H1 H2 H3 | B I U S | Quote Code CodeBlock | UL OL Task HR | Table Link Image | AlignL C R | AlignTable Preview Struttura Parole
+LaTeX:    B I S | Table WrapEnv AlignTable | AlignL C R | Begin End | Compile Run Build Stop
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QAction, QKeySequence, QCursor
+from PyQt6.QtGui import QAction, QIcon, QKeySequence, QCursor, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QToolButton, QFrame,
     QInputDialog, QApplication, QSizePolicy,
@@ -43,30 +30,78 @@ if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
 
 
+# Mappa chiave → nome file SVG Lucide per i bottoni custom della language toolbar.
+# Le icone già presenti in _ICON_MAPS (bold, italic, ecc.) non vanno qui.
+_MD_ICON_FILES: dict[str, str] = {
+    "md_h1":          "heading-1.svg",
+    "md_h2":          "heading-2.svg",
+    "md_h3":          "heading-3.svg",
+    "md_underline":   "underline.svg",
+    "md_code":        "code.svg",
+    "md_code_block":  "code-2.svg",
+    "md_quote":       "quote.svg",
+    "md_ul":          "list.svg",
+    "md_ol":          "list-ordered.svg",
+    "md_task":        "list-checks.svg",
+    "md_hr":          "separator-horizontal.svg",
+    "md_table":       "table-2.svg",
+    "md_link":        "link.svg",
+    "md_image":       "image.svg",
+    "md_align_left":  "align-left.svg",
+    "md_align_center":"align-center.svg",
+    "md_align_right": "align-right.svg",
+    "md_structure":   "list-tree.svg",
+    "latex_env":      "braces.svg",
+    "latex_align_l":  "align-left.svg",
+    "latex_align_c":  "align-center.svg",
+    "latex_align_r":  "align-right.svg",
+    "latex_begin":    "chevron-right.svg",
+    "latex_end":      "chevron-left.svg",
+}
+
+_ICON_SIZE = QSize(20, 20)
+
+
+def _load_icon(icon_key: str, mw: "MainWindow") -> QIcon:
+    """Carica un'icona Lucide (o del set attivo) sostituendo currentColor con il
+    colore testo corrente della palette, identico a _rebuild_toolbar()."""
+    from config.settings import Settings
+    from PyQt6.QtGui import QPalette
+
+    icon_file = _MD_ICON_FILES.get(icon_key, "")
+    if not icon_file:
+        return QIcon()
+
+    icon_set  = Settings.instance().get("ui/icon_set", "lucide")
+    icons_dir = Path(__file__).parent.parent / "icons" / icon_set
+    icon_path = icons_dir / icon_file
+
+    if not icon_path.exists():
+        return QIcon()
+
+    color = mw.palette().color(QPalette.ColorRole.WindowText).name()
+    try:
+        svg_data = icon_path.read_bytes().replace(b"currentColor", color.encode())
+        pm = QPixmap()
+        if pm.loadFromData(svg_data, "SVG") and not pm.isNull():
+            return QIcon(pm)
+    except Exception:
+        pass
+    return QIcon()
+
+
 # ─── Toolbar ──────────────────────────────────────────────────────────────────
 
 class LanguageToolbar:
-    """
-    Gestisce la toolbar contestuale LaTeX/Markdown.
-    Il widget è inserito nel layout del centralWidget (sopra il tab manager).
-    """
-
     @staticmethod
     def install(main_window: "MainWindow") -> None:
-        """
-        Crea il widget toolbar e lo inserisce nel layout del centralWidget.
-        La voce menu Visualizza viene aggiunta da main_window._build_menu_view()
-        tramite _act("view_lang_toolbar", ..., self._toggle_lang_toolbar).
-        """
         tb = _LanguageToolbarWidget(main_window)
         main_window._lang_toolbar = tb
 
-        # Inserisci come PRIMA riga nel layout del centralWidget
         central = main_window.centralWidget()
         if central is not None and central.layout() is not None:
             central.layout().insertWidget(0, tb)
         else:
-            # Fallback: wrappa il centralWidget in un container
             from PyQt6.QtWidgets import QVBoxLayout
             old_central = main_window.centralWidget()
             container = QWidget(main_window)
@@ -79,17 +114,11 @@ class LanguageToolbar:
                 vbox.addWidget(old_central)
             main_window.setCentralWidget(container)
 
-        # Collega il cambio tab per mostrare/nascondere la toolbar
-        main_window._tab_manager.current_editor_changed.connect(
-            tb._on_editor_changed
-        )
+        main_window._tab_manager.current_editor_changed.connect(tb._on_editor_changed)
 
-        # Leggi preferenza salvata
         from config.settings import Settings
-        user_hidden = not Settings.instance().get("view/lang_toolbar", False)
-        tb._user_hidden = user_hidden
+        tb._user_hidden = not Settings.instance().get("view/lang_toolbar", False)
 
-        # Aggiorna subito per il documento corrente
         editor = main_window._tab_manager.current_editor()
         tb._on_editor_changed(editor)
 
@@ -97,14 +126,6 @@ class LanguageToolbar:
 # ─── Widget toolbar ───────────────────────────────────────────────────────────
 
 class _LanguageToolbarWidget(QWidget):
-    """
-    Widget-toolbar interno. Si nasconde automaticamente per i linguaggi
-    diversi da LaTeX e Markdown.
-    Implementato come QWidget con QHBoxLayout (non QToolBar) per garantire
-    il posizionamento sulla seconda riga sotto la toolbar principale.
-    """
-
-    # Segnale per compatibilità con il codice che usa visibilityChanged
     visibilityChanged = pyqtSignal(bool)
 
     def __init__(self, main_window: "MainWindow"):
@@ -112,29 +133,23 @@ class _LanguageToolbarWidget(QWidget):
         self._mw = main_window
         self._current_lang: str = ""
         self._user_hidden: bool = False
-        self._fl_conn = None  # connessione visibilityChanged del function-list dock
+        self._fl_conn = None
+        self._lang_editor = None  # editor di cui stiamo ascoltando language_changed
 
         self.setObjectName("LanguageToolbar")
-        # Necessario perché QWidget non è una QToolBar: senza questo attributo
-        # il repaint dei QToolButton:hover causa un refresh del parent con
-        # background non inizializzato (appare tutto bianco su certi temi/WM).
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
-        # Layout orizzontale stile toolbar
         self._layout = QHBoxLayout(self)
         self._layout.setContentsMargins(4, 2, 4, 2)
         self._layout.setSpacing(2)
 
-        # Stile visivo uguale alla toolbar principale.
-        # Hover: rgba semi-trasparente invece di palette(highlight) per evitare
-        # che temi con highlighted-text=bianco rendano il testo invisibile.
         self.setStyleSheet(
             "QWidget#LanguageToolbar {"
             "  background: palette(window);"
             "  border-bottom: 1px solid palette(mid);"
             "}"
             "QToolButton {"
-            "  padding: 3px 6px;"
+            "  padding: 3px 5px;"
             "  border: none;"
             "  border-radius: 3px;"
             "}"
@@ -149,13 +164,11 @@ class _LanguageToolbarWidget(QWidget):
             "}"
         )
 
-        # Stretcher finale per spingere i bottoni a sinistra
         self._layout.addStretch(1)
-
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setVisible(False)
 
-    # ── Override setVisible per emettere visibilityChanged ────────────────────
+    # ── setVisible ────────────────────────────────────────────────────────────
 
     def setVisible(self, visible: bool) -> None:
         super().setVisible(visible)
@@ -164,7 +177,6 @@ class _LanguageToolbarWidget(QWidget):
     # ── Visibilità ────────────────────────────────────────────────────────────
 
     def _on_menu_toggled(self, checked: bool) -> None:
-        """Chiamato dalla voce menu Visualizza → toolbar linguaggio (legacy)."""
         self._user_hidden = not checked
         if self._user_hidden:
             self.setVisible(False)
@@ -173,7 +185,30 @@ class _LanguageToolbarWidget(QWidget):
             self._on_editor_changed(editor)
 
     def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
-        """Aggiorna il contenuto e la visibilità al cambio tab."""
+        # Disconnetti language_changed dal vecchio editor
+        if self._lang_editor is not None:
+            try:
+                self._lang_editor.language_changed.disconnect(self._on_language_changed)
+            except (RuntimeError, TypeError):
+                pass
+            self._lang_editor = None
+
+        # Connetti language_changed al nuovo editor così la toolbar si aggiorna
+        # anche quando il linguaggio cambia senza cambiare tab (es. nuovo file .md)
+        if editor is not None:
+            try:
+                editor.language_changed.connect(self._on_language_changed)
+                self._lang_editor = editor
+            except Exception:
+                pass
+
+        self._update_for_editor(editor)
+
+    def _on_language_changed(self, _lang: str) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        self._update_for_editor(editor)
+
+    def _update_for_editor(self, editor: Optional["EditorWidget"]) -> None:
         lang = ""
         if editor is not None:
             try:
@@ -184,7 +219,6 @@ class _LanguageToolbarWidget(QWidget):
 
         self._current_lang = lang
         is_md  = "markdown" in lang
-        # Confronto a parole intere: "tex" in "plain text" darebbe True per falso positivo
         _lw    = set(lang.split())
         is_tex = "latex" in lang or bool(_lw & {"tex", "bibtex", "plaintex"})
 
@@ -197,48 +231,55 @@ class _LanguageToolbarWidget(QWidget):
     # ── Costruzione ───────────────────────────────────────────────────────────
 
     def _add_separator(self) -> None:
-        """Aggiunge un separatore verticale stile toolbar."""
         sep = QFrame(self)
         sep.setFrameShape(QFrame.Shape.VLine)
         sep.setFrameShadow(QFrame.Shadow.Sunken)
         sep.setFixedWidth(6)
-        # Inserisci prima dello stretcher finale
         self._layout.insertWidget(self._layout.count() - 1, sep)
 
     def _add_action_button(self, action: QAction) -> QToolButton:
-        """Crea un QToolButton dall'azione e lo aggiunge al layout."""
+        """Bottone da QAction esistente — sempre icon-only con tooltip automatico."""
         btn = QToolButton(self)
         btn.setDefaultAction(action)
-        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        btn.setIconSize(QSize(20, 20))
-        # Inserisci prima dello stretcher finale
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        btn.setIconSize(_ICON_SIZE)
         self._layout.insertWidget(self._layout.count() - 1, btn)
         return btn
 
-    def _add_new_button(self, text: str, tooltip: str = "",
-                        checkable: bool = False) -> QToolButton:
-        """Crea un QToolButton standalone (senza QAction registrata)."""
+    def _add_icon_btn(self, icon_key: str, fallback_text: str,
+                      tooltip: str, checkable: bool = False) -> QToolButton:
+        """Bottone standalone con icona Lucide. Degrada a testo se icona assente."""
         btn = QToolButton(self)
-        btn.setText(text)
-        if tooltip:
-            btn.setToolTip(tooltip)
         btn.setCheckable(checkable)
-        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        btn.setIconSize(QSize(20, 20))
+        btn.setToolTip(tooltip)
+        btn.setIconSize(_ICON_SIZE)
+        icon = _load_icon(icon_key, self._mw)
+        if not icon.isNull():
+            btn.setIcon(icon)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        else:
+            btn.setText(fallback_text)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._layout.insertWidget(self._layout.count() - 1, btn)
         return btn
 
     def _clear_buttons(self) -> None:
-        """Rimuove tutti i bottoni e separatori (tranne lo stretcher finale)."""
         while self._layout.count() > 1:
             item = self._layout.takeAt(0)
             if item and item.widget():
-                item.widget().deleteLater()
+                w = item.widget()
+                w.setParent(None)   # distrugge subito invece di schedulare
 
     def _rebuild(self, is_md: bool, is_tex: bool) -> None:
-        """Ricostruisce i bottoni in base al linguaggio corrente."""
-        # Disconnetti il collegamento precedente al dock Struttura (se esiste)
-        # per evitare che la lambda catturi un QToolButton già eliminato.
+        if getattr(self, "_rebuilding", False):
+            return
+        self._rebuilding = True
+        try:
+            self._rebuild_inner(is_md=is_md, is_tex=is_tex)
+        finally:
+            self._rebuilding = False
+
+    def _rebuild_inner(self, is_md: bool, is_tex: bool) -> None:
         if self._fl_conn is not None:
             try:
                 self._mw._function_list_dock.visibilityChanged.disconnect(self._fl_conn)
@@ -246,15 +287,8 @@ class _LanguageToolbarWidget(QWidget):
                 pass
             self._fl_conn = None
         self._clear_buttons()
-        acts = self._mw._actions  # dizionario azioni già registrate
+        acts = self._mw._actions
 
-        # ── Formattazione testo (riusa azioni esistenti) ───────────────────
-        for key in ("markup_bold", "markup_italic", "markup_strike"):
-            if key in acts:
-                self._add_action_button(acts[key])
-        self._add_separator()
-
-        # ── Blocchi specifici per linguaggio ──────────────────────────────
         if is_md:
             self._add_md_actions(acts)
         elif is_tex:
@@ -262,133 +296,281 @@ class _LanguageToolbarWidget(QWidget):
 
         self._add_separator()
 
-        # ── Azioni comuni ─────────────────────────────────────────────────
-        # Anteprima (F12)
+        # Azioni comuni finali
         if "preview_toggle" in acts:
             self._add_action_button(acts["preview_toggle"])
 
-        # Function List / Struttura documento
         if hasattr(self._mw, "_function_list_dock"):
-            label = "𝑓 " + tr("action.lang_toolbar_structure", default="Struttura")
-            tip   = tr("action.lang_toolbar_structure", default="Struttura")
-            btn_fl = self._add_new_button(label, tip, checkable=True)
+            tip = tr("action.lang_toolbar_structure", default="Struttura")
+            btn_fl = self._add_icon_btn("md_structure", "𝑓", tip, checkable=True)
             btn_fl.setChecked(self._mw._function_list_dock.isVisible())
             btn_fl.toggled.connect(self._mw._function_list_dock.setVisible)
             self._fl_conn = lambda v, b=btn_fl: b.setChecked(v)
             self._mw._function_list_dock.visibilityChanged.connect(self._fl_conn)
 
-        # Conteggio parole
         if "word_count" in acts:
             self._add_action_button(acts["word_count"])
 
         self.update()
 
+    # ── Markdown ──────────────────────────────────────────────────────────────
+
     def _add_md_actions(self, acts: dict) -> None:
-        """Bottoni specifici per Markdown."""
-        # Tabella con griglia picker
-        label = "▦ " + tr("action.lang_toolbar_table", default="Tabella")
-        tip   = tr("action.lang_toolbar_table", default="Tabella")
-        btn_tbl = self._add_new_button(label, tip)
-        btn_tbl.clicked.connect(self._show_md_table_picker)
-
-        # Allinea tabella (riusa azione esistente)
-        if "align_table" in acts:
-            self._add_action_button(acts["align_table"])
-
+        # Intestazioni
+        for level in (1, 2, 3):
+            tip = tr(f"tooltip.lang_toolbar_h{level}", default=f"Heading {level}")
+            btn = self._add_icon_btn(f"md_h{level}", f"H{level}", tip)
+            btn.clicked.connect(lambda c, l=level: self._insert_md_heading(l))
         self._add_separator()
 
-        # Link
-        label = "🔗 " + tr("action.lang_toolbar_link", default="Link")
-        tip   = tr("action.lang_toolbar_link", default="Link") + "  Ctrl+Shift+K"
-        btn_link = self._add_new_button(label, tip)
+        # Formattazione inline
+        for key in ("markup_bold", "markup_italic"):
+            if key in acts:
+                self._add_action_button(acts[key])
+        tip = tr("tooltip.lang_toolbar_underline", default="Sottolineato")
+        btn_u = self._add_icon_btn("md_underline", "U", tip)
+        btn_u.clicked.connect(self._insert_md_underline)
+        if "markup_strike" in acts:
+            self._add_action_button(acts["markup_strike"])
+        self._add_separator()
+
+        # Blocchi
+        tip = tr("tooltip.lang_toolbar_quote", default="Citazione")
+        btn_q = self._add_icon_btn("md_quote", ">", tip)
+        btn_q.clicked.connect(self._insert_md_quote)
+
+        tip = tr("tooltip.lang_toolbar_code", default="Codice inline")
+        btn_c = self._add_icon_btn("md_code", "`", tip)
+        btn_c.clicked.connect(self._insert_md_code)
+
+        tip = tr("tooltip.lang_toolbar_code_block", default="Blocco di codice")
+        btn_cb = self._add_icon_btn("md_code_block", "```", tip)
+        btn_cb.clicked.connect(self._insert_md_code_block)
+        self._add_separator()
+
+        # Liste
+        tip = tr("tooltip.lang_toolbar_ul", default="Lista puntata")
+        btn_ul = self._add_icon_btn("md_ul", "•", tip)
+        btn_ul.clicked.connect(self._insert_md_ul)
+
+        tip = tr("tooltip.lang_toolbar_ol", default="Lista numerata")
+        btn_ol = self._add_icon_btn("md_ol", "1.", tip)
+        btn_ol.clicked.connect(self._insert_md_ol)
+
+        tip = tr("tooltip.lang_toolbar_task", default="Lista attività")
+        btn_task = self._add_icon_btn("md_task", "☐", tip)
+        btn_task.clicked.connect(self._insert_md_task)
+
+        tip = tr("tooltip.lang_toolbar_hr", default="Linea orizzontale")
+        btn_hr = self._add_icon_btn("md_hr", "—", tip)
+        btn_hr.clicked.connect(self._insert_md_hr)
+        self._add_separator()
+
+        # Inserimenti
+        tip = tr("action.lang_toolbar_table", default="Tabella")
+        btn_tbl = self._add_icon_btn("md_table", "▦", tip)
+        btn_tbl.clicked.connect(self._show_md_table_picker)
+
+        tip = tr("action.lang_toolbar_link", default="Link") + "  Ctrl+Shift+K"
+        btn_link = self._add_icon_btn("md_link", "🔗", tip)
         btn_link.clicked.connect(self._insert_md_link)
         btn_link.setShortcut(QKeySequence("Ctrl+Shift+K"))
 
-        # Immagine
-        label = "🖼 " + tr("action.lang_toolbar_image", default="Immagine")
-        tip   = tr("action.lang_toolbar_image", default="Immagine")
-        btn_img = self._add_new_button(label, tip)
+        tip = tr("action.lang_toolbar_image", default="Immagine")
+        btn_img = self._add_icon_btn("md_image", "🖼", tip)
         btn_img.clicked.connect(self._insert_md_image)
-
         self._add_separator()
 
-        # Intestazioni
-        label = "# " + tr("action.lang_toolbar_heading", default="Intestazione")
-        tip   = tr("action.lang_toolbar_heading", default="Intestazione")
-        btn_h = self._add_new_button(label, tip)
-        btn_h.clicked.connect(self._cycle_md_heading)
-
-        self._add_separator()
-
-        # Allineamento testo
-        for symbol, key, default in [
-            ("⬅", "lang_toolbar_align_left",   "Allinea a sinistra"),
-            ("↔", "lang_toolbar_align_center",  "Centra"),
-            ("➡", "lang_toolbar_align_right",   "Allinea a destra"),
+        # Allineamento (HTML div)
+        for key, fallback, tr_key, default, align in [
+            ("md_align_left",   "⬅", "action.lang_toolbar_align_left",   "Allinea a sinistra", "left"),
+            ("md_align_center", "↔", "action.lang_toolbar_align_center",  "Centra",             "center"),
+            ("md_align_right",  "➡", "action.lang_toolbar_align_right",   "Allinea a destra",   "right"),
         ]:
-            tip = tr(f"action.{key}", default=default)
-            btn = self._add_new_button(symbol, tip)
-            align = default.split()[-1].lower()  # left / center / destra→right
-            # Mappa italiano→HTML
-            align_map = {"sinistra": "left", "center": "center",
-                         "centra": "center", "destra": "right"}
-            html_align = align_map.get(align, align)
-            btn.clicked.connect(lambda checked, a=html_align: self._insert_md_align(a))
+            tip = tr(tr_key, default=default)
+            btn = self._add_icon_btn(key, fallback, tip)
+            btn.clicked.connect(lambda c, a=align: self._insert_md_align(a))
+        self._add_separator()
 
-    def _add_latex_actions(self, acts: dict) -> None:
-        """Bottoni specifici per LaTeX."""
-        # Tabella con griglia picker
-        label = "▦ " + tr("action.lang_toolbar_table", default="Tabella")
-        tip   = tr("action.lang_toolbar_table", default="Tabella")
-        btn_tbl = self._add_new_button(label, tip)
-        btn_tbl.clicked.connect(self._show_latex_table_picker)
-
-        # Avvolgi ambiente (riusa azione esistente)
-        if "wrap_env" in acts:
-            self._add_action_button(acts["wrap_env"])
-
-        # Allinea tabella (riusa azione esistente)
+        # Allinea tabella
         if "align_table" in acts:
             self._add_action_button(acts["align_table"])
 
+    # ── LaTeX ─────────────────────────────────────────────────────────────────
+
+    def _add_latex_actions(self, acts: dict) -> None:
+        # Formattazione inline
+        for key in ("markup_bold", "markup_italic", "markup_strike"):
+            if key in acts:
+                self._add_action_button(acts[key])
         self._add_separator()
 
-        # Allineamento testo LaTeX
-        for symbol, env, key, default in [
-            ("⬅", "flushleft",  "lang_toolbar_align_left",   "Allinea a sinistra"),
-            ("↔", "center",     "lang_toolbar_align_center",  "Centra"),
-            ("➡", "flushright", "lang_toolbar_align_right",   "Allinea a destra"),
-        ]:
-            tip = tr(f"action.{key}", default=default)
-            btn = self._add_new_button(symbol, tip)
-            btn.clicked.connect(lambda checked, e=env: self._wrap_latex_env(e))
+        # Tabella
+        tip = tr("action.lang_toolbar_table", default="Tabella")
+        btn_tbl = self._add_icon_btn("md_table", "▦", tip)
+        btn_tbl.clicked.connect(self._show_latex_table_picker)
 
+        # Avvolgi ambiente
+        if "wrap_env" in acts:
+            self._add_action_button(acts["wrap_env"])
+
+        # Allinea tabella
+        if "align_table" in acts:
+            self._add_action_button(acts["align_table"])
+        self._add_separator()
+
+        # Allineamento LaTeX
+        for key, env, tr_key, default, fallback in [
+            ("latex_align_l", "flushleft",  "action.lang_toolbar_align_left",  "Allinea a sinistra", "⬅"),
+            ("latex_align_c", "center",     "action.lang_toolbar_align_center", "Centra",             "↔"),
+            ("latex_align_r", "flushright", "action.lang_toolbar_align_right",  "Allinea a destra",   "➡"),
+        ]:
+            tip = tr(tr_key, default=default)
+            btn = self._add_icon_btn(key, fallback, tip)
+            btn.clicked.connect(lambda c, e=env: self._wrap_latex_env(e))
         self._add_separator()
 
         # Begin / End ambiente
         tip_begin = tr("action.lang_toolbar_begin_env", default="Inizio ambiente")
-        btn_begin = self._add_new_button(r"\begin{}", tip_begin)
+        btn_begin = self._add_icon_btn("latex_begin", r"\begin{}", tip_begin)
         btn_begin.clicked.connect(self._latex_begin)
 
         tip_end = tr("action.lang_toolbar_end_env", default="Fine ambiente")
-        btn_end = self._add_new_button(r"\end{}", tip_end)
+        btn_end = self._add_icon_btn("latex_end", r"\end{}", tip_end)
         btn_end.clicked.connect(self._latex_end)
-
         self._add_separator()
 
-        # Build/Compile/Run (riusa azioni esistenti)
+        # Build
         for key in ("compile", "run", "build", "stop_build"):
             if key in acts:
                 self._add_action_button(acts[key])
 
-    # ── Handler azioni MD ─────────────────────────────────────────────────────
+    # ── Handler Markdown — intestazioni ──────────────────────────────────────
 
-    def _insert_md_link(self) -> None:
-        """Inserisce [testo selezionato](url) o apre dialog."""
+    def _insert_md_heading(self, level: int) -> None:
         editor = self._mw._tab_manager.current_editor()
         if not editor:
             return
+        import re
+        line, col = editor.getCursorPosition()
+        line_text = editor.text(line)
+        m = re.match(r'^(#{1,6})\s+(.*)', line_text.rstrip('\n'))
+        prefix = '#' * level + ' '
+        if m:
+            content = m.group(2)
+            new_line = content if len(m.group(1)) == level else prefix + content
+        else:
+            new_line = prefix + line_text.rstrip('\n')
+        editor.beginUndoAction()
+        editor.setSelection(line, 0, line, len(line_text.rstrip('\n')))
+        editor.replaceSelectedText(new_line)
+        editor.setCursorPosition(line, min(col, len(new_line)))
+        editor.endUndoAction()
+        editor.setFocus()
 
+    # ── Handler Markdown — formattazione inline ───────────────────────────────
+
+    def _insert_md_underline(self) -> None:
+        self._wrap_md_inline("<u>", "</u>")
+
+    def _insert_md_code(self) -> None:
+        self._wrap_md_inline("`", "`")
+
+    def _wrap_md_inline(self, open_: str, close_: str) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        sel = editor.selectedText()
+        if sel:
+            editor.replaceSelectedText(f"{open_}{sel}{close_}")
+        else:
+            line, col = editor.getCursorPosition()
+            editor.insert(f"{open_}{close_}")
+            editor.setCursorPosition(line, col + len(open_))
+        editor.setFocus()
+
+    # ── Handler Markdown — blocchi ────────────────────────────────────────────
+
+    def _insert_md_code_block(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        sel = editor.selectedText()
+        editor.beginUndoAction()
+        if sel:
+            editor.replaceSelectedText(f"```\n{sel}\n```")
+        else:
+            line, _ = editor.getCursorPosition()
+            editor.insert("```\n\n```")
+            editor.setCursorPosition(line + 1, 0)
+        editor.endUndoAction()
+        editor.setFocus()
+
+    def _insert_md_quote(self) -> None:
+        self._prefix_lines("> ")
+
+    # ── Handler Markdown — liste ──────────────────────────────────────────────
+
+    def _insert_md_ul(self) -> None:
+        self._prefix_lines("- ")
+
+    def _insert_md_ol(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        sel = editor.selectedText()
+        editor.beginUndoAction()
+        if sel:
+            lines = sel.split('\n')
+            editor.replaceSelectedText('\n'.join(f"{i+1}. {l}" for i, l in enumerate(lines)))
+        else:
+            line, col = editor.getCursorPosition()
+            txt = editor.text(line).rstrip('\n')
+            editor.setSelection(line, 0, line, len(txt))
+            editor.replaceSelectedText(f"1. {txt}")
+            editor.setCursorPosition(line, col + 3)
+        editor.endUndoAction()
+        editor.setFocus()
+
+    def _insert_md_task(self) -> None:
+        self._prefix_lines("- [ ] ")
+
+    def _insert_md_hr(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        line, _ = editor.getCursorPosition()
+        editor.beginUndoAction()
+        editor.setSelection(line, 0, line, len(editor.text(line).rstrip('\n')))
+        editor.replaceSelectedText("\n---\n")
+        editor.setCursorPosition(line + 2, 0)
+        editor.endUndoAction()
+        editor.setFocus()
+
+    def _prefix_lines(self, prefix: str) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        sel = editor.selectedText()
+        editor.beginUndoAction()
+        if sel:
+            lines = sel.split('\n')
+            editor.replaceSelectedText('\n'.join(prefix + l for l in lines))
+        else:
+            line, col = editor.getCursorPosition()
+            txt = editor.text(line).rstrip('\n')
+            editor.setSelection(line, 0, line, len(txt))
+            editor.replaceSelectedText(f"{prefix}{txt}")
+            editor.setCursorPosition(line, col + len(prefix))
+        editor.endUndoAction()
+        editor.setFocus()
+
+    # ── Handler Markdown — link e immagine ────────────────────────────────────
+
+    def _insert_md_link(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
         sel = editor.selectedText()
         url, ok = QInputDialog.getText(
             self._mw,
@@ -398,7 +580,6 @@ class _LanguageToolbarWidget(QWidget):
         )
         if not ok or not url.strip():
             return
-
         if sel:
             editor.replaceSelectedText(f"[{sel}]({url.strip()})")
         else:
@@ -416,12 +597,10 @@ class _LanguageToolbarWidget(QWidget):
         editor.setFocus()
 
     def _insert_md_image(self) -> None:
-        """Inserisce ![alt](percorso) con file picker."""
         from PyQt6.QtWidgets import QFileDialog
         editor = self._mw._tab_manager.current_editor()
         if not editor:
             return
-
         path, _ = QFileDialog.getOpenFileName(
             self._mw,
             tr("action.lang_toolbar_select_image", default="Seleziona immagine"),
@@ -431,15 +610,12 @@ class _LanguageToolbarWidget(QWidget):
         )
         if not path:
             return
-
-        from pathlib import Path
         try:
             if editor.file_path:
                 rel = Path(path).relative_to(editor.file_path.parent)
                 path = str(rel)
         except ValueError:
             pass
-
         sel = editor.selectedText()
         alt = sel if sel else tr("action.lang_toolbar_image_alt", default="immagine")
         if sel:
@@ -450,42 +626,9 @@ class _LanguageToolbarWidget(QWidget):
             editor.setCursorPosition(line, col + len(f"![{alt}]({path})"))
         editor.setFocus()
 
-    def _cycle_md_heading(self) -> None:
-        """
-        Cicla il livello di intestazione sulla riga corrente:
-        nessuno → # → ## → ### → nessuno
-        """
-        editor = self._mw._tab_manager.current_editor()
-        if not editor:
-            return
-
-        line, col = editor.getCursorPosition()
-        line_text = editor.text(line)
-
-        import re
-        m = re.match(r'^(#{1,6})\s+(.*)', line_text.rstrip('\n'))
-        if m:
-            level = len(m.group(1))
-            content = m.group(2)
-            if level >= 3:
-                new_line = content
-            else:
-                new_line = "#" * (level + 1) + " " + content
-        else:
-            content = line_text.rstrip('\n')
-            new_line = "# " + content
-
-        editor.beginUndoAction()
-        editor.setSelection(line, 0, line, len(line_text.rstrip('\n')))
-        editor.replaceSelectedText(new_line)
-        editor.setCursorPosition(line, min(col, len(new_line)))
-        editor.endUndoAction()
-        editor.setFocus()
-
-    # ── Handler allineamento ─────────────────────────────────────────────────
+    # ── Handler Markdown — allineamento ──────────────────────────────────────
 
     def _insert_md_align(self, align: str) -> None:
-        """Avvolge la selezione (o inserisce) un div HTML con text-align."""
         editor = self._mw._tab_manager.current_editor()
         if not editor:
             return
@@ -499,71 +642,62 @@ class _LanguageToolbarWidget(QWidget):
             editor.setCursorPosition(line, col + len(tag) - len("</div>"))
         editor.setFocus()
 
-    def _wrap_latex_env(self, env: str) -> None:
-        """Avvolge la selezione (o crea vuoto) in un ambiente LaTeX."""
+    # ── Handler picker tabella ────────────────────────────────────────────────
+
+    def _show_md_table_picker(self) -> None:
         editor = self._mw._tab_manager.current_editor()
         if not editor:
             return
+        from ui.table_grid_picker import TableGridPicker
+        TableGridPicker.show_for_editor(editor, is_latex=False, parent=self._mw, pos=QCursor.pos())
+
+    def _show_latex_table_picker(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        from ui.table_grid_picker import TableGridPicker
+        TableGridPicker.show_for_editor(editor, is_latex=True, parent=self._mw, pos=QCursor.pos())
+
+    # ── Handler LaTeX ─────────────────────────────────────────────────────────
+
+    def _wrap_latex_env(self, env: str) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        editor.beginUndoAction()
         if editor.hasSelectedText():
             text = editor.selectedText()
             indented = "\n".join("    " + l for l in text.split("\n"))
-            editor.replaceSelectedText(
-                f"\\begin{{{env}}}\n{indented}\n\\end{{{env}}}"
-            )
+            editor.replaceSelectedText(f"\\begin{{{env}}}\n{indented}\n\\end{{{env}}}")
         else:
-            line, col = editor.getCursorPosition()
+            line, _ = editor.getCursorPosition()
             editor.insert(f"\\begin{{{env}}}\n    \n\\end{{{env}}}")
             editor.setCursorPosition(line + 1, 4)
+        editor.endUndoAction()
         editor.setFocus()
 
     def _latex_begin(self) -> None:
-        """Inserisce \\begin{nome} alla posizione del cursore."""
         editor = self._mw._tab_manager.current_editor()
         if not editor:
             return
-        prompt = tr("action.lang_toolbar_env_name", default="Nome ambiente:")
-        env, ok = QInputDialog.getText(self._mw,
-                                       tr("action.lang_toolbar_begin_env", default="Inizio ambiente"),
-                                       prompt)
+        env, ok = QInputDialog.getText(
+            self._mw,
+            tr("action.lang_toolbar_begin_env", default="Inizio ambiente"),
+            tr("action.lang_toolbar_env_name", default="Nome ambiente:")
+        )
         if ok and env.strip():
             editor.insert(f"\\begin{{{env.strip()}}}")
         editor.setFocus()
 
     def _latex_end(self) -> None:
-        """Inserisce \\end{nome} alla posizione del cursore."""
         editor = self._mw._tab_manager.current_editor()
         if not editor:
             return
-        prompt = tr("action.lang_toolbar_env_name", default="Nome ambiente:")
-        env, ok = QInputDialog.getText(self._mw,
-                                       tr("action.lang_toolbar_end_env", default="Fine ambiente"),
-                                       prompt)
+        env, ok = QInputDialog.getText(
+            self._mw,
+            tr("action.lang_toolbar_end_env", default="Fine ambiente"),
+            tr("action.lang_toolbar_env_name", default="Nome ambiente:")
+        )
         if ok and env.strip():
             editor.insert(f"\\end{{{env.strip()}}}")
         editor.setFocus()
-
-    # ── Handler picker tabella ────────────────────────────────────────────────
-
-    def _show_md_table_picker(self) -> None:
-        """Apre il popup griglia per inserire una tabella Markdown."""
-        editor = self._mw._tab_manager.current_editor()
-        if not editor:
-            return
-        from ui.table_grid_picker import TableGridPicker
-        TableGridPicker.show_for_editor(
-            editor, is_latex=False,
-            parent=self._mw,
-            pos=QCursor.pos(),
-        )
-
-    def _show_latex_table_picker(self) -> None:
-        """Apre il popup griglia per inserire una tabella LaTeX."""
-        editor = self._mw._tab_manager.current_editor()
-        if not editor:
-            return
-        from ui.table_grid_picker import TableGridPicker
-        TableGridPicker.show_for_editor(
-            editor, is_latex=True,
-            parent=self._mw,
-            pos=QCursor.pos(),
-        )

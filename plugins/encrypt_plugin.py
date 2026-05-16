@@ -461,12 +461,20 @@ class EncryptPlugin(BasePlugin):
         if not tools_menu:
             return
 
-        sub = QMenu("🔐 Encrypt/Decrypt", main_window)
+        sub = QMenu("Encrypt/Decrypt", main_window)
+        _icon_sub = self.load_plugin_icon("plugin_encrypt", main_window)
+        if not _icon_sub.isNull():
+            sub.setIcon(_icon_sub)
+        self._register_icon(sub, "plugin_encrypt", main_window)
 
         def _ed():
             return main_window._tab_manager.current_editor()
 
-        act_enc = QAction("🔒 Cifra testo selezionato…", main_window)
+        act_enc = QAction("Cifra testo selezionato…", main_window)
+        _icon_enc = self.load_plugin_icon("plugin_encrypt", main_window)
+        if not _icon_enc.isNull():
+            act_enc.setIcon(_icon_enc)
+        self._register_icon(act_enc, "plugin_encrypt", main_window)
         act_enc.setShortcut(QKeySequence("Ctrl+Shift+E"))
         act_enc.triggered.connect(
             lambda: _ed() and do_encrypt(_ed(), main_window)
@@ -474,7 +482,11 @@ class EncryptPlugin(BasePlugin):
         sub.addAction(act_enc)
         self._menu_actions.append(act_enc)
 
-        act_dec = QAction("🔓 Decifra testo selezionato…", main_window)
+        act_dec = QAction("Decifra testo selezionato…", main_window)
+        _icon_dec = self.load_plugin_icon("plugin_encrypt_dec", main_window)
+        if not _icon_dec.isNull():
+            act_dec.setIcon(_icon_dec)
+        self._register_icon(act_dec, "plugin_encrypt_dec", main_window)
         act_dec.setShortcut(QKeySequence("Ctrl+Shift+W"))
         act_dec.triggered.connect(
             lambda: _ed() and do_decrypt(_ed(), main_window)

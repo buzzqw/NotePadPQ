@@ -76,12 +76,59 @@ class BasePlugin:
         """Chiamato quando viene salvato un file."""
         pass
 
+    # ── Helper icone ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def load_plugin_icon(icon_key: str, main_window: "MainWindow") -> "QIcon":
+        """Carica l'icona corrispondente alla chiave logica (es. 'plugin_git').
+        Cerca prima nel set attivo tramite _ICON_MAPS, poi in lucide come fallback.
+        Restituisce QIcon vuota se il file non esiste o il set è 'system'."""
+        from PyQt6.QtGui import QIcon, QPixmap, QPalette
+        from pathlib import Path
+        from config.settings import Settings
+        from ui.main_window import _ICON_MAPS
+
+        if not icon_key:
+            return QIcon()
+        icon_set = Settings.instance().get("ui/icon_set", "lucide")
+        if icon_set == "system":
+            return QIcon()
+        base = Path(__file__).parent.parent / "icons"
+        color = main_window.palette().color(QPalette.ColorRole.WindowText).name()
+
+        set_file    = _ICON_MAPS.get(icon_set, {}).get(icon_key)
+        lucide_file = _ICON_MAPS.get("lucide", {}).get(icon_key)
+        candidates = []
+        if set_file:
+            candidates.append(base / icon_set / set_file)
+        if lucide_file:
+            candidates.append(base / "lucide" / lucide_file)
+
+        for icon_path in candidates:
+            if not icon_path.exists():
+                continue
+            try:
+                svg_data = icon_path.read_bytes().replace(b"currentColor", color.encode())
+                pm = QPixmap()
+                if pm.loadFromData(svg_data, "SVG") and not pm.isNull():
+                    return QIcon(pm)
+            except Exception:
+                pass
+        return QIcon()
+
+    @staticmethod
+    def _register_icon(widget, icon_key: str, main_window: "MainWindow") -> None:
+        """Registra widget+icon_key per la ri-applicazione da _rebuild_toolbar."""
+        if hasattr(main_window, "_plugin_icon_actions"):
+            main_window._plugin_icon_actions.append((widget, icon_key))
+
     # ── Helper per aggiungere voci di menu ────────────────────────────────────
 
     def add_menu_action(self, main_window: "MainWindow",
                         menu_name: str, action_text: str,
-                        slot, shortcut: str = "") -> None:
-        """Aggiunge un'azione al menu specificato."""
+                        slot, shortcut: str = "",
+                        icon_key: str = "") -> None:
+        """Aggiunge un'azione al menu specificato. icon_key: chiave in _ICON_MAPS."""
         from PyQt6.QtGui import QAction
         menus = main_window._menus
         menu = menus.get(menu_name.lower())
@@ -91,6 +138,12 @@ class BasePlugin:
         if shortcut:
             from PyQt6.QtGui import QKeySequence
             action.setShortcut(QKeySequence(shortcut))
+        if icon_key:
+            icon = self.load_plugin_icon(icon_key, main_window)
+            if not icon.isNull():
+                action.setIcon(icon)
+            if hasattr(main_window, "_plugin_icon_actions"):
+                main_window._plugin_icon_actions.append((action, icon_key))
         action.triggered.connect(slot)
         menu.addAction(action)
         self._menu_actions.append(action)

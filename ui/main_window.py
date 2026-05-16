@@ -99,10 +99,30 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "remove_error_markers": "x-circle.svg", "spell_check": "spell-check.svg",
         "auto_indent": "indent.svg", "read_only": "lock.svg",
         "write_bom": "file-code.svg",
+        "wrap_env": "braces.svg",
         # Plugin / Aiuto
         "plugin_manager": "puzzle.svg", "manual": "book-open.svg",
-        "about_qt": "help-circle.svg",
+        "context_help": "help-circle.svg", "about_qt": "info.svg",
         "check_updates": "refresh-cw.svg", "donate": "heart.svg",
+        # Language toolbar — Markdown (scaricati insieme al set)
+        "md_h1": "heading-1.svg", "md_h2": "heading-2.svg", "md_h3": "heading-3.svg",
+        "md_underline": "underline.svg", "md_code_block": "code-2.svg",
+        "md_quote": "quote.svg", "md_ul": "list.svg", "md_task": "list-checks.svg",
+        "md_hr": "separator-horizontal.svg", "md_image": "image.svg",
+        "md_align_center": "align-center.svg", "md_align_right": "align-right.svg",
+        "md_structure": "list-tree.svg",
+        # Split View actions
+        "split_vertical": "columns-2.svg", "split_horizontal": "rows-2.svg",
+        "split_rotate": "rotate-cw.svg",
+        # Plugin icons
+        "plugin_ai": "sparkles.svg", "plugin_clipboard": "clipboard.svg",
+        "plugin_compare": "git-compare.svg", "plugin_db": "database.svg",
+        "plugin_ftp": "server.svg", "plugin_git": "git-branch.svg",
+        "plugin_hex": "file-code.svg", "plugin_pdf": "file-text.svg",
+        "plugin_richtext": "pen.svg", "plugin_spreadsheet": "table.svg",
+        "plugin_encrypt": "lock.svg", "plugin_encrypt_dec": "keyboard.svg",
+        # Split view submenu
+        "menu_split_view": "columns-2.svg",
     },
     "material": {
         # Toolbar (presenti)
@@ -164,11 +184,28 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "unfold_all": "unfold_more.svg", "remove_markers": "delete_sweep.svg",
         "remove_error_markers": "clear_all.svg", "spell_check": "spellcheck.svg",
         "auto_indent": "format_indent_increase.svg", "read_only": "lock.svg",
-        "write_bom": "description.svg",
+        "write_bom": "description.svg", "wrap_env": "integration_instructions.svg",
         # Plugin / Aiuto
         "plugin_manager": "extension.svg", "manual": "menu_book.svg",
-        "about_qt": "help.svg",
+        "context_help": "help.svg", "about_qt": "help.svg",
         "check_updates": "system_update.svg", "donate": "favorite.svg",
+        # Plugin icons — nomi material dove esiste un equivalente, altrimenti lucide
+        "plugin_ai": "auto_awesome.svg", "plugin_clipboard": "assignment.svg",
+        "plugin_compare": "compare_arrows.svg", "plugin_db": "storage.svg",
+        "plugin_ftp": "dns.svg", "plugin_git": "account_tree.svg",
+        "plugin_hex": "code.svg", "plugin_pdf": "picture_as_pdf.svg",
+        "plugin_richtext": "edit.svg", "plugin_spreadsheet": "table_chart.svg",
+        "plugin_encrypt": "lock.svg", "plugin_encrypt_dec": "keyboard.svg",
+        # Split view
+        "split_vertical": "view_column.svg", "split_horizontal": "view_agenda.svg",
+        "split_rotate": "refresh.svg", "menu_split_view": "view_column.svg",
+        # Language toolbar — nessun equivalente material, usa lucide (copiati durante download)
+        "md_h1": "heading-1.svg", "md_h2": "heading-2.svg", "md_h3": "heading-3.svg",
+        "md_underline": "underline.svg", "md_code_block": "code-2.svg",
+        "md_quote": "quote.svg", "md_ul": "list.svg", "md_task": "list-checks.svg",
+        "md_hr": "separator-horizontal.svg", "md_image": "image.svg",
+        "md_align_center": "align-center.svg", "md_align_right": "align-right.svg",
+        "md_structure": "list-tree.svg",
     },
 }
 
@@ -812,6 +849,7 @@ class MainWindow(QMainWindow):
         self._menubar = self.menuBar()
         self._menus: dict[str, QMenu] = {}
         self._actions: dict[str, QAction] = {}
+        self._plugin_icon_actions: list[tuple] = []  # (QAction, icon_file_str)
         self._build_menus()
 
     def _build_menus(self) -> None:
@@ -1133,7 +1171,7 @@ class MainWindow(QMainWindow):
         self._sep(m)
 
         # ── Split View submenu ─────────────────────────────────────────────────
-        sub_split = m.addMenu("🔲  " + tr("menu.split_view"))
+        sub_split = m.addMenu(tr("menu.split_view"))
         self._menus["split_view"] = sub_split
 
         sub_split.addAction(self._act(
@@ -1419,6 +1457,7 @@ class MainWindow(QMainWindow):
     def _build_menu_help(self, mb: QMenuBar) -> None:
         m = mb.addMenu(tr("menu.help"))
         self._menus["help"] = m
+        m.addAction(self._act("context_help",  "F1", self.action_context_help))
         m.addAction(self._act("manual",        "", self.action_open_manual))
         self._sep(m)
         m.addAction(self._act("about",         "", self.action_about))
@@ -1442,6 +1481,7 @@ class MainWindow(QMainWindow):
         # solo dopo il primo ciclo eventi. Su Debian Qt 6.8 questo è necessario
         # per avere il colore corretto nelle icone SVG e per forzare il ridisegno.
         QTimer.singleShot(300, self._rebuild_toolbar)
+        QTimer.singleShot(600, self._check_missing_icons)
 
     def _setup_language_toolbar(self) -> None:
         """Installa la toolbar contestuale LaTeX/Markdown."""
@@ -1535,6 +1575,128 @@ class MainWindow(QMainWindow):
                 tb.addSeparator()
         tb.update()
 
+        # Applica icone ai submenu che non sono QAction in _actions
+        _submenu_icons = {
+            "split_view": current_map.get("menu_split_view", ""),
+        }
+        for menu_key, icon_file in _submenu_icons.items():
+            menu = self._menus.get(menu_key)
+            if menu and icon_file:
+                icon_path = icons_dir / icon_file
+                if icon_path.exists():
+                    try:
+                        svg_data = icon_path.read_bytes().replace(
+                            b'currentColor', _wtext.encode()
+                        )
+                        pm = _QPixmap()
+                        if pm.loadFromData(svg_data, 'SVG') and not pm.isNull():
+                            from PyQt6.QtGui import QIcon as _QIcon2
+                            menu.setIcon(_QIcon2(pm))
+                    except Exception:
+                        pass
+
+        # Re-applica icone agli action dei plugin (registrati via _plugin_icon_actions)
+        # Usa la chiave logica (es. "plugin_git") per tradurre al file del set attivo;
+        # fallback su lucide se il file non esiste nel set corrente.
+        _lucide_dir = Path(__file__).parent.parent / "icons" / "lucide"
+        _set_map    = _ICON_MAPS.get(selected_set, {})
+        _lucide_map = _ICON_MAPS.get("lucide", {})
+        for widget, icon_key in getattr(self, "_plugin_icon_actions", []):
+            if not icon_key:
+                continue
+            _set_file    = _set_map.get(icon_key)
+            _lucide_file = _lucide_map.get(icon_key)
+            _candidates  = []
+            if _set_file:
+                _candidates.append(icons_dir / _set_file)
+            if _lucide_file:
+                _candidates.append(_lucide_dir / _lucide_file)
+            for icon_path in _candidates:
+                if not icon_path.exists():
+                    continue
+                try:
+                    svg_data = icon_path.read_bytes().replace(b'currentColor', _wtext.encode())
+                    pm = _QPixmap()
+                    if pm.loadFromData(svg_data, 'SVG') and not pm.isNull():
+                        from PyQt6.QtGui import QIcon as _PIIcon
+                        widget.setIcon(_PIIcon(pm))
+                        break
+                except Exception:
+                    pass
+
+    def _check_missing_icons(self) -> None:
+        """Controlla se mancano icone del set attivo e mostra banner se necessario."""
+        from config.settings import Settings
+        from pathlib import Path
+
+        icon_set = Settings.instance().get("ui/icon_set", "lucide")
+        if icon_set == "system":
+            return
+
+        icons_dir = Path(__file__).parent.parent / "icons" / icon_set
+        current_map = _ICON_MAPS.get(icon_set, {})
+        missing = sum(1 for f in set(current_map.values()) if not (icons_dir / f).exists())
+        if missing == 0:
+            return
+
+        self._show_icon_banner(icon_set, missing)
+
+    def _show_icon_banner(self, icon_set: str, missing_count: int) -> None:
+        """Banner non invasivo che avverte delle icone mancanti e offre il download."""
+        from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
+
+        banner = QFrame(self)
+        banner.setObjectName("IconBanner")
+        banner.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        banner.setStyleSheet(
+            "QFrame#IconBanner {"
+            "  background: palette(window);"
+            "  border-bottom: 2px solid palette(highlight);"
+            "}"
+            "QLabel#IconBannerMsg { padding: 0 4px; }"
+            "QPushButton#IconBannerDl {"
+            "  border: 1px solid palette(highlight);"
+            "  border-radius: 3px; padding: 2px 10px;"
+            "  color: palette(highlight);"
+            "  background: transparent;"
+            "}"
+            "QPushButton#IconBannerDl:hover { background: palette(midlight); }"
+            "QPushButton#IconBannerX {"
+            "  border: none; background: transparent;"
+            "  color: palette(shadow); padding: 2px 6px;"
+            "}"
+            "QPushButton#IconBannerX:hover { color: palette(text); }"
+        )
+
+        hbox = QHBoxLayout(banner)
+        hbox.setContentsMargins(10, 3, 6, 3)
+        hbox.setSpacing(8)
+
+        lbl = QLabel(
+            tr("msg.icons_missing",
+               default=f"ℹ  {missing_count} icone del set «{icon_set}» non trovate.")
+            .format(count=missing_count, icon_set=icon_set)
+        )
+        lbl.setObjectName("IconBannerMsg")
+        hbox.addWidget(lbl)
+        hbox.addStretch(1)
+
+        btn_dl = QPushButton(tr("button.download_icons", default="Scarica icone"))
+        btn_dl.setObjectName("IconBannerDl")
+        btn_dl.clicked.connect(lambda: (banner.hide(), self.download_icon_set(icon_set)))
+        hbox.addWidget(btn_dl)
+
+        btn_x = QPushButton("✕")
+        btn_x.setObjectName("IconBannerX")
+        btn_x.setFixedWidth(26)
+        btn_x.setToolTip(tr("button.close", default="Chiudi"))
+        btn_x.clicked.connect(banner.hide)
+        hbox.addWidget(btn_x)
+
+        central = self.centralWidget()
+        if central is not None and central.layout() is not None:
+            central.layout().insertWidget(0, banner)
+
     def download_icon_set(self, set_name: str) -> None:
         """Scarica un set di icone completo. Chiamato dal pannello Preferenze."""
         import urllib.request
@@ -1591,6 +1753,7 @@ class MainWindow(QMainWindow):
 
         downloaded = 0
         failed = 0
+        lucide_dir = Path(__file__).parent.parent / "icons" / "lucide"
 
         for i, icon in enumerate(icons_to_download):
             if progress.wasCanceled():
@@ -1605,26 +1768,40 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
                 continue
 
+            lucide_src = lucide_dir / f"{icon}.svg"
+
             progress.setLabelText(f"[{i+1}/{total}]  Scarico  {icon}.svg …")
             QApplication.processEvents()
 
             url = URL_TEMPLATES[set_name].format(icon=icon)
             print(f"[download_icon_set] GET {url}")
+            downloaded_ok = False
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
                 with urllib.request.urlopen(req, timeout=10.0, context=ctx) as resp:
                     data = resp.read()
                     local_file.write_bytes(data)
                     downloaded += 1
+                    downloaded_ok = True
                     print(f"[download_icon_set] OK {icon}.svg ({len(data)} bytes)")
             except Exception as e:
-                failed += 1
-                # placeholder: segna l'icona come "tentata" per non riprovare al prossimo avvio
-                local_file.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg"/>')
-                print(f"[download_icon_set] ERRORE {icon}.svg: {e}")
-                progress.setLabelText(f"[{i+1}/{total}]  ⚠ Errore: {icon}.svg")
+                print(f"[download_icon_set] ERRORE CDN {icon}.svg: {e}")
+                # Fallback: copia da lucide se disponibile (icone lucide-native)
+                if set_name != "lucide" and lucide_src.exists():
+                    import shutil
+                    shutil.copy(lucide_src, local_file)
+                    downloaded += 1
+                    downloaded_ok = True
+                    print(f"[download_icon_set] copiata da lucide: {icon}.svg")
+                    progress.setLabelText(f"[{i+1}/{total}] {icon}.svg — copiata da lucide")
+                else:
+                    failed += 1
+                    # placeholder per non riprovare al prossimo avvio
+                    local_file.write_bytes(b'<svg xmlns="http://www.w3.org/2020/svg"/>')
+                    progress.setLabelText(f"[{i+1}/{total}]  ⚠ Errore: {icon}.svg")
                 QApplication.processEvents()
-                continue
+                if not downloaded_ok:
+                    continue
 
             progress.setValue(i + 1)
             QApplication.processEvents()
@@ -1919,7 +2096,20 @@ class MainWindow(QMainWindow):
 
             # 3. Esegui il salvataggio sul disco
             FileManager.write(path, editor.get_content(), editor.encoding)
+            old_lang = getattr(editor, "_current_language", "")
             editor.file_path = path
+
+            # Se l'estensione è cambiata (es. Save As con .md su file nuovo),
+            # aggiorna il lexer e la statusbar. language_changed viene emesso
+            # dentro set_lexer_by_path → la language toolbar si aggiorna da sola.
+            try:
+                from editor.lexers import set_lexer_by_path
+                set_lexer_by_path(editor, path)
+            except Exception:
+                pass
+            if getattr(editor, "_current_language", "") != old_lang:
+                if hasattr(self, "_statusbar"):
+                    self._statusbar._update_lang(editor)
 
             # 4. Aggiorna lo stato dell'editor
             editor.mark_saved()
@@ -2830,6 +3020,169 @@ class MainWindow(QMainWindow):
                 return
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.warning(self, tr("action.manual"), tr("msg.manual_not_found"))
+
+    def _get_context_help_query(self) -> str:
+        """Ritorna la stringa di ricerca contestuale per F1.
+
+        Controlla nell'ordine: QToolButton sotto il cursore del mouse,
+        QDockWidget sotto il cursore, parola nell'editor corrente.
+        """
+        import re
+        from PyQt6.QtWidgets import QApplication, QToolButton, QDockWidget
+        from PyQt6.QtGui import QCursor
+
+        widget = QApplication.widgetAt(QCursor.pos())
+        while widget:
+            if isinstance(widget, QToolButton):
+                action = widget.defaultAction()
+                if action:
+                    raw = (action.text() or action.toolTip() or "").strip()
+                    text = re.sub(r'\s*[\(\[].*?[\)\]]\s*$', '', raw).strip()
+                    if text:
+                        return text
+            if isinstance(widget, QDockWidget):
+                return widget.windowTitle().strip()
+            widget = widget.parent()
+
+        editor = self._tab_manager.current_editor()
+        if editor:
+            sel = editor.selectedText().strip()
+            if sel:
+                return sel.split()[0]
+            line, idx = editor.getCursorPosition()
+            line_text = editor.text(line)
+            if line_text:
+                l = r = idx
+                while l > 0 and (line_text[l - 1].isalnum() or line_text[l - 1] in "_-"):
+                    l -= 1
+                while r < len(line_text) and (line_text[r].isalnum() or line_text[r] in "_-"):
+                    r += 1
+                return line_text[l:r].strip()
+        return ""
+
+    def action_context_help(self) -> None:
+        """F1 — ricerca nel manuale per titoli di sezione e testo in grassetto."""
+        import re
+        from pathlib import Path
+        from i18n.i18n import I18n
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QLabel
+        )
+        from PyQt6.QtCore import Qt, QTimer
+        from PyQt6.QtGui import QFont, QColor
+
+        root = Path(__file__).parent.parent
+        lang = I18n.instance().current_language().upper()
+        candidates = [root / f"MANUAL_{lang}.md", root / "MANUAL_EN.md", root / "MANUALE.md"]
+        manual_path = next((c for c in candidates if c.is_file()), None)
+        if not manual_path:
+            self.action_open_manual()
+            return
+
+        # ── Costruisce l'indice dal manuale ─────────────────────────────────
+        # Ogni entry: (match_text_lower, display_text, line_num, kind)
+        # kind: "h1"/"h2"/"h3"/"h4" per intestazioni, "bold" per testo in grassetto
+        entries = []
+        current_section = ""
+        seen_bold: set[str] = set()
+
+        for i, line in enumerate(manual_path.read_text(encoding="utf-8").splitlines()):
+            # Intestazioni
+            mh = re.match(r'^(#{1,4})\s+(.+)$', line)
+            if mh:
+                level = len(mh.group(1))
+                title = mh.group(2).strip()
+                # Rimuovi decorazioni tipo *(incl. ...)* dai titoli ToC
+                title = re.sub(r'\s*\*\(.*?\)\*\s*$', '', title).strip()
+                current_section = title
+                prefix = "  " * (level - 1)
+                entries.append((title.lower(), prefix + title, i, f"h{level}"))
+            else:
+                # Testo in grassetto: **testo** con 2–60 caratteri
+                for bm in re.finditer(r'\*\*([^*\n]{2,60})\*\*', line):
+                    bold = bm.group(1).strip()
+                    key = bold.lower()
+                    if not bold or key in seen_bold:
+                        continue
+                    seen_bold.add(key)
+                    display = f"  {bold}"
+                    if current_section:
+                        display += f"  —  {current_section}"
+                    entries.append((key, display, i, "bold"))
+
+        initial_query = self._get_context_help_query()
+
+        # ── Dialog ──────────────────────────────────────────────────────────
+        dlg = QDialog(self)
+        dlg.setWindowTitle(tr("action.context_help"))
+        dlg.resize(560, 500)
+        lay = QVBoxLayout(dlg)
+        lay.setSpacing(6)
+
+        search = QLineEdit()
+        search.setPlaceholderText(tr("msg.help_search_placeholder",
+                                     default="Cerca un argomento nel manuale…"))
+        search.setText(initial_query)
+        lay.addWidget(search)
+
+        lst = QListWidget()
+        lst.setAlternatingRowColors(True)
+        lay.addWidget(lst, 1)
+
+        hint = QLabel(tr("msg.help_search_hint",
+                         default="↵ Enter o doppio click per aprire nel manuale"))
+        hint.setStyleSheet("color: #888; font-size: 11px;")
+        lay.addWidget(hint)
+
+        muted = dlg.palette().color(
+            dlg.palette().ColorGroup.Normal,
+            dlg.palette().ColorRole.PlaceholderText
+        )
+
+        def _fill(q: str) -> None:
+            lst.clear()
+            q_low = q.strip().lower()
+            for match_key, display, line_num, kind in entries:
+                # Senza query: solo intestazioni; con query: tutto
+                if not q_low:
+                    if kind == "bold":
+                        continue
+                elif q_low not in match_key:
+                    continue
+                item = QListWidgetItem(display)
+                item.setData(Qt.ItemDataRole.UserRole, line_num)
+                if kind == "h1":
+                    f = QFont(); f.setBold(True); item.setFont(f)
+                elif kind in ("h3", "h4", "bold"):
+                    item.setForeground(muted)
+                lst.addItem(item)
+            if lst.count() > 0:
+                lst.setCurrentRow(0)
+
+        def _open(item=None) -> None:
+            if item is None:
+                item = lst.currentItem()
+            if not item:
+                return
+            line_num = item.data(Qt.ItemDataRole.UserRole)
+            dlg.accept()
+            self.open_files([manual_path])
+            QTimer.singleShot(200, lambda: _jump(line_num))
+
+        def _jump(line_num: int) -> None:
+            ed = self._tab_manager.current_editor()
+            if ed:
+                ed.setCursorPosition(line_num, 0)
+                ed.ensureCursorVisible()
+
+        search.textChanged.connect(_fill)
+        lst.itemDoubleClicked.connect(_open)
+        search.returnPressed.connect(lambda: _open())
+
+        _fill(initial_query)
+        search.selectAll()
+        search.setFocus()
+        dlg.exec()
 
     def action_about(self) -> None:
             from PyQt6.QtWidgets import QMessageBox, QLabel

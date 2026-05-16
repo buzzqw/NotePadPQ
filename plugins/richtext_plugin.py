@@ -52,7 +52,11 @@ class RichTextPlugin(BasePlugin):
         from PyQt6.QtGui import QAction
 
         menu_name = tr("plugin.richtext.menu", default="Editor Rich Text")
-        sub = m.addMenu(f"📝 {menu_name}")
+        sub = m.addMenu(menu_name)
+        _icon = self.load_plugin_icon("plugin_richtext", main_window)
+        if not _icon.isNull():
+            sub.setIcon(_icon)
+        self._register_icon(sub, "plugin_richtext", main_window)
 
         act_new = QAction(tr("plugin.richtext.new", default="Nuovo documento"), main_window)
         act_new.triggered.connect(self.new_document)

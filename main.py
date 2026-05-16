@@ -7,8 +7,12 @@ Uso:
 """
 
 import sys
+import faulthandler
 from pathlib import Path
 from core.single_instance import SingleInstance
+
+# Abilita faulthandler subito: stampa lo stack trace C++ su segfault/SIGABRT
+faulthandler.enable()
 
 
 def check_dependencies() -> bool:
@@ -54,9 +58,36 @@ def main():
     if not check_dependencies():
         sys.exit(1)
 
+    import traceback
+
+    def _excepthook(exc_type, exc_value, exc_tb):
+        print("=" * 60, file=sys.stderr)
+        print("NotePadPQ — ECCEZIONE NON GESTITA:", file=sys.stderr)
+        traceback.print_exception(exc_type, exc_value, exc_tb, file=sys.stderr)
+        print("=" * 60, file=sys.stderr)
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _excepthook
+
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtGui import QIcon
     from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
+
+    def _qt_msg_handler(msg_type, context, message):
+        labels = {
+            QtMsgType.QtDebugMsg:    "[Qt DEBUG]",
+            QtMsgType.QtInfoMsg:     "[Qt INFO]",
+            QtMsgType.QtWarningMsg:  "[Qt WARNING]",
+            QtMsgType.QtCriticalMsg: "[Qt CRITICAL]",
+            QtMsgType.QtFatalMsg:    "[Qt FATAL]",
+        }
+        label = labels.get(msg_type, "[Qt]")
+        if msg_type in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg, QtMsgType.QtFatalMsg):
+            loc = f" ({context.file}:{context.line})" if context.file else ""
+            print(f"{label}{loc} {message}", file=sys.stderr)
+
+    qInstallMessageHandler(_qt_msg_handler)
 
     app = QApplication(sys.argv)
     app.setApplicationName("NotePadPQ")
@@ -121,6 +152,7 @@ def main():
     try:
         from plugins.plugin_manager import PluginManager
         PluginManager.instance().load_all(win)
+        win._rebuild_toolbar()   # re-applica le icone ai menu dei plugin
     except Exception as e:
         print(f"[main] Errore caricamento plugin: {e}")
 

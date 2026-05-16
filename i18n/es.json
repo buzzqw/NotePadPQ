@@ -115,6 +115,7 @@
     "view_minimap": "Minimapa",
     "view_build_panel": "Panel compilación y terminal",
     "view_file_browser": "Explorador de archivos",
+    "context_help": "Ayuda contextual",
     "manual": "Manual",
     "about": "Acerca de NotePadPQ...",
     "about_qt": "Acerca de Qt...",
@@ -328,7 +329,8 @@
     "enable": "Habilitar",
     "disable": "Deshabilitar",
     "install": "Instalar",
-    "uninstall": "Desinstalar"
+    "uninstall": "Desinstalar",
+    "download_icons": "Descargar iconos"
   },
   "msg": {
     "unsaved_changes": "El archivo \"{name}\" tiene cambios sin guardar.\n¿Guardar antes de cerrar?",
@@ -364,11 +366,14 @@
     "file_changed_on_disk": "El archivo \"{name}\" fue modificado por otro programa. ¿Qué desea hacer?",
     "about_text": "NotePadPQ {version}\nEditor de texto avanzado para Linux, FreeBSD y Windows.\n\nBasado en PyQt6 + QScintilla.",
     "manual_not_found": "Manual no encontrado.",
+    "help_search_placeholder": "Buscar un tema en el manual…",
+    "help_search_hint": "↵ Enter o doble clic para abrir la sección en el manual",
     "update_prompt": "¡Hay una nueva versión disponible!\nVersión actual: {current}\nNueva versión: {latest}\n\n¿Deseas abrir la página para descargar la actualización?",
     "update_ok": "Estás utilizando la última versión disponible ({current}).\nNo es necesario actualizar.",
     "mark_occurrences": "🎨 Color {color_num}: {count} ocurrencias resaltadas",
     "marks_cleared": "🎨 Todas las marcas borradas",
-    "update_error": "No se puede buscar actualizaciones en este momento.\nVerifica tu conexión o inténtalo de nuevo más tarde.\n\nDetalles: {error}"
+    "update_error": "No se puede buscar actualizaciones en este momento.\nVerifica tu conexión o inténtalo de nuevo más tarde.\n\nDetalles: {error}",
+    "icons_missing": "ℹ  {count} iconos del set «{icon_set}» no encontrados."
   },
   "pref": {
     "title": "Preferencias",
@@ -629,6 +634,17 @@
     "json_xml_expand": "Expandir todo",
     "json_xml_collapse": "Contraer todo",
     "json_xml_format": "Formatear",
-    "json_xml_filter": "Filtrar claves…"
+    "json_xml_filter": "Filtrar claves…",
+    "lang_toolbar_h1": "Encabezado 1",
+    "lang_toolbar_h2": "Encabezado 2",
+    "lang_toolbar_h3": "Encabezado 3",
+    "lang_toolbar_underline": "Subrayado",
+    "lang_toolbar_code": "Código en línea",
+    "lang_toolbar_code_block": "Bloque de código",
+    "lang_toolbar_quote": "Cita",
+    "lang_toolbar_ul": "Lista con viñetas",
+    "lang_toolbar_ol": "Lista numerada",
+    "lang_toolbar_task": "Lista de tareas",
+    "lang_toolbar_hr": "Regla horizontal"
   }
 }

@@ -199,7 +199,7 @@ class HexViewerPlugin(BasePlugin):
         super().on_load(main_window)
         self._panel = _HexPanel(main_window)
 
-        self._dock = QDockWidget("🔢  Hex Viewer", main_window)
+        self._dock = QDockWidget("Hex Viewer", main_window)
         self._dock.setObjectName("HexViewerDock")
         self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(600)
@@ -214,9 +214,10 @@ class HexViewerPlugin(BasePlugin):
 
         self.add_menu_action(
             main_window, "plugins",
-            "🔢 Hex Viewer",
+            "Hex Viewer",
             self._toggle,
-            shortcut="Ctrl+Alt+H"
+            shortcut="Ctrl+Alt+H",
+            icon_key="plugin_hex"
         )
         main_window._menus["plugins"].menuAction().setVisible(True)
 

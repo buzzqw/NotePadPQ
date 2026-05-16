@@ -115,6 +115,7 @@
     "view_minimap": "Minimappa",
     "view_build_panel": "Pannello compilazione e terminale",
     "view_file_browser": "File Browser",
+    "context_help": "Aiuto contestuale",
     "manual": "Manuale",
     "about": "Informazioni su NotePadPQ...",
     "about_qt": "Informazioni su Qt...",
@@ -330,7 +331,8 @@
     "enable": "Abilita",
     "disable": "Disabilita",
     "install": "Installa",
-    "uninstall": "Disinstalla"
+    "uninstall": "Disinstalla",
+    "download_icons": "Scarica icone"
   },
   "msg": {
     "unsaved_changes": "Il file \"{name}\" ha modifiche non salvate.\nSalvare prima di chiudere?",
@@ -370,7 +372,10 @@
     "update_error": "Impossibile controllare gli aggiornamenti al momento.\nVerifica la tua connessione o riprova più tardi.\n\nDettaglio: {error}",
     "mark_occurrences": "🎨 Colore {color_num}: {count} occorrenze evidenziate",
     "marks_cleared": "🎨 Tutti i mark rimossi",
-    "manual_not_found": "Manuale non trovato."
+    "manual_not_found": "Manuale non trovato.",
+    "help_search_placeholder": "Cerca un argomento nel manuale…",
+    "help_search_hint": "↵ Enter o doppio click per aprire la sezione nel manuale",
+    "icons_missing": "ℹ  {count} icone del set «{icon_set}» non trovate sul disco."
   },
   "pref": {
     "title": "Preferenze",
@@ -632,6 +637,17 @@
     "json_xml_expand": "Espandi tutto",
     "json_xml_collapse": "Comprimi tutto",
     "json_xml_format": "Formatta",
-    "json_xml_filter": "Filtra chiavi…"
+    "json_xml_filter": "Filtra chiavi…",
+    "lang_toolbar_h1": "Intestazione 1",
+    "lang_toolbar_h2": "Intestazione 2",
+    "lang_toolbar_h3": "Intestazione 3",
+    "lang_toolbar_underline": "Sottolineato",
+    "lang_toolbar_code": "Codice inline",
+    "lang_toolbar_code_block": "Blocco di codice",
+    "lang_toolbar_quote": "Citazione",
+    "lang_toolbar_ul": "Lista puntata",
+    "lang_toolbar_ol": "Lista numerata",
+    "lang_toolbar_task": "Lista attività",
+    "lang_toolbar_hr": "Linea orizzontale"
   }
 }

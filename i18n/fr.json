@@ -115,6 +115,7 @@
     "view_minimap": "Minicarte",
     "view_build_panel": "Panneau compilation et terminal",
     "view_file_browser": "Navigateur de fichiers",
+    "context_help": "Aide contextuelle",
     "manual": "Manuel",
     "about": "À propos de NotePadPQ...",
     "about_qt": "À propos de Qt...",
@@ -328,7 +329,8 @@
     "enable": "Activer",
     "disable": "Désactiver",
     "install": "Installer",
-    "uninstall": "Désinstaller"
+    "uninstall": "Désinstaller",
+    "download_icons": "Télécharger les icônes"
   },
   "msg": {
     "unsaved_changes": "Le fichier \"{name}\" contient des modifications non enregistrées.\nEnregistrer avant de fermer ?",
@@ -364,11 +366,14 @@
     "file_changed_on_disk": "Le fichier \"{name}\" a été modifié par un autre programme. Que voulez-vous faire?",
     "about_text": "NotePadPQ {version}\nÉditeur de texte avancé pour Linux, FreeBSD et Windows.\n\nBasé sur PyQt6 + QScintilla.",
     "manual_not_found": "Manuel introuvable.",
+    "help_search_placeholder": "Rechercher un sujet dans le manuel…",
+    "help_search_hint": "↵ Entrée ou double-clic pour ouvrir la section dans le manuel",
     "update_prompt": "Une nouvelle version est disponible !\nVersion actuelle : {current}\nNouvelle version : {latest}\n\nVoulez-vous ouvrir la page pour télécharger la mise à jour ?",
     "mark_occurrences": "🎨 Couleur {color_num} : {count} occurrences surlignées",
     "marks_cleared": "🎨 Toutes les marques effacées",
     "update_ok": "Vous utilisez la dernière version disponible ({current}).\nAucune mise à jour nécessaire.",
-    "update_error": "Impossible de vérifier les mises à jour pour le moment.\nVeuillez vérifier votre connexion ou réessayer plus tard.\n\nDétails : {error}"
+    "update_error": "Impossible de vérifier les mises à jour pour le moment.\nVeuillez vérifier votre connexion ou réessayer plus tard.\n\nDétails : {error}",
+    "icons_missing": "ℹ  {count} icônes du set «{icon_set}» introuvables."
   },
   "pref": {
     "title": "Préférences",
@@ -629,6 +634,17 @@
     "json_xml_expand": "Tout développer",
     "json_xml_collapse": "Tout réduire",
     "json_xml_format": "Formater",
-    "json_xml_filter": "Filtrer les clés…"
+    "json_xml_filter": "Filtrer les clés…",
+    "lang_toolbar_h1": "Titre 1",
+    "lang_toolbar_h2": "Titre 2",
+    "lang_toolbar_h3": "Titre 3",
+    "lang_toolbar_underline": "Souligné",
+    "lang_toolbar_code": "Code en ligne",
+    "lang_toolbar_code_block": "Bloc de code",
+    "lang_toolbar_quote": "Citation",
+    "lang_toolbar_ul": "Liste à puces",
+    "lang_toolbar_ol": "Liste numérotée",
+    "lang_toolbar_task": "Liste de tâches",
+    "lang_toolbar_hr": "Règle horizontale"
   }
 }

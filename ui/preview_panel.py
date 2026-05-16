@@ -207,7 +207,8 @@ class PreviewPanel(QWidget):
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._update_preview)
         self._last_hash: int = 0   # evita re-render se il testo non è cambiato
-        self._md_worker = None             # thread markdown
+        self._md_worker = None             # thread markdown corrente
+        self._md_old_workers: list = []    # worker superati: tenuti vivi fino al termine
         self._needs_refresh: bool = False  # aggiornamento pendente mentre nascosto
         self._md_anchor_lines: list = []   # righe sorgente con ancoraggio (1-based, ordinata)
         self._md_anchor_pos_map: list = [] # [(doc_pos, line_no), ...] per backward sync
@@ -577,28 +578,48 @@ class PreviewPanel(QWidget):
     # ── Renderer ──────────────────────────────────────────────────────────────
 
     def _render_markdown(self, text: str) -> None:
-        """
-        Rendering MD in un QThread separato per non bloccare l'UI.
-        """
+        """Rendering MD in un QThread separato per non bloccare l'UI."""
         if not text.strip():
             self._web_fallback.setPlainText("")
             return
-            
-        # FIX: Disconnessione e distruzione sicura del thread precedente
-        if getattr(self, "_md_worker", None) is not None:
+
+        if self._md_worker is not None:
+            # Disconnetti il risultato del vecchio worker: lo ignoreremo.
+            # NON chiamare deleteLater/quit: il thread è ancora in esecuzione.
+            # Lo teniamo vivo in _md_old_workers finché non termina da solo.
             try:
                 self._md_worker.result_ready.disconnect()
             except Exception:
                 pass
-            self._md_worker.deleteLater()
-            
+            old = self._md_worker
+            self._md_old_workers.append(old)
+            def _cleanup(w=old):
+                try:
+                    self._md_old_workers.remove(w)
+                except ValueError:
+                    pass
+            old.finished.connect(_cleanup)
+            self._md_worker = None
+
         self._md_worker = _MarkdownWorker(text)
         self._md_worker.result_ready.connect(self._on_markdown_ready)
         self._md_worker.start()
 
     def _on_markdown_ready(self, html: str, anchor_lines: list) -> None:
         """Slot chiamato dal thread MD quando il rendering è pronto."""
-        if self.sender() == self._md_worker:
+        if self.sender() is self._md_worker and self._md_worker is not None:
+            # result_ready è emesso DENTRO run(), prima che il thread termini.
+            # Azzerare _md_worker subito farebbe cadere l'ultimo riferimento
+            # Python mentre il thread è ancora vivo → SIGABRT.
+            # Spostiamo in _md_old_workers; finished() rimuoverà il riferimento.
+            old = self._md_worker
+            self._md_old_workers.append(old)
+            def _cleanup(w=old):
+                try:
+                    self._md_old_workers.remove(w)
+                except ValueError:
+                    pass
+            old.finished.connect(_cleanup)
             self._md_worker = None
         if self._mode == "markdown":
             self._md_anchor_lines = anchor_lines
@@ -1128,7 +1149,14 @@ class PreviewPanel(QWidget):
         super().wheelEvent(event)        
 
     def closeEvent(self, event) -> None:
-        # Termina thread MD se attivo
+        # Attendi i vecchi worker ancora in esecuzione
+        for w in list(self._md_old_workers):
+            try:
+                w.wait(300)
+            except Exception:
+                pass
+        self._md_old_workers.clear()
+        # Termina thread MD corrente se attivo
         if self._md_worker is not None:
             try:
                 self._md_worker.result_ready.disconnect()

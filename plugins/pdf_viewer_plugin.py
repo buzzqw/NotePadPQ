@@ -33,7 +33,11 @@ class PdfViewerPlugin(BasePlugin):
             return
 
         from PyQt6.QtGui import QAction
-        sub = m.addMenu("📄 " + tr("plugin.pdf.menu", default="Visualizzatore PDF"))
+        sub = m.addMenu(tr("plugin.pdf.menu", default="Visualizzatore PDF"))
+        _icon = self.load_plugin_icon("plugin_pdf", main_window)
+        if not _icon.isNull():
+            sub.setIcon(_icon)
+        self._register_icon(sub, "plugin_pdf", main_window)
 
         act = QAction(tr("plugin.pdf.open", default="Apri PDF…"), main_window)
         act.triggered.connect(self._action_open)

@@ -13,7 +13,7 @@
 4. [Find and Replace](#4-find-and-replace)
 5. [Color Highlighting (Mark)](#5-color-highlighting-mark)
 6. [Bookmarks](#6-bookmarks)
-7. [View](#7-view)
+7. [View](#7-view) *(incl. Language Toolbar for Markdown/LaTeX)*
 8. [Document](#8-document)
 9. [Tools](#9-tools)
 10. [Plugins](#10-plugins)
@@ -43,7 +43,7 @@ If NotePadPQ is already open, files are sent to the existing session without ope
 
 The interface consists of:
 
-- **Menubar**: File / Edit / Search / View / Document / Tools / Plugins / Help (the **Help → Manual** entry opens this manual in the editor as a normal tab)
+- **Menubar**: File / Edit / Search / View / Document / Tools / Plugins / Help (the **Help → Manual** entry opens this manual in the editor as a normal tab; **F1** opens context-sensitive help for the word under the cursor)
 - **Toolbar**: common actions with icons (icon set selectable: Lucide, Material, System)
 - **Tab bar**: one tab per open file; modified files show `*` in the title
 - **Editor**: main text area with syntax highlighting, line numbers, fold margin, symbol margin (bookmarks)
@@ -457,6 +457,25 @@ When enabled (**View → Minimap: hover preview**, or in **Preferences → Edito
 ### Git Blame Inline
 **View → Git Blame inline**: shows, below the line where the cursor is positioned, the author, relative age ("3 days ago"), and commit message of the last git commit that touched that line. Uses QScintilla annotations. Only works on files inside a git repository. Can be toggled from the View menu or **Preferences → Editor**.
 
+### Language Toolbar (`View → Language Toolbar`)
+
+A context-sensitive toolbar that appears automatically when the open file is **Markdown** or **LaTeX**. It contains the most common formatting buttons for that format, using Lucide icons consistent with the main toolbar.
+
+**Markdown** — buttons from left to right:
+
+| Group | Buttons |
+|---|---|
+| Headings | H1, H2, H3 |
+| Character formatting | Bold, Italic, Underline, Strikethrough |
+| Blocks | Blockquote, Inline code, Code block |
+| Lists | Bullet list, Numbered list, Task list, Horizontal rule (`---`) |
+| Elements | Table, Link, Image |
+| Alignment | Left, Center, Right |
+
+All buttons operate on the current selection or insert a placeholder at the cursor. The toolbar updates automatically when a new file is opened or saved with the `.md` extension.
+
+**LaTeX** — shows buttons for common environments (begin/end, align, equation, lists, tables, etc.) contextually.
+
 ### Preview (`F12`)
 Opens the Preview panel alongside the editor. Supports:
 
@@ -640,16 +659,20 @@ Advanced operations on document lines. Applied to the selection (if present) or 
 
 Plugins are loaded automatically from the `plugins/` folder. To install them, copy them into `plugins/` or place them in `plugins_to_copy/` and re-run `setup.sh`.
 
-| Plugin | Function |
-|---|---|
-| **Clipboard History** | Clipboard history with ability to paste previous items |
-| **Compare & Merge** | Visual side-by-side comparison of two files or tabs |
-| **Encrypt/Decrypt** | AES-256-GCM and ChaCha20-Poly1305 encryption of selected text or the entire file |
-| **FTP Browser** | Browse and edit files on FTP servers |
-| **Rich Text Editor** | WYSIWYG editor for .docx, .odt, .rtf, .html powered by Jodit (see [section 23](#23-rich-text-editor)) |
-| **Spreadsheet** | Full editor for CSV, XLSX, XLS, ODS (see [section 22](#22-spreadsheet)) |
-| **Git Integration** | Full Git panel (see below) |
-| **Hex Viewer** | View the current file in hexadecimal format |
+All plugins show Lucide icons in the Plugins menu (same style as the main toolbar). If the icons have not been downloaded yet, use **Help → Download icons** or the banner that appears at startup.
+
+| Plugin | Shortcut | Function |
+|---|---|---|
+| **Clipboard History** | `Ctrl+Shift+V` | Clipboard history with ability to paste previous items |
+| **Compare & Merge** | `F7` | Visual side-by-side comparison of two files or tabs |
+| **Database** | — | SQL client for SQLite, PostgreSQL, MySQL with AI query generation |
+| **Encrypt/Decrypt** | `Ctrl+Shift+E` / `Ctrl+Shift+W` | AES-256-GCM and ChaCha20-Poly1305 encryption of selected text or the entire file |
+| **FTP Browser** | — | Browse and edit files on FTP servers |
+| **Rich Text Editor** | — | WYSIWYG editor for .docx, .odt, .rtf, .html powered by Jodit (see [section 23](#23-rich-text-editor)) |
+| **Spreadsheet** | — | Full editor for CSV, XLSX, XLS, ODS (see [section 22](#22-spreadsheet)) |
+| **Git Integration** | — | Full Git panel (see below) |
+| **Hex Viewer** | `Ctrl+Alt+H` | View the current file in hexadecimal format |
+| **PDF Viewer** | — | View PDF files in a dedicated tab |
 
 ### Git Plugin: Details
 
@@ -1110,6 +1133,7 @@ Regexes use Python syntax (`re` module). Available wherever the "Regular express
 | `Shift+F6` | LSP: Rename symbol |
 | `Alt+Shift+F` | LSP: Format document |
 | `Ctrl+Alt+A` | Open/close AI Assistant panel |
+| `F1` | Context help (opens manual at the word under the cursor) |
 
 ---
 

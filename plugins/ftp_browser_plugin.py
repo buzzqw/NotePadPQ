@@ -764,7 +764,7 @@ class FtpBrowserPlugin(BasePlugin):
         super().on_load(main_window)
         self._panel = _FtpPanel(main_window)
 
-        self._dock = QDockWidget("🌐  FTP Browser", main_window)
+        self._dock = QDockWidget("FTP Browser", main_window)
         self._dock.setObjectName("FtpBrowserDock")
         self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(260)
@@ -778,8 +778,9 @@ class FtpBrowserPlugin(BasePlugin):
         self._dock.hide()
 
         self.add_menu_action(main_window, "plugins",
-                             "🌐 FTP Browser",
-                             lambda: self._dock.setVisible(not self._dock.isVisible()))
+                             "FTP Browser",
+                             lambda: self._dock.setVisible(not self._dock.isVisible()),
+                             icon_key="plugin_ftp")
         main_window._menus["plugins"].menuAction().setVisible(True)
 
     def on_unload(self) -> None:

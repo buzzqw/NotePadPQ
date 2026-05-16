@@ -310,10 +310,11 @@ class ComparePlugin(BasePlugin):
     def on_load(self, main_window: "MainWindow") -> None:
         super().on_load(main_window)
         self.add_menu_action(
-            main_window, "plugins", 
-            "⇄ Compare & Merge...", 
-            self._open_compare, 
-            shortcut="F7"
+            main_window, "plugins",
+            "Compare & Merge...",
+            self._open_compare,
+            shortcut="F7",
+            icon_key="plugin_compare"
         )
 
     def _open_compare(self) -> None:

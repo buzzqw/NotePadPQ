@@ -115,6 +115,7 @@
     "view_minimap": "Minimap",
     "view_build_panel": "Build- und Terminalfenster",
     "view_file_browser": "Dateibrowser",
+    "context_help": "Kontexthilfe",
     "manual": "Handbuch",
     "about": "Über NotePadPQ...",
     "about_qt": "Über Qt...",
@@ -328,7 +329,8 @@
     "enable": "Aktivieren",
     "disable": "Deaktivieren",
     "install": "Installieren",
-    "uninstall": "Deinstallieren"
+    "uninstall": "Deinstallieren",
+    "download_icons": "Icons herunterladen"
   },
   "msg": {
     "unsaved_changes": "Die Datei \"{name}\" enthält nicht gespeicherte Änderungen.\nVor dem Schließen speichern?",
@@ -368,7 +370,10 @@
     "update_error": "Nach Updates kann derzeit nicht gesucht werden.\nBitte überprüfen Sie Ihre Verbindung oder versuchen Sie es später noch einmal.\n\nDetails: {error}",
     "mark_occurrences": "🎨 Farbe {color_num}: {count} Vorkommen hervorgehoben",
     "marks_cleared": "🎨 Alle Markierungen entfernt",
-    "manual_not_found": "Handbuch nicht gefunden."
+    "manual_not_found": "Handbuch nicht gefunden.",
+    "help_search_placeholder": "Thema im Handbuch suchen…",
+    "help_search_hint": "↵ Enter oder Doppelklick, um den Abschnitt im Handbuch zu öffnen",
+    "icons_missing": "ℹ  {count} Icons des Sets «{icon_set}» nicht gefunden."
   },
   "pref": {
     "title": "Einstellungen",
@@ -629,6 +634,17 @@
     "json_xml_expand": "Alles erweitern",
     "json_xml_collapse": "Alles reduzieren",
     "json_xml_format": "Formatieren",
-    "json_xml_filter": "Schlüssel filtern…"
+    "json_xml_filter": "Schlüssel filtern…",
+    "lang_toolbar_h1": "Überschrift 1",
+    "lang_toolbar_h2": "Überschrift 2",
+    "lang_toolbar_h3": "Überschrift 3",
+    "lang_toolbar_underline": "Unterstrichen",
+    "lang_toolbar_code": "Inline-Code",
+    "lang_toolbar_code_block": "Code-Block",
+    "lang_toolbar_quote": "Zitat",
+    "lang_toolbar_ul": "Aufzählungsliste",
+    "lang_toolbar_ol": "Nummerierte Liste",
+    "lang_toolbar_task": "Aufgabenliste",
+    "lang_toolbar_hr": "Horizontale Linie"
   }
 }

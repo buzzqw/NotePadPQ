@@ -1770,7 +1770,7 @@ class AIAssistantPlugin(BasePlugin):
     def on_load(self, main_window: "MainWindow") -> None:
         super().on_load(main_window)
         self._panel = _AIPanel(main_window)
-        self._dock  = QDockWidget("🤖  AI Assistant", main_window)
+        self._dock  = QDockWidget("AI Assistant", main_window)
         self._dock.setObjectName("AIDock")
         self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(320)
@@ -1782,7 +1782,7 @@ class AIAssistantPlugin(BasePlugin):
         )
         main_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._dock)
         self._dock.hide()
-        self.add_menu_action(main_window, "plugins", "🤖  AI Assistant", self._toggle, "Ctrl+Alt+A")
+        self.add_menu_action(main_window, "plugins", "AI Assistant", self._toggle, "Ctrl+Alt+A", icon_key="plugin_ai")
 
         # Aggancia il menu contestuale dell'editor
         main_window._tab_manager.current_editor_changed.connect(self._on_editor_changed)
@@ -1811,7 +1811,7 @@ class AIAssistantPlugin(BasePlugin):
     def _inject_context_menu(self, menu) -> None:
         """Aggiunge le voci AI al menu contestuale dell'editor (tasto destro)."""
         from PyQt6.QtWidgets import QMenu
-        ai_menu = menu.addMenu("🤖  Chiedi all'AI")
+        ai_menu = menu.addMenu("Chiedi all'AI")
         ai_menu.addAction("Chiedi sul file corrente",    self._panel._ask_about_file)
         ai_menu.addAction("Chiedi sulla selezione",      self._panel._ask_about_selection)
         ai_menu.addSeparator()

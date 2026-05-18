@@ -50,6 +50,8 @@ _MD_ICON_FILES: dict[str, str] = {
     "md_align_left":  "align-left.svg",
     "md_align_center":"align-center.svg",
     "md_align_right": "align-right.svg",
+    "md_export_pdf":  "printer.svg",
+    "md_export_html": "file-code.svg",
     "md_structure":   "list-tree.svg",
     "latex_env":      "braces.svg",
     "latex_align_l":  "align-left.svg",
@@ -383,9 +385,9 @@ class _LanguageToolbarWidget(QWidget):
 
         # Allineamento (HTML div)
         for key, fallback, tr_key, default, align in [
-            ("md_align_left",   "⬅", "action.lang_toolbar_align_left",   "Allinea a sinistra", "left"),
-            ("md_align_center", "↔", "action.lang_toolbar_align_center",  "Centra",             "center"),
-            ("md_align_right",  "➡", "action.lang_toolbar_align_right",   "Allinea a destra",   "right"),
+            ("md_align_left",   "▬▬▬", "action.lang_toolbar_align_left",   "Allinea a sinistra", "left"),
+            ("md_align_center", "▬◀▬", "action.lang_toolbar_align_center",  "Centra",             "center"),
+            ("md_align_right",  "▬▶", "action.lang_toolbar_align_right",   "Allinea a destra",   "right"),
         ]:
             tip = tr(tr_key, default=default)
             btn = self._add_icon_btn(key, fallback, tip)
@@ -395,6 +397,16 @@ class _LanguageToolbarWidget(QWidget):
         # Allinea tabella
         if "align_table" in acts:
             self._add_action_button(acts["align_table"])
+        self._add_separator()
+
+        # Esporta
+        tip = tr("action.lang_toolbar_export_pdf", default="Esporta come PDF")
+        btn_pdf = self._add_icon_btn("md_export_pdf", "PDF", tip)
+        btn_pdf.clicked.connect(self._export_pdf)
+
+        tip = tr("action.lang_toolbar_export_html", default="Esporta come HTML")
+        btn_html = self._add_icon_btn("md_export_html", "HTML", tip)
+        btn_html.clicked.connect(self._export_html)
 
     # ── LaTeX ─────────────────────────────────────────────────────────────────
 
@@ -657,6 +669,151 @@ class _LanguageToolbarWidget(QWidget):
             return
         from ui.table_grid_picker import TableGridPicker
         TableGridPicker.show_for_editor(editor, is_latex=True, parent=self._mw, pos=QCursor.pos())
+
+    # ── Handler Markdown — export ──────────────────────────────────────────
+
+    def _export_html(self) -> None:
+        """Esporta il documento Markdown corrente in HTML."""
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        try:
+            import markdown as md_lib
+        except ImportError:
+            QMessageBox.warning(
+                self._mw,
+                tr("action.lang_toolbar_export_html", default="Esporta come HTML"),
+                tr("error.markdown_missing",
+                   default="Libreria 'markdown' non installata.\nInstalla con: pip install markdown")
+            )
+            return
+        default_name = ""
+        if editor.file_path:
+            default_name = str(editor.file_path.with_suffix(".html"))
+        path, _ = QFileDialog.getSaveFileName(
+            self._mw,
+            tr("action.lang_toolbar_export_html", default="Esporta come HTML"),
+            default_name,
+            "HTML (*.html *.htm);;Tutti i file (*)"
+        )
+        if not path:
+            return
+        content = editor.text()
+        html_body = md_lib.markdown(
+            content,
+            extensions=["tables", "fenced_code", "toc", "nl2br"]
+        )
+        html_full = (
+            "<!DOCTYPE html>\n"
+            "<html lang=\"it\">\n"
+            "<head>\n"
+            "  <meta charset=\"UTF-8\">\n"
+            "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+            f"  <title>{Path(path).stem}</title>\n"
+            "  <style>\n"
+            "    body { font-family: sans-serif; max-width: 860px; margin: 2em auto;"
+            " padding: 0 1em; line-height: 1.6; }\n"
+            "    pre { background: #f4f4f4; padding: 1em; overflow-x: auto; }\n"
+            "    code { background: #f4f4f4; padding: .15em .3em; border-radius: 3px; }\n"
+            "    blockquote { border-left: 4px solid #ccc; margin-left: 0; padding-left: 1em; color: #555; }\n"
+            "    table { border-collapse: collapse; } td, th { border: 1px solid #ccc; padding: .4em .8em; }\n"
+            "  </style>\n"
+            "</head>\n"
+            "<body>\n"
+            f"{html_body}\n"
+            "</body>\n"
+            "</html>\n"
+        )
+        try:
+            Path(path).write_text(html_full, encoding="utf-8")
+        except Exception as exc:
+            QMessageBox.critical(
+                self._mw,
+                tr("action.lang_toolbar_export_html", default="Esporta come HTML"),
+                str(exc)
+            )
+
+    def _export_pdf(self) -> None:
+        """Esporta il documento Markdown corrente in PDF tramite QPrinter."""
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        try:
+            import markdown as md_lib
+        except ImportError:
+            QMessageBox.warning(
+                self._mw,
+                tr("action.lang_toolbar_export_pdf", default="Esporta come PDF"),
+                tr("error.markdown_missing",
+                   default="Libreria 'markdown' non installata.\nInstalla con: pip install markdown")
+            )
+            return
+        default_name = ""
+        if editor.file_path:
+            default_name = str(editor.file_path.with_suffix(".pdf"))
+        path, _ = QFileDialog.getSaveFileName(
+            self._mw,
+            tr("action.lang_toolbar_export_pdf", default="Esporta come PDF"),
+            default_name,
+            "PDF (*.pdf);;Tutti i file (*)"
+        )
+        if not path:
+            return
+        content = editor.text()
+        html_body = md_lib.markdown(
+            content,
+            extensions=["tables", "fenced_code", "toc", "nl2br"]
+        )
+        html_full = (
+            "<!DOCTYPE html><html><head>"
+            "<meta charset=\"UTF-8\">"
+            "<style>"
+            "body{font-family:sans-serif;font-size:11pt;line-height:1.6;margin:2cm;}"
+            "pre{background:#f4f4f4;padding:.8em;overflow-x:auto;}"
+            "code{background:#f4f4f4;padding:.1em .3em;border-radius:3px;}"
+            "blockquote{border-left:4px solid #ccc;margin-left:0;padding-left:1em;color:#555;}"
+            "table{border-collapse:collapse;}td,th{border:1px solid #ccc;padding:.3em .6em;}"
+            "</style></head><body>"
+            f"{html_body}"
+            "</body></html>"
+        )
+        try:
+            from PyQt6.QtWebEngineWidgets import QWebEngineView
+            from PyQt6.QtWebEngineCore import QWebEnginePage
+            from PyQt6.QtPrintSupport import QPrinter
+            from PyQt6.QtCore import QUrl
+            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+            printer.setOutputFileName(path)
+            view = QWebEngineView()
+            view._printer = printer
+            view._path = path
+            def _on_load(ok):
+                if ok:
+                    view.page().print(view._printer, lambda result: view.deleteLater())
+            view.loadFinished.connect(_on_load)
+            view.setHtml(html_full, QUrl("about:blank"))
+            view.show()
+            view.hide()
+        except ImportError:
+            # Fallback: QPainter su QPrinter (testo puro, senza rendering HTML)
+            try:
+                from PyQt6.QtPrintSupport import QPrinter
+                from PyQt6.QtGui import QTextDocument
+                printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+                printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+                printer.setOutputFileName(path)
+                doc = QTextDocument()
+                doc.setHtml(html_full)
+                doc.print(printer)
+            except Exception as exc:
+                QMessageBox.critical(
+                    self._mw,
+                    tr("action.lang_toolbar_export_pdf", default="Esporta come PDF"),
+                    str(exc)
+                )
 
     # ── Handler LaTeX ─────────────────────────────────────────────────────────
 

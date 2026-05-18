@@ -154,6 +154,33 @@ class MarkdownSupport:
             return
         prev_line = editor.text(line - 1)
 
+        # Rilevamento task list: '- [ ] ' o '- [x] ' (con o senza spazio finale)
+        mt = re.match(r'^(\s*)([-*+])\s\[( |x)\]\s?', prev_line)
+        if mt:
+            indent = mt.group(1)
+            marker = mt.group(2)
+            task_prefix = f"{indent}{marker} [ ] "
+            # Se la riga precedente è vuota (solo il prefisso task), termina la lista
+            if prev_line.rstrip() in (
+                f"{indent}{marker} [ ]",
+                f"{indent}{marker} [ ] ",
+                f"{indent}{marker} [x]",
+                f"{indent}{marker} [x] ",
+            ):
+                editor.beginUndoAction()
+                editor.setSelection(line - 1, 0, line - 1, len(prev_line.rstrip("\n")))
+                editor.replaceSelectedText("")
+                editor.endUndoAction()
+            else:
+                # Continua la task list con un nuovo item non completato
+                editor.beginUndoAction()
+                current_line_text = editor.text(line)
+                if not current_line_text.strip():
+                    editor.insert(task_prefix)
+                    editor.setCursorPosition(line, len(task_prefix))
+                editor.endUndoAction()
+            return
+
         # Rilevamento lista non ordinata: '- ', '* ', '+ '
         m = re.match(r'^(\s*)([-*+])\s', prev_line)
         if m:

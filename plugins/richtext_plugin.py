@@ -78,6 +78,29 @@ class RichTextPlugin(BasePlugin):
         m.menuAction().setVisible(True)
         main_window._richtext_plugin = self
 
+    _FORMAT_WARNING_EXTS = frozenset({".doc", ".docx", ".odt", ".rtf"})
+
+    def _maybe_show_format_warning(self, path: Path) -> None:
+        from PyQt6.QtWidgets import QCheckBox
+        from config.settings import Settings
+        if path.suffix.lower() not in self._FORMAT_WARNING_EXTS:
+            return
+        if Settings.instance().get("richtext/format_warning_shown", False):
+            return
+        msg = QMessageBox(self._mw)
+        msg.setWindowTitle(tr("plugin.richtext.format_warning_title", default="Avviso formattazione"))
+        msg.setText(tr("plugin.richtext.format_warning_text",
+                       default="L'apertura di file .doc, .docx e .odt potrebbe non preservare tutta la formattazione originale.\n"
+                               "Tabelle complesse, stili, immagini e altre strutture potrebbero essere alterate o perdute.\n"
+                               "Lo stesso vale per il salvataggio."))
+        msg.setIcon(QMessageBox.Icon.Warning)
+        cb = QCheckBox(tr("plugin.richtext.format_warning_dont_show", default="Non mostrare più questo avviso"))
+        msg.setCheckBox(cb)
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
+        if cb.isChecked():
+            Settings.instance().set("richtext/format_warning_shown", True)
+
     def open_document(self, path: Path) -> None:
         """Carica il file e apre un tab rich text. Chiamato da main_window.open_files."""
         from ui.richtext_widget import RichTextWidget, WEBENGINE_OK, ensure_jodit
@@ -96,6 +119,8 @@ class RichTextPlugin(BasePlugin):
         if existing is not None:
             self._mw._tab_manager.set_current_index(existing)
             return
+
+        self._maybe_show_format_warning(path)
 
         if not ensure_jodit(self._mw):
             return

@@ -946,6 +946,7 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("print",      "Ctrl+P",       self.action_print))
         m.addAction(self._act("print_preview", "",           self.action_print_preview))
         m.addAction(self._act("export_pdf", "",              self.action_export_pdf))
+        m.addAction(self._act("export_as",  "",              self.action_export_as))
 
         self._sep(m)
         m.addAction(self._act("close",        "Ctrl+W",       self.action_close))
@@ -1132,6 +1133,7 @@ class MainWindow(QMainWindow):
 
         # Ora usiamo s.get(...) per leggere le tue preferenze salvate al posto di forzare True o False!
         m.addAction(self._act("view_toolbar",     "", self._toggle_toolbar,     checkable=True, checked=s.get("view/toolbar", True)))
+        m.addAction(self._act("customize_toolbar", "", self._action_customize_toolbar))
         m.addAction(self._act("view_lang_toolbar", "Ctrl+Shift+L", self._toggle_lang_toolbar, checkable=True, checked=s.get("view/lang_toolbar", False)))
         m.addAction(self._act("view_statusbar",   "", self._toggle_statusbar,   checkable=True, checked=s.get("view/statusbar", True)))
         self._sep(m)
@@ -1476,12 +1478,26 @@ class MainWindow(QMainWindow):
         from PyQt6.QtCore import QSize
         self._toolbar.setIconSize(QSize(20, 20))
         self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self._toolbar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._toolbar.customContextMenuRequested.connect(self._toolbar_context_menu)
         self._rebuild_toolbar()
         # Secondo refresh dopo show(): la palette è completamente inizializzata
         # solo dopo il primo ciclo eventi. Su Debian Qt 6.8 questo è necessario
         # per avere il colore corretto nelle icone SVG e per forzare il ridisegno.
         QTimer.singleShot(300, self._rebuild_toolbar)
         QTimer.singleShot(600, self._check_missing_icons)
+
+    def _toolbar_context_menu(self, pos) -> None:
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self)
+        act = menu.addAction(tr("action.customize_toolbar", default="Personalizza barra degli strumenti…"))
+        act.triggered.connect(self._action_customize_toolbar)
+        menu.exec(self._toolbar.mapToGlobal(pos))
+
+    def _action_customize_toolbar(self) -> None:
+        from ui.customize_toolbar_dialog import CustomizeToolbarDialog
+        dlg = CustomizeToolbarDialog(self)
+        dlg.exec()
 
     def _setup_language_toolbar(self) -> None:
         """Installa la toolbar contestuale LaTeX/Markdown."""
@@ -1555,24 +1571,21 @@ class MainWindow(QMainWindow):
             elif key in toolbar_system_fallbacks:
                 action.setIcon(style.standardIcon(toolbar_system_fallbacks[key]))
 
-        # Ricostruzione fisica toolbar
+        # Ricostruzione fisica toolbar dalla configurazione salvata
         from PyQt6.QtWidgets import QToolButton
-        _groups = [["new", "open", "save", "save_all"], ["find", "replace"], ["undo", "redo"], ["compile", "run"]]
-        for group in _groups:
-            added = False
-            for k in group:
-                if k in self._actions:
-                    action = self._actions[k]
-                    tb.addAction(action)
-                    # Imposta l'icona direttamente sul QToolButton perché su
-                    # Debian Qt 6.8 la propagazione QAction→QToolButton non
-                    # aggiorna la visualizzazione dell'icona in modo affidabile.
-                    btn = tb.widgetForAction(action)
-                    if isinstance(btn, QToolButton) and not action.icon().isNull():
-                        btn.setIcon(action.icon())
-                    added = True
-            if added:
+        from ui.customize_toolbar_dialog import DEFAULT_TOOLBAR
+        toolbar_items: list[str] = settings.get("toolbar/items", None)
+        if not isinstance(toolbar_items, list) or not toolbar_items:
+            toolbar_items = list(DEFAULT_TOOLBAR)
+        for k in toolbar_items:
+            if k == "|":
                 tb.addSeparator()
+            elif k in self._actions:
+                action = self._actions[k]
+                tb.addAction(action)
+                btn = tb.widgetForAction(action)
+                if isinstance(btn, QToolButton) and not action.icon().isNull():
+                    btn.setIcon(action.icon())
         tb.update()
 
         # Applica icone ai submenu che non sono QAction in _actions
@@ -2246,6 +2259,120 @@ class MainWindow(QMainWindow):
         except Exception as _exc:
             from PyQt6.QtWidgets import QMessageBox as _QMB
             _QMB.critical(self, tr("action.export_pdf", default="Esporta PDF"), str(_exc))
+
+    def action_export_as(self) -> None:
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox as _QMB
+        from pathlib import Path as _Path
+
+        # Se il tab corrente è un RichTextWidget, delega a save_as()
+        custom = self._tab_manager.current_custom_widget()
+        if custom is not None and hasattr(custom, "save_as"):
+            custom.save_as()
+            return
+
+        editor = self._current_editor()
+        if not editor:
+            return
+
+        stem = editor.file_path.stem if editor.file_path else "documento"
+        default = str(_Path.home() / stem)
+        _filter = (
+            "Word (*.docx);;"
+            "OpenDocument Text (*.odt);;"
+            "HTML (*.html);;"
+            "LaTeX (*.tex)"
+        )
+        path, selected_filter = QFileDialog.getSaveFileName(
+            self, tr("action.export_as", default="Esporta come…"), default, _filter
+        )
+        if not path:
+            return
+
+        import re as _re
+        p = _Path(path)
+        m = _re.search(r'\*(\.\w+)', selected_filter)
+        if m:
+            ext = m.group(1).lower()
+            if p.suffix.lower() != ext:
+                p = p.with_suffix(ext)
+
+        content = editor.text()
+        src_ext = (editor.file_path.suffix.lower() if editor.file_path else "")
+        fmt_in  = "markdown" if src_ext == ".md" else "plain"
+
+        err = self._export_text_as(content, fmt_in, p)
+        if err:
+            _QMB.critical(self, tr("action.export_as", default="Esporta come…"), err)
+        else:
+            _QMB.information(self, tr("action.export_as", default="Esporta come…"),
+                             f"File esportato:\n{p}")
+
+    @staticmethod
+    def _export_text_as(content: str, fmt_in: str, dest: "Path") -> str:
+        """Converte testo/Markdown nel formato di dest. Ritorna stringa errore o ''."""
+        import subprocess, tempfile
+        from pathlib import Path as _Path
+
+        ext = dest.suffix.lower()
+
+        # HTML: usa markdown lib se disponibile, altrimenti wrap plain
+        if ext in (".html", ".htm"):
+            try:
+                import markdown as _md
+                body = _md.markdown(content, extensions=["tables", "fenced_code"])
+            except ImportError:
+                import html as _html
+                body = "<pre>" + _html.escape(content) + "</pre>"
+            full = (
+                "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                "<style>body{font-family:serif;font-size:12pt;line-height:1.5;"
+                "max-width:860px;margin:40px auto;padding:0 20px}</style>"
+                f"</head><body>{body}</body></html>"
+            )
+            try:
+                dest.write_text(full, encoding="utf-8")
+                return ""
+            except Exception as e:
+                return str(e)
+
+        # DOCX senza pandoc: markdown→html→htmldocx
+        if ext == ".docx" and fmt_in == "markdown":
+            try:
+                import markdown as _md
+                from htmldocx import HtmlToDocx
+                html = _md.markdown(content, extensions=["tables", "fenced_code"])
+                parser = HtmlToDocx()
+                doc = parser.parse_html_string(html)
+                doc.save(str(dest))
+                return ""
+            except ImportError:
+                pass  # fallback pandoc
+
+        # Pandoc per tutto il resto (docx plain, odt, tex)
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".md" if fmt_in == "markdown" else ".txt",
+                                             delete=False, mode="w", encoding="utf-8") as f:
+                f.write(content)
+                tmp = f.name
+            fmt_out = ext.lstrip(".")
+            if fmt_out == "tex":
+                fmt_out = "latex"
+            result = subprocess.run(
+                ["pandoc", "-f", fmt_in, "-t", fmt_out, tmp, "-o", str(dest)],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.returncode != 0:
+                return result.stderr or f"pandoc exit {result.returncode}"
+            return ""
+        except FileNotFoundError:
+            return "pandoc non trovato. Installa pandoc oppure htmldocx."
+        except Exception as e:
+            return str(e)
+        finally:
+            try:
+                _Path(tmp).unlink(missing_ok=True)
+            except Exception:
+                pass
 
     def action_close(self) -> None:
         self._tab_manager.close_current_tab()

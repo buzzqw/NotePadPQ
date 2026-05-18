@@ -100,6 +100,7 @@
     "reload_config": "Reload Configuration",
     "view_toolbar": "Toolbar",
     "view_statusbar": "Status Bar",
+    "customize_toolbar": "Customize Toolbar…",
     "view_line_numbers": "Line Numbers",
     "view_fold_margin": "Fold Margin",
     "view_whitespace": "Show Whitespace",
@@ -151,6 +152,7 @@
     "save_file": "Save",
     "print_preview": "Print Preview",
     "export_pdf": "Export as PDF",
+    "export_as": "Export as…",
     "keybinding_editor": "Keyboard Shortcuts Editor...",
     "open_terminal": "Open Terminal Here",
     "text_converter": "Convert Text…",
@@ -518,7 +520,10 @@
       "new_doc_title": "New document",
       "no_webengine": "PyQt6-WebEngine is not installed.\npip install PyQt6-WebEngine",
       "deps_ok": "Jodit is already available.",
-      "deps_downloaded": "Jodit downloaded successfully."
+      "deps_downloaded": "Jodit downloaded successfully.",
+      "format_warning_title": "Formatting warning",
+      "format_warning_text": "Opening .doc, .docx and .odt files may not preserve all original formatting.\nComplex tables, styles, images and other structures may be altered or lost.\nThe same applies when saving.",
+      "format_warning_dont_show": "Do not show this warning again"
     },
     "pdf": {
       "menu": "PDF Viewer",

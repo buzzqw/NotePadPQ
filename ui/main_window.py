@@ -270,7 +270,7 @@ class MainWindow(QMainWindow):
         self._setup_git_gutter()
         self._setup_lsp()
         self._setup_clock()
-        self._setup_logo_corner()
+        # _setup_logo_corner rimossa: ridondante con l'icona di finestra del WM
         self._setup_writing_goal()
         self.setAcceptDrops(True)
         self._setup_resource_monitor()

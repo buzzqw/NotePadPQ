@@ -417,5 +417,6 @@ class IncrementalSearchBar(QWidget):
             bar.closed.connect(lambda: act.setChecked(False))
             search_menu.insertAction(search_menu.actions()[0], act)
             search_menu.insertSeparator(search_menu.actions()[1])
+            main_window._actions["incremental_search"] = act
 
         return bar

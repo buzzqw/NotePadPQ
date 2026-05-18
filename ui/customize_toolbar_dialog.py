@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
-    QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
+    QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
 )
 
 from i18n.i18n import tr
@@ -68,6 +68,11 @@ class CustomizeToolbarDialog(QDialog):
         # Colonna sinistra: azioni disponibili
         left = QVBoxLayout()
         left.addWidget(QLabel("Azioni disponibili"))
+        self._search = QLineEdit()
+        self._search.setPlaceholderText("Cerca…")
+        self._search.setClearButtonEnabled(True)
+        self._search.textChanged.connect(self._filter_avail)
+        left.addWidget(self._search)
         self._avail = QListWidget()
         self._avail.setDragDropMode(QListWidget.DragDropMode.NoDragDrop)
         self._avail.itemDoubleClicked.connect(self._add_selected)
@@ -164,6 +169,12 @@ class CustomizeToolbarDialog(QDialog):
 
     # ── operazioni ────────────────────────────────────────────────────────────
 
+    def _filter_avail(self, text: str) -> None:
+        text = text.strip().lower()
+        for i in range(self._avail.count()):
+            item = self._avail.item(i)
+            item.setHidden(bool(text) and text not in item.text().lower())
+
     def _add_selected(self) -> None:
         row = self._avail.currentRow()
         if row < 0:
@@ -189,13 +200,17 @@ class CustomizeToolbarDialog(QDialog):
             # rimetti nella lista disponibili in ordine alfabetico
             label = _action_label(key, self._mw._actions)
             new_item = self._make_item(key)
-            # trova posizione alfabetica
+            # trova posizione alfabetica (considera solo item visibili per non rompere l'ordine)
             for i in range(self._avail.count()):
                 if self._avail.item(i).text() > label:
                     self._avail.insertItem(i, new_item)
                     break
             else:
                 self._avail.addItem(new_item)
+            # applica il filtro corrente al nuovo item
+            flt = self._search.text().strip().lower()
+            if flt and flt not in label.lower():
+                new_item.setHidden(True)
 
     def _move_up(self) -> None:
         row = self._curr.currentRow()
@@ -223,12 +238,16 @@ class CustomizeToolbarDialog(QDialog):
         self._curr.clear()
         for key in DEFAULT_TOOLBAR:
             self._curr.addItem(self._make_item(key))
-        # ricostruisce disponibili
+        # ricostruisce disponibili e riapplica il filtro corrente
         in_toolbar = {k for k in DEFAULT_TOOLBAR if k != _SEPARATOR_KEY}
         self._avail.clear()
+        flt = self._search.text().strip().lower()
         for key in sorted(self._mw._actions.keys()):
             if key not in in_toolbar:
-                self._avail.addItem(self._make_item(key))
+                item = self._make_item(key)
+                self._avail.addItem(item)
+                if flt and flt not in item.text().lower():
+                    item.setHidden(True)
 
     # ── OK ────────────────────────────────────────────────────────────────────
 

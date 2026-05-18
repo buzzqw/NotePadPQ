@@ -604,6 +604,7 @@ def install(main_window: "MainWindow") -> _FunctionListPanel:
         act.toggled.connect(dock.setVisible)
         dock.visibilityChanged.connect(act.setChecked)
         view_menu.addAction(act)
+        main_window._actions["function_list"] = act
 
     main_window._function_list_dock  = dock
     main_window._function_list_panel = panel

@@ -230,12 +230,21 @@
     "lang_toolbar_select_image": "Seleccionar imagen",
     "lang_toolbar_image_filter": "Imágenes (*.png *.jpg *.jpeg *.gif *.svg *.webp);;Todos los archivos (*)",
     "lang_toolbar_image_alt": "imagen",
+    "lang_toolbar_image_options": "Insertar imagen",
+    "lang_toolbar_image_alt_label": "Texto alt:",
+    "lang_toolbar_image_width": "Ancho:",
+    "lang_toolbar_image_height": "Alto:",
+    "lang_toolbar_image_size_hint": "p.ej. 400 o 50%",
+    "lang_toolbar_image_proportional": "Mantener proporciones (altura automática)",
+    "lang_toolbar_image_size_note": "⚠ Con dimensiones especificadas se inserta HTML (<img>): no todos los renderizadores Markdown soportan este formato.",
     "lang_toolbar_align_left": "Alinear a la izquierda",
     "lang_toolbar_align_center": "Centrar",
     "lang_toolbar_align_right": "Alinear a la derecha",
     "lang_toolbar_begin_env": "Iniciar entorno",
     "lang_toolbar_end_env": "Finalizar entorno",
-    "lang_toolbar_env_name": "Nombre del entorno:"
+    "lang_toolbar_env_name": "Nombre del entorno:",
+    "lang_toolbar_export_pdf": "Exportar como PDF",
+    "lang_toolbar_export_html": "Exportar como HTML"
   },
   "color": {
     "red": "Rojo",
@@ -375,7 +384,10 @@
     "mark_occurrences": "🎨 Color {color_num}: {count} ocurrencias resaltadas",
     "marks_cleared": "🎨 Todas las marcas borradas",
     "update_error": "No se puede buscar actualizaciones en este momento.\nVerifica tu conexión o inténtalo de nuevo más tarde.\n\nDetalles: {error}",
-    "icons_missing": "ℹ  {count} iconos del set «{icon_set}» no encontrados."
+    "icons_missing": "ℹ  {count} iconos del set «{icon_set}» no encontrados.",
+    "export_pdf_ok": "PDF exportado correctamente:\n{path}",
+    "export_pdf_empty": "El archivo PDF parece vacío o no se ha creado:\n{path}",
+    "export_pdf_failed": "Error al exportar el PDF."
   },
   "pref": {
     "title": "Preferencias",

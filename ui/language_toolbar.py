@@ -21,6 +21,7 @@ from PyQt6.QtGui import QAction, QIcon, QKeySequence, QCursor, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QToolButton, QFrame,
     QInputDialog, QApplication, QSizePolicy,
+    QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
 )
 
 from i18n.i18n import tr
@@ -50,7 +51,7 @@ _MD_ICON_FILES: dict[str, str] = {
     "md_align_left":  "align-left.svg",
     "md_align_center":"align-center.svg",
     "md_align_right": "align-right.svg",
-    "md_export_pdf":  "printer.svg",
+    "md_export_pdf":  "file-pdf.svg",
     "md_export_html": "file-code.svg",
     "md_structure":   "list-tree.svg",
     "latex_env":      "braces.svg",
@@ -609,7 +610,7 @@ class _LanguageToolbarWidget(QWidget):
         editor.setFocus()
 
     def _insert_md_image(self) -> None:
-        from PyQt6.QtWidgets import QFileDialog
+        from PyQt6.QtWidgets import QFileDialog, QCheckBox
         editor = self._mw._tab_manager.current_editor()
         if not editor:
             return
@@ -628,14 +629,83 @@ class _LanguageToolbarWidget(QWidget):
                 path = str(rel)
         except ValueError:
             pass
+
         sel = editor.selectedText()
-        alt = sel if sel else tr("action.lang_toolbar_image_alt", default="immagine")
+        default_alt = sel if sel else tr("action.lang_toolbar_image_alt", default="immagine")
+
+        # Dialog dimensioni
+        dlg = QDialog(self._mw)
+        dlg.setWindowTitle(tr("action.lang_toolbar_image_options", default="Inserisci immagine"))
+        dlg.setMinimumWidth(340)
+        form = QFormLayout(dlg)
+        form.setContentsMargins(12, 12, 12, 8)
+        form.setSpacing(8)
+
+        _path_lbl = QLabel(Path(path).name)
+        _path_lbl.setStyleSheet("color: gray; font-size: 11px;")
+        form.addRow("File:", _path_lbl)
+
+        _alt = QLineEdit(default_alt)
+        form.addRow(tr("action.lang_toolbar_image_alt_label", default="Testo alt:"), _alt)
+
+        _width = QLineEdit()
+        _width.setPlaceholderText(tr("action.lang_toolbar_image_size_hint", default="es. 400 oppure 80%"))
+        form.addRow(tr("action.lang_toolbar_image_width", default="Larghezza:"), _width)
+
+        _prop = QCheckBox(tr("action.lang_toolbar_image_proportional",
+                             default="Mantieni proporzioni (altezza automatica)"))
+        _prop.setChecked(True)
+        form.addRow("", _prop)
+
+        _height_label = QLabel(tr("action.lang_toolbar_image_height", default="Altezza:"))
+        _height = QLineEdit()
+        _height.setPlaceholderText(tr("action.lang_toolbar_image_size_hint", default="es. 400 oppure 80%"))
+        _height_label.setVisible(False)
+        _height.setVisible(False)
+        form.addRow(_height_label, _height)
+
+        def _on_prop_toggled(checked: bool) -> None:
+            _height_label.setVisible(not checked)
+            _height.setVisible(not checked)
+            dlg.adjustSize()
+
+        _prop.toggled.connect(_on_prop_toggled)
+
+        _note = QLabel(tr("action.lang_toolbar_image_size_note",
+                          default="⚠ Con dimensioni specificate viene inserito HTML (<img>): "
+                                  "non tutti i renderer Markdown supportano questo formato."))
+        _note.setStyleSheet("color: gray; font-size: 11px;")
+        _note.setWordWrap(True)
+        form.addRow("", _note)
+
+        bbox = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok |
+                                QDialogButtonBox.StandardButton.Cancel)
+        bbox.accepted.connect(dlg.accept)
+        bbox.rejected.connect(dlg.reject)
+        form.addRow(bbox)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            editor.setFocus()
+            return
+
+        alt   = _alt.text().strip() or default_alt
+        width = _width.text().strip()
+        proportional = _prop.isChecked()
+        height = "" if proportional else _height.text().strip()
+
+        if width or height:
+            w_attr = f' width="{width}"'   if width  else ""
+            h_attr = f' height="{height}"' if height else ""
+            snippet = f'<img src="{path}" alt="{alt}"{w_attr}{h_attr}>'
+        else:
+            snippet = f"![{alt}]({path})"
+
         if sel:
-            editor.replaceSelectedText(f"![{alt}]({path})")
+            editor.replaceSelectedText(snippet)
         else:
             line, col = editor.getCursorPosition()
-            editor.insert(f"![{alt}]({path})")
-            editor.setCursorPosition(line, col + len(f"![{alt}]({path})"))
+            editor.insert(snippet)
+            editor.setCursorPosition(line, col + len(snippet))
         editor.setFocus()
 
     # ── Handler Markdown — allineamento ──────────────────────────────────────
@@ -785,86 +855,172 @@ class _LanguageToolbarWidget(QWidget):
         if _p.suffix.lower() != ".pdf":
             path = str(_p.with_suffix(".pdf"))
         content = editor.text()
+        _base_dir = editor.file_path.parent if editor.file_path else _Path.home()
+        import re as _re
+
+        # Risolvi percorsi relativi → assoluti e converti width/height % in style CSS
+        # (percentuali come style= funzionano correttamente in WebEngine;
+        #  per il fallback QTextDocument verranno convertite in px separatamente)
+        def _fix_img_paths(tag):
+            src_m = _re.search(r'src=["\']([^"\']+)["\']', tag)
+            if src_m:
+                src = src_m.group(1)
+                if not src.startswith(('http://', 'https://', 'data:', '/')):
+                    abs_src = str((_base_dir / src).resolve())
+                    tag = tag[:src_m.start(1)] + abs_src + tag[src_m.end(1):]
+            return tag
+
+        def _fix_img_pct_to_style(tag):
+            styles = []
+            for attr in ('width', 'height'):
+                pat = _re.compile(rf'\b{attr}=["\']?(\d+(?:\.\d+)?)%["\']?', _re.IGNORECASE)
+                hit = pat.search(tag)
+                if hit:
+                    styles.append(f'{attr}:{hit.group(1)}%')
+                    tag = pat.sub('', tag)
+            if styles:
+                existing = _re.search(r'style=["\']([^"\']*)["\']', tag)
+                if existing:
+                    merged = existing.group(1).rstrip(';') + ';' + ';'.join(styles)
+                    tag = _re.sub(r'style=["\']([^"\']*)["\']', f'style="{merged}"', tag)
+                else:
+                    tag = tag.rstrip('>').rstrip('/') + ' style="' + ';'.join(styles) + '">'
+            return tag
+
+        def _fix_img_pct_to_px(tag, page_px):
+            for attr in ('width', 'height'):
+                pat = _re.compile(rf'\b{attr}=["\']?(\d+(?:\.\d+)?)%["\']?', _re.IGNORECASE)
+                hit = pat.search(tag)
+                if hit:
+                    px = max(1, int(page_px * float(hit.group(1)) / 100))
+                    tag = pat.sub(f'{attr}="{px}"', tag)
+            return tag
+
+        # HTML per WebEngine: percorsi assoluti + % come style CSS
+        def _make_html(body):
+            return (
+                "<!DOCTYPE html><html><head>"
+                "<meta charset=\"UTF-8\">"
+                "<style>"
+                "body{font-family:sans-serif;font-size:11pt;line-height:1.6;margin:2cm;}"
+                "img{max-width:100%;height:auto;}"
+                "pre{background:#f4f4f4;padding:.8em;overflow-x:auto;}"
+                "code{background:#f4f4f4;padding:.1em .3em;border-radius:3px;}"
+                "blockquote{border-left:4px solid #ccc;margin-left:0;padding-left:1em;color:#555;}"
+                "table{border-collapse:collapse;}td,th{border:1px solid #ccc;padding:.3em .6em;}"
+                "</style></head><body>"
+                f"{body}"
+                "</body></html>"
+            )
+
+        # Pre-stash raw HTML <img> tags prima della conversione markdown: python-markdown
+        # può escaparle (convertendo < in &lt;) se non le riconosce come blocco HTML.
+        _img_stash: list[str] = []
+
+        def _stash_img(m: '_re.Match[str]') -> str:
+            _img_stash.append(m.group(0))
+            return f'<!-- __npq_img_{len(_img_stash) - 1}__ -->'
+
+        content_stashed = _re.sub(r'<img\b[^>]*>', _stash_img, content, flags=_re.IGNORECASE)
+
         html_body = md_lib.markdown(
-            content,
+            content_stashed,
             extensions=["tables", "fenced_code", "toc", "nl2br"]
         )
-        html_full = (
-            "<!DOCTYPE html><html><head>"
-            "<meta charset=\"UTF-8\">"
-            "<style>"
-            "body{font-family:sans-serif;font-size:11pt;line-height:1.6;margin:2cm;}"
-            "pre{background:#f4f4f4;padding:.8em;overflow-x:auto;}"
-            "code{background:#f4f4f4;padding:.1em .3em;border-radius:3px;}"
-            "blockquote{border-left:4px solid #ccc;margin-left:0;padding-left:1em;color:#555;}"
-            "table{border-collapse:collapse;}td,th{border:1px solid #ccc;padding:.3em .6em;}"
-            "</style></head><body>"
-            f"{html_body}"
-            "</body></html>"
+
+        # Ripristina le <img> stashate con percorsi assoluti (solo path, non style).
+        # La conversione width%→style/px viene fatta dai _re.sub successivi,
+        # così sia il path WebEngine che il fallback QTextDocument la ricevono corretta.
+        for _si, _stag in enumerate(_img_stash):
+            html_body = html_body.replace(
+                f'<!-- __npq_img_{_si}__ -->',
+                _fix_img_paths(_stag)
+            )
+
+        # Applica le fix anche alle <img> generate da sintassi markdown ![](src)
+        html_body_fixed = _re.sub(
+            r'<img\b[^>]*>',
+            lambda m: _fix_img_pct_to_style(_fix_img_paths(m.group(0))),
+            html_body, flags=_re.IGNORECASE
         )
-        # Prima prova: QTextDocument (disponibile sempre in PyQt6)
+        html_full = _make_html(html_body_fixed)
+
         _exported = False
         _err_msg = ""
+
+        # Primario: QWebEngineView — CSS completo, gestisce % correttamente
         try:
-            from PyQt6.QtPrintSupport import QPrinter
-            from PyQt6.QtGui import QTextDocument
-            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-            printer.setOutputFileName(path)
-            doc = QTextDocument()
-            doc.setHtml(html_full)
-            doc.print(printer)
-            _exported = True
-        except Exception as _e:
-            _err_msg = str(_e)
+            from PyQt6.QtWebEngineWidgets import QWebEngineView
+            from PyQt6.QtCore import QUrl, QEventLoop
+            _we_ok = [False]
+            view = QWebEngineView()
+            base_url = QUrl.fromLocalFile(str(_base_dir) + "/")
+            view.setHtml(html_full, base_url)
+
+            def _on_load(ok):
+                if ok:
+                    loop2 = QEventLoop()
+                    def _pdf_done(pdf_data):
+                        if pdf_data:
+                            try:
+                                _Path(path).write_bytes(bytes(pdf_data))
+                                _we_ok[0] = True
+                            except Exception:
+                                pass
+                        loop2.quit()
+                    view.page().printToPdf(_pdf_done)
+                    loop2.exec()
+                view.deleteLater()
+
+            loop = QEventLoop()
+            view.loadFinished.connect(_on_load)
+            view.loadFinished.connect(lambda _: loop.quit())
+            loop.exec()
+            _exported = _we_ok[0]
+        except Exception as exc:
+            _err_msg = str(exc)
 
         if not _exported:
-            # Fallback: QWebEngineView con printToPdf (non sincrono ma più fedele)
+            # Fallback: QTextDocument — % convertite in px (718px = larghezza utile A4)
             try:
-                from PyQt6.QtWebEngineWidgets import QWebEngineView
-                from PyQt6.QtCore import QUrl, QEventLoop
-                view = QWebEngineView()
-                view.setHtml(html_full, QUrl("about:blank"))
-
-                def _on_load(ok):
-                    if ok:
-                        loop2 = QEventLoop()
-                        def _pdf_done(ok2):
-                            loop2.quit()
-                        try:
-                            view.page().printToPdf(path, _pdf_done)
-                            loop2.exec()
-                        except TypeError:
-                            view.page().printToPdf(path)
-                    view.deleteLater()
-
-                loop = QEventLoop()
-                view.loadFinished.connect(_on_load)
-                view.loadFinished.connect(lambda _: loop.quit())
-                loop.exec()
+                from PyQt6.QtPrintSupport import QPrinter
+                from PyQt6.QtGui import QTextDocument
+                from PyQt6.QtCore import QUrl
+                html_body_px = _re.sub(
+                    r'<img\b[^>]*>',
+                    lambda m: _fix_img_pct_to_px(_fix_img_paths(m.group(0)), 718),
+                    html_body, flags=_re.IGNORECASE
+                )
+                printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+                printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+                printer.setOutputFileName(path)
+                doc = QTextDocument()
+                doc.setBaseUrl(QUrl.fromLocalFile(str(_base_dir) + "/"))
+                doc.setHtml(_make_html(html_body_px))
+                doc.print(printer)
                 _exported = True
-            except Exception as exc:
-                _err_msg = str(exc)
+            except Exception as _e:
+                _err_msg = str(_e)
 
         if _exported:
             import os as _os
             if _os.path.exists(path) and _os.path.getsize(path) > 0:
                 QMessageBox.information(
                     self._mw,
-                    tr("action.lang_toolbar_export_pdf", default="Esporta come PDF"),
-                    tr("msg.export_pdf_ok", default=f"PDF esportato con successo:\n{path}")
+                    tr("action.lang_toolbar_export_pdf"),
+                    tr("msg.export_pdf_ok", path=path)
                 )
             else:
                 QMessageBox.warning(
                     self._mw,
-                    tr("action.lang_toolbar_export_pdf", default="Esporta come PDF"),
-                    tr("msg.export_pdf_empty", default=f"Il file PDF sembra vuoto o non è stato creato:\n{path}")
+                    tr("action.lang_toolbar_export_pdf"),
+                    tr("msg.export_pdf_empty", path=path)
                 )
         else:
             QMessageBox.critical(
                 self._mw,
-                tr("action.lang_toolbar_export_pdf", default="Esporta come PDF"),
-                _err_msg or tr("msg.export_pdf_failed", default="Esportazione PDF fallita.")
+                tr("action.lang_toolbar_export_pdf"),
+                _err_msg or tr("msg.export_pdf_failed")
             )
 
     # ── Handler LaTeX ─────────────────────────────────────────────────────────

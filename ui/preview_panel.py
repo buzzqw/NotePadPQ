@@ -51,6 +51,30 @@ try:
 except ImportError:
     _HAS_MARKDOWN = False
 
+import re as _re
+
+def _fix_img_percent_dimensions(html: str, viewport_width: int = 800) -> str:
+    """
+    QTextBrowser non supporta width/height percentuali sulle immagini.
+    Converte i valori percentuali in pixel usando la larghezza del viewport.
+    Lascia invariati i valori già in pixel.
+    Chiamare nel thread principale dove viewport_width è noto.
+    """
+    def _rewrite(m: "re.Match") -> str:
+        tag = m.group(0)
+        changed = False
+        for attr in ("width", "height"):
+            pat = _re.compile(rf'\b({attr})=["\']?(\d+(?:\.\d+)?)%["\']?', _re.IGNORECASE)
+            hit = pat.search(tag)
+            if hit:
+                pct = float(hit.group(2))
+                px = max(1, int(viewport_width * pct / 100))
+                tag = pat.sub(rf'{attr}="{px}"', tag)
+                changed = True
+        return tag if changed else m.group(0)
+
+    return _re.sub(r'<img\b[^>]*>', _rewrite, html, flags=_re.IGNORECASE)
+
 # docutils opzionale
 try:
     from docutils.core import publish_parts as _rst_publish
@@ -623,6 +647,8 @@ class PreviewPanel(QWidget):
             self._md_worker = None
         if self._mode == "markdown":
             self._md_anchor_lines = anchor_lines
+            vp_w = self._web_fallback.viewport().width() or 800
+            html = _fix_img_percent_dimensions(html, vp_w)
             self._show_html(html, force_webengine=False)
             self._build_anchor_pos_map()
 

@@ -232,12 +232,21 @@
     "lang_toolbar_select_image": "Select image",
     "lang_toolbar_image_filter": "Images (*.png *.jpg *.jpeg *.gif *.svg *.webp);;All files (*)",
     "lang_toolbar_image_alt": "image",
+    "lang_toolbar_image_options": "Insert image",
+    "lang_toolbar_image_alt_label": "Alt text:",
+    "lang_toolbar_image_width": "Width:",
+    "lang_toolbar_image_height": "Height:",
+    "lang_toolbar_image_size_hint": "e.g. 400 or 50%",
+    "lang_toolbar_image_proportional": "Keep proportions (automatic height)",
+    "lang_toolbar_image_size_note": "⚠ When dimensions are specified, HTML is inserted (<img>): not all Markdown renderers support this format.",
     "lang_toolbar_align_left": "Align left",
     "lang_toolbar_align_center": "Center",
     "lang_toolbar_align_right": "Align right",
     "lang_toolbar_begin_env": "Begin environment",
     "lang_toolbar_end_env": "End environment",
-    "lang_toolbar_env_name": "Environment name:"
+    "lang_toolbar_env_name": "Environment name:",
+    "lang_toolbar_export_pdf": "Export as PDF",
+    "lang_toolbar_export_html": "Export as HTML"
   },
   "color": {
     "red": "Red",
@@ -377,7 +386,10 @@
     "mark_occurrences": "🎨 Color {color_num}: {count} occurrences highlighted",
     "marks_cleared": "🎨 All marks cleared",
     "update_error": "Unable to check for updates at this time.\nPlease check your connection or try again later.\n\nDetails: {error}",
-    "icons_missing": "ℹ  {count} icons from set «{icon_set}» not found on disk."
+    "icons_missing": "ℹ  {count} icons from set «{icon_set}» not found on disk.",
+    "export_pdf_ok": "PDF exported successfully:\n{path}",
+    "export_pdf_empty": "The PDF file appears empty or was not created:\n{path}",
+    "export_pdf_failed": "PDF export failed."
   },
   "pref": {
     "title": "Preferences",

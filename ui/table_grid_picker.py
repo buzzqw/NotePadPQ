@@ -179,10 +179,12 @@ class _GridPopup(QFrame):
 # ─── Generatori di codice ─────────────────────────────────────────────────────
 
 def _build_markdown_table(rows: int, cols: int) -> str:
-    """Genera tabella Markdown con header riga e separatore."""
-    header = "| " + " | ".join(f"Col {c+1}" for c in range(cols)) + " |"
-    sep    = "| " + " | ".join("---" for _ in range(cols)) + " |"
-    data_row = "| " + " | ".join("   " for _ in range(cols)) + " |"
+    """Genera tabella Markdown con header riga e separatore allineati."""
+    headers   = [f"Col {c+1}" for c in range(cols)]
+    col_widths = [len(h) for h in headers]
+    header   = "| " + " | ".join(h for h in headers) + " |"
+    sep      = "| " + " | ".join("-" * w for w in col_widths) + " |"
+    data_row = "| " + " | ".join(" " * w for w in col_widths) + " |"
     lines = [header, sep] + [data_row] * (rows - 1)
     return "\n".join(lines)
 

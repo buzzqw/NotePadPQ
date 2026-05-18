@@ -232,12 +232,21 @@
     "lang_toolbar_select_image": "Seleziona immagine",
     "lang_toolbar_image_filter": "Immagini (*.png *.jpg *.jpeg *.gif *.svg *.webp);;Tutti i file (*)",
     "lang_toolbar_image_alt": "immagine",
+    "lang_toolbar_image_options": "Inserisci immagine",
+    "lang_toolbar_image_alt_label": "Testo alt:",
+    "lang_toolbar_image_width": "Larghezza:",
+    "lang_toolbar_image_height": "Altezza:",
+    "lang_toolbar_image_size_hint": "es. 400 oppure 50%",
+    "lang_toolbar_image_proportional": "Mantieni proporzioni (altezza automatica)",
+    "lang_toolbar_image_size_note": "⚠ Con dimensioni specificate viene inserito HTML (<img>): non tutti i renderer Markdown supportano questo formato.",
     "lang_toolbar_align_left": "Allinea a sinistra",
     "lang_toolbar_align_center": "Centra",
     "lang_toolbar_align_right": "Allinea a destra",
     "lang_toolbar_begin_env": "Inizio ambiente",
     "lang_toolbar_end_env": "Fine ambiente",
-    "lang_toolbar_env_name": "Nome ambiente:"
+    "lang_toolbar_env_name": "Nome ambiente:",
+    "lang_toolbar_export_pdf": "Esporta come PDF",
+    "lang_toolbar_export_html": "Esporta come HTML"
   },
   "color": {
     "red": "Rosso",
@@ -377,7 +386,10 @@
     "manual_not_found": "Manuale non trovato.",
     "help_search_placeholder": "Cerca un argomento nel manuale…",
     "help_search_hint": "↵ Enter o doppio click per aprire la sezione nel manuale",
-    "icons_missing": "ℹ  {count} icone del set «{icon_set}» non trovate sul disco."
+    "icons_missing": "ℹ  {count} icone del set «{icon_set}» non trovate sul disco.",
+    "export_pdf_ok": "PDF esportato con successo:\n{path}",
+    "export_pdf_empty": "Il file PDF sembra vuoto o non è stato creato:\n{path}",
+    "export_pdf_failed": "Esportazione PDF fallita."
   },
   "pref": {
     "title": "Preferenze",

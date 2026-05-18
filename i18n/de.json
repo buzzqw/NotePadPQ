@@ -230,12 +230,21 @@
     "lang_toolbar_select_image": "Bild auswählen",
     "lang_toolbar_image_filter": "Bilder (*.png *.jpg *.jpeg *.gif *.svg *.webp);;Alle Dateien (*)",
     "lang_toolbar_image_alt": "Bild",
+    "lang_toolbar_image_options": "Bild einfügen",
+    "lang_toolbar_image_alt_label": "Alt-Text:",
+    "lang_toolbar_image_width": "Breite:",
+    "lang_toolbar_image_height": "Höhe:",
+    "lang_toolbar_image_size_hint": "z.B. 400 oder 50%",
+    "lang_toolbar_image_proportional": "Proportionen beibehalten (automatische Höhe)",
+    "lang_toolbar_image_size_note": "⚠ Bei angegebenen Abmessungen wird HTML eingefügt (<img>): nicht alle Markdown-Renderer unterstützen dieses Format.",
     "lang_toolbar_align_left": "Linksbündig",
     "lang_toolbar_align_center": "Zentrieren",
     "lang_toolbar_align_right": "Rechtsbündig",
     "lang_toolbar_begin_env": "Umgebung beginnen",
     "lang_toolbar_end_env": "Umgebung beenden",
-    "lang_toolbar_env_name": "Umgebungsname:"
+    "lang_toolbar_env_name": "Umgebungsname:",
+    "lang_toolbar_export_pdf": "Als PDF exportieren",
+    "lang_toolbar_export_html": "Als HTML exportieren"
   },
   "color": {
     "red": "Rot",
@@ -375,7 +384,10 @@
     "manual_not_found": "Handbuch nicht gefunden.",
     "help_search_placeholder": "Thema im Handbuch suchen…",
     "help_search_hint": "↵ Enter oder Doppelklick, um den Abschnitt im Handbuch zu öffnen",
-    "icons_missing": "ℹ  {count} Icons des Sets «{icon_set}» nicht gefunden."
+    "icons_missing": "ℹ  {count} Icons des Sets «{icon_set}» nicht gefunden.",
+    "export_pdf_ok": "PDF erfolgreich exportiert:\n{path}",
+    "export_pdf_empty": "Die PDF-Datei scheint leer zu sein oder wurde nicht erstellt:\n{path}",
+    "export_pdf_failed": "PDF-Export fehlgeschlagen."
   },
   "pref": {
     "title": "Einstellungen",

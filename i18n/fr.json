@@ -230,12 +230,21 @@
     "lang_toolbar_select_image": "Sélectionner une image",
     "lang_toolbar_image_filter": "Images (*.png *.jpg *.jpeg *.gif *.svg *.webp);;Tous les fichiers (*)",
     "lang_toolbar_image_alt": "image",
+    "lang_toolbar_image_options": "Insérer une image",
+    "lang_toolbar_image_alt_label": "Texte alt :",
+    "lang_toolbar_image_width": "Largeur :",
+    "lang_toolbar_image_height": "Hauteur :",
+    "lang_toolbar_image_size_hint": "ex. 400 ou 50%",
+    "lang_toolbar_image_proportional": "Conserver les proportions (hauteur automatique)",
+    "lang_toolbar_image_size_note": "⚠ Avec des dimensions spécifiées, du HTML est inséré (<img>) : tous les rendus Markdown ne supportent pas ce format.",
     "lang_toolbar_align_left": "Aligner à gauche",
     "lang_toolbar_align_center": "Centrer",
     "lang_toolbar_align_right": "Aligner à droite",
     "lang_toolbar_begin_env": "Début d'environnement",
     "lang_toolbar_end_env": "Fin d'environnement",
-    "lang_toolbar_env_name": "Nom de l'environnement :"
+    "lang_toolbar_env_name": "Nom de l'environnement :",
+    "lang_toolbar_export_pdf": "Exporter en PDF",
+    "lang_toolbar_export_html": "Exporter en HTML"
   },
   "color": {
     "red": "Rouge",
@@ -375,7 +384,10 @@
     "marks_cleared": "🎨 Toutes les marques effacées",
     "update_ok": "Vous utilisez la dernière version disponible ({current}).\nAucune mise à jour nécessaire.",
     "update_error": "Impossible de vérifier les mises à jour pour le moment.\nVeuillez vérifier votre connexion ou réessayer plus tard.\n\nDétails : {error}",
-    "icons_missing": "ℹ  {count} icônes du set «{icon_set}» introuvables."
+    "icons_missing": "ℹ  {count} icônes du set «{icon_set}» introuvables.",
+    "export_pdf_ok": "PDF exporté avec succès :\n{path}",
+    "export_pdf_empty": "Le fichier PDF semble vide ou n'a pas été créé :\n{path}",
+    "export_pdf_failed": "Échec de l'exportation PDF."
   },
   "pref": {
     "title": "Préférences",

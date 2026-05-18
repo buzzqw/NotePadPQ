@@ -2172,6 +2172,9 @@ class MainWindow(QMainWindow):
         from ui.print_options_dialog import PrintOptionsDialog, print_with_header_footer
         editor = self._current_editor()
         if not editor:
+            custom = self._tab_manager.current_custom_widget()
+            if custom is not None and hasattr(custom, "print_document"):
+                custom.print_document()
             return
         opt_dlg = PrintOptionsDialog(self, file_path=editor.file_path)
         if opt_dlg.exec() != PrintOptionsDialog.DialogCode.Accepted:
@@ -2203,19 +2206,46 @@ class MainWindow(QMainWindow):
     def action_export_pdf(self) -> None:
         editor = self._current_editor()
         if not editor:
+            # Prova con tab custom (spreadsheet, richtext, ecc.)
+            custom = self._tab_manager.current_custom_widget()
+            if custom is not None and hasattr(custom, "export_pdf"):
+                custom.export_pdf()
             return
-        default = str(editor.file_path.with_suffix(".pdf")
-                      if editor.file_path else Path.home() / "documento.pdf")
+        default = str(editor.file_path.with_suffix("")
+                      if editor.file_path else Path.home() / "documento")
         path, _ = QFileDialog.getSaveFileName(
             self, tr("action.export_pdf"), default,
             "PDF (*.pdf)"
         )
         if not path:
             return
-        self._printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-        self._printer.setOutputFileName(path)
-        editor.print(self._printer)
-        self._printer.setOutputFormat(QPrinter.OutputFormat.NativeFormat)
+        from pathlib import Path as _Path
+        _p = _Path(path)
+        if _p.suffix.lower() != ".pdf":
+            path = str(_p.with_suffix(".pdf"))
+        # Usa QTextDocument per generare un PDF con il testo formattato
+        # (non editor.print() che farebbe uno screenshot della vista)
+        try:
+            from PyQt6.QtPrintSupport import QPrinter as _QPrinter
+            from PyQt6.QtGui import QTextDocument as _QTextDocument
+            import os as _os
+            printer = _QPrinter(_QPrinter.PrinterMode.HighResolution)
+            printer.setOutputFormat(_QPrinter.OutputFormat.PdfFormat)
+            printer.setOutputFileName(path)
+            doc = _QTextDocument()
+            doc.setPlainText(editor.text())
+            doc.print(printer)
+            if _os.path.exists(path) and _os.path.getsize(path) > 0:
+                from PyQt6.QtWidgets import QMessageBox as _QMB
+                _QMB.information(self, tr("action.export_pdf", default="Esporta PDF"),
+                                 f"PDF esportato:\n{path}")
+            else:
+                from PyQt6.QtWidgets import QMessageBox as _QMB
+                _QMB.warning(self, tr("action.export_pdf", default="Esporta PDF"),
+                             f"Il PDF sembra vuoto o non creato:\n{path}")
+        except Exception as _exc:
+            from PyQt6.QtWidgets import QMessageBox as _QMB
+            _QMB.critical(self, tr("action.export_pdf", default="Esporta PDF"), str(_exc))
 
     def action_close(self) -> None:
         self._tab_manager.close_current_tab()

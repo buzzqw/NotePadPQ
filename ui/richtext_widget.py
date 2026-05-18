@@ -48,6 +48,35 @@ except ImportError:
 
 from i18n.i18n import tr
 
+
+def _load_rt_icon(svg_file: str, widget: QWidget, size: int = 18) -> "QIcon":
+    """Carica un'icona SVG dal set attivo, sostituendo currentColor con il colore
+    testo corrente della palette. Ritorna QIcon vuota se non trovata."""
+    from PyQt6.QtGui import QIcon, QPalette, QPixmap
+    from config.settings import Settings
+
+    icon_set  = Settings.instance().get("ui/icon_set", "lucide")
+    icons_dir = Path(__file__).parent.parent / "icons" / icon_set
+    icon_path = icons_dir / svg_file
+
+    # Fallback a lucide se non esiste nel set attivo
+    if not icon_path.exists():
+        icon_path = Path(__file__).parent.parent / "icons" / "lucide" / svg_file
+
+    if not icon_path.exists():
+        return QIcon()
+
+    color = widget.palette().color(QPalette.ColorRole.WindowText).name()
+    try:
+        svg_data = icon_path.read_bytes().replace(b"currentColor", color.encode())
+        pm = QPixmap()
+        if pm.loadFromData(svg_data, "SVG") and not pm.isNull():
+            return QIcon(pm)
+    except Exception:
+        pass
+    return QIcon()
+
+
 # ── Asset Jodit ───────────────────────────────────────────────────────────────
 
 _ASSETS_DIR = Path(__file__).parent / "assets" / "jodit"
@@ -356,6 +385,11 @@ class _EditorBridge(QObject):
         self._widget._set_modified(True)
         self.content_changed.emit()
 
+    @pyqtSlot()
+    def printRequested(self):
+        """Chiamato da JS quando Jodit invoca window.print() o il pulsante Print."""
+        self._widget._print_document()
+
     @pyqtSlot(str)
     def log(self, msg: str):
         pass  # debug hook
@@ -442,7 +476,7 @@ var JODIT_CONFIG = {{
     "undo","redo","|",
     "hr","copyformat","|",
     "find","|",
-    "source","fullsize","print"
+    "source","fullsize"
   ],
   extraButtons: [],
   controls: {{
@@ -486,6 +520,9 @@ window.execCommand = function(cmd, val) {{
 new QWebChannel(qt.webChannelTransport, function(channel) {{
   bridge = channel.objects.bridge;
 
+  // Fallback: se qualche percorso chiama window.print() direttamente.
+  window.print = function() {{ if (bridge) bridge.printRequested(); }};
+
   jodit = Jodit.make("#editor", JODIT_CONFIG);
 
   jodit.events.on("afterInit", function() {{
@@ -514,8 +551,8 @@ new QWebChannel(qt.webChannelTransport, function(channel) {{
 # ── Widget principale ─────────────────────────────────────────────────────────
 
 _SAVE_FILTER = (
-    "Documento Word (*.docx);;"
     "HTML (*.html *.htm);;"
+    "Documento Word (*.docx);;"
     "PDF (*.pdf);;"
     "OpenDocument Text (*.odt);;"
     "RTF (*.rtf);;"
@@ -601,31 +638,52 @@ class RichTextWidget(QWidget):
             )
 
     def _make_toolbar(self) -> QWidget:
+        from PyQt6.QtCore import QSize
+        from PyQt6.QtGui import QIcon
         bar = QToolBar(self)
         bar.setMovable(False)
         bar.setFloatable(False)
-        bar.setIconSize(__import__("PyQt6.QtCore", fromlist=["QSize"]).QSize(18, 18))
+        _icon_size = QSize(18, 18)
+        bar.setIconSize(_icon_size)
 
-        def btn(text: str, tip: str, slot) -> QToolButton:
+        # Determina il file icona per "Salva come" in base al set attivo
+        from config.settings import Settings
+        _icon_set = Settings.instance().get("ui/icon_set", "lucide")
+        _save_as_svg = "save_as.svg" if _icon_set == "material" else "save.svg"
+
+        def btn(svg_file: str, fallback_text: str, tip: str, slot) -> QToolButton:
             b = QToolButton(bar)
-            b.setText(text)
             b.setToolTip(tip)
+            b.setIconSize(_icon_size)
+            icon = _load_rt_icon(svg_file, self)
+            if not icon.isNull():
+                b.setIcon(icon)
+                b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            else:
+                b.setText(fallback_text)
+                b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
             b.clicked.connect(slot)
             bar.addWidget(b)
             return b
 
-        btn("💾 " + tr("action.save"),
+        btn("save.svg", "💾",
             tr("action.save") + "  Ctrl+S",
             self.save)
-        btn("📁 " + tr("richtext.save_as"),
+        btn(_save_as_svg, "📁",
             tr("richtext.save_as") + "  Ctrl+Shift+S",
             self.save_as)
         bar.addSeparator()
-        btn("📄 " + tr("richtext.export_pdf"),
-            tr("richtext.export_pdf"),
-            self._export_pdf)
+        btn("printer.svg", "🖨",
+            tr("richtext.print"),
+            lambda _: self._print_document())
+        _b_pdf = QToolButton(bar)
+        _b_pdf.setText("PDF")
+        _b_pdf.setToolTip(tr("richtext.export_pdf"))
+        _b_pdf.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        _b_pdf.clicked.connect(lambda _: self._export_pdf())
+        bar.addWidget(_b_pdf)
         bar.addSeparator()
-        btn("✎ " + tr("richtext.open_as_text"),
+        btn("file-text.svg", "✎",
             tr("richtext.open_as_text"),
             self._open_as_text)
 
@@ -785,14 +843,26 @@ class RichTextWidget(QWidget):
         return True
 
     def save_as(self) -> bool:
-        default = str(self.file_path or Path.home() / "documento.html")
-        path, _ = QFileDialog.getSaveFileName(
+        import re as _re
+        # Mostra il nome senza estensione nel campo del dialog
+        if self.file_path:
+            default = str(self.file_path.with_suffix(""))
+        else:
+            default = str(Path.home() / "documento")
+        path, selected_filter = QFileDialog.getSaveFileName(
             self, tr("richtext.save_as"),
             default, _SAVE_FILTER
         )
         if not path:
             return False
         p = Path(path)
+        # Se il path non ha estensione (o non corrisponde al filtro scelto),
+        # applica l'estensione del filtro selezionato
+        m = _re.search(r'\*(\.\w+)', selected_filter)
+        if m:
+            ext = m.group(1).lower()
+            if p.suffix.lower() != ext:
+                p = p.with_suffix(ext)
         if p.suffix.lower() == ".pdf":
             return self._export_pdf(p)
         html = self.get_html()
@@ -805,12 +875,41 @@ class RichTextWidget(QWidget):
         self._update_status()
         return True
 
+    def print_document(self) -> None:
+        """Metodo pubblico: apre la dialog di stampa di sistema (File > Stampa)."""
+        self._print_document()
+
+    def _print_document(self) -> None:
+        """Apre QPrintDialog e stampa il contenuto del documento."""
+        from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+        from PyQt6.QtGui import QTextDocument
+        if not WEBENGINE_OK or not self._js_ready:
+            return
+        # Mostra la dialog prima (sincrona), poi legge l'HTML via callback asincrono
+        # per evitare event loop annidati che causano deadlock con QWebChannel.
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        dlg = QPrintDialog(printer, self.window())
+        if dlg.exec() != QPrintDialog.DialogCode.Accepted:
+            return
+        _printer = printer
+        def _do_print(html: str) -> None:
+            doc = QTextDocument()
+            doc.setHtml(RichTextIO._full_html(html or ""))
+            doc.print(_printer)
+        self._view.page().runJavaScript("window.getContent()", _do_print)
+
+    def export_pdf(self) -> None:
+        """Metodo pubblico per esportare come PDF (usato da menu File > Esporta PDF)."""
+        self._export_pdf()
+
     def _export_pdf(self, path: Optional[Path] = None) -> bool:
+        if not isinstance(path, Path):
+            path = None
         if path is None:
-            default = str(
-                (self.file_path.with_suffix(".pdf") if self.file_path
-                 else Path.home() / "documento.pdf")
-            )
+            if self.file_path:
+                default = str(self.file_path.with_suffix(""))
+            else:
+                default = str(Path.home() / "documento")
             dest, _ = QFileDialog.getSaveFileName(
                 self, tr("richtext.export_pdf"),
                 default, "PDF (*.pdf)"
@@ -818,23 +917,42 @@ class RichTextWidget(QWidget):
             if not dest:
                 return False
             path = Path(dest)
+            if path.suffix.lower() != ".pdf":
+                path = path.with_suffix(".pdf")
         if not WEBENGINE_OK:
             return False
-        done: list[bool] = [False]
+
+        # Estrae l'HTML dal documento Jodit e lo carica in una QWebEngineView
+        # pulita (senza toolbar Jodit) per generare un PDF fedele al contenuto.
+        html = self.get_html()
+        clean_html = RichTextIO._full_html(html)
+
+        _path = path
+        _view = QWebEngineView()
         loop = QEventLoop()
+        _ok = [False]
 
-        def cb(ok: bool):
-            done[0] = ok
-            loop.quit()
+        def _on_load(success: bool) -> None:
+            if not success:
+                loop.quit()
+                return
 
-        self._view.page().printToPdf(str(path), cb if hasattr(self._view.page(), "printToPdf") else None)
-        # In Qt6 printToPdf può non avere callback in tutte le versioni
-        try:
-            self._view.page().printToPdf(str(path))
-            return True
-        except TypeError:
-            pass
-        return True
+            def _on_pdf(pdf_bytes) -> None:
+                if pdf_bytes:
+                    try:
+                        _path.write_bytes(bytes(pdf_bytes))
+                        _ok[0] = True
+                    except Exception:
+                        pass
+                loop.quit()
+
+            _view.page().printToPdf(_on_pdf)
+
+        _view.loadFinished.connect(_on_load)
+        _view.setHtml(clean_html, QUrl("about:blank"))
+        loop.exec()
+        _view.deleteLater()
+        return _ok[0]
 
     # ── Helpers interni ───────────────────────────────────────────────────────
 
@@ -871,9 +989,16 @@ class RichTextWidget(QWidget):
         self._view.page().runJavaScript("window.getContent()", cb)
 
     def _open_as_text(self) -> None:
-        html = self.get_html()
+        """Apre il contenuto HTML in un tab testo senza chiudere il richeditor."""
         name = (self.file_path.stem + ".html") if self.file_path else "documento.html"
-        self.convert_to_text.emit(html, name)
+        if not WEBENGINE_OK or not self._js_ready:
+            self.convert_to_text.emit("", name)
+            return
+        # Lettura asincrona: emette il segnale dal callback JS senza loop.exec()
+        _name = name
+        def _cb(html: str):
+            self.convert_to_text.emit(html or "", _name)
+        self._view.page().runJavaScript("window.getContent()", _cb)
 
     # ── Cleanup ───────────────────────────────────────────────────────────────
 

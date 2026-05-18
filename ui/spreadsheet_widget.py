@@ -1324,6 +1324,12 @@ class SpreadsheetWidget(QWidget):
         btn_save_as.clicked.connect(self._save_as)
         toolbar.addWidget(btn_save_as)
 
+        btn_pdf = QPushButton("→ PDF")
+        btn_pdf.setFixedHeight(24)
+        btn_pdf.setToolTip("Esporta il foglio corrente come PDF")
+        btn_pdf.clicked.connect(self.export_pdf)
+        toolbar.addWidget(btn_pdf)
+
         btn_md = QPushButton("→ Markdown")
         btn_md.setFixedHeight(24)
         btn_md.setToolTip(
@@ -1989,6 +1995,59 @@ class SpreadsheetWidget(QWidget):
             self._read_only = False
             self._file_label.setText(dest_path.name)
             self._model.mark_saved()
+
+    def export_pdf(self) -> None:
+        """Esporta il foglio corrente come PDF."""
+        from pathlib import Path as _Path
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        default = str(self.file_path.with_suffix("")) if self.file_path else str(_Path.home() / "foglio")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Esporta come PDF", default, "PDF (*.pdf)"
+        )
+        if not path:
+            return
+        p = _Path(path)
+        if p.suffix.lower() != ".pdf":
+            p = p.with_suffix(".pdf")
+        headers = self._model.get_headers()
+        data = self._model.get_data()
+        # Costruisce tabella HTML
+        th = "".join(f"<th>{h}</th>" for h in headers)
+        rows_html = ""
+        for i, row in enumerate(data):
+            bg = "#f9f9f9" if i % 2 == 0 else "#ffffff"
+            cells = "".join(f"<td>{row[j] if j < len(row) else ''}</td>" for j in range(len(headers)))
+            rows_html += f'<tr style="background:{bg}">{cells}</tr>'
+        title = self.file_path.stem if self.file_path else "Foglio"
+        html_full = (
+            "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+            "<style>"
+            "body{font-family:sans-serif;font-size:9pt;margin:1.5cm;}"
+            "h2{margin-bottom:0.5em;}"
+            "table{border-collapse:collapse;width:100%;}"
+            "th{background:#2c3e50;color:#fff;padding:6px 8px;text-align:left;border:1px solid #bbb;}"
+            "td{padding:4px 8px;border:1px solid #ddd;}"
+            "</style></head><body>"
+            f"<h2>{title}</h2>"
+            f"<table><thead><tr>{th}</tr></thead><tbody>{rows_html}</tbody></table>"
+            "</body></html>"
+        )
+        try:
+            from PyQt6.QtPrintSupport import QPrinter
+            from PyQt6.QtGui import QTextDocument
+            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+            printer.setOutputFileName(str(p))
+            doc = QTextDocument()
+            doc.setHtml(html_full)
+            doc.print(printer)
+            import os
+            if os.path.exists(str(p)) and os.path.getsize(str(p)) > 0:
+                QMessageBox.information(self, "Esporta come PDF", f"PDF esportato:\n{p}")
+            else:
+                QMessageBox.warning(self, "Esporta come PDF", f"Il PDF sembra vuoto o non creato:\n{p}")
+        except Exception as exc:
+            QMessageBox.critical(self, "Esporta come PDF", str(exc))
 
     # ── Conversione testo ─────────────────────────────────────────────────────
 

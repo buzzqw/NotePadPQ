@@ -736,10 +736,27 @@ class _LanguageToolbarWidget(QWidget):
 
     def _export_pdf(self) -> None:
         """Esporta il documento Markdown corrente in PDF tramite QPrinter."""
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        try:
+            self._export_pdf_impl()
+        except Exception as _top_exc:
+            import traceback
+            QMessageBox.critical(
+                self._mw,
+                "Esporta come PDF – errore interno",
+                traceback.format_exc()
+            )
+
+    def _export_pdf_impl(self) -> None:
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
         editor = self._mw._tab_manager.current_editor()
         if not editor:
+            QMessageBox.warning(
+                self._mw,
+                "Esporta come PDF",
+                "Nessun documento aperto.\n\n(Nota: se sei su un tab spreadsheet o richtext, usa il pulsante 'Esporta PDF' di quel tab)"
+            )
             return
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
         try:
             import markdown as md_lib
         except ImportError:
@@ -750,9 +767,11 @@ class _LanguageToolbarWidget(QWidget):
                    default="Libreria 'markdown' non installata.\nInstalla con: pip install markdown")
             )
             return
-        default_name = ""
+        from pathlib import Path as _Path
         if editor.file_path:
-            default_name = str(editor.file_path.with_suffix(".pdf"))
+            default_name = str(editor.file_path.with_suffix(""))
+        else:
+            default_name = str(_Path.home() / "documento")
         path, _ = QFileDialog.getSaveFileName(
             self._mw,
             tr("action.lang_toolbar_export_pdf", default="Esporta come PDF"),
@@ -761,6 +780,10 @@ class _LanguageToolbarWidget(QWidget):
         )
         if not path:
             return
+        # Aggiunge .pdf se l'utente non ha specificato un'estensione
+        _p = _Path(path)
+        if _p.suffix.lower() != ".pdf":
+            path = str(_p.with_suffix(".pdf"))
         content = editor.text()
         html_body = md_lib.markdown(
             content,
@@ -779,41 +802,70 @@ class _LanguageToolbarWidget(QWidget):
             f"{html_body}"
             "</body></html>"
         )
+        # Prima prova: QTextDocument (disponibile sempre in PyQt6)
+        _exported = False
+        _err_msg = ""
         try:
-            from PyQt6.QtWebEngineWidgets import QWebEngineView
-            from PyQt6.QtWebEngineCore import QWebEnginePage
             from PyQt6.QtPrintSupport import QPrinter
-            from PyQt6.QtCore import QUrl
+            from PyQt6.QtGui import QTextDocument
             printer = QPrinter(QPrinter.PrinterMode.HighResolution)
             printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
             printer.setOutputFileName(path)
-            view = QWebEngineView()
-            view._printer = printer
-            view._path = path
-            def _on_load(ok):
-                if ok:
-                    view.page().print(view._printer, lambda result: view.deleteLater())
-            view.loadFinished.connect(_on_load)
-            view.setHtml(html_full, QUrl("about:blank"))
-            view.show()
-            view.hide()
-        except ImportError:
-            # Fallback: QPainter su QPrinter (testo puro, senza rendering HTML)
+            doc = QTextDocument()
+            doc.setHtml(html_full)
+            doc.print(printer)
+            _exported = True
+        except Exception as _e:
+            _err_msg = str(_e)
+
+        if not _exported:
+            # Fallback: QWebEngineView con printToPdf (non sincrono ma più fedele)
             try:
-                from PyQt6.QtPrintSupport import QPrinter
-                from PyQt6.QtGui import QTextDocument
-                printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-                printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-                printer.setOutputFileName(path)
-                doc = QTextDocument()
-                doc.setHtml(html_full)
-                doc.print(printer)
+                from PyQt6.QtWebEngineWidgets import QWebEngineView
+                from PyQt6.QtCore import QUrl, QEventLoop
+                view = QWebEngineView()
+                view.setHtml(html_full, QUrl("about:blank"))
+
+                def _on_load(ok):
+                    if ok:
+                        loop2 = QEventLoop()
+                        def _pdf_done(ok2):
+                            loop2.quit()
+                        try:
+                            view.page().printToPdf(path, _pdf_done)
+                            loop2.exec()
+                        except TypeError:
+                            view.page().printToPdf(path)
+                    view.deleteLater()
+
+                loop = QEventLoop()
+                view.loadFinished.connect(_on_load)
+                view.loadFinished.connect(lambda _: loop.quit())
+                loop.exec()
+                _exported = True
             except Exception as exc:
-                QMessageBox.critical(
+                _err_msg = str(exc)
+
+        if _exported:
+            import os as _os
+            if _os.path.exists(path) and _os.path.getsize(path) > 0:
+                QMessageBox.information(
                     self._mw,
                     tr("action.lang_toolbar_export_pdf", default="Esporta come PDF"),
-                    str(exc)
+                    tr("msg.export_pdf_ok", default=f"PDF esportato con successo:\n{path}")
                 )
+            else:
+                QMessageBox.warning(
+                    self._mw,
+                    tr("action.lang_toolbar_export_pdf", default="Esporta come PDF"),
+                    tr("msg.export_pdf_empty", default=f"Il file PDF sembra vuoto o non è stato creato:\n{path}")
+                )
+        else:
+            QMessageBox.critical(
+                self._mw,
+                tr("action.lang_toolbar_export_pdf", default="Esporta come PDF"),
+                _err_msg or tr("msg.export_pdf_failed", default="Esportazione PDF fallita.")
+            )
 
     # ── Handler LaTeX ─────────────────────────────────────────────────────────
 

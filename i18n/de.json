@@ -493,7 +493,8 @@
     "load_error": "Datei kann nicht geöffnet werden:\n{err}",
     "save_error": "Speichern fehlgeschlagen:\n{err}",
     "docx_lib_missing": "Installiere htmldocx oder python-docx für DOCX-Export:\npip install htmldocx",
-    "word_count": "{count} Wörter"
+    "word_count": "{count} Wörter",
+    "print": "Drucken"
   },
   "plugin": {
     "spreadsheet": {

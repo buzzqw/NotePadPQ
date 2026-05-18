@@ -496,7 +496,8 @@
     "load_error": "Cannot open file:\n{err}",
     "save_error": "Save failed:\n{err}",
     "docx_lib_missing": "Install htmldocx or python-docx to save as DOCX:\npip install htmldocx",
-    "word_count": "{count} words"
+    "word_count": "{count} words",
+    "print": "Print"
   },
   "plugin": {
     "spreadsheet": {

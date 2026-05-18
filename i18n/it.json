@@ -496,7 +496,8 @@
     "load_error": "Impossibile aprire il file:\n{err}",
     "save_error": "Salvataggio fallito:\n{err}",
     "docx_lib_missing": "Installa htmldocx o python-docx per salvare in DOCX:\npip install htmldocx",
-    "word_count": "{count} parole"
+    "word_count": "{count} parole",
+    "print": "Stampa"
   },
   "plugin": {
     "spreadsheet": {

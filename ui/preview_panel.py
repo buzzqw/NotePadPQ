@@ -440,7 +440,9 @@ class PreviewPanel(QWidget):
         self._set_mode(mode)
 
         if mode == "pdf":
-            new_path = str(path) if path else None
+            # Se l'editor ha un .tex, punta al PDF corrispondente
+            pdf_path = _tex_pdf_path(editor) or path
+            new_path = str(pdf_path) if pdf_path else None
             if new_path != self._pdf_path:
                 if self._pdf_doc is not None:
                     try:
@@ -450,7 +452,7 @@ class PreviewPanel(QWidget):
                     self._pdf_doc = None
                 self._pdf_path     = None
                 self._pdf_page_num = 0
-            self._update_synctex_label(path)
+            self._update_synctex_label(pdf_path)
 
         # Connetti segnali
         # USA textChanged (1 segnale/keystroke) invece di SCN_MODIFIED
@@ -879,6 +881,8 @@ class PreviewPanel(QWidget):
             self._stack.setCurrentIndex(2)
             self._text_fallback.setPlainText("Nessun file PDF.")
             return
+        # Se l'editor ha un .tex, usa il PDF corrispondente
+        path = _tex_pdf_path(self._editor) or path
         path_str = str(path)
         if self._pdf_path != path_str:
             try:
@@ -1209,23 +1213,39 @@ class PreviewPanel(QWidget):
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
+def _tex_pdf_path(editor):
+    """Ritorna il Path del PDF corrispondente al .tex dell'editor, o None."""
+    from pathlib import Path as _Path
+    path = getattr(editor, "file_path", None)
+    if path is None:
+        return None
+    p = _Path(str(path))
+    if p.suffix.lower() != ".tex":
+        return None
+    pdf = p.with_suffix(".pdf")
+    return pdf if pdf.exists() else None
+
+
 def _detect_mode(editor) -> str:
     """Determina la modalità preview dall'estensione o dal lexer."""
     if editor is None:
         return "text"
-        
+
     # 1. Prova dall'estensione del file
     path = getattr(editor, "file_path", None)
     if path:
         ext = str(path).rsplit(".", 1)[-1].lower() if "." in str(path) else ""
+        # Per .tex: se esiste il PDF corrispondente, mostra quello direttamente
+        if ext == "tex":
+            return "pdf" if _tex_pdf_path(editor) else "latex"
         ext_map = {
             "md": "markdown", "markdown": "markdown",
             "html": "html", "htm": "html",
-            "tex": "latex", "rst": "rst", "pdf": "pdf"
+            "rst": "rst", "pdf": "pdf"
         }
         if ext in ext_map:
             return ext_map[ext]
-            
+
     # 2. Prova dal lexer (utile per i file Nuovi/Non salvati)
     try:
         lexer = editor.lexer()
@@ -1236,7 +1256,7 @@ def _detect_mode(editor) -> str:
             if "tex" in lang or "latex" in lang: return "latex"
     except Exception:
         pass
-        
+
     return "text"
 
 

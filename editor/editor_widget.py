@@ -270,6 +270,8 @@ class EditorWidget(QsciScintilla):
         self._auto_indent_paste: bool = False
         self._typewriter_mode: bool = False
         self._in_paste: bool = False         # True durante incolla: sopprime SCN_CHARADDED
+        self._tabstops: list = []            # [(n, abs_pos, default_len)] navigazione snippet
+        self._tabstop_index: int = 0
         self._smart_hl_word: str = ""           # cache: evita regex se parola invariata
         self._smart_hl_text_len: int = 0         # lunghezza testo all'ultimo highlight
         self._smart_hl_timer: QTimer = QTimer(self)
@@ -965,11 +967,46 @@ class EditorWidget(QsciScintilla):
             lexer.setPaper(QColor(bg))
             lexer.setColor(QColor(fg))
 
+    # ── Navigazione tab-stop snippet ─────────────────────────────────────────
+
+    def _jump_to_next_tabstop(self) -> None:
+        """Avanza al prossimo tab-stop dello snippet attivo."""
+        if self._tabstop_index >= len(self._tabstops):
+            self._tabstops = []
+            self._tabstop_index = 0
+            return
+        _n, abs_pos, default_len = self._tabstops[self._tabstop_index]
+        self._tabstop_index += 1
+        try:
+            if default_len > 0:
+                sl, sc = self.lineIndexFromPosition(abs_pos)
+                el, ec = self.lineIndexFromPosition(abs_pos + default_len)
+                self.setSelection(sl, sc, el, ec)
+            else:
+                tl, tc = self.lineIndexFromPosition(abs_pos)
+                self.setCursorPosition(tl, tc)
+        except Exception:
+            self._tabstops = []
+            self._tabstop_index = 0
+
     # ── Override eventi ───────────────────────────────────────────────────────
 
     def keyPressEvent(self, event) -> None:
         """Intercetta Insert per toggle overwrite e registra macro."""
         self._hide_hover_popup()
+
+        # Navigazione tab-stop snippet: Tab avanza, Escape annulla
+        if self._tabstops:
+            if (event.key() == Qt.Key.Key_Tab
+                    and not event.modifiers()
+                    and not self.isListActive()):
+                self._jump_to_next_tabstop()
+                return
+            if event.key() == Qt.Key.Key_Escape:
+                self._tabstops = []
+                self._tabstop_index = 0
+                # non blocca Escape: lo gestisce anche super() (chiude popup)
+
         if event.key() == Qt.Key.Key_Insert and not event.modifiers():
             self.toggle_overwrite()
             return

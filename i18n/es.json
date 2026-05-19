@@ -571,6 +571,30 @@
     "connect_error": "Error de conexión:\n{error}",
     "confirm_delete": "¿Eliminar la conexión \"{name}\"?"
   },
+  "latex_img_dlg": {
+    "title":              "Insertar imagen",
+    "file":               "Archivo de imagen:",
+    "file_placeholder":   "Ruta de la imagen…",
+    "browse":             "Examinar…",
+    "browse_title":       "Seleccionar imagen",
+    "image_filter":       "Imágenes (*.png *.jpg *.jpeg *.pdf *.eps *.svg *.gif);;Todos los archivos (*)",
+    "image_options":      "Opciones de imagen",
+    "width":              "Ancho:",
+    "height":             "Alto:",
+    "center":             "Centrar horizontalmente",
+    "use_figure":         "Insertar en un entorno figure",
+    "caption_position":   "Posición del título:",
+    "caption_below":      "Abajo",
+    "caption_above":      "Arriba",
+    "caption_short":      "Título:",
+    "caption_short_hint": "Título corto (para la lista de figuras)",
+    "caption_long":       "Texto extendido:",
+    "caption_long_hint":  "Texto de título extendido (opcional)",
+    "label":              "Etiqueta (\\label):",
+    "position":           "Posición:",
+    "two_columns":        "Extender a dos columnas (figure*)",
+    "btn_defaults":       "Predeterminados"
+  },
   "tooltip": {
     "build_profile_label": "Perfil seleccionado automáticamente según el tipo de archivo.\nPuede anularlo con el cuadro combinado de la derecha.",
     "build_profile_combo": "Perfil automático (según la extensión del archivo) o selección manual",
@@ -663,6 +687,7 @@
     "lang_toolbar_ul": "Lista con viñetas",
     "lang_toolbar_ol": "Lista numerada",
     "lang_toolbar_task": "Lista de tareas",
-    "lang_toolbar_hr": "Regla horizontal"
+    "lang_toolbar_hr": "Regla horizontal",
+    "latex_insert_image": "Insertar imagen"
   }
 }

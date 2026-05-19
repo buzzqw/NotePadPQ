@@ -571,6 +571,30 @@
     "connect_error": "Verbindungsfehler:\n{error}",
     "confirm_delete": "Verbindung \"{name}\" löschen?"
   },
+  "latex_img_dlg": {
+    "title":              "Bild einfügen",
+    "file":               "Bilddatei:",
+    "file_placeholder":   "Bildpfad…",
+    "browse":             "Durchsuchen…",
+    "browse_title":       "Bild auswählen",
+    "image_filter":       "Bilder (*.png *.jpg *.jpeg *.pdf *.eps *.svg *.gif);;Alle Dateien (*)",
+    "image_options":      "Bildoptionen",
+    "width":              "Breite:",
+    "height":             "Höhe:",
+    "center":             "Horizontal zentrieren",
+    "use_figure":         "In einer figure-Umgebung einfügen",
+    "caption_position":   "Beschriftungsposition:",
+    "caption_below":      "Unten",
+    "caption_above":      "Oben",
+    "caption_short":      "Beschriftung:",
+    "caption_short_hint": "Kurzbeschriftung (für Abbildungsverzeichnis)",
+    "caption_long":       "Erweiterter Text:",
+    "caption_long_hint":  "Erweiterter Beschriftungstext (optional)",
+    "label":              "Bezeichnung (\\label):",
+    "position":           "Position:",
+    "two_columns":        "Zwei Spalten umfassen (figure*)",
+    "btn_defaults":       "Standard"
+  },
   "tooltip": {
     "build_profile_label": "Profil automatisch nach Dateityp ausgewählt.\nSie können es mit dem Auswahlfeld rechts überschreiben.",
     "build_profile_combo": "Automatisches Profil (nach Dateiendung) oder manuelle Auswahl",
@@ -663,6 +687,7 @@
     "lang_toolbar_ul": "Aufzählungsliste",
     "lang_toolbar_ol": "Nummerierte Liste",
     "lang_toolbar_task": "Aufgabenliste",
-    "lang_toolbar_hr": "Horizontale Linie"
+    "lang_toolbar_hr": "Horizontale Linie",
+    "latex_insert_image": "Bild einfügen"
   }
 }

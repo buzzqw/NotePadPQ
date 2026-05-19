@@ -208,12 +208,12 @@ def check_opt(name, cmd, desc):
 
 check_opt('mammoth',    'import mammoth',   'lettura DOCX → HTML')
 check_opt('htmldocx',   'import htmldocx',  'scrittura HTML → DOCX')
-check_opt('pypandoc',   'import pypandoc',  'conversione ODT/RTF')
+check_opt('pypandoc',   'import pypandoc',  'conversione ODT/RTF/DOCX/TEX')
 "
 if command -v pandoc &>/dev/null; then
-    echo "  pandoc         : OK  (fallback ODT/RTF se pypandoc non disponibile)"
+    echo "  pandoc         : OK  (export DOCX/ODT/LaTeX e apertura ODT/RTF)"
 else
-    echo "  pandoc         : non installato  (opzionale, fallback per ODT/RTF)"
+    echo "  pandoc         : non installato  (opzionale — necessario per export DOCX/ODT/LaTeX e rich text ODT/RTF)"
 fi
 
 echo
@@ -266,7 +266,7 @@ echo "│  Per aprire DOCX, ODT, RTF come rich text editabile:            │"
 echo "│                                                                 │"
 echo "│  • mammoth   — lettura DOCX (conversione a HTML)                │"
 echo "│  • htmldocx  — scrittura DOCX (esportazione da HTML)            │"
-echo "│  • pypandoc  — ODT/RTF (richiede pandoc di sistema)             │"
+echo "│  • pypandoc  — ODT/RTF/DOCX/LaTeX (richiede pandoc di sistema)  │"
 echo "│                                                                 │"
 echo "│  Installazione rapida (pip):                                    │"
 echo "│    pip install mammoth htmldocx                                 │"

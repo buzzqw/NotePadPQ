@@ -711,6 +711,39 @@ ENVIRONMENT_OPTIONS: dict[str, list[str]] = {
     ],
 }
 
+# ─── Argomenti obbligatori dopo \\begin{envname} ─────────────────────────────
+#
+# Ogni voce mappa un nome ambiente → lista di argomenti obbligatori (template).
+# Quando l'utente chiude \\begin{multicols}, il sistema inserisce automaticamente
+# {2} con il cursore selezionato, pronto per la modifica.
+# Tab naviga all'argomento successivo se ce ne sono più di uno.
+
+ENV_MANDATORY_ARGS: dict[str, list[str]] = {
+    # Più colonne
+    "multicols":  ["{2}"],
+    "multicols*": ["{2}"],
+    # Tabelle — specifica colonne obbligatoria
+    "tabular":    ["{|l|l|l|}"],
+    "tabular*":   ["{\\textwidth}", "{|l|l|l|}"],
+    "tabularx":   ["{\\textwidth}", "{|X|X|}"],
+    "tabulary":   ["{\\textwidth}", "{|L|L|}"],
+    "array":      ["{|c|c|c|}"],
+    "longtable":  ["{|l|l|l|}"],
+    # Box e figure — posizione/dimensione obbligatorie
+    "minipage":   ["{0.9\\textwidth}"],
+    "wrapfigure": ["{r}", "{0.5\\textwidth}"],
+    "wraptable":  ["{r}", "{0.5\\textwidth}"],
+    # Codice — linguaggio obbligatorio
+    "minted":     ["{python}"],
+    # Matematica — numero coppie di allineamento
+    "alignat":    ["{2}"],
+    "alignat*":   ["{2}"],
+    # Beamer
+    "column":     ["{0.5\\textwidth}"],
+    # Box avanzati
+    "adjustbox":  ["{max width=\\textwidth}"],
+}
+
 # ─── Opzioni per \\usepackage[...]{pacchetto} ─────────────────────────────────
 
 PACKAGE_OPTIONS: dict[str, list[str]] = {
@@ -788,6 +821,8 @@ class LaTeXSupport:
             LaTeXSupport._handle_newline(editor)
         elif char == "{":
             LaTeXSupport._handle_open_brace(editor)
+        elif char == "}":
+            LaTeXSupport._handle_close_brace(editor)
         elif char == "[":
             LaTeXSupport._handle_open_bracket(editor)
         elif char == "$":
@@ -846,6 +881,58 @@ class LaTeXSupport:
         ac = getattr(editor, "_autocomplete", None)
         if ac:
             ac.handle_latex_special("{")
+
+    @staticmethod
+    def _handle_close_brace(editor: "EditorWidget") -> None:
+        """
+        Dopo '}': se chiude \\begin{envname}, inserisce automaticamente
+        gli argomenti obbligatori dell'ambiente (es. multicols → {2}).
+        Usa i tab-stop per navigare tra argomenti multipli.
+        """
+        line, col = editor.getCursorPosition()
+        line_text = editor.text(line)[:col]
+
+        m = re.search(r'\\begin\{([^}]+)\}$', line_text)
+        if not m:
+            return
+
+        env = m.group(1)
+        extra_args = ENV_MANDATORY_ARGS.get(env)
+        if not extra_args:
+            return
+
+        # Costruisce corpo snippet con tab-stop per ogni argomento
+        # es. ['{2}'] → '{${1:2}}$0'
+        # es. ['{\\textwidth}', '{|l|l|l|}'] → '{${1:\\textwidth}}{${2:|l|l|l|}}$0'
+        body_parts = []
+        for i, arg in enumerate(extra_args, 1):
+            inner = arg[1:-1]  # rimuove { }
+            body_parts.append('{' + '${' + str(i) + ':' + inner + '}}')
+        body_parts.append('$0')
+        body = ''.join(body_parts)
+
+        try:
+            from editor.snippets import _process_tabstops
+        except ImportError:
+            return
+
+        expanded, stops = _process_tabstops(body)
+        insert_pos = editor.positionFromLineIndex(line, col)
+
+        # Sopprime SCN_CHARADDED durante l'insert per evitare loop
+        editor._in_paste = True
+        try:
+            editor.beginUndoAction()
+            editor.insert(expanded)
+            editor.endUndoAction()
+        finally:
+            editor._in_paste = False
+
+        if stops:
+            editor._tabstops = [(n, insert_pos + off, dlen)
+                                for n, off, dlen in stops]
+            editor._tabstop_index = 0
+            editor._jump_to_next_tabstop()
 
     @staticmethod
     def _handle_open_bracket(editor: "EditorWidget") -> None:

@@ -571,6 +571,30 @@
     "connect_error": "Erreur de connexion :\n{error}",
     "confirm_delete": "Supprimer la connexion \"{name}\" ?"
   },
+  "latex_img_dlg": {
+    "title":              "Insérer une image",
+    "file":               "Fichier image :",
+    "file_placeholder":   "Chemin de l'image…",
+    "browse":             "Parcourir…",
+    "browse_title":       "Sélectionner une image",
+    "image_filter":       "Images (*.png *.jpg *.jpeg *.pdf *.eps *.svg *.gif);;Tous les fichiers (*)",
+    "image_options":      "Options de l'image",
+    "width":              "Largeur :",
+    "height":             "Hauteur :",
+    "center":             "Centrer horizontalement",
+    "use_figure":         "Insérer dans un environnement figure",
+    "caption_position":   "Position de la légende :",
+    "caption_below":      "En dessous",
+    "caption_above":      "Au-dessus",
+    "caption_short":      "Légende :",
+    "caption_short_hint": "Légende courte (pour la liste des figures)",
+    "caption_long":       "Texte étendu :",
+    "caption_long_hint":  "Texte de légende étendu (optionnel)",
+    "label":              "Étiquette (\\label) :",
+    "position":           "Position :",
+    "two_columns":        "Étendre sur deux colonnes (figure*)",
+    "btn_defaults":       "Par défaut"
+  },
   "tooltip": {
     "build_profile_label": "Profil sélectionné automatiquement selon le type de fichier.\nVous pouvez le remplacer avec la liste déroulante à droite.",
     "build_profile_combo": "Profil automatique (selon l'extension du fichier) ou sélection manuelle",
@@ -663,6 +687,7 @@
     "lang_toolbar_ul": "Liste à puces",
     "lang_toolbar_ol": "Liste numérotée",
     "lang_toolbar_task": "Liste de tâches",
-    "lang_toolbar_hr": "Règle horizontale"
+    "lang_toolbar_hr": "Règle horizontale",
+    "latex_insert_image": "Insérer une image"
   }
 }

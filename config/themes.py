@@ -1162,6 +1162,15 @@ class ThemeManager(QObject):
         except ImportError:
             pass
 
+        # ── Custom LaTeX lexer (stile TeXstudio) ─────────────────────────────
+        try:
+            from editor.lexer_latex_custom import LaTeXLexer as _LaTeXLex
+            if isinstance(lexer, _LaTeXLex):
+                lexer.set_colors(tokens, font_family, font_size, editor_bg, editor_fg)
+                return
+        except ImportError:
+            pass
+
         # Prima passo: imposta sfondo e font uniformi per tutti gli stili
         default_tok = tokens.get("default", {})
         def_fg = QColor(default_tok.get("fg", editor_fg.name()))
@@ -1400,20 +1409,50 @@ class ThemeManager(QObject):
         # ── Markdown ──────────────────────────────────────────────────────────
         elif isinstance(lexer, QsciLexerMarkdown):
             _apply({
-                0:  "default",
-                1:  "comment",      # special char
-                2:  "keyword",      # strong ** **
-                3:  "string",       # emphasis * *
-                4:  "string2",      # code `
-                5:  "tag",          # header #
-                6:  "tag",          # header ##
-                7:  "tag",          # header ###-######
-                8:  "identifier",   # hrule
-                9:  "string",       # link
-                10: "attribute",    # link description
-                11: "number",       # image
-                12: "keyword2",     # code block
+                0:  "default",          # Default
+                1:  "default",          # Special (decoratori * _ # `)
+                2:  "keyword",          # StrongEmphasisAsterisks (** **)
+                3:  "keyword",          # StrongEmphasisUnderscores (__ __)
+                4:  "string",           # EmphasisAsterisks (* *)
+                5:  "string",           # EmphasisUnderscores (_ _)
+                6:  "keyword",          # Header1 #
+                7:  "keyword",          # Header2 ##
+                8:  "keyword",          # Header3 ###
+                9:  "tag",              # Header4 ####
+                10: "tag",              # Header5 #####
+                11: "tag",              # Header6 ######
+                12: "comment",          # Prechar (preformatted indent)
+                13: "operator",         # UnorderedListItem (- * +)
+                14: "number",           # OrderedListItem (1. 2. …)
+                15: "string2",          # BlockQuote (> …)
+                16: "comment",          # StrikeOut (~~testo~~)
+                17: "identifier",       # HorizontalRule (---)
+                18: "string",           # Link
+                19: "string2",          # CodeBackticks (`)
+                20: "string2",          # CodeDoubleBackticks (``)
+                21: "keyword2",         # CodeBlock (``` ```)
             })
+            # Font differenziati per heading: H1 grande bold, decrescente fino a H6
+            # e bold/italic per enfasi. Zero costo a runtime: impostazione una-tantum.
+            for style_num, delta, bold, italic, strike in [
+                (2,  0, True,  False, False),   # StrongEmphasis **
+                (3,  0, True,  False, False),   # StrongEmphasis __
+                (4,  0, False, True,  False),   # Emphasis *
+                (5,  0, False, True,  False),   # Emphasis _
+                (6,  5, True,  False, False),   # H1
+                (7,  3, True,  False, False),   # H2
+                (8,  1, True,  False, False),   # H3
+                (9,  0, False, False, False),   # H4
+                (10, 0, False, False, False),   # H5
+                (11, 0, False, False, False),   # H6
+                (16, 0, False, False, True),    # StrikeOut ~~
+            ]:
+                f = QFont(font_family, font_size + delta)
+                f.setFixedPitch(True)
+                f.setBold(bold)
+                f.setItalic(italic)
+                f.setStrikeOut(strike)
+                lexer.setFont(f, style_num)
 
         # ── Ruby ──────────────────────────────────────────────────────────────
         elif isinstance(lexer, QsciLexerRuby):

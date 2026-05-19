@@ -574,6 +574,30 @@
     "connect_error": "Errore di connessione:\n{error}",
     "confirm_delete": "Eliminare la connessione \"{name}\"?"
   },
+  "latex_img_dlg": {
+    "title":              "Inserisci immagine",
+    "file":               "File immagine:",
+    "file_placeholder":   "Percorso immagine…",
+    "browse":             "Sfoglia…",
+    "browse_title":       "Seleziona immagine",
+    "image_filter":       "Immagini (*.png *.jpg *.jpeg *.pdf *.eps *.svg *.gif);;Tutti i file (*)",
+    "image_options":      "Opzioni immagine",
+    "width":              "Larghezza:",
+    "height":             "Altezza:",
+    "center":             "Centra orizzontalmente",
+    "use_figure":         "Inserisci in un ambiente figure",
+    "caption_position":   "Posizione didascalia:",
+    "caption_below":      "Sotto",
+    "caption_above":      "Sopra",
+    "caption_short":      "Didascalia:",
+    "caption_short_hint": "Didascalia breve (per il sommario figure)",
+    "caption_long":       "Testo esteso:",
+    "caption_long_hint":  "Testo esteso della didascalia (opzionale)",
+    "label":              "Etichetta (\\label):",
+    "position":           "Posizione:",
+    "two_columns":        "Estendi a coprire due colonne (figure*)",
+    "btn_defaults":       "Predefinite"
+  },
   "tooltip": {
     "build_profile_label": "Profilo selezionato automaticamente dal tipo di file.\nPuoi sovrascriverlo con il combo a destra.",
     "build_profile_combo": "Profilo automatico (da estensione file) o selezione manuale",
@@ -666,6 +690,7 @@
     "lang_toolbar_ul": "Lista puntata",
     "lang_toolbar_ol": "Lista numerata",
     "lang_toolbar_task": "Lista attività",
-    "lang_toolbar_hr": "Linea orizzontale"
+    "lang_toolbar_hr": "Linea orizzontale",
+    "latex_insert_image": "Inserisci immagine"
   }
 }

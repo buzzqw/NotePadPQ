@@ -60,6 +60,7 @@ _MD_ICON_FILES: dict[str, str] = {
     "latex_align_r":  "align-right.svg",
     "latex_begin":    "chevron-right.svg",
     "latex_end":      "chevron-left.svg",
+    "latex_image":    "image.svg",
 }
 
 _ICON_SIZE = QSize(20, 20)
@@ -417,6 +418,11 @@ class _LanguageToolbarWidget(QWidget):
             if key in acts:
                 self._add_action_button(acts[key])
         self._add_separator()
+
+        # Inserisci immagine
+        tip = tr("tooltip.latex_insert_image", default="Inserisci immagine")
+        btn_img = self._add_icon_btn("latex_image", "🖼", tip)
+        btn_img.clicked.connect(self._show_latex_insert_image)
 
         # Tabella
         tip = tr("action.lang_toolbar_table", default="Tabella")
@@ -1066,3 +1072,51 @@ class _LanguageToolbarWidget(QWidget):
         if ok and env.strip():
             editor.insert(f"\\end{{{env.strip()}}}")
         editor.setFocus()
+
+    def _show_latex_insert_image(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        from ui.latex_insert_image_dialog import LatexInsertImageDialog
+        base_dir = editor.file_path.parent if editor.file_path else None
+        dlg = LatexInsertImageDialog(parent=self._mw, base_dir=base_dir)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            editor.setFocus()
+            return
+        code = dlg.get_latex_code()
+        if not code:
+            editor.setFocus()
+            return
+
+        self._ensure_latex_package(editor, "graphicx")
+
+        if editor.hasSelectedText():
+            editor.replaceSelectedText(code)
+        else:
+            line, col = editor.getCursorPosition()
+            editor.insert(code)
+            editor.setCursorPosition(line, col + len(code.split("\n")[0]))
+        editor.setFocus()
+
+    @staticmethod
+    def _ensure_latex_package(editor: "EditorWidget", package: str) -> None:
+        """Inserisce \\usepackage{package} nel preambolo se non già presente."""
+        import re
+        text = editor.text()
+        if re.search(r'\\usepackage\s*(?:\[[^\]]*\]\s*)?\{' + re.escape(package) + r'\}', text):
+            return
+        # Cerca l'ultima riga \usepackage nel preambolo; fallback: prima di \begin{document}
+        insert_pos = -1
+        for m in re.finditer(r'\\usepackage\s*(?:\[[^\]]*\]\s*)?\{[^}]+\}', text):
+            insert_pos = m.end()
+        if insert_pos == -1:
+            m = re.search(r'\\begin\s*\{document\}', text)
+            if m:
+                insert_pos = m.start()
+        if insert_pos == -1:
+            return
+        line, col = editor.lineIndexFromPosition(insert_pos)
+        editor.beginUndoAction()
+        editor.setCursorPosition(line, col)
+        editor.insert(f"\n\\usepackage{{{package}}}")
+        editor.endUndoAction()

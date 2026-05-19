@@ -71,27 +71,21 @@ DEFAULT_PROFILES: dict[str, dict] = {
         "compile":    "pdflatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
         "run":        "pdflatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
         "build":      "latexmk -pdf -synctex=1 -output-directory=${DIR} ${FILE}",
-        "error_regex": r'l\.(\d+)',
-        "error_file_group": 0,
-        "error_line_group": 1,
+        "error_parser": "latex",
     },
     "LaTeX (xelatex)": {
         "extensions": [".tex"],
         "compile":    "xelatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
         "run":        "xelatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
         "build":      "latexmk -xelatex -synctex=1 -output-directory=${DIR} ${FILE}",
-        "error_regex": r'l\.(\d+)',
-        "error_file_group": 0,
-        "error_line_group": 1,
+        "error_parser": "latex",
     },
     "LaTeX (lualatex)": {
         "extensions": [".tex"],
         "compile":    "lualatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
         "run":        "lualatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
         "build":      "latexmk -lualatex -synctex=1 -output-directory=${DIR} ${FILE}",
-        "error_regex": r'l\.(\d+)',
-        "error_file_group": 0,
-        "error_line_group": 1,
+        "error_parser": "latex",
     },
     "Make": {
         "extensions": [],
@@ -492,6 +486,10 @@ class BuildManager(QObject):
         con file e numero di riga.
         """
         profile = self._profiles.get(profile_name, {})
+
+        if profile.get("error_parser") == "latex":
+            return self._parse_latex_log(output)
+
         pattern = profile.get("error_regex", "")
         if not pattern:
             return []
@@ -516,5 +514,78 @@ class BuildManager(QObject):
                 })
         except re.error:
             pass
+
+        return errors
+
+    @staticmethod
+    def _parse_latex_log(output: str) -> list[dict]:
+        """
+        Parser dedicato per log LaTeX/XeLaTeX/LuaLaTeX.
+
+        Riconosce:
+        - Errori TeX tradizionali: "! messaggio\\nl.N ..."
+        - Package errors: "! Package X Error: messaggio"
+        - Formato moderno: "./file.tex:N: messaggio"
+        """
+        errors: list[dict] = []
+        seen: set[tuple] = set()
+
+        # ── Pattern 1: errore TeX classico ───────────────────────────────
+        # "! Undefined control sequence." poi "l.75 \includegraphics"
+        # Scansione riga per riga per mantenere il contesto del file corrente.
+
+        _re_file_open  = re.compile(r'\((\./[^\s()]+\.(?:tex|sty|cls|def|cfg|fd|clo))\b')
+        _re_bang       = re.compile(r'^! (.+)')
+        _re_lnum       = re.compile(r'^l\.(\d+)')
+
+        file_stack: list[str] = []
+        current_file: str = ""
+        lines = output.splitlines()
+
+        i = 0
+        while i < len(lines):
+            raw = lines[i]
+
+            # Aggiorna stack file (parentesi di apertura)
+            for fm in _re_file_open.finditer(raw):
+                f = fm.group(1).lstrip("./")
+                file_stack.append(f)
+                current_file = f
+            # Parentesi di chiusura (stima grezza)
+            net_close = raw.count(')') - raw.count('(')
+            if net_close > 0:
+                for _ in range(min(net_close, len(file_stack))):
+                    file_stack.pop()
+                current_file = file_stack[-1] if file_stack else current_file
+
+            bm = _re_bang.match(raw)
+            if bm:
+                msg = bm.group(1).strip()
+                # Cerca l.N nelle prossime 15 righe
+                line_num = 0
+                for k in range(i + 1, min(i + 15, len(lines))):
+                    lm = _re_lnum.match(lines[k])
+                    if lm:
+                        line_num = int(lm.group(1))
+                        break
+                key = (current_file, line_num, msg)
+                if key not in seen:
+                    seen.add(key)
+                    errors.append({"file": current_file, "line": line_num, "message": msg})
+
+            i += 1
+
+        # ── Pattern 2: formato moderno "./file.tex:N: messaggio" ─────────
+        _re_modern = re.compile(
+            r'^(\./[^\s:]+\.tex):(\d+): (.+)', re.MULTILINE
+        )
+        for m in _re_modern.finditer(output):
+            f    = m.group(1).lstrip("./")
+            lnum = int(m.group(2))
+            msg  = m.group(3).strip()
+            key  = (f, lnum, msg)
+            if key not in seen:
+                seen.add(key)
+                errors.append({"file": f, "line": lnum, "message": msg})
 
         return errors

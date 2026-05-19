@@ -353,6 +353,12 @@ class BuildPanel(QWidget):
             self._btn_open_pdf.setEnabled(pdf_path is not None)
             if pdf_path:
                 self._btn_open_pdf.setToolTip(f"Apri: {pdf_path.name}")
+                self._btn_open_pdf.setText(f"📄 {pdf_path.name}")
+                # Aggiorna anteprima automaticamente se il dock è già visibile
+                mw = self.window()
+                if (hasattr(mw, "_preview_dock") and mw._preview_dock.isVisible()
+                        and hasattr(mw, "_preview_panel_dock")):
+                    mw._preview_panel_dock.set_pdf_path(pdf_path)
         else:
             self._btn_open_pdf.setEnabled(False)
 

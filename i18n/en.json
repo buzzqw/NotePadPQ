@@ -574,6 +574,30 @@
     "connect_error": "Connection error:\n{error}",
     "confirm_delete": "Delete connection \"{name}\"?"
   },
+  "latex_img_dlg": {
+    "title":              "Insert image",
+    "file":               "Image file:",
+    "file_placeholder":   "Image path…",
+    "browse":             "Browse…",
+    "browse_title":       "Select image",
+    "image_filter":       "Images (*.png *.jpg *.jpeg *.pdf *.eps *.svg *.gif);;All files (*)",
+    "image_options":      "Image options",
+    "width":              "Width:",
+    "height":             "Height:",
+    "center":             "Center horizontally",
+    "use_figure":         "Insert in a figure environment",
+    "caption_position":   "Caption position:",
+    "caption_below":      "Below",
+    "caption_above":      "Above",
+    "caption_short":      "Caption:",
+    "caption_short_hint": "Short caption (for list of figures)",
+    "caption_long":       "Extended text:",
+    "caption_long_hint":  "Extended caption text (optional)",
+    "label":              "Label (\\label):",
+    "position":           "Position:",
+    "two_columns":        "Span two columns (figure*)",
+    "btn_defaults":       "Defaults"
+  },
   "tooltip": {
     "build_profile_label": "Profile selected automatically based on file type.\nYou can override it with the combo on the right.",
     "build_profile_combo": "Automatic profile (from file extension) or manual selection",
@@ -666,6 +690,7 @@
     "lang_toolbar_ul": "Bullet list",
     "lang_toolbar_ol": "Numbered list",
     "lang_toolbar_task": "Task list",
-    "lang_toolbar_hr": "Horizontal rule"
+    "lang_toolbar_hr": "Horizontal rule",
+    "latex_insert_image": "Insert image"
   }
 }

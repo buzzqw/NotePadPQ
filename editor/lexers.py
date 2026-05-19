@@ -28,6 +28,7 @@ from PyQt6.Qsci import (
     QsciLexerFortran, QsciLexerVerilog, QsciLexerVHDL,
     QsciLexerPostScript, QsciLexerSpice,
 )
+from editor.lexer_latex_custom import LaTeXLexer
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -87,12 +88,13 @@ _EXT_MAP: dict[str, tuple[type, str]] = {
     # Build
     ".mk":    (QsciLexerMakefile,   "Makefile"),
     ".cmake": (QsciLexerCMake,      "CMake"),
-    # LaTeX
-    ".tex":   (QsciLexerTeX,        "LaTeX"),
-    ".sty":   (QsciLexerTeX,        "LaTeX"),
-    ".cls":   (QsciLexerTeX,        "LaTeX"),
+    # LaTeX — lexer custom con highlighting stile TeXstudio
+    ".tex":   (LaTeXLexer,          "LaTeX"),
+    ".sty":   (LaTeXLexer,          "LaTeX"),
+    ".cls":   (LaTeXLexer,          "LaTeX"),
+    ".dtx":   (LaTeXLexer,          "LaTeX"),
+    # BibTeX — mantiene QsciLexerTeX (sintassi diversa)
     ".bib":   (QsciLexerTeX,        "BibTeX"),
-    ".dtx":   (QsciLexerTeX,        "LaTeX"),
     # Markdown
     ".md":    (QsciLexerMarkdown,   "Markdown"),
     ".markdown": (QsciLexerMarkdown,"Markdown"),

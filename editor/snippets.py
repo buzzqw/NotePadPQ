@@ -493,6 +493,51 @@ BUILTIN_SNIPPETS: dict[str, dict[str, dict]] = {
 }
 
 
+# ─── Tab-stop helper ─────────────────────────────────────────────────────────
+
+def _process_tabstops(body: str):
+    """
+    Processa i marcatori ${N}, ${N:default} e $0 nel corpo dello snippet.
+    Restituisce (expanded_body, [(n, offset, default_len)]) dove:
+      - offset  = posizione del tab-stop nell'expanded_body
+      - default = testo di placeholder (già inserito in expanded_body)
+    Ordinamento: 1, 2, 3, ... poi 0 (posizione finale $0).
+    """
+    result: list[str] = []
+    stops: list[tuple[int, int, int]] = []
+    pos = 0
+    i = 0
+    while i < len(body):
+        if body[i] == '$' and i + 1 < len(body):
+            if body[i + 1] == '{':
+                j = body.find('}', i + 2)
+                if j != -1:
+                    inner = body[i + 2:j]
+                    colon = inner.find(':')
+                    if colon != -1:
+                        n_str, default = inner[:colon], inner[colon + 1:]
+                    else:
+                        n_str, default = inner, ''
+                    try:
+                        stops.append((int(n_str), pos, len(default)))
+                        result.append(default)
+                        pos += len(default)
+                        i = j + 1
+                        continue
+                    except ValueError:
+                        pass
+            elif body[i + 1] == '0':
+                stops.append((0, pos, 0))
+                i += 2
+                continue
+        result.append(body[i])
+        pos += 1
+        i += 1
+    numbered = sorted([s for s in stops if s[0] > 0], key=lambda s: s[0])
+    final    = [s for s in stops if s[0] == 0]
+    return ''.join(result), numbered + final
+
+
 # ─── SnippetManager ───────────────────────────────────────────────────────────
 
 class SnippetManager(QObject):
@@ -572,18 +617,21 @@ class SnippetManager(QObject):
         body = snippet.get("body", "")
         body = self._expand_variables(body, editor)
 
-        # Rimuove il trigger e inserisce il corpo dello snippet
-        # Seleziona il trigger
+        expanded, stops = _process_tabstops(body)
+
         trigger_start = col - len(trigger)
         editor.setSelection(line, trigger_start, line, col)
         editor.replaceSelectedText("")
 
-        # Inserisce il corpo (semplificato: senza gestione tab-stop interattivi)
-        # Rimuove le annotazioni ${N:default} lasciando solo il testo default
-        expanded = re.sub(r'\$\{(\d+):([^}]*)\}', r'\2', body)
-        expanded = re.sub(r'\$\{(\d+)\}', '', expanded)
-        expanded = re.sub(r'\$0', '', expanded)
+        # Posizione assoluta del punto di inserimento
+        insert_pos = editor.positionFromLineIndex(line, trigger_start)
         editor.insert(expanded)
+
+        # Attiva navigazione tab-stop se il corpo ne contiene
+        if stops:
+            editor._tabstops = [(n, insert_pos + off, dlen) for n, off, dlen in stops]
+            editor._tabstop_index = 0
+            editor._jump_to_next_tabstop()
         return True
 
     def _expand_variables(self, body: str, editor: "EditorWidget") -> str:

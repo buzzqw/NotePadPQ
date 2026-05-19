@@ -2277,7 +2277,7 @@ class MainWindow(QMainWindow):
         stem = editor.file_path.stem if editor.file_path else "documento"
         default = str(_Path.home() / stem)
         _filter = (
-            "Word (*.docx);;"
+            "Word 2007-365 DOCX (*.docx);;"
             "OpenDocument Text (*.odt);;"
             "HTML (*.html);;"
             "LaTeX (*.tex)"
@@ -2298,7 +2298,35 @@ class MainWindow(QMainWindow):
 
         content = editor.text()
         src_ext = (editor.file_path.suffix.lower() if editor.file_path else "")
-        fmt_in  = "markdown" if src_ext == ".md" else "plain"
+
+        # Mappa estensione → formato pandoc di input.
+        # "plain" NON è un formato pandoc di input valido; si usa "markdown"
+        # come parser più tollerante per testo generico.
+        _PANDOC_IN = {
+            ".md": "markdown", ".markdown": "markdown",
+            ".html": "html", ".htm": "html",
+            ".rst": "rst",
+            ".tex": "latex", ".latex": "latex",
+            ".org": "org",
+            ".textile": "textile",
+        }
+        fmt_in = _PANDOC_IN.get(src_ext, "markdown")
+
+        # Avviso se il sorgente non è un formato markup strutturato
+        _RICH = {".md", ".markdown", ".html", ".htm", ".rst",
+                 ".tex", ".latex", ".org", ".textile"}
+        if src_ext not in _RICH and p.suffix.lower() in (".docx", ".odt", ".tex"):
+            reply = _QMB.question(
+                self,
+                tr("action.export_as", default="Esporta come…"),
+                f"Il file sorgente ({src_ext or 'senza estensione'}) non è un formato di markup.\n"
+                "La conversione è possibile ma il risultato conterrà solo testo piano "
+                "senza formattazione strutturata (titoli, grassetto, tabelle…).\n\n"
+                "Continuare?",
+                _QMB.StandardButton.Yes | _QMB.StandardButton.Cancel,
+            )
+            if reply != _QMB.StandardButton.Yes:
+                return
 
         err = self._export_text_as(content, fmt_in, p)
         if err:

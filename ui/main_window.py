@@ -238,7 +238,7 @@ class TripleClickFilter(QObject):
 class MainWindow(QMainWindow):
 
     APP_NAME    = "NotePadPQ"
-    APP_VERSION = "0.9.5"
+    APP_VERSION = "s"
 
     def __init__(self):
         super().__init__()
@@ -866,12 +866,17 @@ class MainWindow(QMainWindow):
         self._build_menu_plugins(mb)
         self._build_menu_help(mb)
 
+        from ui.keybinding import load_and_apply_shortcuts
+        load_and_apply_shortcuts(self._actions)
+
     def _rebuild_menus(self, lang: str = "") -> None:
         """Ricostruisce i menu dopo un cambio lingua."""
         self._build_menus()
         self._rebuild_toolbar()
         for _a in self._actions.values():
             _a.setIconVisibleInMenu(True)
+        if hasattr(self, "_build_panel") and self._build_panel:
+            self._build_panel._refresh_button_labels()
 
     def _act(self, key: str, shortcut: str = "",
                  slot=None, checkable: bool = False,
@@ -3128,6 +3133,8 @@ class MainWindow(QMainWindow):
         from ui.keybinding import KeyBindingDialog
         dlg = KeyBindingDialog(self._actions, self)
         dlg.exec()
+        if hasattr(self, "_build_panel") and self._build_panel:
+            self._build_panel._refresh_button_labels()
 
     def action_reload_config(self) -> None:
         from config.settings import Settings

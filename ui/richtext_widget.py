@@ -245,23 +245,30 @@ class RichTextIO:
 
     @staticmethod
     def _pandoc_to_html(path: Path) -> tuple[str, str]:
+        fmt = path.suffix.lstrip(".")
         try:
             import pypandoc
-            # --self-contained embeds images; extract body to drop pandoc's
-            # CSS template (max-width, padding…) that would constrain Jodit
-            html = pypandoc.convert_file(str(path), "html", extra_args=["--self-contained"])
-            return RichTextIO._extract_body(html), ""
+            # Prova --embed-resources (pandoc 3+), fallback a --self-contained
+            for embed in ("--embed-resources", "--self-contained"):
+                try:
+                    html = pypandoc.convert_file(
+                        str(path), "html", extra_args=["--standalone", embed]
+                    )
+                    return RichTextIO._extract_body(html), ""
+                except Exception:
+                    continue
         except ImportError:
             pass
-        # Fallback: pandoc subprocess (no -s → fragment output, no CSS wrapper)
+        # Fallback: pandoc subprocess con immagini embedded come base64
         import subprocess
         try:
-            result = subprocess.run(
-                ["pandoc", "-f", path.suffix.lstrip("."), "-t", "html", str(path)],
-                capture_output=True, text=True, timeout=30
-            )
-            if result.returncode == 0:
-                return result.stdout, ""
+            for embed in ("--embed-resources", "--self-contained"):
+                result = subprocess.run(
+                    ["pandoc", "-f", fmt, "-t", "html", "--standalone", embed, str(path)],
+                    capture_output=True, text=True, timeout=60,
+                )
+                if result.returncode == 0:
+                    return RichTextIO._extract_body(result.stdout), ""
             return "", result.stderr
         except FileNotFoundError:
             return "", tr("richtext.pandoc_missing")

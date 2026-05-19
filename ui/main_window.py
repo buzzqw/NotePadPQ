@@ -1993,7 +1993,7 @@ class MainWindow(QMainWindow):
             )
 
     _SPREADSHEET_EXTS = frozenset({".csv", ".tsv", ".xlsx", ".xlsm", ".xls", ".ods"})
-    _RICHTEXT_EXTS    = frozenset({".doc", ".docx", ".odt", ".rtf"})
+    _RICHTEXT_EXTS    = frozenset({".doc", ".docx", ".odt", ".rtf", ".html", ".htm"})
     _PDF_EXTS         = frozenset({".pdf"})
 
     def open_files(self, paths: list[Path]) -> None:

@@ -16,6 +16,7 @@ from typing import Callable, List, Optional
 
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer
+from PyQt6 import sip
 
 
 class SingleInstance(QObject):
@@ -29,6 +30,8 @@ class SingleInstance(QObject):
         self._app_name = f"{app_name}_{uid}"
         self._server = None
         self._callback: Optional[Callable[[List[str]], None]] = None
+        self._buffers: dict[int, bytes] = {}
+        self._conn_seq: int = 0
 
     def send_args_if_secondary(self, paths: List[str]) -> bool:
         """
@@ -76,18 +79,39 @@ class SingleInstance(QObject):
         conn = self._server.nextPendingConnection()
         if not conn:
             return
-        conn.setProperty("buffer", b"")
-        conn.readyRead.connect(lambda: self._on_ready_read(conn))
-        conn.disconnected.connect(conn.deleteLater)
+        self._conn_seq += 1
+        cid = self._conn_seq
+        self._buffers[cid] = b""
+        conn.readyRead.connect(lambda: self._on_ready_read(conn, cid))
+        conn.disconnected.connect(lambda: self._cleanup_connection(conn, cid))
 
-    def _on_ready_read(self, conn: QLocalSocket) -> None:
-        buf: bytes = conn.property("buffer") or b""
+    def _cleanup_connection(self, conn: QLocalSocket, cid: int) -> None:
+        self._buffers.pop(cid, None)
+        # Disconnette entrambi i segnali prima di chiudere: previene callback
+        # stale e double-free. Non chiamare deleteLater: nextPendingConnection()
+        # parenta già il socket al server, che lo distruggerà a shutdown.
+        try:
+            conn.readyRead.disconnect()
+            conn.disconnected.disconnect()
+        except RuntimeError:
+            pass
+        try:
+            conn.close()
+        except RuntimeError:
+            pass
+
+    def _on_ready_read(self, conn: QLocalSocket, cid: int) -> None:
+        # Esce subito se il C++ object è già stato distrutto (readyRead stale in coda)
+        if sip.isdeleted(conn):
+            return
+        if cid not in self._buffers:
+            return
+
+        buf = self._buffers[cid]
         buf += bytes(conn.readAll())
 
-        # FIX IMPORTANTE: Gestione corretta del buffer.
-        # Continua a leggere finché ci sono righe complete (\n)
         while b"\n" in buf:
-            line, buf = buf.split(b"\n", 1) # Separa la prima riga e salva il resto
+            line, buf = buf.split(b"\n", 1)
             try:
                 paths: List[str] = json.loads(line.decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError):
@@ -96,11 +120,11 @@ class SingleInstance(QObject):
             if paths:
                 self.files_received.emit(paths)
 
-            # Porta la finestra in primo piano
             QTimer.singleShot(0, self._raise_window)
-            
-        # Salva ciò che rimane per la prossima lettura
-        conn.setProperty("buffer", buf)
+
+        # Non tocca più conn dopo readAll(): scrive solo nel dict Python
+        if cid in self._buffers:
+            self._buffers[cid] = buf
 
     def _raise_window(self) -> None:
         """Porta la finestra principale in primo piano e toglie il 'Riduci a icona'."""

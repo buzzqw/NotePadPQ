@@ -417,10 +417,17 @@ class _AIWorker(QThread):
         self._max_tokens  = max_tokens
         self._thinking    = thinking
         self._ollama_url  = ollama_url
-        self._stop_event  = threading.Event()
+        self._stop_event    = threading.Event()
+        self._current_resp  = None  # risposta HTTP corrente, per chiusura forzata
 
     def stop(self) -> None:
         self._stop_event.set()
+        resp = self._current_resp
+        if resp is not None:
+            try:
+                resp.close()
+            except Exception:
+                pass
 
     def run(self) -> None:
         try:
@@ -596,7 +603,9 @@ class _AIWorker(QThread):
         if self._system:
             msgs = [{"role": "system", "content": self._system}] + list(msgs)
         url  = f"{self._ollama_url}/api/chat"
-        body = json.dumps({"model": self._model, "messages": msgs, "stream": True}).encode()
+        body = json.dumps({
+            "model": self._model, "messages": msgs, "stream": True, "think": True,
+        }).encode()
         req  = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
         full_text = ""
         in_think  = False
@@ -610,51 +619,63 @@ class _AIWorker(QThread):
                 full_text += text
                 self.stream_chunk.emit(text)
 
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            for raw_line in resp:
-                if self._stop_event.is_set():
-                    break
-                line = raw_line.decode("utf-8").strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                chunk = event.get("message", {}).get("content", "")
-                if chunk:
-                    buf += chunk
-                    # smista il buffer su think_chunk / stream_chunk
-                    while buf:
-                        if in_think:
-                            end = buf.find(_CLOSE)
-                            if end >= 0:
-                                self.think_chunk.emit(buf[:end])
-                                buf = buf[end + len(_CLOSE):]
-                                in_think = False
+        try:
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                self._current_resp = resp
+                for raw_line in resp:
+                    if self._stop_event.is_set():
+                        break
+                    line = raw_line.decode("utf-8").strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    msg = event.get("message", {})
+                    # pensieri nativi Ollama (campo "thinking", modelli DeepSeek/Qwen/etc.)
+                    native_think = msg.get("thinking", "")
+                    if native_think:
+                        self.think_chunk.emit(native_think)
+                    chunk = msg.get("content", "")
+                    if chunk:
+                        buf += chunk
+                        # smista il buffer su think_chunk / stream_chunk
+                        while buf:
+                            if in_think:
+                                end = buf.find(_CLOSE)
+                                if end >= 0:
+                                    self.think_chunk.emit(buf[:end])
+                                    buf = buf[end + len(_CLOSE):]
+                                    in_think = False
+                                else:
+                                    self.think_chunk.emit(buf)
+                                    buf = ""
                             else:
-                                self.think_chunk.emit(buf)
-                                buf = ""
-                        else:
-                            start = buf.find(_OPEN)
-                            if start >= 0:
-                                _flush_normal(buf[:start])
-                                buf = buf[start + len(_OPEN):]
-                                in_think = True
-                            else:
-                                # trattieni eventuale prefisso parziale di <think> a fine buffer
-                                hold = 0
-                                for i in range(min(len(_OPEN) - 1, len(buf)), 0, -1):
-                                    if buf.endswith(_OPEN[:i]):
-                                        hold = i
-                                        break
-                                _flush_normal(buf[:-hold] if hold else buf)
-                                buf = buf[-hold:] if hold else ""
-                                break
-                if event.get("done", False):
-                    if buf and not in_think:
-                        _flush_normal(buf)
-                    break
+                                start = buf.find(_OPEN)
+                                if start >= 0:
+                                    _flush_normal(buf[:start])
+                                    buf = buf[start + len(_OPEN):]
+                                    in_think = True
+                                else:
+                                    # trattieni eventuale prefisso parziale di <think> a fine buffer
+                                    hold = 0
+                                    for i in range(min(len(_OPEN) - 1, len(buf)), 0, -1):
+                                        if buf.endswith(_OPEN[:i]):
+                                            hold = i
+                                            break
+                                    _flush_normal(buf[:-hold] if hold else buf)
+                                    buf = buf[-hold:] if hold else ""
+                                    break
+                    if event.get("done", False):
+                        if buf and not in_think:
+                            _flush_normal(buf)
+                        break
+        except OSError:
+            # resp.close() chiamato da stop() — uscita pulita
+            pass
+        finally:
+            self._current_resp = None
         return full_text
 
     # ── JetBrains AI ──────────────────────────────────────────────────────────
@@ -1063,6 +1084,7 @@ class _AIPanel(QWidget):
         self._elapsed_start  = 0.0
         self._has_thinking   = False
         self._has_streaming  = False
+        self._think_text_acc = ""
         self._ollama_ready.connect(self._set_ollama_models)
         self._anthropic_ready.connect(self._set_anthropic_models)
         self._build_ui()
@@ -1164,15 +1186,43 @@ class _AIPanel(QWidget):
         act_row.addWidget(btn_more)
         layout.addLayout(act_row)
 
-        # ── Splitter chat / input ─────────────────────────────────────────────
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        # ── Splitter chat / pensieri / input ─────────────────────────────────
+        self._splitter = QSplitter(Qt.Orientation.Vertical)
 
         self._chat_view = QTextEdit()
         self._chat_view.setReadOnly(True)
         self._chat_view.setFont(QFont("Monospace", 10))
         self._chat_view.setStyleSheet("background:#1e1e1e; color:#d4d4d4; border:none;")
         self._chat_view.setToolTip(tr("tooltip.ai_chat"))
-        splitter.addWidget(self._chat_view)
+        self._splitter.addWidget(self._chat_view)
+
+        # ── Pannello pensieri (pane centrale nello splitter) ─────────────────
+        think_widget = QWidget()
+        think_widget.setStyleSheet("background:#111827;")
+        think_layout = QVBoxLayout(think_widget)
+        think_layout.setContentsMargins(0, 0, 0, 0)
+        think_layout.setSpacing(0)
+
+        self._think_btn = QPushButton("▶ Pensieri")
+        self._think_btn.setCheckable(True)
+        self._think_btn.setFixedHeight(22)
+        self._think_btn.setStyleSheet(
+            "text-align:left; padding-left:8px; font-size:10px;"
+            "background:#1a1a2e; color:#6b7280; border:none;"
+            "border-top:1px solid #3c3c3c; border-bottom:1px solid #3c3c3c;"
+        )
+        self._think_btn.toggled.connect(self._toggle_think)
+        think_layout.addWidget(self._think_btn)
+
+        self._think_box = QPlainTextEdit()
+        self._think_box.setReadOnly(True)
+        self._think_box.setFont(QFont("Monospace", 9))
+        self._think_box.setStyleSheet("background:#111827; color:#6b7280; border:none;")
+        think_layout.addWidget(self._think_box, 1)
+
+        self._think_widget = think_widget
+        self._think_widget.hide()
+        self._splitter.addWidget(think_widget)
 
         input_widget = QWidget()
         input_layout = QVBoxLayout(input_widget)
@@ -1214,32 +1264,10 @@ class _AIPanel(QWidget):
         btn_row.addWidget(self._btn_send)
         input_layout.addLayout(btn_row)
 
-        splitter.addWidget(input_widget)
-        splitter.setSizes([300, 130])
-        layout.addWidget(splitter, 1)
-
-        # ── Pannello pensieri (collassabile, auto-appare quando arrivano think_chunk) ──
-        self._think_btn = QPushButton("▶ Pensieri")
-        self._think_btn.setCheckable(True)
-        self._think_btn.setFixedHeight(20)
-        self._think_btn.setStyleSheet(
-            "text-align:left; padding-left:6px; font-size:10px;"
-            "background:#1a1a2e; color:#6b7280; border:none; border-top:1px solid #3c3c3c;"
-        )
-        self._think_btn.toggled.connect(self._toggle_think)
-        self._think_btn.hide()
-        layout.addWidget(self._think_btn)
-
-        self._think_box = QPlainTextEdit()
-        self._think_box.setReadOnly(True)
-        self._think_box.setFont(QFont("Monospace", 9))
-        self._think_box.setMaximumHeight(160)
-        self._think_box.setStyleSheet(
-            "background:#111827; color:#6b7280; border:none;"
-            "border-bottom:1px solid #3c3c3c;"
-        )
-        self._think_box.hide()
-        layout.addWidget(self._think_box)
+        self._splitter.addWidget(input_widget)
+        self._splitter.setSizes([300, 0, 130])
+        self._splitter.setCollapsible(1, True)
+        layout.addWidget(self._splitter, 1)
 
         self._status = QLabel("")
         self._status.setStyleSheet("color:#858585; font-size:10px; padding:1px 2px;")
@@ -1524,10 +1552,15 @@ class _AIPanel(QWidget):
         self._elapsed_start = time.time()
         self._has_thinking  = False
         self._has_streaming = False
+        self._think_text_acc = ""
         self._elapsed_timer.start(1000)
         self._btn_send.setText("⏹ Ferma")
         self._streaming_block = False
         self._think_box.clear()
+        self._think_widget.hide()
+        self._splitter.setSizes([self._splitter.sizes()[0] + self._splitter.sizes()[1],
+                                  0, self._splitter.sizes()[2]])
+        self._status.setToolTip("")
         self._status.setText(f"⟳ {model} sta elaborando… (0s)")
 
         self._worker = _AIWorker(pid, model, key_to_use, list(self._history),
@@ -1573,6 +1606,9 @@ class _AIPanel(QWidget):
         self._btn_apply.setEnabled(True)
         self._btn_new_tab.setEnabled(True)
         self._status.setText("")
+        if self._think_text_acc:
+            self._status.setToolTip(self._think_text_acc[-500:].strip())
+            self._status.setToolTipDuration(15000)
 
         if self._chk_inline.isChecked():
             self._apply_inline(text)
@@ -1632,19 +1668,37 @@ class _AIPanel(QWidget):
 
     def _on_think_chunk(self, chunk: str) -> None:
         self._has_thinking = True
-        if not self._think_btn.isVisible():
-            self._think_btn.show()
+        self._think_text_acc += chunk
+        if not self._think_widget.isVisible():
+            self._think_widget.show()
             self._think_btn.setChecked(True)
-            self._think_box.show()
+            sizes = self._splitter.sizes()
+            total = sum(sizes)
+            # assegna ~30% al pannello pensieri, ribilancia chat e input
+            think_h = max(120, total // 3)
+            chat_h  = max(80, sizes[0] - think_h)
+            inp_h   = sizes[-1]
+            self._splitter.setSizes([chat_h, think_h, inp_h])
         cursor = self._think_box.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         self._think_box.setTextCursor(cursor)
         self._think_box.insertPlainText(chunk)
         self._think_box.ensureCursorVisible()
+        # tooltip sulla status label
+        self._status.setToolTip(self._think_text_acc[-500:].strip())
+        self._status.setToolTipDuration(8000)
 
     def _toggle_think(self, checked: bool) -> None:
-        self._think_box.setVisible(checked)
         self._think_btn.setText(("▼" if checked else "▶") + " Pensieri")
+        if checked:
+            sizes = self._splitter.sizes()
+            if sizes[1] == 0:
+                total = sum(sizes)
+                think_h = max(120, total // 3)
+                self._splitter.setSizes([max(60, sizes[0] - think_h), think_h, sizes[2]])
+        else:
+            sizes = self._splitter.sizes()
+            self._splitter.setSizes([sizes[0] + sizes[1], 0, sizes[2]])
 
     def _append_msg(self, role: str, text: str, color: str) -> None:
         prefix = {"user": "Tu:", "assistant": "AI:", "system": ""}

@@ -246,7 +246,9 @@
     "lang_toolbar_end_env": "Fine ambiente",
     "lang_toolbar_env_name": "Nome ambiente:",
     "lang_toolbar_export_pdf": "Esporta come PDF",
-    "lang_toolbar_export_html": "Esporta come HTML"
+    "lang_toolbar_export_html": "Esporta come HTML",
+    "build_analyze_ai":      "Analizza log con AI",
+    "build_analyze_ai_send": "Invia all'AI"
   },
   "color": {
     "red": "Rosso",
@@ -312,7 +314,11 @@
     "spell_add_dict": "Aggiungi al dizionario",
     "spell_ignore_all": "Ignora tutto",
     "spell_on": "Controllo ortografico attivato",
-    "spell_off": "Controllo ortografico disattivato"
+    "spell_off":         "Controllo ortografico disattivato",
+    "ai_provider":       "Provider:",
+    "ai_model":          "Modello:",
+    "ai_instruction":    "Istruzione:",
+    "build_log_preview": "Anteprima log:"
   },
   "button": {
     "ok": "OK",
@@ -355,6 +361,9 @@
     "file_deleted_on_disk": "Il file \"{name}\" è stato eliminato dal disco. Cosa vuoi fare?",
     "encoding_detect_fail": "Impossibile rilevare la codifica del file. Verrà usato UTF-8.",
     "no_results": "Nessun risultato trovato per \"{query}\".",
+    "cursor_not_in_table": "Posiziona il cursore all'interno di una tabella",
+    "build_ai_default_prompt": "Analizza questo log di compilazione, spiega gli errori e suggerisci come correggerli.",
+    "build_log_truncated": "Log troncato per la visualizzazione — verrà inviato intero all'AI",
     "replaced_n": "Sostituite {count} occorrenze.",
     "marked_n": "Segnate {count} occorrenze.",
     "macro_recording": "Registrazione macro in corso...",
@@ -691,6 +700,13 @@
     "lang_toolbar_ol": "Lista numerata",
     "lang_toolbar_task": "Lista attività",
     "lang_toolbar_hr": "Linea orizzontale",
-    "latex_insert_image": "Inserisci immagine"
+    "latex_insert_image":  "Inserisci immagine",
+    "build_analyze_ai":    "Invia il log di compilazione all'AI per analisi",
+    "table_row_above":    "Inserisci riga sopra",
+    "table_row_below":    "Inserisci riga sotto",
+    "table_col_left":     "Inserisci colonna a sinistra",
+    "table_col_right":    "Inserisci colonna a destra",
+    "table_delete_row":   "Elimina riga",
+    "table_delete_col":   "Elimina colonna"
   }
 }

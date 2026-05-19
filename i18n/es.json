@@ -244,7 +244,9 @@
     "lang_toolbar_end_env": "Finalizar entorno",
     "lang_toolbar_env_name": "Nombre del entorno:",
     "lang_toolbar_export_pdf": "Exportar como PDF",
-    "lang_toolbar_export_html": "Exportar como HTML"
+    "lang_toolbar_export_html": "Exportar como HTML",
+    "build_analyze_ai":      "Analizar registro con IA",
+    "build_analyze_ai_send": "Enviar a IA"
   },
   "color": {
     "red": "Rojo",
@@ -310,7 +312,11 @@
     "spell_add_dict": "Añadir al diccionario",
     "spell_ignore_all": "Ignorar todo",
     "spell_on": "Corrector ortográfico activado",
-    "spell_off": "Corrector ortográfico desactivado"
+    "spell_off":         "Corrector ortográfico desactivado",
+    "ai_provider":       "Proveedor:",
+    "ai_model":          "Modelo:",
+    "ai_instruction":    "Instrucción:",
+    "build_log_preview": "Vista previa del registro:"
   },
   "button": {
     "ok": "Aceptar",
@@ -353,6 +359,9 @@
     "file_deleted_on_disk": "El archivo \"{name}\" fue eliminado del disco. ¿Qué desea hacer?",
     "encoding_detect_fail": "No se puede detectar la codificación del archivo. Se usará UTF-8.",
     "no_results": "No se encontraron resultados para \"{query}\".",
+    "cursor_not_in_table": "Coloca el cursor dentro de una tabla",
+    "build_ai_default_prompt": "Analiza este registro de compilación, explica los errores y sugiere cómo corregirlos.",
+    "build_log_truncated": "Registro truncado para visualización — el registro completo se enviará a la IA",
     "replaced_n": "Se reemplazaron {count} ocurrencia(s).",
     "marked_n": "Se marcaron {count} ocurrencia(s).",
     "macro_recording": "Grabando macro...",
@@ -688,6 +697,13 @@
     "lang_toolbar_ol": "Lista numerada",
     "lang_toolbar_task": "Lista de tareas",
     "lang_toolbar_hr": "Regla horizontal",
-    "latex_insert_image": "Insertar imagen"
+    "latex_insert_image":  "Insertar imagen",
+    "build_analyze_ai":    "Enviar registro de compilación a la IA para análisis",
+    "table_row_above":    "Insertar fila arriba",
+    "table_row_below":    "Insertar fila abajo",
+    "table_col_left":     "Insertar columna a la izquierda",
+    "table_col_right":    "Insertar columna a la derecha",
+    "table_delete_row":   "Eliminar fila",
+    "table_delete_col":   "Eliminar columna"
   }
 }

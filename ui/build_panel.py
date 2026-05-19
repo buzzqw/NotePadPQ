@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, pyqtSlot, QTimer
+from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer
 from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit,
@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QLabel, QComboBox, QDialog, QDialogButtonBox,
     QFormLayout, QLineEdit, QPushButton, QSplitter,
     QGroupBox, QListWidget, QListWidgetItem, QMessageBox,
-    QStatusBar, QFrame,
+    QStatusBar, QFrame, QTextEdit,
 )
 
 from i18n.i18n import tr
@@ -34,6 +34,235 @@ from core.build_manager import BuildManager, DEFAULT_PROFILES
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+
+
+class _AIAnalyzeDialog(QDialog):
+    """
+    Dialogo di conferma per 'Analizza con AI'.
+    Recupera i modelli Ollama/Anthropic live, esattamente come fa il plugin AI.
+    """
+
+    _ollama_ready    = pyqtSignal(object)   # list[str] | None
+    _anthropic_ready = pyqtSignal(object)   # list[str] | None
+    _MAX_PREVIEW     = 3000
+
+    def __init__(self, log_text: str, providers: dict, parent=None):
+        super().__init__(parent)
+        self._log_text  = log_text
+        self._providers = providers
+        self._ollama_ready.connect(self._set_ollama_models)
+        self._anthropic_ready.connect(self._set_anthropic_models)
+        self.setWindowTitle(tr("action.build_analyze_ai"))
+        self.setMinimumWidth(560)
+        self.setMinimumHeight(460)
+        self._build_ui()
+
+    # ── UI ────────────────────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setSpacing(8)
+        root.setContentsMargins(12, 12, 12, 8)
+
+        # Provider + modello + pulsante refresh
+        row = QHBoxLayout()
+        row.addWidget(QLabel(tr("label.ai_provider")))
+        self._provider_combo = QComboBox()
+        self._provider_combo.addItems(list(self._providers.keys()))
+        self._provider_combo.currentIndexChanged.connect(self._on_provider_changed)
+        row.addWidget(self._provider_combo, 1)
+
+        row.addWidget(QLabel(tr("label.ai_model")))
+        self._model_combo = QComboBox()
+        self._model_combo.setMinimumWidth(160)
+        row.addWidget(self._model_combo, 1)
+
+        self._btn_refresh = QPushButton("↻")
+        self._btn_refresh.setFixedWidth(28)
+        self._btn_refresh.setToolTip("Ricarica modelli disponibili")
+        self._btn_refresh.clicked.connect(self._manual_refresh)
+        row.addWidget(self._btn_refresh)
+        root.addLayout(row)
+
+        # Istruzione
+        root.addWidget(QLabel(tr("label.ai_instruction")))
+        self._instruction = QLineEdit()
+        self._instruction.setText(tr("msg.build_ai_default_prompt"))
+        root.addWidget(self._instruction)
+
+        # Anteprima log
+        root.addWidget(QLabel(tr("label.build_log_preview")))
+        self._preview = QTextEdit()
+        self._preview.setReadOnly(True)
+        self._preview.setFont(QFont("Monospace", 9))
+        self._preview.setStyleSheet(
+            "background:#1e1e1e; color:#d4d4d4; border:1px solid #3c3c3c;"
+        )
+        preview_text = self._log_text[-self._MAX_PREVIEW:]
+        self._preview.setPlainText(preview_text)
+        root.addWidget(self._preview)
+        if len(self._log_text) > self._MAX_PREVIEW:
+            note = QLabel(tr("msg.build_log_truncated"))
+            note.setStyleSheet("color: gray; font-size: 11px;")
+            root.addWidget(note)
+
+        # Bottoni
+        bbox = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        bbox.button(QDialogButtonBox.StandardButton.Ok).setText(
+            tr("action.build_analyze_ai_send")
+        )
+        bbox.accepted.connect(self.accept)
+        bbox.rejected.connect(self.reject)
+        root.addWidget(bbox)
+
+        # Ripristina ultima scelta poi triggera il refresh
+        from config.settings import Settings
+        s = Settings.instance()
+        last_p = s.get("build/ai_provider", "")
+        last_m = s.get("build/ai_model",    "")
+        if last_p:
+            idx = self._provider_combo.findText(last_p)
+            if idx >= 0:
+                self._provider_combo.setCurrentIndex(idx)
+                # _on_provider_changed già chiamato dal setCurrentIndex → non richiamare
+                if last_m:
+                    self._model_combo.setCurrentText(last_m)
+                return
+        self._on_provider_changed()
+        if last_m:
+            self._model_combo.setCurrentText(last_m)
+
+    # ── Provider / modello ────────────────────────────────────────────────────
+
+    def _on_provider_changed(self) -> None:
+        name = self._provider_combo.currentText()
+        info = self._providers.get(name, {})
+        pid  = info.get("id", "")
+
+        self._model_combo.clear()
+        self._model_combo.addItems(info.get("models", []))
+        default = info.get("default", "")
+        if default:
+            self._model_combo.setCurrentText(default)
+
+        self._btn_refresh.setVisible(pid in ("ollama", "anthropic"))
+
+        if pid == "ollama":
+            self._refresh_ollama()
+        elif pid == "anthropic":
+            self._refresh_anthropic()
+
+    def _manual_refresh(self) -> None:
+        pid = self._providers.get(self._provider_combo.currentText(), {}).get("id", "")
+        if pid == "ollama":
+            self._refresh_ollama()
+        elif pid == "anthropic":
+            self._refresh_anthropic()
+
+    # ── Ollama — identico al plugin AI ───────────────────────────────────────
+
+    def _refresh_ollama(self) -> None:
+        import threading, urllib.request, json as _json
+        from config.settings import Settings
+        url_base = Settings.instance().get("ai/ollama_key", "") or "http://localhost:11434"
+        self._model_combo.setEnabled(False)
+
+        def _fetch():
+            try:
+                req = urllib.request.Request(
+                    f"{url_base.rstrip('/')}/api/tags", method="GET"
+                )
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    data = _json.loads(resp.read())
+                models = [m["name"] for m in data.get("models", [])]
+                self._ollama_ready.emit(models or [])
+            except Exception:
+                self._ollama_ready.emit(None)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _set_ollama_models(self, models) -> None:
+        if self._providers.get(self._provider_combo.currentText(), {}).get("id") != "ollama":
+            return
+        self._model_combo.clear()
+        if models is None:
+            self._model_combo.addItem("⚠ ollama non raggiungibile")
+            self._model_combo.setEnabled(False)
+            return
+        self._model_combo.setEnabled(True)
+        for m in models:
+            self._model_combo.addItem(m)
+
+    # ── Anthropic — identico al plugin AI ────────────────────────────────────
+
+    def _refresh_anthropic(self) -> None:
+        import threading, urllib.request, json as _json
+        from config.settings import Settings
+        api_key = Settings.instance().get("ai/anthropic_key", "").strip()
+        if not api_key:
+            return  # nessuna chiave — lascia i modelli statici
+        self._btn_refresh.setEnabled(False)
+        self._btn_refresh.setText("…")
+
+        def _fetch():
+            try:
+                req = urllib.request.Request(
+                    "https://api.anthropic.com/v1/models",
+                    method="GET",
+                    headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+                )
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = _json.loads(resp.read())
+                model_ids = [
+                    m["id"] for m in data.get("data", [])
+                    if m.get("id", "").startswith("claude-")
+                ]
+                static  = self._providers["Anthropic (Claude)"]["models"]
+                known   = [m for m in static   if m in model_ids]
+                extra   = [m for m in model_ids if m not in static]
+                self._anthropic_ready.emit((known + extra) or None)
+            except Exception:
+                self._anthropic_ready.emit(None)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _set_anthropic_models(self, models) -> None:
+        self._btn_refresh.setEnabled(True)
+        self._btn_refresh.setText("↻")
+        if self._providers.get(self._provider_combo.currentText(), {}).get("id") != "anthropic":
+            return
+        if not models:
+            return
+        current = self._model_combo.currentText()
+        self._model_combo.clear()
+        for m in models:
+            self._model_combo.addItem(m)
+        idx = self._model_combo.findText(current)
+        self._model_combo.setCurrentIndex(idx if idx >= 0 else 0)
+
+    # ── Dati finali ───────────────────────────────────────────────────────────
+
+    def selected_provider(self) -> str:
+        return self._provider_combo.currentText()
+
+    def selected_model(self) -> str:
+        return self._model_combo.currentText()
+
+    def prompt(self) -> str:
+        instruction = self._instruction.text().strip()
+        log = self._log_text
+        if len(log) > 12000:
+            log = "...[log troncato, parte finale]\n" + log[-12000:]
+        return f"{instruction}\n\n---LOG---\n{log}\n---"
+
+    def accept(self) -> None:
+        from config.settings import Settings
+        s = Settings.instance()
+        s.set("build/ai_provider", self.selected_provider())
+        s.set("build/ai_model",    self.selected_model())
+        super().accept()
 
 
 class BuildPanel(QWidget):
@@ -101,9 +330,14 @@ class BuildPanel(QWidget):
         self._btn_open_pdf.setToolTip(tr("tooltip.build_open_pdf"))
         self._btn_open_pdf.setEnabled(False)
 
+        self._btn_analyze_ai = QPushButton(tr("action.build_analyze_ai"))
+        self._btn_analyze_ai.setToolTip(tr("tooltip.build_analyze_ai"))
+        self._btn_analyze_ai.setEnabled(False)
+        self._set_analyze_ai_icon()
+
         for btn in [self._btn_compile, self._btn_run,
                     self._btn_build, self._btn_stop, self._btn_clear,
-                    self._btn_open_pdf]:
+                    self._btn_open_pdf, self._btn_analyze_ai]:
             tb.addWidget(btn)
 
 
@@ -184,13 +418,35 @@ class BuildPanel(QWidget):
         self._btn_build.clicked.connect(  lambda: self._run_action("build"))
         self._btn_open_pdf.clicked.connect(self._open_pdf_in_preview)
         self._btn_stop.clicked.connect(bm.stop)
-        self._btn_clear.clicked.connect(self._output.clear)
+        self._btn_clear.clicked.connect(self._clear_output)
+        self._btn_analyze_ai.clicked.connect(self._analyze_with_ai)
 
         # Sincronizza il profilo quando cambia il tab nell'editor
         try:
             self._mw._tab_manager.current_editor_changed.connect(
                 self._sync_profile_to_editor
             )
+        except Exception:
+            pass
+
+    def _set_analyze_ai_icon(self) -> None:
+        from pathlib import Path
+        from PyQt6.QtGui import QPalette, QPixmap, QIcon
+        from config.settings import Settings
+        icon_set  = Settings.instance().get("ui/icon_set", "lucide")
+        icons_dir = Path(__file__).parent.parent / "icons" / icon_set
+        icon_path = icons_dir / "sparkles.svg"
+        if not icon_path.exists():
+            icon_path = Path(__file__).parent.parent / "icons" / "lucide" / "sparkles.svg"
+        if not icon_path.exists():
+            return
+        color = self.palette().color(QPalette.ColorRole.WindowText).name()
+        try:
+            svg_data = icon_path.read_bytes().replace(b"currentColor", color.encode())
+            pm = QPixmap()
+            if pm.loadFromData(svg_data, "SVG") and not pm.isNull():
+                self._btn_analyze_ai.setIcon(QIcon(pm))
+                self._btn_analyze_ai.setIconSize(QSize(16, 16))
         except Exception:
             pass
 
@@ -293,6 +549,9 @@ class BuildPanel(QWidget):
 
         started = self._bm.run(action, editor)
         if started:
+            self._output.clear()
+            self._error_tree.clear()
+            self._btn_analyze_ai.setEnabled(False)
             self._btn_stop.setEnabled(True)
             self._btn_compile.setEnabled(False)
             self._btn_run.setEnabled(False)
@@ -362,6 +621,9 @@ class BuildPanel(QWidget):
         else:
             self._btn_open_pdf.setEnabled(False)
 
+        # Abilita "Analizza con AI" — utile sia in caso di errore sia di successo
+        self._btn_analyze_ai.setEnabled(True)
+
         # Parsing errori automatico
         if not success and self._current_profile:
             output_text = self._output.toPlainText()
@@ -419,6 +681,74 @@ class BuildPanel(QWidget):
 
         # Aggiorna label pulsante con nome file
         self._btn_open_pdf.setText(f"📄 {pdf_path.name}")
+
+    def _clear_output(self) -> None:
+        self._output.clear()
+        self._btn_analyze_ai.setEnabled(False)
+
+    def _analyze_with_ai(self) -> None:
+        """Apre il dialogo di conferma e invia il log all'AI selezionata."""
+        log_text = self._output.toPlainText().strip()
+        if not log_text:
+            return
+
+        try:
+            from plugins.ai_plugin import PROVIDERS
+        except ImportError:
+            QMessageBox.warning(self.window(), "AI",
+                                "Plugin AI non disponibile.")
+            return
+
+        dlg = _AIAnalyzeDialog(log_text, PROVIDERS, self.window())
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        provider_name = dlg.selected_provider()
+        model_name    = dlg.selected_model()
+        prompt        = dlg.prompt()
+
+        # Recupera il pannello AI dal plugin manager
+        try:
+            from plugins.plugin_manager import PluginManager
+            ai_entry  = PluginManager.instance().get_all().get("AI Assistant", {})
+            ai_plugin = ai_entry.get("instance")
+            if ai_plugin is None:
+                raise RuntimeError("Plugin non caricato")
+            panel = ai_plugin._panel
+            dock  = ai_plugin._dock
+        except Exception as exc:
+            QMessageBox.warning(self.window(), "AI",
+                                f"Impossibile accedere al plugin AI:\n{exc}")
+            return
+
+        # Imposta provider
+        idx = panel._provider_combo.findText(provider_name)
+        if idx >= 0:
+            panel._provider_combo.setCurrentIndex(idx)
+
+        pid = PROVIDERS.get(provider_name, {}).get("id", "")
+
+        def _launch():
+            panel._model_combo.setCurrentText(model_name)
+            dock.show()
+            panel._input.setPlainText(prompt)
+            panel._send()
+
+        if pid == "ollama" and panel._model_combo.findText(model_name) < 0:
+            # Il provider change ha avviato un fetch asincrono; aspettiamo il segnale.
+            _fired = [False]
+            def _on_ready(_models):
+                if _fired[0]:
+                    return
+                _fired[0] = True
+                try:
+                    panel._ollama_ready.disconnect(_on_ready)
+                except Exception:
+                    pass
+                _launch()
+            panel._ollama_ready.connect(_on_ready)
+        else:
+            _launch()
 
     @pyqtSlot(list)
     def _show_errors(self, errors: list) -> None:

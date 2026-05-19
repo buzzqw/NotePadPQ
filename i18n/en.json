@@ -246,7 +246,9 @@
     "lang_toolbar_end_env": "End environment",
     "lang_toolbar_env_name": "Environment name:",
     "lang_toolbar_export_pdf": "Export as PDF",
-    "lang_toolbar_export_html": "Export as HTML"
+    "lang_toolbar_export_html": "Export as HTML",
+    "build_analyze_ai":      "Analyze log with AI",
+    "build_analyze_ai_send": "Send to AI"
   },
   "color": {
     "red": "Red",
@@ -312,7 +314,11 @@
     "spell_add_dict": "Add to dictionary",
     "spell_ignore_all": "Ignore all",
     "spell_on": "Spell check enabled",
-    "spell_off": "Spell check disabled"
+    "spell_off":         "Spell check disabled",
+    "ai_provider":       "Provider:",
+    "ai_model":          "Model:",
+    "ai_instruction":    "Instruction:",
+    "build_log_preview": "Log preview:"
   },
   "button": {
     "ok": "OK",
@@ -355,6 +361,9 @@
     "file_deleted_on_disk": "File \"{name}\" was deleted from disk. What do you want to do?",
     "encoding_detect_fail": "Cannot detect file encoding. UTF-8 will be used.",
     "no_results": "No results found for \"{query}\".",
+    "cursor_not_in_table": "Place the cursor inside a table",
+    "build_ai_default_prompt": "Analyze this compilation log, explain the errors and suggest how to fix them.",
+    "build_log_truncated": "Log truncated for display — the full log will be sent to AI",
     "replaced_n": "Replaced {count} occurrence(s).",
     "marked_n": "Marked {count} occurrence(s).",
     "macro_recording": "Macro recording...",
@@ -691,6 +700,13 @@
     "lang_toolbar_ol": "Numbered list",
     "lang_toolbar_task": "Task list",
     "lang_toolbar_hr": "Horizontal rule",
-    "latex_insert_image": "Insert image"
+    "latex_insert_image":  "Insert image",
+    "build_analyze_ai":    "Send compilation log to AI for analysis",
+    "table_row_above":    "Insert row above",
+    "table_row_below":    "Insert row below",
+    "table_col_left":     "Insert column left",
+    "table_col_right":    "Insert column right",
+    "table_delete_row":   "Delete row",
+    "table_delete_col":   "Delete column"
   }
 }

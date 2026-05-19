@@ -244,7 +244,9 @@
     "lang_toolbar_end_env": "Fin d'environnement",
     "lang_toolbar_env_name": "Nom de l'environnement :",
     "lang_toolbar_export_pdf": "Exporter en PDF",
-    "lang_toolbar_export_html": "Exporter en HTML"
+    "lang_toolbar_export_html": "Exporter en HTML",
+    "build_analyze_ai":      "Analyser le journal avec l'IA",
+    "build_analyze_ai_send": "Envoyer à l'IA"
   },
   "color": {
     "red": "Rouge",
@@ -310,7 +312,11 @@
     "spell_add_dict": "Ajouter au dictionnaire",
     "spell_ignore_all": "Ignorer tout",
     "spell_on": "Correcteur orthographique activé",
-    "spell_off": "Correcteur orthographique désactivé"
+    "spell_off":         "Correcteur orthographique désactivé",
+    "ai_provider":       "Fournisseur :",
+    "ai_model":          "Modèle :",
+    "ai_instruction":    "Instruction :",
+    "build_log_preview": "Aperçu du journal :"
   },
   "button": {
     "ok": "OK",
@@ -353,6 +359,9 @@
     "file_deleted_on_disk": "Le fichier \"{name}\" a été supprimé du disque. Que souhaitez-vous faire ?",
     "encoding_detect_fail": "Impossible de détecter l'encodage du fichier. UTF-8 sera utilisé.",
     "no_results": "Aucun résultat trouvé pour \"{query}\".",
+    "cursor_not_in_table": "Placez le curseur à l'intérieur d'un tableau",
+    "build_ai_default_prompt": "Analysez ce journal de compilation, expliquez les erreurs et suggérez des corrections.",
+    "build_log_truncated": "Journal tronqué pour l'affichage — le journal complet sera envoyé à l'IA",
     "replaced_n": "{count} occurrence(s) remplacée(s).",
     "marked_n": "{count} occurrence(s) marquée(s).",
     "macro_recording": "Enregistrement de la macro en cours...",
@@ -688,6 +697,13 @@
     "lang_toolbar_ol": "Liste numérotée",
     "lang_toolbar_task": "Liste de tâches",
     "lang_toolbar_hr": "Règle horizontale",
-    "latex_insert_image": "Insérer une image"
+    "latex_insert_image":  "Insérer une image",
+    "build_analyze_ai":    "Envoyer le journal de compilation à l'IA pour analyse",
+    "table_row_above":    "Insérer une ligne au-dessus",
+    "table_row_below":    "Insérer une ligne en dessous",
+    "table_col_left":     "Insérer une colonne à gauche",
+    "table_col_right":    "Insérer une colonne à droite",
+    "table_delete_row":   "Supprimer la ligne",
+    "table_delete_col":   "Supprimer la colonne"
   }
 }

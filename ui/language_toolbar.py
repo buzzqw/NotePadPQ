@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QAction, QIcon, QKeySequence, QCursor, QPixmap
+from PyQt6.QtGui import QAction, QColor, QIcon, QKeySequence, QCursor, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QToolButton, QFrame,
     QInputDialog, QApplication, QSizePolicy,
@@ -64,6 +64,77 @@ _MD_ICON_FILES: dict[str, str] = {
 }
 
 _ICON_SIZE = QSize(20, 20)
+
+# Testo fallback per i bottoni tabella (usato se la generazione icone fallisce)
+_TABLE_BTN_TEXT: dict[str, str] = {
+    "row_above": "+↑",
+    "row_below": "+↓",
+    "col_left":  "←+",
+    "col_right": "+→",
+    "del_row":   "−↕",
+    "del_col":   "−↔",
+}
+
+
+def _make_table_icon(key: str, mw: "MainWindow") -> QIcon:
+    """
+    Genera un'icona 20×20 stile TeXstudio: griglia 3×3 con la riga/colonna
+    interessata evidenziata in verde (inserimento) o arancione (cancellazione).
+    """
+    from PyQt6.QtGui import QPalette
+    size   = 20
+    cell   = 5    # dimensione cella griglia
+    gap    = 1    # spazio tra celle
+    rows   = 3
+    cols   = 3
+
+    # Colori
+    pal        = mw.palette()
+    bg_color   = pal.color(QPalette.ColorRole.Window)
+    grid_color = pal.color(QPalette.ColorRole.Mid)
+    hi_green   = QColor("#4caf50")
+    hi_orange  = QColor("#ff9800")
+
+    # Determina quale riga/colonna evidenziare e con quale colore
+    # key: row_above → riga 0 verde; row_below → riga 2 verde
+    #       col_left → col 0 verde; col_right → col 2 verde
+    #       del_row  → riga 1 arancione; del_col → col 1 arancione
+    hi_row = hi_col = -1
+    hi_color = hi_green
+    if key == "row_above":
+        hi_row, hi_color = 0, hi_green
+    elif key == "row_below":
+        hi_row, hi_color = 2, hi_green
+    elif key == "col_left":
+        hi_col, hi_color = 0, hi_green
+    elif key == "col_right":
+        hi_col, hi_color = 2, hi_green
+    elif key == "del_row":
+        hi_row, hi_color = 1, hi_orange
+    elif key == "del_col":
+        hi_col, hi_color = 1, hi_orange
+
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+
+    # Offset per centrare la griglia (3 celle da 5px + 2 gap da 1px = 17px)
+    ox = (size - (cols * cell + (cols - 1) * gap)) // 2
+    oy = (size - (rows * cell + (rows - 1) * gap)) // 2
+
+    for r in range(rows):
+        for c in range(cols):
+            x = ox + c * (cell + gap)
+            y = oy + r * (cell + gap)
+            if r == hi_row or c == hi_col:
+                color = hi_color
+            else:
+                color = grid_color
+            p.fillRect(x, y, cell, cell, color)
+
+    p.end()
+    return QIcon(pm)
 
 
 def _load_icon(icon_key: str, mw: "MainWindow") -> QIcon:
@@ -375,6 +446,8 @@ class _LanguageToolbarWidget(QWidget):
         btn_tbl = self._add_icon_btn("md_table", "▦", tip)
         btn_tbl.clicked.connect(self._show_md_table_picker)
 
+        self._add_table_edit_buttons()
+
         tip = tr("action.lang_toolbar_link", default="Link") + "  Ctrl+Shift+K"
         btn_link = self._add_icon_btn("md_link", "🔗", tip)
         btn_link.clicked.connect(self._insert_md_link)
@@ -428,6 +501,8 @@ class _LanguageToolbarWidget(QWidget):
         tip = tr("action.lang_toolbar_table", default="Tabella")
         btn_tbl = self._add_icon_btn("md_table", "▦", tip)
         btn_tbl.clicked.connect(self._show_latex_table_picker)
+
+        self._add_table_edit_buttons()
 
         # Avvolgi ambiente
         if "wrap_env" in acts:
@@ -1096,6 +1171,52 @@ class _LanguageToolbarWidget(QWidget):
             line, col = editor.getCursorPosition()
             editor.insert(code)
             editor.setCursorPosition(line, col + len(code.split("\n")[0]))
+        editor.setFocus()
+
+    # ── Bottoni editing tabella ───────────────────────────────────────────────
+
+    def _add_table_edit_buttons(self) -> None:
+        """Aggiunge i 6 bottoni griglia-stile-TeXstudio per editing tabelle."""
+        actions = [
+            ("row_above", tr("tooltip.table_row_above",   default="Inserisci riga sopra"),    "above", "row"),
+            ("row_below", tr("tooltip.table_row_below",   default="Inserisci riga sotto"),     "below", "row"),
+            ("col_left",  tr("tooltip.table_col_left",    default="Inserisci colonna sinistra"), "left",  "col"),
+            ("col_right", tr("tooltip.table_col_right",   default="Inserisci colonna destra"),  "right", "col"),
+            ("del_row",   tr("tooltip.table_delete_row",  default="Elimina riga"),              None,    "del_row"),
+            ("del_col",   tr("tooltip.table_delete_col",  default="Elimina colonna"),           None,    "del_col"),
+        ]
+        for key, tip, where, action in actions:
+            btn = QToolButton(self)
+            btn.setToolTip(tip)
+            btn.setIconSize(_ICON_SIZE)
+            icon = _make_table_icon(key, self._mw)
+            if not icon.isNull():
+                btn.setIcon(icon)
+                btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            else:
+                btn.setText(_TABLE_BTN_TEXT[key])
+                btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            btn.clicked.connect(lambda c, w=where, a=action: self._table_edit(a, w))
+            self._layout.insertWidget(self._layout.count() - 1, btn)
+
+    def _table_edit(self, action: str, where: Optional[str]) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        from editor import table_editor as te
+        if action == "row":
+            ok = te.add_row(editor, where)
+        elif action == "col":
+            ok = te.add_column(editor, where)
+        elif action == "del_row":
+            ok = te.delete_row(editor)
+        else:
+            ok = te.delete_column(editor)
+        if not ok:
+            if hasattr(self._mw, "statusBar"):
+                self._mw.statusBar().showMessage(
+                    tr("msg.cursor_not_in_table", default="Posiziona il cursore all'interno di una tabella"), 3000
+                )
         editor.setFocus()
 
     @staticmethod

@@ -244,7 +244,9 @@
     "lang_toolbar_end_env": "Umgebung beenden",
     "lang_toolbar_env_name": "Umgebungsname:",
     "lang_toolbar_export_pdf": "Als PDF exportieren",
-    "lang_toolbar_export_html": "Als HTML exportieren"
+    "lang_toolbar_export_html": "Als HTML exportieren",
+    "build_analyze_ai":      "Log mit KI analysieren",
+    "build_analyze_ai_send": "An KI senden"
   },
   "color": {
     "red": "Rot",
@@ -310,7 +312,11 @@
     "spell_add_dict": "Zum Wörterbuch hinzufügen",
     "spell_ignore_all": "Alle ignorieren",
     "spell_on": "Rechtschreibprüfung aktiviert",
-    "spell_off": "Rechtschreibprüfung deaktiviert"
+    "spell_off":         "Rechtschreibprüfung deaktiviert",
+    "ai_provider":       "Anbieter:",
+    "ai_model":          "Modell:",
+    "ai_instruction":    "Anweisung:",
+    "build_log_preview": "Log-Vorschau:"
   },
   "button": {
     "ok": "OK",
@@ -353,6 +359,9 @@
     "file_deleted_on_disk": "Die Datei \"{name}\" wurde vom Datenträger gelöscht. Was möchten Sie tun?",
     "encoding_detect_fail": "Dateicodierung kann nicht erkannt werden. UTF-8 wird verwendet.",
     "no_results": "Keine Ergebnisse für \"{query}\" gefunden.",
+    "cursor_not_in_table": "Cursor innerhalb einer Tabelle platzieren",
+    "build_ai_default_prompt": "Analysiere dieses Kompilierungsprotokoll, erkläre die Fehler und schlage Korrekturen vor.",
+    "build_log_truncated": "Log für die Anzeige gekürzt — das vollständige Log wird an die KI gesendet",
     "replaced_n": "{count} Vorkommen ersetzt.",
     "marked_n": "{count} Vorkommen markiert.",
     "macro_recording": "Makro wird aufgezeichnet...",
@@ -688,6 +697,13 @@
     "lang_toolbar_ol": "Nummerierte Liste",
     "lang_toolbar_task": "Aufgabenliste",
     "lang_toolbar_hr": "Horizontale Linie",
-    "latex_insert_image": "Bild einfügen"
+    "latex_insert_image":  "Bild einfügen",
+    "build_analyze_ai":    "Kompilierungsprotokoll zur KI-Analyse senden",
+    "table_row_above":    "Zeile darüber einfügen",
+    "table_row_below":    "Zeile darunter einfügen",
+    "table_col_left":     "Spalte links einfügen",
+    "table_col_right":    "Spalte rechts einfügen",
+    "table_delete_row":   "Zeile löschen",
+    "table_delete_col":   "Spalte löschen"
   }
 }

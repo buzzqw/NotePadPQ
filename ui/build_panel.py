@@ -316,10 +316,10 @@ class BuildPanel(QWidget):
         tb.addWidget(self._profile_combo)
         tb.addSeparator()
 
-        # Pulsanti azione
-        self._btn_compile = QPushButton(tr("action.compile", default="Compila") + "  F6")
-        self._btn_run     = QPushButton(tr("action.run",     default="Esegui") +  "  F5")
-        self._btn_build   = QPushButton(tr("action.build",   default="Build") +   "  F7")
+        # Pulsanti azione — le etichette includono la shortcut reale, letta dinamicamente
+        self._btn_compile = QPushButton(tr("action.compile", default="Compila"))
+        self._btn_run     = QPushButton(tr("action.run",     default="Esegui"))
+        self._btn_build   = QPushButton(tr("action.build",   default="Build"))
         self._btn_stop    = QPushButton(tr("action.stop_build", default="Stop"))
         self._btn_clear   = QPushButton(tr("button.clear",   default="Pulisci"))
 
@@ -407,6 +407,8 @@ class BuildPanel(QWidget):
         layout.addWidget(self._tabs, 1)
         layout.addWidget(self._status_bar)
 
+        QTimer.singleShot(0, self._refresh_button_labels)
+
     def _connect_signals(self) -> None:
         bm = self._bm
         bm.build_output.connect(self._append_output)
@@ -428,6 +430,22 @@ class BuildPanel(QWidget):
             )
         except Exception:
             pass
+
+    def _refresh_button_labels(self) -> None:
+        """Aggiorna le etichette dei pulsanti con la shortcut attuale letta da _actions."""
+        actions = getattr(self._mw, "_actions", {})
+        mapping = {
+            self._btn_compile: ("compile", tr("action.compile", default="Compila")),
+            self._btn_run:     ("run",     tr("action.run",     default="Esegui")),
+            self._btn_build:   ("build",   tr("action.build",   default="Build")),
+        }
+        for btn, (key, label) in mapping.items():
+            action = actions.get(key)
+            if action:
+                sc = action.shortcut().toString()
+                btn.setText(f"{label}  {sc}" if sc else label)
+            else:
+                btn.setText(label)
 
     def _set_analyze_ai_icon(self) -> None:
         from pathlib import Path

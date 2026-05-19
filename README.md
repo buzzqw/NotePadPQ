@@ -119,6 +119,10 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 
 ### 🔌 Sistema Plugin
 
+<img width="1920" alt="Plugin menu" src="immagini/notepadpq09.png" />
+
+*Il menu Plugins mostra l'intero ecosistema di estensioni disponibili*
+
 | Plugin | Funzione |
 |--------|----------|
 | **AI Assistant** | Chat AI multi-provider con streaming, Extended Thinking e lista modelli dinamica |
@@ -207,11 +211,29 @@ python main.py file1.py file2.md  # apre i file specificati
 
 ---
 
+### 👁️ Anteprima Markdown live
+
+<img width="1920" alt="Markdown live preview" src="immagini/notepadpq02.png" />
+
+*Editor Markdown con anteprima live nel pannello di destra e Function List con navigazione struttura*
+
+---
+
 ### 📄 Visualizzatore PDF
 
 <img width="1920" alt="PDF viewer" src="immagini/pdf.png" />
 
 *Anteprima PDF integrata con SyncTeX, zoom e navigazione pagine*
+
+---
+
+### 🏗️ Build Panel — LaTeX
+
+<img width="1920" alt="Build Panel LaTeX" src="immagini/notepadpq01.png" />
+
+*Editor LaTeX con Function List, anteprima PDF integrata, pannello Build e output di compilazione in tempo reale*
+
+> 💡 Il Build Panel supporta profili per LaTeX, Python, C/C++, Markdown e molti altri linguaggi. Variabili come `${FILE}`, `${DIR}`, `${BASENAME}` sono espanse automaticamente nei comandi di build.
 
 ---
 
@@ -347,6 +369,10 @@ Dock panel with multi-provider AI chat:
 Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) directly from right-click in the editor. Bring-your-own-key; each provider has its own configurable API key.
 
 ### 🔌 Plugin System
+
+<img width="1920" alt="Plugin menu" src="immagini/notepadpq09.png" />
+
+*The Plugins menu displays the full extension ecosystem available*
 
 | Plugin | Function |
 |--------|----------|

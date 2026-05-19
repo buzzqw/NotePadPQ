@@ -1098,31 +1098,33 @@ class ThemeManager(QObject):
             editor.setPaper(bg)
             editor.setColor(fg)
 
-        if c("caret_line_bg"):
-            editor.setCaretLineBackgroundColor(c("caret_line_bg"))
-        if c("caret_fg"):
-            editor.setCaretForegroundColor(c("caret_fg"))
-        if c("margin_bg"):
-            editor.setMarginsBackgroundColor(c("margin_bg"))
-        if c("margin_fg"):
-            editor.setMarginsForegroundColor(c("margin_fg"))
-        if c("selection_bg"):
-            editor.setSelectionBackgroundColor(c("selection_bg"))
+        # Ogni chiave viene risolta UNA SOLA VOLTA e riusata — evita QColor duplicati
+        if col := c("caret_line_bg"):
+            editor.setCaretLineBackgroundColor(col)
+        if col := c("caret_fg"):
+            editor.setCaretForegroundColor(col)
+        if col := c("margin_bg"):
+            editor.setMarginsBackgroundColor(col)
+        if col := c("margin_fg"):
+            editor.setMarginsForegroundColor(col)
+        if col := c("selection_bg"):
+            editor.setSelectionBackgroundColor(col)
         sel_fg = c("selection_fg")
         if sel_fg:
             editor.setSelectionForegroundColor(sel_fg)
-        if c("brace_match_bg"):
-            editor.setMatchedBraceBackgroundColor(c("brace_match_bg"))
-        if c("brace_match_fg"):
-            editor.setMatchedBraceForegroundColor(c("brace_match_fg"))
-        if c("brace_bad_bg"):
-            editor.setUnmatchedBraceBackgroundColor(c("brace_bad_bg"))
-        if c("brace_bad_fg"):
-            editor.setUnmatchedBraceForegroundColor(c("brace_bad_fg"))
-        if c("whitespace_fg"):
-            editor.setWhitespaceForegroundColor(c("whitespace_fg"))
-        if c("fold_fg"):
-            editor.setFoldMarginColors(c("fold_bg") or bg, c("fold_fg"))
+        if col := c("brace_match_bg"):
+            editor.setMatchedBraceBackgroundColor(col)
+        if col := c("brace_match_fg"):
+            editor.setMatchedBraceForegroundColor(col)
+        if col := c("brace_bad_bg"):
+            editor.setUnmatchedBraceBackgroundColor(col)
+        if col := c("brace_bad_fg"):
+            editor.setUnmatchedBraceForegroundColor(col)
+        if col := c("whitespace_fg"):
+            editor.setWhitespaceForegroundColor(col)
+        col_fold_fg = c("fold_fg")
+        if col_fold_fg:
+            editor.setFoldMarginColors(c("fold_bg") or bg, col_fold_fg)
 
         # ── Lexer tokens ──
         lexer = editor.lexer()
@@ -1164,17 +1166,21 @@ class ThemeManager(QObject):
         default_tok = tokens.get("default", {})
         def_fg = QColor(default_tok.get("fg", editor_fg.name()))
         def_bg = QColor(default_tok.get("bg", editor_bg.name()))
+        # Crea il QFont base UNA SOLA VOLTA e lo riusa per tutti i 128 stili:
+        # evita di istanziare 128 oggetti QFont identici.
+        base_font = QFont(font_family, font_size)
+        base_font.setFixedPitch(True)
         for style_num in range(128):
             try:
-                f = QFont(font_family, font_size)
-                f.setFixedPitch(True)
                 lexer.setColor(def_fg, style_num)
                 lexer.setPaper(def_bg, style_num)
-                lexer.setFont(f, style_num)
+                lexer.setFont(base_font, style_num)
             except Exception:
                 break
 
-        # Secondo passo: applica i colori specifici per tipo di lexer
+        # Secondo passo: applica i colori specifici per tipo di lexer.
+        # base_font è già costruito sopra e viene riusato come template:
+        # si creano solo i QFont con bold/italic effettivamente diversi.
         def _apply(style_map: dict) -> None:
             """style_map: {stile_num: chiave_token}"""
             for style_num, tok_key in style_map.items():
@@ -1183,12 +1189,16 @@ class ThemeManager(QObject):
                     continue
                 fg = QColor(tok["fg"]) if "fg" in tok else def_fg
                 bg = QColor(tok.get("bg", def_bg.name()))
-                f  = QFont(font_family, font_size)
-                f.setFixedPitch(True)
-                if tok.get("bold"):
-                    f.setBold(True)
-                if tok.get("italic"):
-                    f.setItalic(True)
+                # Crea un nuovo QFont solo se bold o italic differiscono da base_font;
+                # altrimenti riusa base_font direttamente (nessuna allocazione extra).
+                needs_bold   = bool(tok.get("bold"))
+                needs_italic = bool(tok.get("italic"))
+                if needs_bold or needs_italic:
+                    f = QFont(base_font)
+                    if needs_bold:   f.setBold(True)
+                    if needs_italic: f.setItalic(True)
+                else:
+                    f = base_font
                 try:
                     lexer.setColor(fg, style_num)
                     lexer.setPaper(bg, style_num)

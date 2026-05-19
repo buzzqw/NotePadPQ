@@ -4241,41 +4241,57 @@ class MainWindow(QMainWindow):
 
     def _setup_resource_monitor(self) -> None:
         """Inizializza il widget nella statusbar per mostrare RAM e CPU del processo."""
-        self._resource_label = QLabel(" RAM: -- MB | CPU: --% ")
-        # Lasciamo solo un po' di margine ai lati, rimuovendo colore e dimensione fissa
+        self._resource_label = QLabel(" RAM: -- MB / -- / -- GB | CPU: --% / --% ")
         self._resource_label.setStyleSheet("padding: 0 8px;")
-        
         self._statusbar.addPermanentWidget(self._resource_label)
 
         self._resource_timer = QTimer(self)
         self._resource_timer.timeout.connect(self._update_resource_usage)
-        self._resource_timer.start(2000) # Aggiorna i dati ogni 2 secondi
-        
+        self._resource_timer.start(2000)
+
         try:
             import psutil
             import os
             self._process = psutil.Process(os.getpid())
             self._cpu_count = psutil.cpu_count() or 1
-            # La prima chiamata a cpu_percent serve a psutil per inizializzare il delta
-            self._process.cpu_percent(interval=None) 
+            # Prima chiamata: inizializza il delta per cpu_percent
+            self._process.cpu_percent(interval=None)
+            psutil.cpu_percent(interval=None)
         except ImportError:
             self._process = None
             self._resource_label.setText(" [Installa 'psutil' per RAM/CPU] ")
             self._resource_label.setToolTip("Da terminale esegui: pip install psutil")
+
     def _update_resource_usage(self) -> None:
         """Calcola e aggiorna i valori di RAM e CPU nella statusbar."""
-        if getattr(self, "_process", None):
-            try:
-                # Memoria Residente (RSS) convertita in Megabyte
-                mem_mb = self._process.memory_info().rss / (1024 * 1024)
-                
-                # CPU divisa per il numero di core per avere la percentuale reale di sistema
-                # (su thread multipli psutil.cpu_percent() può superare il 100%)
-                cpu_perc = self._process.cpu_percent(interval=None) / self._cpu_count
-                
-                self._resource_label.setText(f" RAM: {mem_mb:.1f} MB | CPU: {cpu_perc:.1f}% ")
-            except Exception:
-                pass                
+        if not getattr(self, "_process", None):
+            return
+        try:
+            import psutil
+
+            # RAM: app / sistema usata / sistema totale
+            app_mb  = self._process.memory_info().rss / (1024 ** 2)
+            vm      = psutil.virtual_memory()
+            sys_used_gb  = vm.used  / (1024 ** 3)
+            sys_total_gb = vm.total / (1024 ** 3)
+
+            # CPU: app (normalizzata per core) / sistema
+            app_cpu = self._process.cpu_percent(interval=None) / self._cpu_count
+            sys_cpu = psutil.cpu_percent(interval=None)
+
+            self._resource_label.setText(
+                f" RAM: {app_mb:.0f} MB / {sys_used_gb:.1f} / {sys_total_gb:.0f} GB"
+                f" | CPU: {app_cpu:.1f}% / {sys_cpu:.0f}% "
+            )
+            self._resource_label.setToolTip(
+                f"RAM applicazione:  {app_mb:.1f} MB\n"
+                f"RAM usata sistema: {sys_used_gb:.2f} GB\n"
+                f"RAM totale:        {sys_total_gb:.2f} GB\n"
+                f"CPU applicazione:  {app_cpu:.2f}%\n"
+                f"CPU sistema:       {sys_cpu:.1f}%"
+            )
+        except Exception:
+            pass
 
 
 # ─── Test standalone ──────────────────────────────────────────────────────────

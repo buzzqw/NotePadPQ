@@ -104,6 +104,7 @@ class FindReplaceDialog(QDialog):
         self._find_edit = QComboBox()
         self._find_edit.setEditable(True)
         self._find_edit.setMinimumWidth(300)
+        self._find_edit.setToolTip(tr("tooltip.find_edit"))
         g.addWidget(self._find_edit, 0, 1)
 
         # Opzioni checkbox
@@ -113,6 +114,11 @@ class FindReplaceDialog(QDialog):
         self._chk_wrap    = QCheckBox(tr("label.wrap_around"))
         self._chk_wrap.setChecked(True)
         self._chk_sel     = QCheckBox(tr("label.in_selection"))
+        self._chk_case.setToolTip(tr("tooltip.find_case"))
+        self._chk_word.setToolTip(tr("tooltip.find_word"))
+        self._chk_regex.setToolTip(tr("tooltip.find_regex_help"))
+        self._chk_wrap.setToolTip(tr("tooltip.find_wrap"))
+        self._chk_sel.setToolTip(tr("tooltip.find_in_selection"))
         opts = QHBoxLayout()
         for chk in [self._chk_case, self._chk_word, self._chk_regex,
                     self._chk_wrap, self._chk_sel]:
@@ -124,6 +130,8 @@ class FindReplaceDialog(QDialog):
         self._radio_fwd = QRadioButton(tr("label.direction_forward"))
         self._radio_bwd = QRadioButton(tr("label.direction_backward"))
         self._radio_fwd.setChecked(True)
+        self._radio_fwd.setToolTip(tr("tooltip.find_direction_fwd"))
+        self._radio_bwd.setToolTip(tr("tooltip.find_direction_bwd"))
         dir_box = QGroupBox()
         dir_lay = QHBoxLayout(dir_box)
         dir_lay.addWidget(self._radio_fwd)
@@ -135,7 +143,11 @@ class FindReplaceDialog(QDialog):
         self._btn_find_next = QPushButton(tr("button.find_next"))
         self._btn_find_prev = QPushButton(tr("button.find_prev"))
         self._btn_mark_all  = QPushButton(tr("button.mark_all"))
-        self._btn_count     = QPushButton("Conta")
+        self._btn_count     = QPushButton(tr("button.count"))
+        self._btn_find_next.setToolTip(tr("tooltip.find_next"))
+        self._btn_find_prev.setToolTip(tr("tooltip.find_prev"))
+        self._btn_mark_all.setToolTip(tr("tooltip.find_mark_all"))
+        self._btn_count.setToolTip(tr("tooltip.find_count"))
         for btn in [self._btn_find_next, self._btn_find_prev,
                     self._btn_mark_all, self._btn_count]:
             btn_layout.addWidget(btn)
@@ -209,7 +221,7 @@ ESEMPI
 
         # ── Lista occorrenze (bottom, ridimensionabile) ────────────────────
         self._find_occurrences = QTreeWidget()
-        self._find_occurrences.setHeaderLabels(["Riga", "Testo"])
+        self._find_occurrences.setHeaderLabels([tr("label.col_line"), tr("label.col_text")])
         self._find_occurrences.setRootIsDecorated(False)
         self._find_occurrences.setAlternatingRowColors(True)
         self._find_occurrences.setStyleSheet(_RESULTS_STYLE)
@@ -247,11 +259,13 @@ ESEMPI
         g.addWidget(QLabel(tr("label.find")),         0, 0)
         self._find_edit2 = QComboBox()
         self._find_edit2.setEditable(True)
+        self._find_edit2.setToolTip(tr("tooltip.find_edit"))
         g.addWidget(self._find_edit2, 0, 1)
 
         g.addWidget(QLabel(tr("label.replace_with")), 1, 0)
         self._replace_edit = QComboBox()
         self._replace_edit.setEditable(True)
+        self._replace_edit.setToolTip(tr("tooltip.replace_edit"))
         g.addWidget(self._replace_edit, 1, 1)
 
         # Stesse opzioni del tab Cerca
@@ -261,6 +275,9 @@ ESEMPI
         self._chk_regex2.setToolTip(tr("tooltip.find_regex_help"))
         self._chk_wrap2  = QCheckBox(tr("label.wrap_around"))
         self._chk_wrap2.setChecked(True)
+        self._chk_case2.setToolTip(tr("tooltip.find_case"))
+        self._chk_word2.setToolTip(tr("tooltip.find_word"))
+        self._chk_wrap2.setToolTip(tr("tooltip.find_wrap"))
         opts2 = QHBoxLayout()
         for chk in [self._chk_case2, self._chk_word2,
                     self._chk_regex2, self._chk_wrap2]:
@@ -272,6 +289,9 @@ ESEMPI
         self._btn_replace     = QPushButton(tr("button.replace"))
         self._btn_replace_all = QPushButton(tr("button.replace_all"))
         self._btn_find_next2  = QPushButton(tr("button.find_next"))
+        self._btn_find_next2.setToolTip(tr("tooltip.find_next"))
+        self._btn_replace.setToolTip(tr("tooltip.replace_one"))
+        self._btn_replace_all.setToolTip(tr("tooltip.replace_all"))
         for b in [self._btn_find_next2, self._btn_replace, self._btn_replace_all]:
             btns.addWidget(b)
         btns.addStretch()
@@ -297,25 +317,32 @@ ESEMPI
         top.addWidget(QLabel(tr("label.find")), 0, 0)
         self._fif_find = QLineEdit()
         self._fif_find.returnPressed.connect(self._do_find_in_files)
+        self._fif_find.setToolTip(tr("tooltip.fif_find"))
         top.addWidget(self._fif_find, 0, 1)
 
-        top.addWidget(QLabel("Directory:"), 1, 0)
+        top.addWidget(QLabel(tr("label.directory")), 1, 0)
         dir_layout = QHBoxLayout()
         self._fif_dir  = QLineEdit(str(Path.home()))
+        self._fif_dir.setToolTip(tr("tooltip.fif_dir"))
         btn_browse = QPushButton(tr("button.browse"))
+        btn_browse.setToolTip(tr("tooltip.fif_browse"))
         btn_browse.clicked.connect(self._browse_dir)
         dir_layout.addWidget(self._fif_dir)
         dir_layout.addWidget(btn_browse)
         top.addLayout(dir_layout, 1, 1)
 
-        top.addWidget(QLabel("Filtro file:"), 2, 0)
+        top.addWidget(QLabel(tr("label.file_filter")), 2, 0)
         self._fif_filter = QLineEdit("*.py;*.txt;*.md;*.tex")
+        self._fif_filter.setToolTip(tr("tooltip.fif_filter"))
         top.addWidget(self._fif_filter, 2, 1)
 
         self._fif_case   = QCheckBox(tr("label.match_case"))
         self._fif_regex  = QCheckBox(tr("label.regex"))
-        self._fif_sub    = QCheckBox("Sottodirectory")
+        self._fif_sub    = QCheckBox(tr("label.subdirectories"))
         self._fif_sub.setChecked(True)
+        self._fif_case.setToolTip(tr("tooltip.fif_case"))
+        self._fif_regex.setToolTip(tr("tooltip.fif_regex"))
+        self._fif_sub.setToolTip(tr("tooltip.fif_sub"))
         opts = QHBoxLayout()
         for w2 in [self._fif_case, self._fif_regex, self._fif_sub]:
             opts.addWidget(w2)
@@ -324,6 +351,7 @@ ESEMPI
 
         btn_row = QHBoxLayout()
         btn_find = QPushButton("🔍 " + tr("action.find_in_files"))
+        btn_find.setToolTip(tr("tooltip.fif_search"))
         btn_find.clicked.connect(self._do_find_in_files)
         self._fif_status = QLabel("")
         self._fif_status.setStyleSheet("color: #888; font-size: 11px;")
@@ -336,7 +364,7 @@ ESEMPI
 
         # Risultati integrati nel dialog
         self._fif_results = QTreeWidget()
-        self._fif_results.setHeaderLabels(["File / Riga", "Testo"])
+        self._fif_results.setHeaderLabels([tr("label.col_file_line"), tr("label.col_text")])
         self._fif_results.setRootIsDecorated(True)
         self._fif_results.setAlternatingRowColors(True)
         self._fif_results.setMinimumHeight(200)
@@ -355,14 +383,18 @@ ESEMPI
         grid.addWidget(QLabel(tr("label.find")),         0, 0)
         self._all_find = QLineEdit()
         self._all_find.returnPressed.connect(self._do_find_all_docs)
+        self._all_find.setToolTip(tr("tooltip.all_find"))
         grid.addWidget(self._all_find, 0, 1)
 
         grid.addWidget(QLabel(tr("label.replace_with")), 1, 0)
         self._all_replace = QLineEdit()
+        self._all_replace.setToolTip(tr("tooltip.all_replace"))
         grid.addWidget(self._all_replace, 1, 1)
 
         self._all_case  = QCheckBox(tr("label.match_case"))
         self._all_regex = QCheckBox(tr("label.regex"))
+        self._all_case.setToolTip(tr("tooltip.all_case"))
+        self._all_regex.setToolTip(tr("tooltip.all_regex"))
         opts = QHBoxLayout()
         opts.addWidget(self._all_case)
         opts.addWidget(self._all_regex)
@@ -372,6 +404,8 @@ ESEMPI
         btns = QHBoxLayout()
         btn_fa = QPushButton("🔍 " + tr("action.find_in_all_docs"))
         btn_ra = QPushButton("↔ " + tr("action.replace_in_all_docs"))
+        btn_fa.setToolTip(tr("tooltip.all_search"))
+        btn_ra.setToolTip(tr("tooltip.all_replace_btn"))
         btn_fa.clicked.connect(self._do_find_all_docs)
         btn_ra.clicked.connect(self._do_replace_all_docs)
         self._all_status = QLabel("")
@@ -385,7 +419,7 @@ ESEMPI
 
         # Risultati integrati
         self._all_results = QTreeWidget()
-        self._all_results.setHeaderLabels(["Documento / Riga", "Testo"])
+        self._all_results.setHeaderLabels([tr("label.col_doc_line"), tr("label.col_text")])
         self._all_results.setRootIsDecorated(True)
         self._all_results.setAlternatingRowColors(True)
         self._all_results.setMinimumHeight(200)
@@ -490,7 +524,7 @@ ESEMPI
                 pat = rf"{pat}"
             compiled = re.compile(pat, re_flags)
         except re.error as e:
-            self._lbl_status.setText(f"Regex non valida: {e}")
+            self._lbl_status.setText(tr("msg.regex_error", error=str(e)))
             return
 
         _ROLE = Qt.ItemDataRole.UserRole
@@ -517,7 +551,7 @@ ESEMPI
                 })
                 count += 1
         if count:
-            self._lbl_status.setText(f"✓ {count} occorrenze")
+            self._lbl_status.setText(tr("msg.occurrences_n", count=count))
             panel = getattr(self._mw, "_find_result_panel", None)
             if panel and file_path:
                 panel.add_results(pattern_text, panel_results)
@@ -531,7 +565,7 @@ ESEMPI
                 if build_dock:
                     build_dock.show()
         else:
-            self._lbl_status.setText(f"Nessun risultato per «{pattern_text}»")
+            self._lbl_status.setText(tr("msg.no_results_query", query=pattern_text))
 
     def _goto_occurrence(self, item: QTreeWidgetItem) -> None:
         """Vai alla riga dell'occorrenza cliccata."""
@@ -621,7 +655,7 @@ ESEMPI
     # ── Find in Files ─────────────────────────────────────────────────────────
 
     def _browse_dir(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "Seleziona directory")
+        path = QFileDialog.getExistingDirectory(self, tr("msg.select_directory"))
         if path:
             self._fif_dir.setText(path)
 
@@ -635,21 +669,21 @@ ESEMPI
         recurse  = self._fif_sub.isChecked()
 
         if not query:
-            self._fif_status.setText("⚠ Inserisci il testo da cercare")
+            self._fif_status.setText(tr("msg.enter_search_text"))
             return
         if not base_dir.is_dir():
-            self._fif_status.setText("⚠ Directory non valida")
+            self._fif_status.setText(tr("msg.invalid_directory"))
             return
 
         self._fif_results.clear()
-        self._fif_status.setText("🔍 Ricerca in corso…")
+        self._fif_status.setText(tr("msg.searching"))
         QApplication.processEvents()
 
         re_flags = 0 if case_s else re.IGNORECASE
         try:
             pattern = re.compile(query if use_re else re.escape(query), re_flags)
         except re.error as e:
-            self._fif_status.setText(f"⚠ Regex non valida: {e}")
+            self._fif_status.setText(tr("msg.regex_error", error=str(e)))
             return
 
         walker = os.walk(str(base_dir)) if recurse \
@@ -681,23 +715,23 @@ ESEMPI
                     rel = str(fpath)
                 file_item = QTreeWidgetItem(
                     self._fif_results,
-                    [f"📄 {rel}  ({len(matches)} corrispondenze)", ""]
+                    [f"📄 {rel}  (" + tr("msg.file_matches", matches=len(matches)) + ")", ""]
                 )
                 file_item.setData(0, _ROLE, {"path": str(fpath), "editor": None})
                 for line_num, line_text in matches:
                     child = QTreeWidgetItem([
-                        f"  Riga {line_num}", line_text.strip()[:140]
+                        "  " + tr("msg.row_n", n=line_num), line_text.strip()[:140]
                     ])
                     child.setData(0, _ROLE, {"path": str(fpath), "line": line_num, "editor": None})
                     file_item.addChild(child)
                 file_item.setExpanded(True)
 
         if total_matches == 0:
-            QTreeWidgetItem(self._fif_results, ["Nessun risultato trovato.", ""])
-            self._fif_status.setText(f"0 risultati per «{query}»")
+            QTreeWidgetItem(self._fif_results, [tr("msg.no_results_found"), ""])
+            self._fif_status.setText(tr("msg.zero_results", query=query))
         else:
             self._fif_status.setText(
-                f"✓ {total_matches} corrispondenze in {total_files} file"
+                tr("msg.results_count_files", matches=total_matches, files=total_files)
             )
             self._send_to_result_panel(query, self._fif_results)
         self._fif_results.resizeColumnToContents(0)
@@ -720,7 +754,7 @@ ESEMPI
     def _do_find_all_docs(self) -> None:
         query = self._all_find.text().strip()
         if not query:
-            self._all_status.setText("⚠ Inserisci il testo da cercare")
+            self._all_status.setText(tr("msg.enter_search_text"))
             return
         use_re = self._all_regex.isChecked()
         case_s = self._all_case.isChecked()
@@ -728,7 +762,7 @@ ESEMPI
         try:
             pattern = re.compile(query if use_re else re.escape(query), re_flags)
         except re.error as e:
-            self._all_status.setText(f"⚠ Regex non valida: {e}")
+            self._all_status.setText(tr("msg.regex_error", error=str(e)))
             return
 
         self._all_results.clear()
@@ -745,20 +779,20 @@ ESEMPI
             total_matches += len(matches)
             doc_item = QTreeWidgetItem(
                 self._all_results,
-                [f"📄 {name}  ({len(matches)} corrispondenze)", ""]
+                [f"📄 {name}  (" + tr("msg.file_matches", matches=len(matches)) + ")", ""]
             )
             doc_item.setData(0, _ROLE, {"editor": editor})
             for ln, lt in matches:
-                child = QTreeWidgetItem([f"  Riga {ln}", lt.strip()[:140]])
+                child = QTreeWidgetItem(["  " + tr("msg.row_n", n=ln), lt.strip()[:140]])
                 child.setData(0, _ROLE, {"editor": editor, "line": ln})
                 doc_item.addChild(child)
             doc_item.setExpanded(True)
 
         if total_matches == 0:
-            QTreeWidgetItem(self._all_results, ["Nessun risultato trovato.", ""])
-            self._all_status.setText(f"0 risultati per «{query}»")
+            QTreeWidgetItem(self._all_results, [tr("msg.no_results_found"), ""])
+            self._all_status.setText(tr("msg.zero_results", query=query))
         else:
-            self._all_status.setText(f"✓ {total_matches} corrispondenze")
+            self._all_status.setText(tr("msg.results_count", matches=total_matches))
             self._send_to_result_panel(query, self._all_results, in_docs=True)
         self._all_results.resizeColumnToContents(0)
 
@@ -827,7 +861,7 @@ ESEMPI
         sel = editor.selectedText()
         if "\n" in sel:
             return ""
-        return sel.strip()
+        return sel
 
     @classmethod
     def show_find(cls, main_window: "MainWindow") -> None:

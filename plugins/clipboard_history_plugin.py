@@ -21,9 +21,12 @@ Attivazione:
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, TYPE_CHECKING
+
+from cryptography.fernet import Fernet
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -237,23 +240,68 @@ class _ClipboardPanel(QWidget):
 
     def _history_path(self) -> Path:
         from core.platform import get_data_dir
-        return get_data_dir() / "clipboard_history.json"
+        return get_data_dir() / "clipboard_history.enc"
+
+    def _key_path(self) -> Path:
+        from core.platform import get_data_dir
+        return get_data_dir() / "clipboard_history.key"
+
+    def _get_fernet(self) -> Fernet:
+        """Carica o genera la chiave Fernet usando il keyring di sistema (come FTP/Git).
+        Fallback su file .key se keyring non è disponibile."""
+        _SERVICE = "NotePadPQ_Clipboard"
+        _KEY_NAME = "fernet_key"
+        try:
+            import keyring
+            raw = keyring.get_password(_SERVICE, _KEY_NAME)
+            if raw:
+                return Fernet(raw.encode("ascii"))
+            key = Fernet.generate_key()
+            keyring.set_password(_SERVICE, _KEY_NAME, key.decode("ascii"))
+            # Rimuovi il vecchio file .key se esiste
+            kp = self._key_path()
+            if kp.exists():
+                kp.unlink(missing_ok=True)
+            return Fernet(key)
+        except Exception:
+            pass
+        # Fallback: file .key su disco con permessi 0o600
+        kp = self._key_path()
+        if kp.exists():
+            key = kp.read_bytes()
+        else:
+            key = Fernet.generate_key()
+            kp.write_bytes(key)
+            try:
+                os.chmod(kp, 0o600)
+            except Exception:
+                pass
+        return Fernet(key)
 
     def _load_history(self) -> None:
         try:
             p = self._history_path()
+            # Migrazione: se esiste ancora il vecchio file in chiaro, lo legge e lo rimuove
+            legacy = p.with_suffix(".json")
+            if legacy.exists() and not p.exists():
+                self._history = json.loads(legacy.read_text(encoding="utf-8"))
+                self._last_text = self._history[0] if self._history else ""
+                self._save_history()   # riscrive cifrato
+                legacy.unlink(missing_ok=True)
+                return
             if p.exists():
-                self._history = json.loads(p.read_text(encoding="utf-8"))
+                fernet = self._get_fernet()
+                decrypted = fernet.decrypt(p.read_bytes())
+                self._history = json.loads(decrypted.decode("utf-8"))
                 self._last_text = self._history[0] if self._history else ""
         except Exception:
             self._history = []
 
     def _save_history(self) -> None:
         try:
-            self._history_path().write_text(
-                json.dumps(self._history[:MAX_HISTORY], ensure_ascii=False),
-                encoding="utf-8"
-            )
+            fernet = self._get_fernet()
+            data = json.dumps(self._history[:MAX_HISTORY], ensure_ascii=False).encode("utf-8")
+            self._history_path().write_bytes(fernet.encrypt(data))
         except Exception:
             pass
 

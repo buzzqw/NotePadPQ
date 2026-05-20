@@ -39,6 +39,7 @@ odfpy>=1.4.1           # Lettura/scrittura ODS (fallback se openpyxl non support
 PyGithub>=1.55         # Plugin GitHub PR
 python-gitlab>=3.0.0   # Plugin GitLab MR
 keyring>=23.5.0        # Gestione sicura dei token
+cryptography>=41.0.0   # Cifratura file clipboard_history (Fernet/AES)
 
 # --- LSP (Language Server Protocol) ---
 # Il client LSP usa solo librerie standard (subprocess, json, threading).

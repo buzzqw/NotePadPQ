@@ -1076,7 +1076,8 @@ class _AIPanel(QWidget):
         super().__init__(parent)
         self._mw        = main_window
         self._history:  list[dict] = []
-        self._worker:   Optional[_AIWorker] = None
+        self._worker:      Optional[_AIWorker] = None
+        self._old_workers: list[_AIWorker]     = []
         self._streaming_block = False
         self._inline_selection: Optional[tuple] = None  # (lf, cf, lt, ct) o None = intero file
         self._elapsed_timer = QTimer(self)
@@ -1640,6 +1641,12 @@ class _AIPanel(QWidget):
                 self._worker.usage_ready.disconnect()
             except Exception:
                 pass
+            # Tieni il worker vivo finché il thread non termina (stesso pattern di PreviewPanel).
+            # Impostare self._worker = None direttamente può distruggere il QThread mentre
+            # è ancora in esecuzione → SIGABRT "QThread: Destroyed while thread is still running".
+            w = self._worker
+            self._old_workers.append(w)
+            w.finished.connect(lambda: self._old_workers.remove(w) if w in self._old_workers else None)
             self._worker = None
         self._elapsed_timer.stop()
         self._btn_send.setText("▶ Invia  Ctrl+↵")

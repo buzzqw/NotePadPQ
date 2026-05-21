@@ -19,7 +19,12 @@
     "split_view": "Vue divisée",
     "plugins": "Extensions",
     "format": "Formater le Texte",
-    "help": "Aide"
+    "help": "Aide",
+    "build": "Compilation/Exécution",
+    "macro": "Macro",
+    "utilities": "Outils",
+    "text": "Texte",
+    "line": "Lignes"
   },
   "action": {
     "new": "Nouveau",
@@ -69,7 +74,7 @@
     "uppercase": "MAJUSCULES",
     "lowercase": "minuscules",
     "titlecase": "Casse De Titre",
-    "invert_case": "Inverser la casse",
+    "invert_case": "iNVERSER LA cASSE",
     "insert_date": "Insérer la date/l'heure",
     "word_count": "Nombre de mots",
     "sort_asc": "Trier les lignes (croissant)",
@@ -81,6 +86,9 @@
     "remove_empty": "Supprimer les lignes vides",
     "remove_whitespace": "Supprimer les lignes d'espaces",
     "remove_every_nth": "Supprimer chaque N-ième ligne...",
+    "sort_by_length_asc": "Trier par longueur (↑)",
+    "sort_by_length_desc": "Trier par longueur (↓)",
+    "sort_random": "Trier aléatoirement",
     "regex_tester": "Testeur d'expressions régulières...",
     "compile": "Compiler",
     "run": "Exécuter",

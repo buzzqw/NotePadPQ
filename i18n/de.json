@@ -19,7 +19,12 @@
     "split_view": "Geteilte Ansicht",
     "plugins": "Erweiterungen",
     "format": "Text formatieren",
-    "help": "Hilfe"
+    "help": "Hilfe",
+    "build": "Erstellen/Ausführen",
+    "macro": "Makro",
+    "utilities": "Dienstprogramme",
+    "text": "Text",
+    "line": "Zeilen"
   },
   "action": {
     "new": "Neu",
@@ -69,7 +74,7 @@
     "uppercase": "GROSSBUCHSTABEN",
     "lowercase": "kleinbuchstaben",
     "titlecase": "Erster Buchstabe Groß",
-    "invert_case": "Groß-/Kleinschreibung umkehren",
+    "invert_case": "gROSS-/kLEINSCHREIBUNG uMKEHREN",
     "insert_date": "Datum/Uhrzeit einfügen",
     "word_count": "Wortzahl",
     "sort_asc": "Zeilen aufsteigend sortieren",
@@ -81,6 +86,9 @@
     "remove_empty": "Leere Zeilen entfernen",
     "remove_whitespace": "Leerzeichen-Zeilen entfernen",
     "remove_every_nth": "Jede N-te Zeile entfernen...",
+    "sort_by_length_asc": "Nach Länge sortieren (↑)",
+    "sort_by_length_desc": "Nach Länge sortieren (↓)",
+    "sort_random": "Zufällig sortieren",
     "regex_tester": "Reguläre Ausdrücke testen...",
     "compile": "Kompilieren",
     "run": "Ausführen",

@@ -1,0 +1,272 @@
+name: Build Windows
+
+# Trigger: ogni push di un tag vX.Y.Z oppure manualmente dalla UI
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      edition:
+        description: 'Quale variante buildare'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - full
+          - lite
+
+jobs:
+  # ────────────────────────────────────────────────────────────
+  #  Build FULL — tutte le dipendenze opzionali incluse
+  # ────────────────────────────────────────────────────────────
+  build-full:
+    name: Build Full (Windows)
+    runs-on: windows-latest
+    if: >
+      github.event_name == 'push' ||
+      github.event.inputs.edition == 'both' ||
+      github.event.inputs.edition == 'full'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Leggi versione da main.py
+        id: version
+        shell: python
+        run: |
+          import re, os
+          content = open('main.py').read()
+          m = re.search(r"setApplicationVersion\('(.+?)'\)", content)
+          ver = m.group(1) if m else '0.0.0'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'version={ver}\n')
+
+      - name: Installa dipendenze FULL
+        shell: cmd
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade pyinstaller
+          python -m pip install ^
+            "PyQt6>=6.0.0" ^
+            "PyQt6-QScintilla>=2.13.0" ^
+            "PyQt6-WebEngine>=6.0.0" ^
+            "chardet>=4.0.0" ^
+            "pygments>=2.10.0" ^
+            "psutil>=5.9.0" ^
+            "pymupdf>=1.20.0" ^
+            "markdown>=3.3.0" ^
+            "docutils>=0.18" ^
+            "matplotlib>=3.5.0" ^
+            "sympy>=1.10" ^
+            "mammoth>=0.11.0" ^
+            "htmldocx>=0.0.6" ^
+            "pypandoc>=1.8.0" ^
+            "pyspellchecker>=0.7.0" ^
+            "openpyxl>=3.1.0" ^
+            "xlrd>=2.0.1" ^
+            "odfpy>=1.4.1" ^
+            "PyGithub>=1.55" ^
+            "python-gitlab>=3.0.0" ^
+            "keyring>=23.5.0" ^
+            "cryptography>=41.0.0"
+
+      - name: Aggiorna version_info.txt
+        shell: python
+        run: |
+          import re
+          version = '${{ steps.version.outputs.version }}'
+          parts = version.split('.')
+          while len(parts) < 4:
+              parts.append('0')
+          ver_tuple = '({})'.format(', '.join(parts))
+          with open('windowsbuild/version_info.txt', 'r', encoding='utf-8') as f:
+              content = f.read()
+          content = re.sub(r'filevers=\([\d, ]+\)', f'filevers={ver_tuple}', content)
+          content = re.sub(r'prodvers=\([\d, ]+\)', f'prodvers={ver_tuple}', content)
+          content = re.sub(r"'FileVersion',\s+'[\d.]+'", f"'FileVersion', '{version}.0'", content)
+          content = re.sub(r"'ProductVersion',\s+'[\d.]+'", f"'ProductVersion', '{version}'", content)
+          with open('windowsbuild/version_info.txt', 'w', encoding='utf-8') as f:
+              f.write(content)
+
+      - name: Build Full con PyInstaller
+        shell: cmd
+        working-directory: windowsbuild
+        run: pyinstaller --clean --noconfirm notepadpq_full.spec
+
+      - name: Crea archivio ZIP Full
+        shell: pwsh
+        run: |
+          $ver = '${{ steps.version.outputs.version }}'
+          Compress-Archive `
+            -Path "dist\NotePadPQ_Full\*" `
+            -DestinationPath "dist\NotePadPQ_v${ver}_Full_Windows.zip" `
+            -Force
+
+      - name: Upload artifact Full
+        uses: actions/upload-artifact@v4
+        with:
+          name: NotePadPQ-Full-Windows
+          path: dist/NotePadPQ_v${{ steps.version.outputs.version }}_Full_Windows.zip
+          retention-days: 30
+
+  # ────────────────────────────────────────────────────────────
+  #  Build LITE — solo dipendenze obbligatorie
+  # ────────────────────────────────────────────────────────────
+  build-lite:
+    name: Build Lite (Windows)
+    runs-on: windows-latest
+    if: >
+      github.event_name == 'push' ||
+      github.event.inputs.edition == 'both' ||
+      github.event.inputs.edition == 'lite'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Leggi versione da main.py
+        id: version
+        shell: python
+        run: |
+          import re, os
+          content = open('main.py').read()
+          m = re.search(r"setApplicationVersion\('(.+?)'\)", content)
+          ver = m.group(1) if m else '0.0.0'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'version={ver}\n')
+
+      - name: Installa dipendenze LITE (solo core)
+        shell: cmd
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade pyinstaller
+          python -m pip install ^
+            "PyQt6>=6.0.0" ^
+            "PyQt6-QScintilla>=2.13.0" ^
+            "PyQt6-WebEngine>=6.0.0" ^
+            "chardet>=4.0.0" ^
+            "pygments>=2.10.0" ^
+            "psutil>=5.9.0"
+
+      - name: Aggiorna version_info.txt
+        shell: python
+        run: |
+          import re
+          version = '${{ steps.version.outputs.version }}'
+          parts = version.split('.')
+          while len(parts) < 4:
+              parts.append('0')
+          ver_tuple = '({})'.format(', '.join(parts))
+          with open('windowsbuild/version_info.txt', 'r', encoding='utf-8') as f:
+              content = f.read()
+          content = re.sub(r'filevers=\([\d, ]+\)', f'filevers={ver_tuple}', content)
+          content = re.sub(r'prodvers=\([\d, ]+\)', f'prodvers={ver_tuple}', content)
+          content = re.sub(r"'FileVersion',\s+'[\d.]+'", f"'FileVersion', '{version}.0'", content)
+          content = re.sub(r"'ProductVersion',\s+'[\d.]+'", f"'ProductVersion', '{version}'", content)
+          with open('windowsbuild/version_info.txt', 'w', encoding='utf-8') as f:
+              f.write(content)
+
+      - name: Build Lite con PyInstaller
+        shell: cmd
+        working-directory: windowsbuild
+        run: pyinstaller --clean --noconfirm notepadpq_lite.spec
+
+      - name: Crea archivio ZIP Lite
+        shell: pwsh
+        run: |
+          $ver = '${{ steps.version.outputs.version }}'
+          Compress-Archive `
+            -Path "dist\NotePadPQ_Lite\*" `
+            -DestinationPath "dist\NotePadPQ_v${ver}_Lite_Windows.zip" `
+            -Force
+
+      - name: Upload artifact Lite
+        uses: actions/upload-artifact@v4
+        with:
+          name: NotePadPQ-Lite-Windows
+          path: dist/NotePadPQ_v${{ steps.version.outputs.version }}_Lite_Windows.zip
+          retention-days: 30
+
+  # ────────────────────────────────────────────────────────────
+  #  Crea GitHub Release e allega i due ZIP
+  # ────────────────────────────────────────────────────────────
+  release:
+    name: Pubblica GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-full, build-lite]
+    # Solo sui tag, non sul workflow_dispatch
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout (per le release notes)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Leggi versione dal tag
+        id: tag_version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Scarica artifact Full
+        uses: actions/download-artifact@v4
+        with:
+          name: NotePadPQ-Full-Windows
+          path: release-assets/
+
+      - name: Scarica artifact Lite
+        uses: actions/download-artifact@v4
+        with:
+          name: NotePadPQ-Lite-Windows
+          path: release-assets/
+
+      - name: Genera note di rilascio automatiche
+        id: notes
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [[ -n "$PREV_TAG" ]]; then
+            COMMITS=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s" --no-merges \
+              | grep -Eiv "^- chore: (release|bump|version)" || true)
+          else
+            COMMITS=$(git log --pretty=format:"- %s" --no-merges | head -20 || true)
+          fi
+          {
+            echo "notes<<EOF"
+            echo "## NotePadPQ ${{ steps.tag_version.outputs.version }}"
+            echo ""
+            echo "### 📦 Download"
+            echo "| Versione | Contenuto | Download |"
+            echo "|----------|-----------|----------|"
+            echo "| **Full** | Tutte le funzionalità (PDF, Markdown, Spreadsheet, Git, Spell) | ZIP allegato |"
+            echo "| **Lite** | Solo editor core (PyQt6 + QScintilla + WebEngine) | ZIP allegato |"
+            echo ""
+            echo "### 🔄 Modifiche"
+            echo "${COMMITS:-• Nessun commit trovato}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Crea Release su GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: NotePadPQ ${{ steps.tag_version.outputs.version }}
+          body: ${{ steps.notes.outputs.notes }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+          files: release-assets/*

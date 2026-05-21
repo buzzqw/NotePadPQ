@@ -19,7 +19,12 @@
     "split_view": "Vista dividida",
     "plugins": "Plugins",
     "format": "Formato de Texto",
-    "help": "Ayuda"
+    "help": "Ayuda",
+    "build": "Compilar/Ejecutar",
+    "macro": "Macro",
+    "utilities": "Utilidades",
+    "text": "Texto",
+    "line": "Líneas"
   },
   "action": {
     "new": "Nuevo",
@@ -69,7 +74,7 @@
     "uppercase": "MAYÚSCULAS",
     "lowercase": "minúsculas",
     "titlecase": "Tipo Título",
-    "invert_case": "Invertir mayúsculas/minúsculas",
+    "invert_case": "iNVERTIR mAYÚSCULAS/mINÚSCULAS",
     "insert_date": "Insertar fecha/hora",
     "word_count": "Contar palabras",
     "sort_asc": "Ordenar líneas ascendente",
@@ -81,6 +86,9 @@
     "remove_empty": "Eliminar líneas vacías",
     "remove_whitespace": "Eliminar líneas de espacios en blanco",
     "remove_every_nth": "Eliminar cada enésima línea...",
+    "sort_by_length_asc": "Ordenar por longitud (↑)",
+    "sort_by_length_desc": "Ordenar por longitud (↓)",
+    "sort_random": "Ordenar aleatoriamente",
     "regex_tester": "Probador de expresiones regulares...",
     "compile": "Compilar",
     "run": "Ejecutar",

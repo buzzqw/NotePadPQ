@@ -43,6 +43,7 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         # Toolbar (presenti)
         "new": "file-plus.svg", "open": "folder-open.svg", "save": "save.svg",
         "save_all": "database.svg", "close": "x-square.svg", "find": "search.svg",
+        "customize_toolbar": "sliders.svg",
         "replace": "refresh-cw.svg", "undo": "undo.svg", "redo": "redo.svg",
         "compile": "play.svg", "run": "fast-forward.svg", "build": "hammer.svg",
         "stop_build": "square.svg", "preferences": "settings.svg", "about": "info.svg",
@@ -59,6 +60,23 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "copy_path": "link.svg", "copy_filename": "file.svg",
         "insert_date": "calendar.svg", "word_count": "type.svg",
         "word_frequency": "bar-chart-2.svg", "sort_lines_menu": "arrow-up-down.svg",
+        # Testo
+        "join_lines": "git-merge.svg", "line_break": "corner-down-left.svg",
+        "wrap_lines": "wrap-text.svg",
+        "uppercase": "type.svg", "lowercase": "pilcrow.svg",
+        "titlecase": "list-ordered.svg", "invert_case": "arrow-left-right.svg",
+        "comment_line": "hash.svg", "uncomment_line": "code-2.svg",
+        "indent_smart": "sparkles.svg",
+        "tabs_to_spaces": "arrow-left-right.svg", "spaces_to_tabs": "outdent.svg",
+        "format_document": "file-check.svg",
+        # Righe
+        "sort_asc": "chevrons-up.svg", "sort_desc": "chevrons-down.svg",
+        "sort_by_length_asc": "arrow-up-down.svg", "sort_by_length_desc": "arrow-up-down.svg",
+        "sort_random": "refresh-cw.svg",
+        "remove_dup_sorted": "copy.svg", "remove_dup_ordered": "layers.svg",
+        "remove_unique": "x-circle.svg", "keep_unique": "check-square.svg",
+        "remove_empty": "eraser.svg", "remove_whitespace": "pilcrow.svg",
+        "remove_every_nth": "list.svg",
         # Formato
         "markup_bold": "bold.svg", "markup_italic": "italic.svg",
         "markup_strike": "strikethrough.svg", "toggle_comment": "hash.svg",
@@ -73,13 +91,20 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "clear_bookmarks": "bookmark-x.svg",
         # Visualizza
         "view_toolbar": "layout-template.svg", "view_statusbar": "panel-bottom.svg",
+        "view_lang_toolbar": "code-2.svg",
         "view_line_numbers": "list-ordered.svg", "view_whitespace": "pilcrow.svg",
-        "view_eol": "corner-down-left.svg", "view_minimap": "map.svg",
+        "view_eol": "corner-down-left.svg", "view_fold_margin": "list.svg",
+        "view_minimap": "map.svg", "view_minimap_hover": "eye.svg",
         "view_build_panel": "terminal.svg", "view_file_browser": "folder-tree.svg",
+        "view_project_manager": "folder-tree.svg",
         "view_character_panel": "type.svg", "column_editor": "table.svg",
         "preview_toggle": "eye.svg", "view_zoom_in": "zoom-in.svg",
         "view_zoom_out": "zoom-out.svg", "view_zoom_reset": "maximize-2.svg",
         "distraction_free": "focus.svg", "view_word_wrap": "wrap-text.svg",
+        "view_typewriter": "type.svg", "view_plain_text_mode": "file.svg",
+        "view_git_gutter": "git-branch.svg", "view_git_blame_inline": "pen.svg",
+        "split_move_tab": "arrow-left-right.svg", "split_sync_cursor": "link.svg",
+        "unsplit": "maximize-2.svg",
         # Strumenti
         "build_profiles": "sliders.svg", "record_macro": "circle.svg",
         "play_macro": "play-circle.svg", "play_macro_n": "play-circle.svg",
@@ -97,8 +122,10 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "clone_document": "copy.svg", "fold_all": "chevrons-up.svg",
         "unfold_all": "chevrons-down.svg", "remove_markers": "eraser.svg",
         "remove_error_markers": "x-circle.svg", "spell_check": "spell-check.svg",
-        "auto_indent": "indent.svg", "read_only": "lock.svg",
-        "write_bom": "file-code.svg",
+        "auto_indent": "indent.svg", "auto_indent_paste": "indent.svg",
+        "autoclose_toggle": "braces.svg", "indent_width": "sliders.svg",
+        "writing_goal_set": "bookmark.svg",
+        "read_only": "lock.svg", "write_bom": "file-code.svg",
         "wrap_env": "braces.svg",
         # Plugin / Aiuto
         "plugin_manager": "puzzle.svg", "manual": "book-open.svg",
@@ -135,14 +162,14 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "save_all": "library_add.svg", "close": "close.svg", "find": "search.svg",
         "replace": "find_replace.svg", "undo": "undo.svg", "redo": "redo.svg",
         "compile": "play_arrow.svg", "run": "fast_forward.svg", "build": "build.svg",
-        "stop_build": "stop.svg", "preferences": "settings.svg", "about": "info.svg",
+        "stop_build": "stop.svg", "preferences": "settings.svg", "about": "help.svg",
         # File
         "save_as": "save_as.svg", "reload": "refresh.svg",
         "open_selected": "open_in_new.svg", "print": "print.svg",
         "print_preview": "visibility.svg", "export_pdf": "picture_as_pdf.svg",
-        "close_others": "remove_circle.svg", "close_all": "close.svg",
+        "close_others": "clear_all.svg", "close_all": "close.svg",
         "quit": "exit_to_app.svg", "file_properties": "description.svg",
-        "diff_vs_saved": "compare_arrows.svg",
+        "diff_vs_saved": "find_replace.svg",
         # Modifica
         "cut": "content_cut.svg", "copy": "content_copy.svg",
         "paste": "content_paste.svg", "delete": "delete.svg",
@@ -150,6 +177,23 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "copy_filename": "description.svg", "insert_date": "event.svg",
         "word_count": "format_list_numbered.svg", "word_frequency": "bar_chart.svg",
         "sort_lines_menu": "sort.svg",
+        # Testo
+        "join_lines": "merge_type.svg", "line_break": "keyboard_return.svg",
+        "wrap_lines": "wrap_text.svg",
+        "uppercase": "subject.svg", "lowercase": "subject.svg",
+        "titlecase": "format_list_numbered.svg", "invert_case": "find_replace.svg",
+        "comment_line": "insert_comment.svg", "uncomment_line": "code-2.svg",
+        "indent_smart": "integration_instructions.svg",
+        "tabs_to_spaces": "find_replace.svg", "spaces_to_tabs": "format_indent_decrease.svg",
+        "format_document": "integration_instructions.svg",
+        # Righe
+        "sort_asc": "unfold_less.svg", "sort_desc": "unfold_more.svg",
+        "sort_by_length_asc": "sort.svg", "sort_by_length_desc": "sort.svg",
+        "sort_random": "refresh.svg",
+        "remove_dup_sorted": "content_copy.svg", "remove_dup_ordered": "list.svg",
+        "remove_unique": "clear_all.svg", "keep_unique": "select_all.svg",
+        "remove_empty": "delete_sweep.svg", "remove_whitespace": "space_bar.svg",
+        "remove_every_nth": "list.svg",
         # Formato
         "markup_bold": "format_bold.svg", "markup_italic": "format_italic.svg",
         "markup_strike": "format_strikethrough.svg", "toggle_comment": "insert_comment.svg",
@@ -164,39 +208,50 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "clear_bookmarks": "clear_all.svg",
         # Visualizza
         "view_toolbar": "view_headline.svg", "view_statusbar": "vertical_align_bottom.svg",
+        "view_lang_toolbar": "code.svg",
         "view_line_numbers": "format_list_numbered.svg", "view_whitespace": "space_bar.svg",
-        "view_eol": "keyboard_return.svg", "view_minimap": "map.svg",
+        "view_eol": "keyboard_return.svg", "view_fold_margin": "list.svg",
+        "view_minimap": "map.svg", "view_minimap_hover": "visibility.svg",
         "view_build_panel": "code.svg", "view_file_browser": "folder.svg",
-        "view_character_panel": "text_fields.svg", "column_editor": "table_chart.svg",
+        "view_project_manager": "account_tree.svg",
+        "view_character_panel": "subject.svg", "column_editor": "table_chart.svg",
         "preview_toggle": "visibility.svg", "view_zoom_in": "zoom_in.svg",
         "view_zoom_out": "zoom_out.svg", "view_zoom_reset": "fullscreen.svg",
         "distraction_free": "center_focus_strong.svg", "view_word_wrap": "wrap_text.svg",
+        "view_typewriter": "subject.svg", "view_plain_text_mode": "description.svg",
+        "view_git_gutter": "integration_instructions.svg", "view_git_blame_inline": "edit.svg",
+        "split_move_tab": "call_made.svg", "split_sync_cursor": "link.svg",
+        "unsplit": "fullscreen.svg",
         # Strumenti
         "build_profiles": "tune.svg", "record_macro": "fiber_manual_record.svg",
         "play_macro": "play_circle.svg", "play_macro_n": "play_circle.svg",
         "stop_macro": "stop.svg", "save_macro": "save.svg",
         "load_macro": "folder_open.svg", "named_sessions": "bookmarks.svg",
-        "compare_files": "compare_arrows.svg", "color_picker": "colorize.svg",
+        "compare_files": "find_replace.svg", "color_picker": "colorize.svg",
         "regex_tester": "code.svg", "number_converter": "functions.svg",
         "column_stats": "bar_chart.svg", "lorem_ipsum": "subject.svg",
-        "text_converter": "compare_arrows.svg",
-        "keybinding_editor": "keyboard.svg", "open_terminal": "terminal.svg",
+        "text_converter": "find_replace.svg",
+        "keybinding_editor": "keyboard.svg", "open_terminal": "code.svg",
+        "customize_toolbar": "tune.svg",
         "lsp_goto_def": "code.svg",
         "lsp_refs": "call_made.svg", "lsp_rename": "edit.svg",
-        "lsp_format": "auto_fix_high.svg", "lsp_diag": "report_problem.svg",
+        "lsp_format": "integration_instructions.svg", "lsp_diag": "report_problem.svg",
         # Documento
         "clone_document": "file_copy.svg", "fold_all": "unfold_less.svg",
         "unfold_all": "unfold_more.svg", "remove_markers": "delete_sweep.svg",
         "remove_error_markers": "clear_all.svg", "spell_check": "spellcheck.svg",
-        "auto_indent": "format_indent_increase.svg", "read_only": "lock.svg",
-        "write_bom": "description.svg", "wrap_env": "integration_instructions.svg",
+        "auto_indent": "format_indent_increase.svg", "auto_indent_paste": "format_indent_increase.svg",
+        "autoclose_toggle": "merge_type.svg", "indent_width": "tune.svg",
+        "writing_goal_set": "bookmark.svg",
+        "read_only": "lock.svg", "write_bom": "description.svg",
+        "wrap_env": "integration_instructions.svg",
         # Plugin / Aiuto
         "plugin_manager": "extension.svg", "manual": "menu_book.svg",
         "context_help": "help.svg", "about_qt": "help.svg",
         "check_updates": "system_update.svg", "donate": "favorite.svg",
         # Plugin icons — nomi material dove esiste un equivalente, altrimenti lucide
-        "plugin_ai": "auto_awesome.svg", "plugin_clipboard": "assignment.svg",
-        "plugin_compare": "compare_arrows.svg", "plugin_db": "storage.svg",
+        "plugin_ai": "integration_instructions.svg", "plugin_clipboard": "assignment.svg",
+        "plugin_compare": "find_replace.svg", "plugin_db": "storage.svg",
         "plugin_ftp": "dns.svg", "plugin_git": "account_tree.svg",
         "plugin_hex": "code.svg", "plugin_pdf": "picture_as_pdf.svg",
         "plugin_richtext": "edit.svg", "plugin_spreadsheet": "table_chart.svg",
@@ -872,10 +927,13 @@ class MainWindow(QMainWindow):
 
         self._build_menu_file(mb)
         self._build_menu_edit(mb)
+        self._build_menu_text(mb)
+        self._build_menu_line(mb)
         self._build_menu_search(mb)
         self._build_menu_view(mb)
         self._build_menu_document(mb)
         self._build_menu_tools(mb)
+        self._build_menu_build(mb)
         self._build_menu_plugins(mb)
         self._build_menu_help(mb)
 
@@ -1041,74 +1099,112 @@ class MainWindow(QMainWindow):
             _a.setShortcut(QKeySequence(_sc))
             _a.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             m.addAction(_a)
-        m.addAction(self._act("delete",     "Del",      self._relay("removeSelectedText")))
+        m.addAction(self._act("delete", "Del", self._relay("removeSelectedText")))
         self._sep(m)
         _a = self._act("select_all", "", self._relay("selectAll"))
         _a.setShortcut(QKeySequence("Ctrl+A"))
         _a.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         m.addAction(_a)
-        m.addAction(self._act("copy_path",  "",         self.action_copy_path))
-        m.addAction(self._act("copy_filename", "",      self.action_copy_filename))
-        self._sep(m)
-
-        # Formatta submenu
-        sub_fmt = m.addMenu(tr("menu.format"))
-        self._menus["format"] = sub_fmt
-        sub_fmt.addAction(self._act("join_lines",    "",         self.action_join_lines))
-        sub_fmt.addAction(self._act("line_break",    "",         self.action_line_break))
-        sub_fmt.addAction(self._act("wrap_lines",    "",         self.action_wrap_lines))
-        sub_fmt.addSeparator()
-        sub_fmt.addAction(self._act("uppercase",     "",         self.action_uppercase))
-        sub_fmt.addAction(self._act("lowercase",     "",         self.action_lowercase))
-        sub_fmt.addAction(self._act("titlecase",     "",         self.action_titlecase))
-        sub_fmt.addAction(self._act("invert_case",   "Ctrl+Alt+U", self.action_invert_case))
-        # --- AGGIUNTA SCORCIATOIE MARKUP ---
-        sub_fmt.addSeparator()
-        sub_fmt.addAction(self._act("markup_bold",   "Ctrl+B",       lambda: self._apply_markup("bold")))
-        sub_fmt.addAction(self._act("markup_italic", "Ctrl+I",       lambda: self._apply_markup("italic")))
-        sub_fmt.addAction(self._act("markup_strike", "Ctrl+Shift+X", lambda: self._apply_markup("strike")))
-        sub_fmt.addAction(self._act("wrap_env",      "Alt+E",        self.action_wrap_env))
-        sub_fmt.addSeparator()
-        sub_fmt.addAction(self._act("toggle_comment","Ctrl+E",   self.action_toggle_comment))
-        sub_fmt.addAction(self._act("comment_line",  "",         self.action_comment_lines))
-        sub_fmt.addAction(self._act("uncomment_line","",         self.action_uncomment_lines))
-        sub_fmt.addSeparator()
-        sub_fmt.addAction(self._act("align_table",   "Alt+T",    self.action_align_table))
-        sub_fmt.addSeparator()
-        sub_fmt.addAction(self._act("indent",        "Ctrl+Shift+I",   self.action_indent))
-        sub_fmt.addAction(self._act("unindent",      "Ctrl+U",   self.action_unindent))
-        sub_fmt.addAction(self._act("indent_smart",  "",         self.action_indent_smart))
-        sub_fmt.addSeparator()
-        sub_fmt.addAction(self._act("trim_trailing", "",         self.action_trim_trailing))
-        sub_fmt.addAction(self._act("tabs_to_spaces","",         self.action_tabs_to_spaces))
-        sub_fmt.addAction(self._act("spaces_to_tabs","",         self.action_spaces_to_tabs))
-
-        self._sep(m)
-        m.addAction(self._act("column_editor",   "Alt+C", self.action_column_editor))
-        self._sep(m)
-        m.addAction(self._act("insert_date",     "", self.action_insert_date))
-        m.addAction(self._act("word_count",      "", self.action_word_count))
-        m.addAction(self._act("word_frequency",  "", self.action_word_frequency))
-        m.addAction(self._act("sort_lines_menu", "", self.action_sort_lines_dialog))
+        m.addAction(self._act("copy_path",     "", self.action_copy_path))
+        m.addAction(self._act("copy_filename", "", self.action_copy_filename))
         self._sep(m)
         # ── Multi-cursore ─────────────────────────────────────────────────────
         sub_mc = m.addMenu("🖊  " + tr("menu.multicursor"))
         self._menus["multicursor"] = sub_mc
-        sub_mc.addAction(self._act("mc_next_occ",    "Ctrl+D",
-                                   self._mc_select_next))
-        sub_mc.addAction(self._act("mc_all_occ",     "Ctrl+Shift+D",
-                                   self._mc_select_all))
-        sub_mc.addAction(self._act("mc_add_above",   "Ctrl+Alt+Up",
-                                   self._mc_add_above))
-        sub_mc.addAction(self._act("mc_add_below",   "Ctrl+Alt+Down",
-                                   self._mc_add_below))
-        sub_mc.addAction(self._act("mc_numbers",     "Ctrl+Shift+Alt+C",
-                                   self._mc_insert_numbers))
-        sub_mc.addAction(self._act("mc_clear",       "Escape",
-                                   self._mc_clear))
+        sub_mc.addAction(self._act("mc_next_occ",  "Ctrl+D",          self._mc_select_next))
+        sub_mc.addAction(self._act("mc_all_occ",   "Ctrl+Shift+D",    self._mc_select_all))
+        sub_mc.addAction(self._act("mc_add_above", "Ctrl+Alt+Up",     self._mc_add_above))
+        sub_mc.addAction(self._act("mc_add_below", "Ctrl+Alt+Down",   self._mc_add_below))
+        sub_mc.addAction(self._act("mc_numbers",   "Ctrl+Shift+Alt+C",self._mc_insert_numbers))
+        sub_mc.addAction(self._act("mc_clear",     "Escape",          self._mc_clear))
+
+    # ── Menu Testo ────────────────────────────────────────────────────────────
+
+    def _build_menu_text(self, mb: QMenuBar) -> None:
+        m = mb.addMenu(tr("menu.text"))
+        self._menus["text"] = m
+        # registra anche "format" per compatibilità con command palette e icone
+        self._menus["format"] = m
+
+        m.addAction(self._act("markup_bold",   "Ctrl+B",       lambda: self._apply_markup("bold")))
+        m.addAction(self._act("markup_italic", "Ctrl+I",       lambda: self._apply_markup("italic")))
+        m.addAction(self._act("markup_strike", "Ctrl+Shift+X", lambda: self._apply_markup("strike")))
+        m.addAction(self._act("wrap_env",      "Alt+E",        self.action_wrap_env))
         self._sep(m)
-        m.addAction(self._act("autoclose_toggle", "", self._toggle_autoclose,
-                               checkable=True, checked=True))
+        m.addAction(self._act("toggle_comment","Ctrl+E",       self.action_toggle_comment))
+        m.addAction(self._act("comment_line",  "",             self.action_comment_lines))
+        m.addAction(self._act("uncomment_line","",             self.action_uncomment_lines))
+        self._sep(m)
+        m.addAction(self._act("align_table",   "Alt+T",        self.action_align_table))
+        self._sep(m)
+        m.addAction(self._act("indent",        "Ctrl+Shift+I", self.action_indent))
+        m.addAction(self._act("unindent",      "Ctrl+U",       self.action_unindent))
+        m.addAction(self._act("indent_smart",  "",             self.action_indent_smart))
+        self._sep(m)
+        m.addAction(self._act("trim_trailing", "",             self.action_trim_trailing))
+        m.addAction(self._act("tabs_to_spaces","",             self.action_tabs_to_spaces))
+        m.addAction(self._act("spaces_to_tabs","",             self.action_spaces_to_tabs))
+        self._sep(m)
+        m.addAction(self._act("column_editor",   "Alt+C",        self.action_column_editor))
+        self._sep(m)
+        m.addAction(self._act("join_lines",    "",             self.action_join_lines))
+        m.addAction(self._act("line_break",    "",             self.action_line_break))
+        m.addAction(self._act("wrap_lines",    "",             self.action_wrap_lines))
+        self._sep(m)
+        m.addAction(self._act("uppercase",     "",             self.action_uppercase))
+        m.addAction(self._act("lowercase",     "",             self.action_lowercase))
+        m.addAction(self._act("titlecase",     "",             self.action_titlecase))
+        m.addAction(self._act("invert_case",   "Ctrl+Alt+U",  self.action_invert_case))
+        self._sep(m)
+        m.addAction(self._act("insert_date",     "",             self.action_insert_date))
+        m.addAction(self._act("format_document", "Alt+Shift+F", self._action_format_document))
+
+    # ── Menu Righe ────────────────────────────────────────────────────────────
+
+    def _build_menu_line(self, mb: QMenuBar) -> None:
+        m = mb.addMenu(tr("menu.line"))
+        self._menus["line"] = m
+        self._menus["line_operations"] = m  # alias per compatibilità
+
+        def _editor():
+            return self._tab_manager.current_editor()
+
+        def _run(fn_name: str):
+            def slot():
+                ed = _editor()
+                if ed:
+                    import core.line_operations as lo
+                    getattr(lo, fn_name)(ed)
+            return slot
+
+        m.addAction(self._act("sort_lines_menu",     "",  self.action_sort_lines_dialog))
+        self._sep(m)
+        m.addAction(self._act("sort_asc",            "",  _run("apply_sort_asc")))
+        m.addAction(self._act("sort_desc",           "",  _run("apply_sort_desc")))
+        m.addAction(self._act("sort_by_length_asc",  "",  _run("apply_sort_by_length")))
+        m.addAction(self._act("sort_by_length_desc", "",  _run("apply_sort_by_length_desc")))
+        m.addAction(self._act("sort_random",         "",  _run("apply_sort_random")))
+        self._sep(m)
+        m.addAction(self._act("remove_dup_sorted",   "",  _run("apply_remove_dup_sorted")))
+        m.addAction(self._act("remove_dup_ordered",  "",  _run("apply_remove_dup_ordered")))
+        m.addAction(self._act("remove_unique",       "",  _run("apply_remove_unique")))
+        m.addAction(self._act("keep_unique",         "",  _run("apply_keep_unique")))
+        self._sep(m)
+        m.addAction(self._act("remove_empty",        "",  _run("apply_remove_empty")))
+        m.addAction(self._act("remove_whitespace",   "",  _run("apply_remove_whitespace")))
+        self._sep(m)
+
+        def _remove_nth():
+            from PyQt6.QtWidgets import QInputDialog
+            ed = _editor()
+            if not ed:
+                return
+            n, ok = QInputDialog.getInt(self, tr("action.remove_every_nth"), "N:", 2, 2, 100)
+            if ok:
+                import core.line_operations as lo
+                lo.apply_remove_every_nth(ed, n)
+
+        m.addAction(self._act("remove_every_nth", "", _remove_nth))
 
     # ── Menu Cerca ────────────────────────────────────────────────────────────
 
@@ -1145,88 +1241,87 @@ class MainWindow(QMainWindow):
         m = mb.addMenu(tr("menu.view"))
         self._menus["view"] = m
 
-        # --- IMPORTIAMO LE IMPOSTAZIONI ---
         from config.settings import Settings
         s = Settings.instance()
 
-        # Ora usiamo s.get(...) per leggere le tue preferenze salvate al posto di forzare True o False!
-        m.addAction(self._act("view_toolbar",     "", self._toggle_toolbar,     checkable=True, checked=s.get("view/toolbar", True)))
+        # Interfaccia
+        m.addAction(self._act("view_toolbar",      "", self._toggle_toolbar,     checkable=True, checked=s.get("view/toolbar", True)))
         m.addAction(self._act("customize_toolbar", "", self._action_customize_toolbar))
         m.addAction(self._act("view_lang_toolbar", "Ctrl+Shift+L", self._toggle_lang_toolbar, checkable=True, checked=s.get("view/lang_toolbar", False)))
-        m.addAction(self._act("view_statusbar",   "", self._toggle_statusbar,   checkable=True, checked=s.get("view/statusbar", True)))
+        m.addAction(self._act("view_statusbar",    "", self._toggle_statusbar,   checkable=True, checked=s.get("view/statusbar", True)))
         self._sep(m)
-        m.addAction(self._act("view_line_numbers","", self._toggle_line_numbers,checkable=True, checked=s.get("editor/show_line_numbers", True)))
-        m.addAction(self._act("view_fold_margin", "", self._toggle_fold_margin, checkable=True, checked=s.get("editor/show_fold_margin", True)))
-        m.addAction(self._act("view_whitespace",  "", self._toggle_whitespace,  checkable=True, checked=s.get("editor/show_whitespace", False)))
-        m.addAction(self._act("view_eol",         "", self._toggle_eol,         checkable=True, checked=s.get("editor/show_eol", False)))
+
+        # Visualizzazione editor
+        m.addAction(self._act("view_line_numbers", "", self._toggle_line_numbers, checkable=True, checked=s.get("editor/show_line_numbers", True)))
+        m.addAction(self._act("view_fold_margin",  "", self._toggle_fold_margin,  checkable=True, checked=s.get("editor/show_fold_margin", True)))
+        m.addAction(self._act("view_whitespace",   "", self._toggle_whitespace,   checkable=True, checked=s.get("editor/show_whitespace", False)))
+        m.addAction(self._act("view_eol",          "", self._toggle_eol,          checkable=True, checked=s.get("editor/show_eol", False)))
         # view_word_wrap: registrata qui per _actions ma aggiunta solo al menu Documento
         self._act("view_word_wrap", "Alt+Z", self._toggle_word_wrap, checkable=True, checked=s.get("editor/word_wrap", False))
         self._sep(m)
 
-        # --- DA QUI IN POI IL MENU RIMANE UGUALE A PRIMA ---
-        m.addAction(self._act("view_minimap",       "", self._toggle_minimap,        checkable=True, checked=s.get("editor/show_minimap", False)))
-        m.addAction(self._act("view_minimap_hover", "", self._toggle_minimap_hover,
-                               checkable=True, checked=s.get("editor/minimap_hover_preview", False)))
-        m.addAction(self._act("view_build_panel",  "Ctrl+`", self._toggle_build_panel,   checkable=True, checked=False))
-        m.addAction(self._act("view_file_browser", "Ctrl+Shift+E", self._toggle_file_browser, checkable=True, checked=False))
-        m.addAction(self._act("view_project_manager",  "", self._toggle_project_manager, checkable=True, checked=False))
-        m.addAction(self._act("view_character_panel",  "", self._toggle_character_panel, checkable=True, checked=False))
-        m.addAction(self._act("preview_toggle",  "F12", self._toggle_preview,   checkable=True, checked=False))
+        # Pannelli
+        m.addAction(self._act("view_minimap",         "", self._toggle_minimap,         checkable=True, checked=s.get("editor/show_minimap", False)))
+        m.addAction(self._act("view_minimap_hover",   "", self._toggle_minimap_hover,   checkable=True, checked=s.get("editor/minimap_hover_preview", False)))
+        m.addAction(self._act("view_build_panel",     "Ctrl+`",       self._toggle_build_panel,     checkable=True, checked=False))
+        m.addAction(self._act("view_file_browser",    "Ctrl+Shift+E", self._toggle_file_browser,    checkable=True, checked=False))
+        m.addAction(self._act("view_project_manager", "",             self._toggle_project_manager, checkable=True, checked=False))
+        m.addAction(self._act("view_character_panel", "",             self._toggle_character_panel, checkable=True, checked=False))
+        m.addAction(self._act("preview_toggle",       "F12",          self._toggle_preview,         checkable=True, checked=False))
         self._sep(m)
-        m.addAction(self._act("view_zoom_in",    "Ctrl+=",   self.action_zoom_in))
-        m.addAction(self._act("view_zoom_out",   "Ctrl+-",   self.action_zoom_out))
-        m.addAction(self._act("view_zoom_reset", "Ctrl+0",   self.action_zoom_reset))
-        self._sep(m)
-        _df_act = self._act("distraction_free", "F11", self._toggle_distraction_free, checkable=True, checked=False)
-        _df_act.setShortcuts([QKeySequence("F11"), QKeySequence("Ctrl+Shift+F11"), QKeySequence("Ctrl+F11")])
-        m.addAction(_df_act)
-        m.addAction(self._act("view_typewriter", "", self._toggle_typewriter,
-                               checkable=True, checked=s.get("editor/typewriter_mode", False)))
-        m.addAction(self._act("view_git_gutter", "", self._toggle_git_gutter,
-                               checkable=True, checked=s.get("editor/git_gutter", True)))
-        m.addAction(self._act("view_git_blame_inline", "", self._toggle_git_blame_inline,
-                               checkable=True, checked=s.get("editor/git_blame_inline", False)))
-        self._sep(m)
-        m.addAction(self._act("view_plain_text_mode", "Ctrl+Alt+T",
-                               self._toggle_plain_text_mode,
-                               checkable=True, checked=False))
+
+        # Zoom
+        m.addAction(self._act("view_zoom_in",    "Ctrl+=", self.action_zoom_in))
+        m.addAction(self._act("view_zoom_out",   "Ctrl+-", self.action_zoom_out))
+        m.addAction(self._act("view_zoom_reset", "Ctrl+0", self.action_zoom_reset))
         self._sep(m)
 
         # ── Split View submenu ─────────────────────────────────────────────────
         sub_split = m.addMenu(tr("menu.split_view"))
         self._menus["split_view"] = sub_split
-
         sub_split.addAction(self._act(
-            "split_vertical",    "Ctrl+Alt+2",
-            lambda: self._tab_manager.split(
-                self._tab_manager.SPLIT_SIDE_BY_SIDE, clone_current=True
-            )
+            "split_vertical",   "Ctrl+Alt+2",
+            lambda: self._tab_manager.split(self._tab_manager.SPLIT_SIDE_BY_SIDE, clone_current=True)
         ))
         sub_split.addAction(self._act(
-            "split_horizontal",  "Ctrl+Alt+3",
-            lambda: self._tab_manager.split(
-                self._tab_manager.SPLIT_TOP_BOTTOM, clone_current=True
-            )
+            "split_horizontal", "Ctrl+Alt+3",
+            lambda: self._tab_manager.split(self._tab_manager.SPLIT_TOP_BOTTOM, clone_current=True)
         ))
         sub_split.addAction(self._act(
-            "split_rotate",      "Ctrl+Alt+R",
+            "split_rotate",     "Ctrl+Alt+R",
             lambda: self._tab_manager.rotate_split()
         ))
         self._sep(sub_split)
         sub_split.addAction(self._act(
-            "split_move_tab",    "Ctrl+Alt+M",
+            "split_move_tab",   "Ctrl+Alt+M",
             lambda: self._tab_manager.move_to_other_panel()
         ))
         sub_split.addAction(self._act(
             "split_sync_cursor", "",
-            self._toggle_split_sync,
-            checkable=True, checked=False
+            self._toggle_split_sync, checkable=True, checked=False
         ))
         self._sep(sub_split)
         sub_split.addAction(self._act(
-            "unsplit",           "Ctrl+Alt+1",
+            "unsplit",          "Ctrl+Alt+1",
             lambda: self._tab_manager.unsplit()
         ))
+        self._sep(m)
+
+        # Modalità
+        _df_act = self._act("distraction_free", "F11", self._toggle_distraction_free, checkable=True, checked=False)
+        _df_act.setShortcuts([QKeySequence("F11"), QKeySequence("Ctrl+Shift+F11"), QKeySequence("Ctrl+F11")])
+        m.addAction(_df_act)
+        m.addAction(self._act("view_typewriter",    "", self._toggle_typewriter,
+                               checkable=True, checked=s.get("editor/typewriter_mode", False)))
+        m.addAction(self._act("view_plain_text_mode", "Ctrl+Alt+T",
+                               self._toggle_plain_text_mode, checkable=True, checked=False))
+        self._sep(m)
+
+        # Git
+        m.addAction(self._act("view_git_gutter",       "", self._toggle_git_gutter,
+                               checkable=True, checked=s.get("editor/git_gutter", True)))
+        m.addAction(self._act("view_git_blame_inline", "", self._toggle_git_blame_inline,
+                               checkable=True, checked=s.get("editor/git_blame_inline", False)))
 
     # ── Menu Documento ────────────────────────────────────────────────────────
 
@@ -1235,11 +1330,12 @@ class MainWindow(QMainWindow):
         self._menus["document"] = m
 
         from config.settings import Settings as _S
-        
+
         m.addAction(self._actions["view_word_wrap"])  # stessa action di Visualizza → checkbox sincronizzato
-        m.addAction(self._act("auto_indent",       "", self._toggle_auto_indent,         checkable=True, checked=_S.instance().get("editor/auto_indent", True)))
-        m.addAction(self._act("auto_indent_paste", "", self._toggle_auto_indent_paste,   checkable=True, checked=_S.instance().get("editor/auto_indent_paste", False)))
-        
+        m.addAction(self._act("auto_indent",       "", self._toggle_auto_indent,       checkable=True, checked=_S.instance().get("editor/auto_indent", True)))
+        m.addAction(self._act("auto_indent_paste", "", self._toggle_auto_indent_paste, checkable=True, checked=_S.instance().get("editor/auto_indent_paste", False)))
+        m.addAction(self._act("autoclose_toggle",  "", self._toggle_autoclose,         checkable=True, checked=True))
+
         _spell_enabled = _S.instance().get("spellcheck/enabled", False)
         _spell_saved   = _S.instance().get("spellcheck/language", "it")
         m.addAction(self._act("spell_check", "F4", self._toggle_spellcheck,
@@ -1265,7 +1361,6 @@ class MainWindow(QMainWindow):
         # Tipo indentazione submenu
         sub_indent = m.addMenu(tr("action.indent_type"))
         self._menus["indent_type"] = sub_indent
-        ag_indent = sub_indent  # QActionGroup per radio
         act_tabs   = QAction(tr("label.tab_size") + " (Tab)", self, checkable=True)
         act_spaces = QAction(tr("label.use_spaces"), self, checkable=True, checked=True)
         act_tabs.triggered.connect(lambda: self._set_indent_type(False))
@@ -1275,8 +1370,8 @@ class MainWindow(QMainWindow):
 
         m.addAction(self._act("indent_width", "", self.action_set_indent_width))
         self._sep(m)
-        m.addAction(self._act("read_only",   "", self._toggle_read_only,   checkable=True, checked=False))
-        m.addAction(self._act("write_bom",   "", self._toggle_write_bom,   checkable=True, checked=False))
+        m.addAction(self._act("read_only",   "", self._toggle_read_only, checkable=True, checked=False))
+        m.addAction(self._act("write_bom",   "", self._toggle_write_bom, checkable=True, checked=False))
         self._sep(m)
 
         # Imposta tipo di file submenu
@@ -1297,9 +1392,9 @@ class MainWindow(QMainWindow):
         _le_grp.setExclusive(True)
         self._le_actions: dict[str, QAction] = {}
         for _label, _le, _key in [
-            ("LF (Unix)",     LineEnding.LF,   "lf"),
-            ("CRLF (Windows)",LineEnding.CRLF, "crlf"),
-            ("CR (Mac)",      LineEnding.CR,   "cr"),
+            ("LF (Unix)",      LineEnding.LF,   "lf"),
+            ("CRLF (Windows)", LineEnding.CRLF, "crlf"),
+            ("CR (Mac)",       LineEnding.CR,   "cr"),
         ]:
             _a = QAction(_label, self)
             _a.setCheckable(True)
@@ -1317,7 +1412,8 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("remove_markers",       "", self.action_remove_markers))
         m.addAction(self._act("remove_error_markers", "", self.action_remove_error_markers))
         self._sep(m)
-        m.addAction(self._act("format_document", "Alt+Shift+F", self._action_format_document))
+        m.addAction(self._act("word_count",     "", self.action_word_count))
+        m.addAction(self._act("word_frequency", "", self.action_word_frequency))
         self._sep(m)
         m.addAction(self._act("writing_goal_set", "", self.action_writing_goal))
 
@@ -1418,49 +1514,51 @@ class MainWindow(QMainWindow):
         m = mb.addMenu(tr("menu.tools"))
         self._menus["tools"] = m
 
-        # Line Operations submenu
-        sub_lo = m.addMenu(tr("menu.line_operations"))
-        from ui.line_operations_menu import build_line_ops_menu
-        build_line_ops_menu(sub_lo, self)
-
+        # Macro
+        m.addAction(self._act("record_macro", "", self.action_record_macro))
+        m.addAction(self._act("stop_macro",   "", self.action_stop_macro))
+        m.addAction(self._act("play_macro",   "", self.action_play_macro))
+        m.addAction(self._act("play_macro_n", "", self.action_play_macro_n))
+        m.addAction(self._act("save_macro",   "", self.action_save_macro))
+        m.addAction(self._act("load_macro",   "", self.action_load_macro))
         self._sep(m)
-        m.addAction(self._act("record_macro",    "",    self.action_record_macro))
-        m.addAction(self._act("stop_macro",      "",    self.action_stop_macro))
-        m.addAction(self._act("play_macro",      "",    self.action_play_macro))
-        m.addAction(self._act("play_macro_n",    "",    self.action_play_macro_n))
-        m.addAction(self._act("save_macro",      "",    self.action_save_macro))
-        m.addAction(self._act("load_macro",      "",    self.action_load_macro))
+        m.addAction(self._act("named_sessions", "", self.action_named_sessions))
         self._sep(m)
-        m.addAction(self._act("named_sessions",  "",    self.action_named_sessions))
+        # Utilità
+        m.addAction(self._act("compare_files",    "",           self.action_compare))
+        m.addAction(self._act("color_picker",     "",           self.action_color_picker))
+        m.addAction(self._act("regex_tester",     "",           self.action_regex_tester))
+        m.addAction(self._act("number_converter", "",           self.action_number_converter))
+        m.addAction(self._act("column_stats",     "Ctrl+Alt+S", self.action_column_stats))
+        m.addAction(self._act("lorem_ipsum",      "",           self.action_lorem_ipsum))
+        m.addAction(self._act("text_converter",   "",           self.action_text_converter))
         self._sep(m)
-        m.addAction(self._act("compare_files",   "", self.action_compare))
-        m.addAction(self._act("color_picker",    "", self.action_color_picker))
-        m.addAction(self._act("regex_tester",    "", self.action_regex_tester))
-        m.addAction(self._act("number_converter","", self.action_number_converter))
-        m.addAction(self._act("column_stats",    "Ctrl+Alt+S", self.action_column_stats))
-        m.addAction(self._act("lorem_ipsum",     "", self.action_lorem_ipsum))
-        m.addAction(self._act("text_converter",  "", self.action_text_converter))
-        self._sep(m)
-        m.addAction(self._act("build_profiles",  "F8", self.action_build_profiles))
-        m.addAction(self._act("compile",         "F6", self.action_compile))
-        m.addAction(self._act("run",             "F5", self.action_run))
-        m.addAction(self._act("build",           "F7", self.action_build))
-        m.addAction(self._act("stop_build",      "",   self.action_stop_build))
-        self._sep(m)
-        sub_lsp = m.addMenu("⚡  LSP")
-        self._menus["lsp"] = sub_lsp
-        sub_lsp.addAction(self._act("lsp_goto_def",  "Ctrl+F12",     self.action_lsp_goto_definition))
-        sub_lsp.addAction(self._act("lsp_refs",      "Shift+F12",    self.action_lsp_find_references))
-        sub_lsp.addAction(self._act("lsp_rename",    "Shift+F6",     self.action_lsp_rename))
-        sub_lsp.addAction(self._act("lsp_format",    "Alt+Shift+F",  self.action_lsp_format))
-        sub_lsp.addAction(self._act("lsp_diag",      "",             self.action_lsp_diagnostics))
-        self._sep(m)
-        m.addAction(self._act("keybinding_editor","",  self.action_keybinding_editor))
-        m.addAction(self._act("reload_config",   "",   self.action_reload_config))
+        m.addAction(self._act("keybinding_editor", "", self.action_keybinding_editor))
+        m.addAction(self._act("reload_config",     "", self.action_reload_config))
         self._sep(m)
         m.addAction(self._act("preferences", "Ctrl+Alt+P", self.action_preferences))
         self._sep(m)
-        m.addAction(self._act("open_terminal",   "",   self.action_open_terminal))
+        m.addAction(self._act("open_terminal", "", self.action_open_terminal))
+
+    # ── Menu Compila/Esegui ───────────────────────────────────────────────────
+
+    def _build_menu_build(self, mb: QMenuBar) -> None:
+        m = mb.addMenu(tr("menu.build"))
+        self._menus["build"] = m
+
+        m.addAction(self._act("run",          "F5", self.action_run))
+        m.addAction(self._act("compile",      "F6", self.action_compile))
+        m.addAction(self._act("build",        "F7", self.action_build))
+        m.addAction(self._act("build_profiles","F8", self.action_build_profiles))
+        m.addAction(self._act("stop_build",   "",   self.action_stop_build))
+        self._sep(m)
+        self._menus["lsp"] = m
+        m.addSection("⚡  LSP")
+        m.addAction(self._act("lsp_goto_def", "Ctrl+F12",    self.action_lsp_goto_definition))
+        m.addAction(self._act("lsp_refs",     "Shift+F12",   self.action_lsp_find_references))
+        m.addAction(self._act("lsp_rename",   "Shift+F6",    self.action_lsp_rename))
+        m.addAction(self._act("lsp_format",   "Alt+Shift+F", self.action_lsp_format))
+        m.addAction(self._act("lsp_diag",     "",            self.action_lsp_diagnostics))
 
     # ── Menu Plugin ───────────────────────────────────────────────────────────
 
@@ -1610,7 +1708,8 @@ class MainWindow(QMainWindow):
 
         # Applica icone ai submenu che non sono QAction in _actions
         _submenu_icons = {
-            "split_view": current_map.get("menu_split_view", ""),
+            "split_view":  current_map.get("menu_split_view", ""),
+            "indent_type": current_map.get("indent_width", ""),
         }
         for menu_key, icon_file in _submenu_icons.items():
             menu = self._menus.get(menu_key)

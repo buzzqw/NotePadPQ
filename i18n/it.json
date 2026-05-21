@@ -19,7 +19,12 @@
     "split_view": "Vista divisa",
     "plugins": "Plugin",
     "format": "Formatta Testo",
-    "help": "Aiuto"
+    "help": "Aiuto",
+    "build": "Compila/Esegui",
+    "macro": "Macro",
+    "utilities": "Utilità",
+    "text": "Testo",
+    "line": "Righe"
   },
   "action": {
     "new": "Nuovo",
@@ -69,7 +74,7 @@
     "uppercase": "MAIUSCOLO",
     "lowercase": "minuscolo",
     "titlecase": "Prima Lettera Maiuscola",
-    "invert_case": "Inverti maiuscolo/minuscolo",
+    "invert_case": "iNVERTI mAIUSCOLO/mINUSCOLO",
     "insert_date": "Inserisci data/ora",
     "word_count": "Conteggio parole",
     "sort_asc": "Ordina righe crescente",
@@ -81,6 +86,9 @@
     "remove_empty": "Rimuovi righe vuote",
     "remove_whitespace": "Rimuovi righe solo spazi",
     "remove_every_nth": "Rimuovi ogni N-esima riga...",
+    "sort_by_length_asc": "Ordina per lunghezza (↑)",
+    "sort_by_length_desc": "Ordina per lunghezza (↓)",
+    "sort_random": "Ordina casualmente",
     "regex_tester": "Tester espressioni regolari...",
     "compile": "Compila",
     "run": "Esegui",

@@ -410,7 +410,7 @@ class IncrementalSearchBar(QWidget):
         # Menu Cerca → voce Ricerca incrementale
         search_menu = main_window._menus.get("search")
         if search_menu:
-            act = QAction("🔍 Ricerca incrementale", main_window)
+            act = QAction(tr("action.incremental_search"), main_window)
             act.setShortcut(QKeySequence("Ctrl+Shift+F2"))
             act.setCheckable(True)
             act.triggered.connect(lambda checked: bar.show_bar() if checked else bar.hide_bar())

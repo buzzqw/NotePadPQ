@@ -19,7 +19,12 @@
     "split_view": "Split View",
     "plugins": "Plugins",
     "format": "Format Text",
-    "help": "Help"
+    "help": "Help",
+    "build": "Build/Run",
+    "macro": "Macro",
+    "utilities": "Utilities",
+    "text": "Text",
+    "line": "Lines"
   },
   "action": {
     "new": "New",
@@ -69,7 +74,7 @@
     "uppercase": "UPPERCASE",
     "lowercase": "lowercase",
     "titlecase": "Title Case",
-    "invert_case": "Invert Case",
+    "invert_case": "iNVERT cASE",
     "insert_date": "Insert Date/Time",
     "word_count": "Word Count",
     "sort_asc": "Sort Lines Ascending",
@@ -81,6 +86,9 @@
     "remove_empty": "Remove Empty Lines",
     "remove_whitespace": "Remove Whitespace Lines",
     "remove_every_nth": "Remove Every Nth Line...",
+    "sort_by_length_asc": "Sort by Length (↑)",
+    "sort_by_length_desc": "Sort by Length (↓)",
+    "sort_random": "Sort Randomly",
     "regex_tester": "Regular Expression Tester...",
     "compile": "Compile",
     "run": "Run",

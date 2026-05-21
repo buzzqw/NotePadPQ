@@ -4,11 +4,18 @@
 #  Equivalente bash di build.bat
 # ============================================================
 #  Uso:
-#    ./build.sh           -> compila entrambe le versioni
-#    ./build.sh full      -> compila solo versione Full
-#    ./build.sh lite      -> compila solo versione Lite
-#    ./build.sh installer -> compila entrambe + crea installer
-#                           (richiede Inno Setup via Wine su Linux)
+#    ./build.sh                   -> compila entrambe (cartella)
+#    ./build.sh full              -> solo Full (cartella)
+#    ./build.sh lite              -> solo Lite (cartella)
+#    ./build.sh both              -> entrambe (cartella)
+#    ./build.sh full --onefile    -> Full come .exe singolo
+#    ./build.sh lite --onefile    -> Lite come .exe singolo
+#    ./build.sh both --onefile    -> entrambe come .exe singolo
+#    ./build.sh installer         -> entrambe + Inno Setup
+#
+#  NOTA sulla modalità onefile: produce un singolo NotePadPQ.exe
+#  che estrae i file in %TEMP% ad ogni avvio (avvio più lento).
+#  Per un editor è consigliata la modalità cartella (default).
 # ============================================================
 #  NOTA: PyInstaller produce eseguibili .exe solo su Windows.
 #  Questo script è pensato per:
@@ -45,14 +52,61 @@ m = re.search(r\"setApplicationVersion\('(.+?)'\)\", content)
 print(m.group(1) if m else '0.0.0')
 " 2>/dev/null || echo "0.9.10")
 
-BUILD_MODE="${1:-both}"
+# ── Parsing argomenti o prompt interattivo ────────────────────
+# Se gli argomenti sono passati da CLI li usa direttamente,
+# altrimenti chiede all'utente in modo interattivo.
+
+BUILD_MODE=""
+ONEFILE=false
+
+# Leggi argomenti CLI
+for arg in "$@"; do
+    case "$arg" in
+        full|lite|both|installer) BUILD_MODE="$arg" ;;
+        --onefile) ONEFILE=true ;;
+    esac
+done
 
 echo ""
 echo "============================================================"
 echo -e " ${CYAN}NotePadPQ v${VERSION} — Build Windows${NC}"
-echo " Modalita': ${BUILD_MODE}"
 echo " Data: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "============================================================"
+echo ""
+
+# Prompt variante (solo se non passata da CLI)
+if [[ -z "$BUILD_MODE" ]]; then
+    echo -e " Quale variante vuoi compilare?"
+    echo -e "   ${CYAN}1${NC}) both     — Full + Lite (default)"
+    echo -e "   ${CYAN}2${NC}) full     — Solo versione Full"
+    echo -e "   ${CYAN}3${NC}) lite     — Solo versione Lite"
+    echo -e "   ${CYAN}4${NC}) installer— Full + Lite + Inno Setup"
+    echo ""
+    read -rp "   Scelta [1]: " _choice
+    case "${_choice:-1}" in
+        1|"both")      BUILD_MODE="both" ;;
+        2|"full")      BUILD_MODE="full" ;;
+        3|"lite")      BUILD_MODE="lite" ;;
+        4|"installer") BUILD_MODE="installer" ;;
+        *)             BUILD_MODE="both" ;;
+    esac
+    echo ""
+fi
+
+# Prompt onefile (solo se non passato da CLI)
+if ! $ONEFILE; then
+    read -rp "   Modalità onefile (singolo .exe, avvio più lento)? [s/N]: " _onefile
+    [[ "${_onefile,,}" == "s" ]] && ONEFILE=true
+    echo ""
+fi
+
+export NOTEPADPQ_ONEFILE=$( $ONEFILE && echo "1" || echo "0" )
+
+if $ONEFILE; then
+    echo -e " Variante : ${CYAN}${BUILD_MODE}${NC} | Modalità: ${CYAN}onefile${NC} (singolo .exe)"
+else
+    echo -e " Variante : ${CYAN}${BUILD_MODE}${NC} | Modalità: ${CYAN}cartella${NC} (consigliata)"
+fi
 echo ""
 
 # ── Controlla dipendenze ──────────────────────────────────────
@@ -91,7 +145,10 @@ check_deps
 info "Pulizia build precedenti..."
 rm -rf "${PROJECT_ROOT}/dist/NotePadPQ_Full"
 rm -rf "${PROJECT_ROOT}/dist/NotePadPQ_Lite"
+rm -rf "${SCRIPT_DIR}/dist/NotePadPQ_Full"
+rm -rf "${SCRIPT_DIR}/dist/NotePadPQ_Lite"
 rm -rf "${PROJECT_ROOT}/build"
+rm -rf "${SCRIPT_DIR}/build"
 
 # ── Aggiorna version_info.txt ─────────────────────────────────
 info "Aggiorno version_info.txt per v${VERSION}..."
@@ -122,19 +179,28 @@ build_variant() {
     local variant="$1"   # full | lite
     local label="$2"     # etichetta leggibile
     local spec_file="notepadpq_${variant}.spec"
-    local dist_name="NotePadPQ_$(echo "${variant^}" | sed 's/./\u&/')"
 
     # Normalizza nome cartella dist (Full/Lite con maiuscola)
+    local dist_name
     if [[ "$variant" == "full" ]]; then dist_name="NotePadPQ_Full"; fi
     if [[ "$variant" == "lite" ]]; then dist_name="NotePadPQ_Lite"; fi
 
+    # Suffisso per distinguere cartella vs onefile negli ZIP/label
+    local mode_suffix=""
+    $ONEFILE && mode_suffix="_Onefile"
+
     echo ""
     echo "============================================================"
-    echo -e " ${CYAN}Build ${label}${NC}"
+    if $ONEFILE; then
+        echo -e " ${CYAN}Build ${label} (onefile)${NC}"
+    else
+        echo -e " ${CYAN}Build ${label} (cartella)${NC}"
+    fi
     echo "============================================================"
     echo ""
 
-    $PYTHON_CMD -m PyInstaller --clean --noconfirm "$spec_file"
+    NOTEPADPQ_ONEFILE=$( $ONEFILE && echo "1" || echo "0" ) \
+        $PYTHON_CMD -m PyInstaller --clean --noconfirm "$spec_file"
     local exit_code=$?
 
     if [[ $exit_code -ne 0 ]]; then
@@ -142,20 +208,57 @@ build_variant() {
         return 1
     fi
 
-    ok "Build ${label} completata: dist/${dist_name}/"
-
-    # Crea archivio ZIP
-    local zip_name="NotePadPQ_v${VERSION}_${label}_Windows.zip"
-    local zip_path="${PROJECT_ROOT}/dist/${zip_name}"
-    local dist_path="${PROJECT_ROOT}/dist/${dist_name}"
-
-    if [[ -d "$dist_path" ]]; then
-        info "Creo archivio ${zip_name}..."
-        # Usa zip se disponibile, altrimenti python
-        if command -v zip &>/dev/null; then
-            (cd "$dist_path" && zip -r "$zip_path" . -q)
+    # In modalità onefile l'output è dist/NotePadPQ.exe (nella cartella windowsbuild/dist/)
+    if $ONEFILE; then
+        local onefile_src="${SCRIPT_DIR}/dist/NotePadPQ.exe"
+        local onefile_dst="${SCRIPT_DIR}/dist/NotePadPQ_${label}_Onefile.exe"
+        # Rinomina per non sovrascrivere in caso di build full+lite onefile
+        if [[ -f "$onefile_src" ]]; then
+            mv -f "$onefile_src" "$onefile_dst"
+            ok "Build ${label} onefile completata: dist/NotePadPQ_${label}_Onefile.exe"
         else
-            $PYTHON_CMD -c "
+            # su Linux il nome è senza .exe
+            local onefile_src_nix="${SCRIPT_DIR}/dist/NotePadPQ"
+            if [[ -f "$onefile_src_nix" ]]; then
+                mv -f "$onefile_src_nix" "${SCRIPT_DIR}/dist/NotePadPQ_${label}_Onefile"
+                onefile_dst="${SCRIPT_DIR}/dist/NotePadPQ_${label}_Onefile"
+                ok "Build ${label} onefile completata: dist/NotePadPQ_${label}_Onefile"
+            else
+                ok "Build ${label} onefile completata."
+            fi
+        fi
+
+        # ZIP del singolo file onefile
+        local zip_name="NotePadPQ_v${VERSION}_${label}_Windows_Onefile.zip"
+        local zip_path="${SCRIPT_DIR}/dist/${zip_name}"
+        if [[ -f "$onefile_dst" ]]; then
+            info "Creo archivio ${zip_name}..."
+            if command -v zip &>/dev/null; then
+                zip -j "$zip_path" "$onefile_dst" -q
+            else
+                $PYTHON_CMD -c "
+import zipfile, pathlib
+with zipfile.ZipFile('${zip_path}', 'w', zipfile.ZIP_DEFLATED) as zf:
+    zf.write('${onefile_dst}', pathlib.Path('${onefile_dst}').name)
+print('  ZIP creato.')
+"
+            fi
+            ok "Archivio: dist/${zip_name}"
+        fi
+    else
+        ok "Build ${label} completata: dist/${dist_name}/"
+
+        # Crea archivio ZIP della cartella
+        local zip_name="NotePadPQ_v${VERSION}_${label}_Windows.zip"
+        local zip_path="${SCRIPT_DIR}/dist/${zip_name}"
+        local dist_path="${SCRIPT_DIR}/dist/${dist_name}"
+
+        if [[ -d "$dist_path" ]]; then
+            info "Creo archivio ${zip_name}..."
+            if command -v zip &>/dev/null; then
+                (cd "$dist_path" && zip -r "$zip_path" . -q)
+            else
+                $PYTHON_CMD -c "
 import zipfile, pathlib
 src = pathlib.Path('${dist_path}')
 with zipfile.ZipFile('${zip_path}', 'w', zipfile.ZIP_DEFLATED) as zf:
@@ -164,8 +267,9 @@ with zipfile.ZipFile('${zip_path}', 'w', zipfile.ZIP_DEFLATED) as zf:
             zf.write(f, f.relative_to(src))
 print('  ZIP creato.')
 "
+            fi
+            ok "Archivio: dist/${zip_name}"
         fi
-        ok "Archivio: dist/${zip_name}"
     fi
 
     return 0

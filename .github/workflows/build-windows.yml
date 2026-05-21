@@ -16,6 +16,11 @@ on:
           - both
           - full
           - lite
+      onefile:
+        description: 'Modalita\u2019 onefile (singolo .exe, avvio più lento)'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   # ────────────────────────────────────────────────────────────
@@ -100,22 +105,35 @@ jobs:
       - name: Build Full con PyInstaller
         shell: cmd
         working-directory: windowsbuild
+        env:
+          NOTEPADPQ_ONEFILE: ${{ github.event.inputs.onefile == 'true' && '1' || '0' }}
         run: pyinstaller --clean --noconfirm notepadpq_full.spec
 
       - name: Crea archivio ZIP Full
         shell: pwsh
         run: |
           $ver = '${{ steps.version.outputs.version }}'
-          Compress-Archive `
-            -Path "dist\NotePadPQ_Full\*" `
-            -DestinationPath "dist\NotePadPQ_v${ver}_Full_Windows.zip" `
-            -Force
+          $onefile = '${{ github.event.inputs.onefile }}' -eq 'true'
+          if ($onefile) {
+            # modalita' onefile: l'exe e' in windowsbuild/dist/
+            $src = Get-ChildItem windowsbuild\dist\NotePadPQ*.exe | Select-Object -First 1
+            if ($src) {
+              Compress-Archive -Path $src.FullName `
+                -DestinationPath "windowsbuild\dist\NotePadPQ_v${ver}_Full_Windows_Onefile.zip" -Force
+            }
+          } else {
+            Compress-Archive `
+              -Path "windowsbuild\dist\NotePadPQ_Full\*" `
+              -DestinationPath "windowsbuild\dist\NotePadPQ_v${ver}_Full_Windows.zip" -Force
+          }
 
       - name: Upload artifact Full
         uses: actions/upload-artifact@v4
         with:
           name: NotePadPQ-Full-Windows
-          path: dist/NotePadPQ_v${{ steps.version.outputs.version }}_Full_Windows.zip
+          path: |
+            windowsbuild/dist/NotePadPQ_v${{ steps.version.outputs.version }}_Full_Windows.zip
+            windowsbuild/dist/NotePadPQ_v${{ steps.version.outputs.version }}_Full_Windows_Onefile.zip
           retention-days: 30
 
   # ────────────────────────────────────────────────────────────
@@ -184,22 +202,34 @@ jobs:
       - name: Build Lite con PyInstaller
         shell: cmd
         working-directory: windowsbuild
+        env:
+          NOTEPADPQ_ONEFILE: ${{ github.event.inputs.onefile == 'true' && '1' || '0' }}
         run: pyinstaller --clean --noconfirm notepadpq_lite.spec
 
       - name: Crea archivio ZIP Lite
         shell: pwsh
         run: |
           $ver = '${{ steps.version.outputs.version }}'
-          Compress-Archive `
-            -Path "dist\NotePadPQ_Lite\*" `
-            -DestinationPath "dist\NotePadPQ_v${ver}_Lite_Windows.zip" `
-            -Force
+          $onefile = '${{ github.event.inputs.onefile }}' -eq 'true'
+          if ($onefile) {
+            $src = Get-ChildItem windowsbuild\dist\NotePadPQ*.exe | Select-Object -First 1
+            if ($src) {
+              Compress-Archive -Path $src.FullName `
+                -DestinationPath "windowsbuild\dist\NotePadPQ_v${ver}_Lite_Windows_Onefile.zip" -Force
+            }
+          } else {
+            Compress-Archive `
+              -Path "windowsbuild\dist\NotePadPQ_Lite\*" `
+              -DestinationPath "windowsbuild\dist\NotePadPQ_v${ver}_Lite_Windows.zip" -Force
+          }
 
       - name: Upload artifact Lite
         uses: actions/upload-artifact@v4
         with:
           name: NotePadPQ-Lite-Windows
-          path: dist/NotePadPQ_v${{ steps.version.outputs.version }}_Lite_Windows.zip
+          path: |
+            windowsbuild/dist/NotePadPQ_v${{ steps.version.outputs.version }}_Lite_Windows.zip
+            windowsbuild/dist/NotePadPQ_v${{ steps.version.outputs.version }}_Lite_Windows_Onefile.zip
           retention-days: 30
 
   # ────────────────────────────────────────────────────────────

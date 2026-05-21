@@ -1,12 +1,19 @@
 # notepadpq_full.spec
 # PyInstaller spec — versione FULL (tutte le dipendenze opzionali incluse)
 # Generato per NotePadPQ 0.9.10
+#
+# Modalità onefile: imposta la variabile d'ambiente NOTEPADPQ_ONEFILE=1
+#   Windows:  set NOTEPADPQ_ONEFILE=1 && pyinstaller notepadpq_full.spec
+#   Linux/CI: NOTEPADPQ_ONEFILE=1 pyinstaller notepadpq_full.spec
 
 import sys
 import os
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
+
+# ── Modalità onefile (singolo .exe, estrae in %TEMP% all'avvio) ───────────────
+ONEFILE = os.environ.get('NOTEPADPQ_ONEFILE', '0') == '1'
 
 # ── Dati non-Python da includere ─────────────────────────────────────────────
 datas = [
@@ -112,8 +119,11 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    [],
-    exclude_binaries=True,
+    # In modalità onefile binaries/datas vengono inclusi nell'exe stesso
+    a.binaries if ONEFILE else [],
+    a.zipfiles if ONEFILE else [],
+    a.datas    if ONEFILE else [],
+    exclude_binaries=not ONEFILE,
     name='NotePadPQ',
     debug=False,
     bootloader_ignore_signals=False,
@@ -129,13 +139,15 @@ exe = EXE(
     version='version_info.txt',
 )
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=['vcruntime140.dll', 'msvcp140.dll'],
-    name='NotePadPQ_Full',
-)
+# In modalità onefile non serve COLLECT (tutto è nell'exe)
+if not ONEFILE:
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.zipfiles,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=['vcruntime140.dll', 'msvcp140.dll'],
+        name='NotePadPQ_Full',
+    )

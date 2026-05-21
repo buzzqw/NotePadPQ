@@ -217,6 +217,7 @@
     "mark_color": "Evidenzia in {color} (Ctrl+{num})",
     "clear_marks": "Rimuovi tutti i mark",
     "format_document": "Formatta documento",
+    "view_git_gutter": "Modifiche Git a margine (gutter)",
     "view_git_blame_inline": "Git Blame inline (autore per riga)",
     "view_minimap_hover": "Minimap: anteprima hover",
     "view_lang_toolbar": "Toolbar linguaggio (LaTeX/Markdown)",
@@ -466,14 +467,24 @@
       "minimap": "Minimap",
       "git_gutter": "Mostra modifiche Git a margine",
       "minimap_hover": "Minimap: anteprima hover",
-      "git_blame": "Git Blame inline"
+      "git_blame": "Git Blame inline",
+      "edge_group": "Riga guida verticale",
+      "edge_disabled": "Disabilitata",
+      "edge_col_suffix": " col",
+      "edge_col_label": "Colonna (0 = disabilitata):"
     },
     "aspect": {
       "theme": "Tema",
       "active_theme": "Tema attivo:",
       "edit_theme": "Modifica tema...",
       "import_theme": "Importa tema JSON...",
-      "export_theme": "Esporta tema JSON..."
+      "export_theme": "Esporta tema JSON...",
+      "icons": "Icone Toolbar",
+      "icon_lucide": "Lucide (Lineari, Moderne)",
+      "icon_material": "Material (Google, Piene)",
+      "icon_system": "System (Standard OS)",
+      "icon_set_label": "Set di icone:",
+      "icon_note": "Nota: Se il set non è presente nel PC, verrà scaricato in automatico al volo."
     },
     "file": {
       "encoding": "Encoding e fine riga",
@@ -485,7 +496,18 @@
       "newline_eof": "Aggiungi nuova riga a fine file",
       "restore_session": "Ripristina sessione all'avvio",
       "recent": "File recenti",
-      "recent_max": "Numero massimo:"
+      "recent_max": "Numero massimo:",
+      "autobackup_group": "Autobackup automatico",
+      "autobackup_enabled": "Abilita autobackup periodico",
+      "autosave_to_backup": "Salvataggio automatico nella cartella backup",
+      "autobackup_interval_label": "Intervallo:",
+      "autobackup_interval_suffix": " minuti",
+      "autobackup_dir_label": "Cartella backup:",
+      "autobackup_dir_placeholder": "(cartella predefinita dati utente)",
+      "browse": "Sfoglia…",
+      "autosave_group": "Auto-salvataggio",
+      "autoreload": "Ricarica automaticamente i file modificati esternamente (senza chiedere)",
+      "autosave_focus_loss": "Salva automaticamente quando la finestra perde il fuoco"
     },
     "ac": {
       "general": "Autocompletamento",
@@ -506,7 +528,14 @@
     "build": {
       "general": "Compilazione",
       "save_before": "Salva automaticamente prima di compilare",
-      "panel_always": "Pannello di Compilazione"
+      "panel_always": "Pannello di Compilazione",
+      "terminal_group": "Terminale esterno",
+      "terminal_auto": "Automatico (rileva il terminale installato)",
+      "terminal_custom_item": "Personalizzato…",
+      "terminal_label": "Terminale:",
+      "terminal_placeholder": "es. myterm --workdir {DIR}",
+      "terminal_cmd_label": "Comando custom:",
+      "terminal_dir_token": "{DIR} = cartella del file corrente"
     },
     "lang": {
       "choose": "Lingua interfaccia",
@@ -629,6 +658,8 @@
     "btn_defaults": "Predefinite"
   },
   "tooltip": {
+    "pref_autosave_to_backup": "Salva subito una copia del file nella cartella backup quando viene aperto o salvato.\nLa copia viene aggiornata anche dal timer autobackup periodico.",
+    "pref_terminal_custom": "Comando personalizzato. {DIR} viene sostituito con la cartella del file corrente.\nEsempio: xterm -e 'cd {DIR}; exec zsh'",
     "build_profile_label": "Profilo selezionato automaticamente dal tipo di file.\nPuoi sovrascriverlo con il combo a destra.",
     "build_profile_combo": "Profilo automatico (da estensione file) o selezione manuale",
     "build_open_pdf": "Apri il PDF generato nel pannello anteprima",

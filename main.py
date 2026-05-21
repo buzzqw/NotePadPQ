@@ -231,12 +231,6 @@ def main():
             try:
                 Session.instance().restore_ui_state(win)
 
-                # Mostra il pannello simboli se l'impostazione è attiva
-                mostra_struttura = settings.get("ui/show_symbol_panel_on_start", False)
-                
-                if mostra_struttura and hasattr(win, "_function_list_dock"):
-                    win._function_list_dock.show()
-
             except Exception as e:
                 print(f"[main] restore_ui_state: {e}")
         QTimer.singleShot(200, _restore_layout)

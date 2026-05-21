@@ -215,6 +215,7 @@
     "mark_color": "In {color} hervorheben (Strg+{num})",
     "clear_marks": "Alle Markierungen entfernen",
     "format_document": "Dokument formatieren",
+    "view_git_gutter": "Git-Änderungen am Rand (Gutter)",
     "view_git_blame_inline": "Git Blame Inline (Autor pro Zeile)",
     "view_minimap_hover": "Minimap: Hover-Vorschau",
     "view_lang_toolbar": "Sprach-Toolbar (LaTeX/Markdown)",
@@ -466,14 +467,24 @@
       "git_gutter": "Git-Änderungen am Rand anzeigen",
       "minimap": "Minimap",
       "minimap_hover": "Minimap: Hover-Vorschau",
-      "git_blame": "Git Blame inline"
+      "git_blame": "Git Blame inline",
+      "edge_group": "Vertikale Führungslinie",
+      "edge_disabled": "Deaktiviert",
+      "edge_col_suffix": " Sp.",
+      "edge_col_label": "Spalte (0 = deaktiviert):"
     },
     "aspect": {
       "theme": "Design",
       "active_theme": "Aktives Design:",
       "edit_theme": "Design bearbeiten...",
       "import_theme": "JSON-Design importieren...",
-      "export_theme": "JSON-Design exportieren..."
+      "export_theme": "JSON-Design exportieren...",
+      "icons": "Toolbar-Symbole",
+      "icon_lucide": "Lucide (Linear, Modern)",
+      "icon_material": "Material (Google, Gefüllt)",
+      "icon_system": "System (Standard-BS)",
+      "icon_set_label": "Symbolsatz:",
+      "icon_note": "Hinweis: Wenn der Satz nicht auf dem PC vorhanden ist, wird er automatisch heruntergeladen."
     },
     "file": {
       "encoding": "Codierung und Zeilenende",
@@ -485,7 +496,18 @@
       "newline_eof": "Neue Zeile am Dateiende hinzufügen",
       "restore_session": "Sitzung beim Start wiederherstellen",
       "recent": "Zuletzt geöffnete Dateien",
-      "recent_max": "Maximale Anzahl:"
+      "recent_max": "Maximale Anzahl:",
+      "autobackup_group": "Automatisches Backup",
+      "autobackup_enabled": "Periodisches Autobackup aktivieren",
+      "autosave_to_backup": "Automatisch im Backup-Ordner speichern",
+      "autobackup_interval_label": "Intervall:",
+      "autobackup_interval_suffix": " Minuten",
+      "autobackup_dir_label": "Backup-Ordner:",
+      "autobackup_dir_placeholder": "(Standard-Benutzerdatenordner)",
+      "browse": "Durchsuchen…",
+      "autosave_group": "Auto-Speichern",
+      "autoreload": "Extern geänderte Dateien automatisch neu laden (ohne Nachfrage)",
+      "autosave_focus_loss": "Automatisch speichern, wenn das Fenster den Fokus verliert"
     },
     "ac": {
       "general": "Autovervollständigung",
@@ -506,7 +528,14 @@
     "build": {
       "general": "Erstellen",
       "save_before": "Vor dem Erstellen automatisch speichern",
-      "panel_always": "Kompilierungspanel immer anzeigen"
+      "panel_always": "Kompilierungspanel immer anzeigen",
+      "terminal_group": "Externes Terminal",
+      "terminal_auto": "Automatisch (erkennt das installierte Terminal)",
+      "terminal_custom_item": "Benutzerdefiniert…",
+      "terminal_label": "Terminal:",
+      "terminal_placeholder": "z.B. myterm --workdir {DIR}",
+      "terminal_cmd_label": "Benutzerdefinierter Befehl:",
+      "terminal_dir_token": "{DIR} = Ordner der aktuellen Datei"
     },
     "lang": {
       "choose": "Schnittstellensprache",
@@ -629,6 +658,8 @@
     "btn_defaults": "Standard"
   },
   "tooltip": {
+    "pref_autosave_to_backup": "Speichert sofort eine Kopie der Datei im Backup-Ordner, wenn sie geöffnet oder gespeichert wird.\nDie Kopie wird auch durch den periodischen Autobackup-Timer aktualisiert.",
+    "pref_terminal_custom": "Benutzerdefinierter Befehl. {DIR} wird durch den Ordner der aktuellen Datei ersetzt.\nBeispiel: xterm -e 'cd {DIR}; exec zsh'",
     "build_profile_label": "Profil automatisch nach Dateityp ausgewählt.\nSie können es mit dem Auswahlfeld rechts überschreiben.",
     "build_profile_combo": "Automatisches Profil (nach Dateiendung) oder manuelle Auswahl",
     "build_open_pdf": "Erzeugtes PDF im Vorschaufenster öffnen",

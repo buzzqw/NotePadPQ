@@ -124,55 +124,15 @@ class PreferencesDialog(QDialog):
 
         vl.addWidget(grp_indent)
 
-        # Visualizzazione — griglia a 2 colonne
-        grp_view = QGroupBox(tr("pref.editor.view", default="Visualizzazione"))
-        from PyQt6.QtWidgets import QGridLayout
-        vv = QGridLayout()
-        grp_view.setLayout(vv)
-        vv.setSpacing(6)
-
-        self._show_line_numbers = QCheckBox(tr("pref.editor.line_numbers", default="Numeri di riga"))
-        self._show_fold_margin  = QCheckBox(tr("pref.editor.fold_margin",  default="Margine code folding"))
-        self._show_whitespace   = QCheckBox(tr("pref.editor.whitespace",   default="Mostra spazi/tab"))
-        self._show_eol          = QCheckBox(tr("pref.editor.eol",          default="Mostra fine riga"))
-        self._word_wrap         = QCheckBox(tr("pref.editor.word_wrap",    default="A capo automatico"))
-        self._show_minimap      = QCheckBox(tr("pref.editor.minimap",      default="Minimap (pannello laterale)"))
-        self._minimap_hover_cb  = QCheckBox(tr("pref.editor.minimap_hover", default="Minimap: anteprima hover"))
-        self._git_gutter_cb     = QCheckBox(tr("pref.editor.git_gutter",   default="Modifiche Git a margine"))
-        self._git_blame_cb      = QCheckBox(tr("pref.editor.git_blame",    default="Git Blame inline"))
-
-        _cbs = [
-            self._show_line_numbers, self._show_fold_margin,
-            self._show_whitespace,   self._show_eol,
-            self._word_wrap,         self._show_minimap,
-            self._minimap_hover_cb,  self._git_gutter_cb,
-            self._git_blame_cb,
-        ]
-        for i, cb in enumerate(_cbs):
-            vv.addWidget(cb, i // 2, i % 2)
-
-        vl.addWidget(grp_view)
-
         # Edge column (riga guida verticale)
-        grp_edge = QGroupBox("Riga guida verticale")
+        grp_edge = QGroupBox(tr("pref.editor.edge_group"))
         el = QFormLayout(grp_edge)
         self._edge_column = QSpinBox()
         self._edge_column.setRange(0, 300)
-        self._edge_column.setSpecialValueText("Disabilitata")
-        self._edge_column.setSuffix(" col")
-        el.addRow("Colonna (0 = disabilitata):", self._edge_column)
+        self._edge_column.setSpecialValueText(tr("pref.editor.edge_disabled"))
+        self._edge_column.setSuffix(tr("pref.editor.edge_col_suffix"))
+        el.addRow(tr("pref.editor.edge_col_label"), self._edge_column)
         vl.addWidget(grp_edge)
-
-        # Gruppo pannelli all'avvio
-        grp_startup = QGroupBox("Pannelli all'avvio")
-        sv = QVBoxLayout()
-        grp_startup.setLayout(sv)
-        sv.setSpacing(6)
-        
-        self._show_symbol_panel_on_start = QCheckBox("Mostra struttura documento all'avvio")
-        sv.addWidget(self._show_symbol_panel_on_start)
-       
-        vl.addWidget(grp_startup)
 
         vl.addStretch()
         return w
@@ -209,17 +169,17 @@ class PreferencesDialog(QDialog):
         vl.addWidget(grp_theme)
         
         # --- GRUPPO ICONE ---
-        grp_icons = QGroupBox("Icone Toolbar")
+        grp_icons = QGroupBox(tr("pref.aspect.icons"))
         il = QFormLayout(grp_icons)
-        
+
         self._icon_set_combo = QComboBox()
-        self._icon_set_combo.addItem("Lucide (Lineari, Moderne)", "lucide")
-        self._icon_set_combo.addItem("Material (Google, Piene)", "material")
-        self._icon_set_combo.addItem("System (Standard OS)", "system")
-        
-        il.addRow("Set di icone:", self._icon_set_combo)
-        
-        note_icon = QLabel("Nota: Se il set non è presente nel PC, verrà scaricato in automatico al volo.")
+        self._icon_set_combo.addItem(tr("pref.aspect.icon_lucide"),   "lucide")
+        self._icon_set_combo.addItem(tr("pref.aspect.icon_material"), "material")
+        self._icon_set_combo.addItem(tr("pref.aspect.icon_system"),   "system")
+
+        il.addRow(tr("pref.aspect.icon_set_label"), self._icon_set_combo)
+
+        note_icon = QLabel(tr("pref.aspect.icon_note"))
         note_icon.setWordWrap(True)
         note_icon.setStyleSheet("color: gray; font-size: 11px;")
         il.addRow("", note_icon)
@@ -272,41 +232,38 @@ class PreferencesDialog(QDialog):
         rl.addRow(tr("pref.file.recent_max", default="Numero massimo:"), self._recent_max)
         vl.addWidget(grp_recent)
 
-        grp_autobackup = QGroupBox("Autobackup automatico")
+        grp_autobackup = QGroupBox(tr("pref.file.autobackup_group"))
         al = QFormLayout(grp_autobackup)
 
-        self._autobackup_enabled = QCheckBox("Abilita autobackup periodico")
+        self._autobackup_enabled = QCheckBox(tr("pref.file.autobackup_enabled"))
         al.addRow("", self._autobackup_enabled)
 
-        self._autosave_to_backup = QCheckBox("Salvataggio automatico nella cartella backup")
-        self._autosave_to_backup.setToolTip(
-            "Salva subito una copia del file nella cartella backup quando viene aperto o salvato.\n"
-            "La copia viene aggiornata anche dal timer autobackup periodico."
-        )
+        self._autosave_to_backup = QCheckBox(tr("pref.file.autosave_to_backup"))
+        self._autosave_to_backup.setToolTip(tr("tooltip.pref_autosave_to_backup"))
         al.addRow("", self._autosave_to_backup)
 
         self._autobackup_interval = QSpinBox()
         self._autobackup_interval.setRange(1, 120)
-        self._autobackup_interval.setSuffix(" minuti")
-        al.addRow("Intervallo:", self._autobackup_interval)
+        self._autobackup_interval.setSuffix(tr("pref.file.autobackup_interval_suffix"))
+        al.addRow(tr("pref.file.autobackup_interval_label"), self._autobackup_interval)
 
         backup_dir_row = QHBoxLayout()
         self._autobackup_dir = QLineEdit()
-        self._autobackup_dir.setPlaceholderText("(cartella predefinita dati utente)")
+        self._autobackup_dir.setPlaceholderText(tr("pref.file.autobackup_dir_placeholder"))
         self._autobackup_dir.setReadOnly(True)
-        btn_browse_backup = QPushButton("Sfoglia…")
+        btn_browse_backup = QPushButton(tr("pref.file.browse"))
         btn_browse_backup.clicked.connect(self._browse_backup_dir)
         backup_dir_row.addWidget(self._autobackup_dir, 1)
         backup_dir_row.addWidget(btn_browse_backup)
-        al.addRow("Cartella backup:", backup_dir_row)
+        al.addRow(tr("pref.file.autobackup_dir_label"), backup_dir_row)
 
         vl.addWidget(grp_autobackup)
 
-        grp_autosave = QGroupBox("Auto-salvataggio")
+        grp_autosave = QGroupBox(tr("pref.file.autosave_group"))
         asl = QVBoxLayout(grp_autosave)
-        self._autoreload_on_change = QCheckBox("Ricarica automaticamente i file modificati esternamente (senza chiedere)")
+        self._autoreload_on_change   = QCheckBox(tr("pref.file.autoreload"))
         asl.addWidget(self._autoreload_on_change)
-        self._autosave_on_focus_loss = QCheckBox("Salva automaticamente quando la finestra perde il fuoco")
+        self._autosave_on_focus_loss = QCheckBox(tr("pref.file.autosave_focus_loss"))
         asl.addWidget(self._autosave_on_focus_loss)
         vl.addWidget(grp_autosave)
 
@@ -394,12 +351,12 @@ class PreferencesDialog(QDialog):
         vl.addWidget(grp)
 
         # ── Terminale ─────────────────────────────────────────────────────────
-        grp_term = QGroupBox("Terminale esterno")
+        grp_term = QGroupBox(tr("pref.build.terminal_group"))
         tl = QFormLayout(grp_term)
 
         self._terminal_combo = QComboBox()
         _terminals = [
-            ("Automatico (rileva il terminale installato)", ""),
+            (tr("pref.build.terminal_auto"),        ""),
             ("gnome-terminal",    "gnome-terminal --working-directory={DIR}"),
             ("konsole",           "konsole --workdir {DIR}"),
             ("xfce4-terminal",    "xfce4-terminal --working-directory={DIR}"),
@@ -411,21 +368,18 @@ class PreferencesDialog(QDialog):
             ("xterm",             "xterm -e 'cd {DIR}; exec bash'"),
             ("Windows Terminal",  "wt.exe -d {DIR}"),
             ("cmd.exe",           'cmd.exe /K "cd /d {DIR}"'),
-            ("Personalizzato…",   "__custom__"),
+            (tr("pref.build.terminal_custom_item"), "__custom__"),
         ]
         for label, cmd in _terminals:
             self._terminal_combo.addItem(label, cmd)
-        tl.addRow("Terminale:", self._terminal_combo)
+        tl.addRow(tr("pref.build.terminal_label"), self._terminal_combo)
 
         self._terminal_custom = QLineEdit()
-        self._terminal_custom.setPlaceholderText("es. myterm --workdir {DIR}")
-        self._terminal_custom.setToolTip(
-            "Comando personalizzato. {DIR} viene sostituito con la cartella del file corrente.\n"
-            "Esempio: xterm -e 'cd {DIR}; exec zsh'"
-        )
-        tl.addRow("Comando custom:", self._terminal_custom)
+        self._terminal_custom.setPlaceholderText(tr("pref.build.terminal_placeholder"))
+        self._terminal_custom.setToolTip(tr("tooltip.pref_terminal_custom"))
+        tl.addRow(tr("pref.build.terminal_cmd_label"), self._terminal_custom)
 
-        lbl_token = QLabel("{DIR} = cartella del file corrente")
+        lbl_token = QLabel(tr("pref.build.terminal_dir_token"))
         lbl_token.setStyleSheet("color: gray; font-size: 9px;")
         tl.addRow("", lbl_token)
 
@@ -481,16 +435,7 @@ class PreferencesDialog(QDialog):
         self._tab_width.setValue(s.get("editor/tab_width", 4))
         self._use_tabs.setChecked(s.get("editor/use_tabs", False))
         self._auto_indent.setChecked(s.get("editor/auto_indent", True))
-        self._show_line_numbers.setChecked(s.get("editor/show_line_numbers", True))
-        self._show_fold_margin.setChecked(s.get("editor/show_fold_margin", True))
-        self._show_whitespace.setChecked(s.get("editor/show_whitespace", False))
-        self._show_eol.setChecked(s.get("editor/show_eol", False))
-        self._word_wrap.setChecked(s.get("editor/word_wrap", False))
-        self._show_minimap.setChecked(s.get("editor/show_minimap", False))
-        self._minimap_hover_cb.setChecked(s.get("editor/minimap_hover_preview", False))
-        self._git_gutter_cb.setChecked(s.get("editor/git_gutter", True))
-        self._git_blame_cb.setChecked(s.get("editor/git_blame_inline", False))
-        self._edge_column.setValue(s.get("editor/edge_column", 0))
+        self._edge_column.setValue(s.get("editor/edge_column",   0))
 
         # Aspetto
         theme_name = s.get("theme/active", "Dark")
@@ -562,9 +507,6 @@ class PreferencesDialog(QDialog):
             self._terminal_custom.setText(saved_term_cmd)
         else:
             self._terminal_custom.setText("")
-        self._show_symbol_panel_on_start.setChecked(s.get("ui/show_symbol_panel_on_start", False))
-        
-
         # Lingua
         lang = s.get("i18n/language", "it")
         for i in range(self._lang_combo.count()):
@@ -604,48 +546,8 @@ class PreferencesDialog(QDialog):
         s.set("editor/font_size",         self._font_size.value())
         s.set("editor/tab_width",         self._tab_width.value())
         s.set("editor/use_tabs",          self._use_tabs.isChecked())
-        s.set("editor/auto_indent",       self._auto_indent.isChecked())
-        s.set("editor/show_line_numbers", self._show_line_numbers.isChecked())
-        s.set("editor/show_fold_margin",  self._show_fold_margin.isChecked())
-        s.set("editor/show_whitespace",   self._show_whitespace.isChecked())
-        s.set("editor/show_eol",          self._show_eol.isChecked())
-        s.set("editor/word_wrap",         self._word_wrap.isChecked())
-        s.set("editor/show_minimap",           self._show_minimap.isChecked())
-        s.set("editor/minimap_hover_preview",  self._minimap_hover_cb.isChecked())
-        s.set("editor/git_gutter",             self._git_gutter_cb.isChecked())
-        s.set("editor/git_blame_inline",       self._git_blame_cb.isChecked())
-        s.set("editor/edge_column",            self._edge_column.value())
-        
-        # Hot reload per il Git Gutter
-        mw = self.parent()
-        while mw is not None and not hasattr(mw, "_tab_manager"):
-            mw = mw.parent()
-        if mw is not None:
-            is_git_gutter = self._git_gutter_cb.isChecked()
-            if hasattr(mw, "_git_gutter"):
-                mw._git_gutter.set_enabled(is_git_gutter)
-            elif is_git_gutter:
-                try:
-                    from ui.git_gutter import GitGutter
-                    mw._git_gutter = GitGutter(mw)
-                except Exception:
-                    pass
-
-            # Hot reload Git Blame Inline
-            if hasattr(mw, "_git_blame_mgr"):
-                mw._git_blame_mgr.set_enabled(self._git_blame_cb.isChecked())
-            if "view_git_blame_inline" in getattr(mw, "_actions", {}):
-                act = mw._actions["view_git_blame_inline"]
-                act.blockSignals(True)
-                act.setChecked(self._git_blame_cb.isChecked())
-                act.blockSignals(False)
-
-            # Sync checkmark menu Minimap hover
-            if "view_minimap_hover" in getattr(mw, "_actions", {}):
-                act = mw._actions["view_minimap_hover"]
-                act.blockSignals(True)
-                act.setChecked(self._minimap_hover_cb.isChecked())
-                act.blockSignals(False)
+        s.set("editor/auto_indent",  self._auto_indent.isChecked())
+        s.set("editor/edge_column", self._edge_column.value())
 
         # Aspetto — applica tema a caldo
         theme_name = self._theme_combo.currentText()
@@ -708,18 +610,11 @@ class PreferencesDialog(QDialog):
             s.set("build/terminal_cmd", self._terminal_custom.text().strip())
         else:
             s.set("build/terminal_cmd", term_data or "")
-        s.set("ui/show_symbol_panel_on_start", self._show_symbol_panel_on_start.isChecked())
-        
         # Applica subito la visibilità dei pannelli
         mw_panels = self.parent()
         if hasattr(mw_panels, "_build_dock"):
             if self._build_panel_always.isChecked():
                 mw_panels._build_dock.show()
-        if hasattr(mw_panels, "_symbol_dock"):
-            if self._show_symbol_panel_on_start.isChecked():
-                mw_panels._symbol_dock.show()
-            else:
-                mw_panels._symbol_dock.hide()
 
         # Lingua
         lang_code = self._lang_combo.currentData()

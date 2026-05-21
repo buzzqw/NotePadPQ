@@ -215,6 +215,7 @@
     "mark_color": "Surligner en {color} (Ctrl+{num})",
     "clear_marks": "Effacer toutes les marques",
     "format_document": "Formater le document",
+    "view_git_gutter": "Modifications Git en marge (gutter)",
     "view_git_blame_inline": "Git Blame Inline (auteur par ligne)",
     "view_minimap_hover": "Minimap: aperçu au survol",
     "view_lang_toolbar": "Barre d'outils langue (LaTeX/Markdown)",
@@ -466,14 +467,24 @@
       "git_gutter": "Afficher les modifications Git dans la marge",
       "minimap": "Minicarte",
       "minimap_hover": "Minimap: aperçu au survol",
-      "git_blame": "Git Blame inline"
+      "git_blame": "Git Blame inline",
+      "edge_group": "Ligne guide verticale",
+      "edge_disabled": "Désactivée",
+      "edge_col_suffix": " col",
+      "edge_col_label": "Colonne (0 = désactivée) :"
     },
     "aspect": {
       "theme": "Thème",
       "active_theme": "Thème actif :",
       "edit_theme": "Modifier le thème...",
       "import_theme": "Importer un thème JSON...",
-      "export_theme": "Exporter le thème en JSON..."
+      "export_theme": "Exporter le thème en JSON...",
+      "icons": "Icônes de la barre d'outils",
+      "icon_lucide": "Lucide (Linéaire, Moderne)",
+      "icon_material": "Material (Google, Plein)",
+      "icon_system": "System (Standard OS)",
+      "icon_set_label": "Jeu d'icônes :",
+      "icon_note": "Note : Si le jeu n'est pas présent sur le PC, il sera téléchargé automatiquement."
     },
     "file": {
       "encoding": "Encodage et fin de ligne",
@@ -485,7 +496,18 @@
       "newline_eof": "Ajouter une nouvelle ligne à la fin du fichier",
       "restore_session": "Restaurer la session au démarrage",
       "recent": "Fichiers récents",
-      "recent_max": "Nombre maximum :"
+      "recent_max": "Nombre maximum :",
+      "autobackup_group": "Sauvegarde automatique",
+      "autobackup_enabled": "Activer la sauvegarde automatique périodique",
+      "autosave_to_backup": "Enregistrement automatique dans le dossier de sauvegarde",
+      "autobackup_interval_label": "Intervalle :",
+      "autobackup_interval_suffix": " minutes",
+      "autobackup_dir_label": "Dossier de sauvegarde :",
+      "autobackup_dir_placeholder": "(dossier de données utilisateur par défaut)",
+      "browse": "Parcourir…",
+      "autosave_group": "Enregistrement automatique",
+      "autoreload": "Recharger automatiquement les fichiers modifiés en externe (sans demander)",
+      "autosave_focus_loss": "Enregistrer automatiquement quand la fenêtre perd le focus"
     },
     "ac": {
       "general": "Saisie semi-automatique",
@@ -506,7 +528,14 @@
     "build": {
       "general": "Génération",
       "save_before": "Enregistrer automatiquement avant de générer",
-      "panel_always": "Afficher toujours le panneau de compilation"
+      "panel_always": "Afficher toujours le panneau de compilation",
+      "terminal_group": "Terminal externe",
+      "terminal_auto": "Automatique (détecte le terminal installé)",
+      "terminal_custom_item": "Personnalisé…",
+      "terminal_label": "Terminal :",
+      "terminal_placeholder": "ex. myterm --workdir {DIR}",
+      "terminal_cmd_label": "Commande personnalisée :",
+      "terminal_dir_token": "{DIR} = dossier du fichier courant"
     },
     "lang": {
       "choose": "Langue de l'interface",
@@ -629,6 +658,8 @@
     "btn_defaults": "Par défaut"
   },
   "tooltip": {
+    "pref_autosave_to_backup": "Enregistre immédiatement une copie du fichier dans le dossier de sauvegarde à l'ouverture ou à l'enregistrement.\nLa copie est également mise à jour par le minuteur de sauvegarde automatique périodique.",
+    "pref_terminal_custom": "Commande personnalisée. {DIR} est remplacé par le dossier du fichier courant.\nExemple : xterm -e 'cd {DIR}; exec zsh'",
     "build_profile_label": "Profil sélectionné automatiquement selon le type de fichier.\nVous pouvez le remplacer avec la liste déroulante à droite.",
     "build_profile_combo": "Profil automatique (selon l'extension du fichier) ou sélection manuelle",
     "build_open_pdf": "Ouvrir le PDF généré dans le panneau d'aperçu",

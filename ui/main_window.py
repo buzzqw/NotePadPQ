@@ -542,18 +542,21 @@ class MainWindow(QMainWindow):
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         autosave_to_backup = s.get("file/autosave_to_backup", False)
         for editor in self._tab_manager.all_editors():
-            if editor.file_path:
-                try:
-                    content = editor.get_content()
-                    if s.get("file/autobackup_enabled", False):
-                        name = f"{editor.file_path.stem}_{ts}{editor.file_path.suffix}.bak"
-                        (backup_dir / name).write_text(content, encoding="utf-8", errors="replace")
-                    if autosave_to_backup:
-                        (backup_dir / editor.file_path.name).write_text(
-                            content, encoding="utf-8", errors="replace"
-                        )
-                except Exception:
-                    pass
+            if not editor.file_path:
+                continue
+            if not editor.is_modified():
+                continue
+            try:
+                content = editor.get_content()
+                if s.get("file/autobackup_enabled", False):
+                    name = f"{editor.file_path.stem}_{ts}{editor.file_path.suffix}.bak"
+                    (backup_dir / name).write_text(content, encoding="utf-8", errors="replace")
+                if autosave_to_backup:
+                    (backup_dir / editor.file_path.name).write_text(
+                        content, encoding="utf-8", errors="replace"
+                    )
+            except Exception:
+                pass
 
     # ── Auto-save ─────────────────────────────────────────────────────────────
 
@@ -1179,6 +1182,8 @@ class MainWindow(QMainWindow):
         m.addAction(_df_act)
         m.addAction(self._act("view_typewriter", "", self._toggle_typewriter,
                                checkable=True, checked=s.get("editor/typewriter_mode", False)))
+        m.addAction(self._act("view_git_gutter", "", self._toggle_git_gutter,
+                               checkable=True, checked=s.get("editor/git_gutter", True)))
         m.addAction(self._act("view_git_blame_inline", "", self._toggle_git_blame_inline,
                                checkable=True, checked=s.get("editor/git_blame_inline", False)))
         self._sep(m)
@@ -2932,6 +2937,18 @@ class MainWindow(QMainWindow):
         editor = self._current_editor()
         if editor:
             editor.set_typewriter_mode(checked)
+
+    def _toggle_git_gutter(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("editor/git_gutter", checked)
+        if hasattr(self, "_git_gutter"):
+            self._git_gutter.set_enabled(checked)
+        elif checked:
+            try:
+                from ui.git_gutter import GitGutter
+                self._git_gutter = GitGutter(self)
+            except Exception:
+                pass
 
     def _toggle_git_blame_inline(self, checked: bool) -> None:
         from config.settings import Settings

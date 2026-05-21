@@ -217,6 +217,7 @@
     "mark_color": "Highlight in {color} (Ctrl+{num})",
     "clear_marks": "Clear all marks",
     "format_document": "Format Document",
+    "view_git_gutter": "Git Changes in Margin (gutter)",
     "view_git_blame_inline": "Git Blame Inline (author per line)",
     "view_minimap_hover": "Minimap: hover preview",
     "view_lang_toolbar": "Language Toolbar (LaTeX/Markdown)",
@@ -466,14 +467,24 @@
       "git_gutter": "Show Git changes in margin",
       "minimap": "Minimap",
       "minimap_hover": "Minimap: hover preview",
-      "git_blame": "Git Blame inline"
+      "git_blame": "Git Blame inline",
+      "edge_group": "Vertical guide line",
+      "edge_disabled": "Disabled",
+      "edge_col_suffix": " col",
+      "edge_col_label": "Column (0 = disabled):"
     },
     "aspect": {
       "theme": "Theme",
       "active_theme": "Active theme:",
       "edit_theme": "Edit theme...",
       "import_theme": "Import JSON theme...",
-      "export_theme": "Export JSON theme..."
+      "export_theme": "Export JSON theme...",
+      "icons": "Toolbar Icons",
+      "icon_lucide": "Lucide (Linear, Modern)",
+      "icon_material": "Material (Google, Filled)",
+      "icon_system": "System (Standard OS)",
+      "icon_set_label": "Icon set:",
+      "icon_note": "Note: If the set is not present on this PC, it will be downloaded automatically."
     },
     "file": {
       "encoding": "Encoding and line ending",
@@ -485,7 +496,18 @@
       "newline_eof": "Add newline at end of file",
       "restore_session": "Restore session on startup",
       "recent": "Recent files",
-      "recent_max": "Maximum count:"
+      "recent_max": "Maximum count:",
+      "autobackup_group": "Automatic backup",
+      "autobackup_enabled": "Enable periodic autobackup",
+      "autosave_to_backup": "Auto-save to backup folder",
+      "autobackup_interval_label": "Interval:",
+      "autobackup_interval_suffix": " minutes",
+      "autobackup_dir_label": "Backup folder:",
+      "autobackup_dir_placeholder": "(default user data folder)",
+      "browse": "Browse…",
+      "autosave_group": "Auto-save",
+      "autoreload": "Automatically reload files modified externally (without asking)",
+      "autosave_focus_loss": "Auto-save when the window loses focus"
     },
     "ac": {
       "general": "Autocomplete",
@@ -506,7 +528,14 @@
     "build": {
       "general": "Build",
       "save_before": "Auto-save before building",
-      "panel_always": "Show always build panel"
+      "panel_always": "Show always build panel",
+      "terminal_group": "External terminal",
+      "terminal_auto": "Automatic (detects the installed terminal)",
+      "terminal_custom_item": "Custom…",
+      "terminal_label": "Terminal:",
+      "terminal_placeholder": "e.g. myterm --workdir {DIR}",
+      "terminal_cmd_label": "Custom command:",
+      "terminal_dir_token": "{DIR} = current file's folder"
     },
     "lang": {
       "choose": "Interface language",
@@ -629,6 +658,8 @@
     "btn_defaults": "Defaults"
   },
   "tooltip": {
+    "pref_autosave_to_backup": "Immediately saves a copy of the file to the backup folder when opened or saved.\nThe copy is also updated by the periodic autobackup timer.",
+    "pref_terminal_custom": "Custom command. {DIR} is replaced with the current file's folder.\nExample: xterm -e 'cd {DIR}; exec zsh'",
     "build_profile_label": "Profile selected automatically based on file type.\nYou can override it with the combo on the right.",
     "build_profile_combo": "Automatic profile (from file extension) or manual selection",
     "build_open_pdf": "Open the generated PDF in the preview panel",

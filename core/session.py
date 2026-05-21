@@ -139,8 +139,8 @@ class Session:
                 "word_wrap":       bool(main_window._actions.get("view_word_wrap") and
                                         main_window._actions["view_word_wrap"].isChecked()),
                 "active_profile":  BuildManager.instance()._active_profile or "",
-                "symbol_panel":    bool(main_window._actions.get("view_symbol_panel") and
-                                        main_window._actions["view_symbol_panel"].isChecked()),
+                "symbol_panel":    bool(main_window._actions.get("function_list") and
+                                        main_window._actions["function_list"].isChecked()),
                 "file_browser":    bool(main_window._actions.get("view_file_browser") and
                                         main_window._actions["view_file_browser"].isChecked()),
                 "build_panel":     hasattr(main_window, "_build_dock") and
@@ -224,11 +224,11 @@ class Session:
 
         # Pannello struttura documento
         if state.get("symbol_panel"):
-            act = main_window._actions.get("view_symbol_panel")
+            act = main_window._actions.get("function_list")
             if act:
                 act.setChecked(True)
-                if hasattr(main_window, "_symbol_dock"):
-                    main_window._symbol_dock.show()
+                if hasattr(main_window, "_function_list_dock"):
+                    main_window._function_list_dock.show()
 
         # File browser
         if state.get("file_browser"):
@@ -286,7 +286,7 @@ class Session:
         dock_action_map = {
             "_build_dock":        "view_build_panel",
             "_file_browser_dock": "view_file_browser",
-            "_symbol_dock":       "view_symbol_panel",
+            "_function_list_dock": "function_list",
             "_preview_dock":      "preview_toggle",
         }
         for dock_attr, action_key in dock_action_map.items():

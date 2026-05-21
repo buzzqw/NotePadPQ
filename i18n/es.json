@@ -215,6 +215,7 @@
     "mark_color": "Resaltar en {color} (Ctrl+{num})",
     "clear_marks": "Borrar todas las marcas",
     "format_document": "Formatear documento",
+    "view_git_gutter": "Cambios Git en margen (gutter)",
     "view_git_blame_inline": "Git Blame Inline (autor por línea)",
     "view_minimap_hover": "Minimap: vista previa al pasar",
     "view_lang_toolbar": "Barra de idioma (LaTeX/Markdown)",
@@ -466,14 +467,24 @@
       "git_gutter": "Mostrar cambios de Git en el margen",
       "minimap": "Minimapa",
       "minimap_hover": "Minimap: vista previa al pasar",
-      "git_blame": "Git Blame inline"
+      "git_blame": "Git Blame inline",
+      "edge_group": "Línea guía vertical",
+      "edge_disabled": "Desactivada",
+      "edge_col_suffix": " col",
+      "edge_col_label": "Columna (0 = desactivada):"
     },
     "aspect": {
       "theme": "Tema",
       "active_theme": "Tema activo:",
       "edit_theme": "Editar tema...",
       "import_theme": "Importar tema JSON...",
-      "export_theme": "Exportar tema JSON..."
+      "export_theme": "Exportar tema JSON...",
+      "icons": "Iconos de la barra de herramientas",
+      "icon_lucide": "Lucide (Lineal, Moderno)",
+      "icon_material": "Material (Google, Relleno)",
+      "icon_system": "System (Estándar SO)",
+      "icon_set_label": "Conjunto de iconos:",
+      "icon_note": "Nota: Si el conjunto no está en el PC, se descargará automáticamente."
     },
     "file": {
       "encoding": "Codificación y fin de línea",
@@ -485,7 +496,18 @@
       "newline_eof": "Añadir nueva línea al final del archivo",
       "restore_session": "Restaurar sesión al inicio",
       "recent": "Archivos recientes",
-      "recent_max": "Cantidad máxima:"
+      "recent_max": "Cantidad máxima:",
+      "autobackup_group": "Copia de seguridad automática",
+      "autobackup_enabled": "Habilitar copia de seguridad periódica",
+      "autosave_to_backup": "Guardar automáticamente en la carpeta de copia de seguridad",
+      "autobackup_interval_label": "Intervalo:",
+      "autobackup_interval_suffix": " minutos",
+      "autobackup_dir_label": "Carpeta de copia de seguridad:",
+      "autobackup_dir_placeholder": "(carpeta de datos de usuario predeterminada)",
+      "browse": "Examinar…",
+      "autosave_group": "Autoguardado",
+      "autoreload": "Recargar automáticamente los archivos modificados externamente (sin preguntar)",
+      "autosave_focus_loss": "Guardar automáticamente cuando la ventana pierde el foco"
     },
     "ac": {
       "general": "Autocompletar",
@@ -506,7 +528,14 @@
     "build": {
       "general": "Construcción",
       "save_before": "Guardado automático antes de compilar/construir",
-      "panel_always": "Mostrar siempre el panel de compilación"
+      "panel_always": "Mostrar siempre el panel de compilación",
+      "terminal_group": "Terminal externo",
+      "terminal_auto": "Automático (detecta el terminal instalado)",
+      "terminal_custom_item": "Personalizado…",
+      "terminal_label": "Terminal:",
+      "terminal_placeholder": "ej. myterm --workdir {DIR}",
+      "terminal_cmd_label": "Comando personalizado:",
+      "terminal_dir_token": "{DIR} = carpeta del archivo actual"
     },
     "lang": {
       "choose": "Idioma de la interfaz",
@@ -629,6 +658,8 @@
     "btn_defaults": "Predeterminados"
   },
   "tooltip": {
+    "pref_autosave_to_backup": "Guarda inmediatamente una copia del archivo en la carpeta de copia de seguridad al abrirlo o guardarlo.\nLa copia también se actualiza mediante el temporizador de copia de seguridad automática periódica.",
+    "pref_terminal_custom": "Comando personalizado. {DIR} se reemplaza con la carpeta del archivo actual.\nEjemplo: xterm -e 'cd {DIR}; exec zsh'",
     "build_profile_label": "Perfil seleccionado automáticamente según el tipo de archivo.\nPuede anularlo con el cuadro combinado de la derecha.",
     "build_profile_combo": "Perfil automático (según la extensión del archivo) o selección manual",
     "build_open_pdf": "Abrir el PDF generado en el panel de vista previa",

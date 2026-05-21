@@ -144,14 +144,14 @@ MODEL_COST: dict[str, tuple[float, float]] = {
 }
 
 CONTEXT_ACTIONS = [
-    ("Spiega",          "Spiega questo codice in modo chiaro e conciso, riga per riga se necessario."),
-    ("Refactoring",     "Refactorizza questo codice migliorando leggibilità, struttura e manutenibilità senza cambiare il comportamento esterno."),
-    ("Docstring",       "Scrivi una docstring completa e professionale per questa funzione/classe, con parametri, return e esempi."),
-    ("Correggi bug",    "Analizza questo codice, identifica i bug e proponi la versione corretta con spiegazione."),
-    ("Ottimizza",       "Ottimizza questo codice per performance e memoria, spiegando le modifiche."),
-    ("Test unitari",    "Scrivi test unitari esaustivi per questo codice usando pytest."),
-    ("Review",          "Fai una code review professionale: sicurezza, performance, leggibilità, edge case."),
-    ("Traduci commenti","Traduci tutti i commenti e le stringhe UI di questo codice in italiano."),
+    ("action.ai_explain",            "Spiega questo codice in modo chiaro e conciso, riga per riga se necessario."),
+    ("action.ai_refactor",           "Refactorizza questo codice migliorando leggibilità, struttura e manutenibilità senza cambiare il comportamento esterno."),
+    ("action.ai_docstring",          "Scrivi una docstring completa e professionale per questa funzione/classe, con parametri, return e esempi."),
+    ("action.ai_fix_bug",            "Analizza questo codice, identifica i bug e proponi la versione corretta con spiegazione."),
+    ("action.ai_optimize",           "Ottimizza questo codice per performance e memoria, spiegando le modifiche."),
+    ("action.ai_unit_tests",         "Scrivi test unitari esaustivi per questo codice usando pytest."),
+    ("action.ai_review",             "Fai una code review professionale: sicurezza, performance, leggibilità, edge case."),
+    ("action.ai_translate_comments", "Traduci tutti i commenti e le stringhe UI di questo codice in italiano."),
 ]
 
 
@@ -1156,10 +1156,10 @@ class _AIPanel(QWidget):
 
         # ── Pulsanti rapidi "Chiedi su…" ──────────────────────────────────────
         quick_row = QHBoxLayout()
-        btn_ask_file = QPushButton("📄 Chiedi sul file")
+        btn_ask_file = QPushButton(tr("action.ai_ask_file_btn"))
         btn_ask_file.setToolTip(tr("tooltip.ai_ask_file"))
         btn_ask_file.clicked.connect(self._ask_about_file)
-        btn_ask_sel = QPushButton("✏ Chiedi sulla selezione")
+        btn_ask_sel = QPushButton(tr("action.ai_ask_sel_btn"))
         btn_ask_sel.setToolTip(tr("tooltip.ai_ask_sel"))
         btn_ask_sel.clicked.connect(self._ask_about_selection)
         quick_row.addWidget(btn_ask_file)
@@ -1168,19 +1168,19 @@ class _AIPanel(QWidget):
 
         # ── Azioni contestuali (applicano subito un prompt fisso) ─────────────
         _action_tooltips = {
-            "Spiega":       tr("tooltip.ai_explain"),
-            "Refactoring":  tr("tooltip.ai_refactor"),
-            "Docstring":    tr("tooltip.ai_docstring"),
-            "Correggi bug": tr("tooltip.ai_fix_bug"),
+            "action.ai_explain":   tr("tooltip.ai_explain"),
+            "action.ai_refactor":  tr("tooltip.ai_refactor"),
+            "action.ai_docstring": tr("tooltip.ai_docstring"),
+            "action.ai_fix_bug":   tr("tooltip.ai_fix_bug"),
         }
         act_row = QHBoxLayout()
         for label, prompt in CONTEXT_ACTIONS[:4]:
-            btn = QPushButton(label)
+            btn = QPushButton(tr(label))
             btn.setFixedHeight(24)
             btn.setToolTip(_action_tooltips.get(label, prompt))
             btn.clicked.connect(lambda _, p=prompt: self._context_action(p))
             act_row.addWidget(btn)
-        btn_more = QPushButton("Altro ▾")
+        btn_more = QPushButton(tr("action.ai_more"))
         btn_more.setFixedHeight(24)
         btn_more.setToolTip(tr("tooltip.ai_more"))
         btn_more.clicked.connect(self._show_more_actions)
@@ -1478,7 +1478,7 @@ class _AIPanel(QWidget):
         from PyQt6.QtWidgets import QMenu
         menu = QMenu(self)
         for label, prompt in CONTEXT_ACTIONS[4:]:
-            menu.addAction(label, lambda p=prompt: self._context_action(p))
+            menu.addAction(tr(label), lambda p=prompt: self._context_action(p))
         menu.exec(self._btn_send.mapToGlobal(self._btn_send.rect().topLeft()))
 
     # ── Invio messaggi ────────────────────────────────────────────────────────
@@ -1872,12 +1872,12 @@ class AIAssistantPlugin(BasePlugin):
     def _inject_context_menu(self, menu) -> None:
         """Aggiunge le voci AI al menu contestuale dell'editor (tasto destro)."""
         from PyQt6.QtWidgets import QMenu
-        ai_menu = menu.addMenu("Chiedi all'AI")
-        ai_menu.addAction("Chiedi sul file corrente",    self._panel._ask_about_file)
-        ai_menu.addAction("Chiedi sulla selezione",      self._panel._ask_about_selection)
+        ai_menu = menu.addMenu(tr("action.context_ai"))
+        ai_menu.addAction(tr("action.context_ai_ask_file"), self._panel._ask_about_file)
+        ai_menu.addAction(tr("action.context_ai_ask_sel"),  self._panel._ask_about_selection)
         ai_menu.addSeparator()
         for label, prompt in CONTEXT_ACTIONS[:5]:
-            ai_menu.addAction(label, lambda p=prompt: self._run_and_show(p))
+            ai_menu.addAction(tr(label), lambda p=prompt: self._run_and_show(p))
 
     def _run_and_show(self, prompt: str) -> None:
         self._dock.show()

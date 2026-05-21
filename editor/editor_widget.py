@@ -1350,18 +1350,18 @@ class EditorWidget(QsciScintilla):
         if self.hasSelectedText():
             parsed = _parse_tabular_text(self.selectedText())
             if parsed is not None:
-                conv_menu = menu.addMenu("Converti in tabella")
+                conv_menu = menu.addMenu(tr("action.convert_table"))
 
-                md_menu  = conv_menu.addMenu("Markdown")
-                a = md_menu.addAction("Prima riga come intestazione")
+                md_menu  = conv_menu.addMenu(tr("action.convert_table_md"))
+                a = md_menu.addAction(tr("action.table_header_row"))
                 a.triggered.connect(lambda _: self._convert_selection_to_table("markdown", True))
-                a = md_menu.addAction("Tutte le righe come dati")
+                a = md_menu.addAction(tr("action.table_data_rows"))
                 a.triggered.connect(lambda _: self._convert_selection_to_table("markdown", False))
 
-                tex_menu = conv_menu.addMenu("LaTeX tabularx")
-                a = tex_menu.addAction("Prima riga come intestazione")
+                tex_menu = conv_menu.addMenu(tr("action.convert_table_tex"))
+                a = tex_menu.addAction(tr("action.table_header_row"))
                 a.triggered.connect(lambda _: self._convert_selection_to_table("tabularx", True))
-                a = tex_menu.addAction("Tutte le righe come dati")
+                a = tex_menu.addAction(tr("action.table_data_rows"))
                 a.triggered.connect(lambda _: self._convert_selection_to_table("tabularx", False))
 
                 menu.addSeparator()

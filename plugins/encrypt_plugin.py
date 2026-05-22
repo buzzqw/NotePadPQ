@@ -40,6 +40,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QKeySequence
 
 from plugins.base_plugin import BasePlugin
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -461,7 +462,7 @@ class EncryptPlugin(BasePlugin):
         if not tools_menu:
             return
 
-        sub = QMenu("Encrypt/Decrypt", main_window)
+        sub = QMenu(tr("plugin.encrypt.menu"), main_window)
         _icon_sub = self.load_plugin_icon("plugin_encrypt", main_window)
         if not _icon_sub.isNull():
             sub.setIcon(_icon_sub)
@@ -470,7 +471,7 @@ class EncryptPlugin(BasePlugin):
         def _ed():
             return main_window._tab_manager.current_editor()
 
-        act_enc = QAction("Cifra testo selezionato…", main_window)
+        act_enc = QAction(tr("plugin.encrypt.encrypt_action"), main_window)
         _icon_enc = self.load_plugin_icon("plugin_encrypt", main_window)
         if not _icon_enc.isNull():
             act_enc.setIcon(_icon_enc)
@@ -482,7 +483,7 @@ class EncryptPlugin(BasePlugin):
         sub.addAction(act_enc)
         self._menu_actions.append(act_enc)
 
-        act_dec = QAction("Decifra testo selezionato…", main_window)
+        act_dec = QAction(tr("plugin.encrypt.decrypt_action"), main_window)
         _icon_dec = self.load_plugin_icon("plugin_encrypt_dec", main_window)
         if not _icon_dec.isNull():
             act_dec.setIcon(_icon_dec)

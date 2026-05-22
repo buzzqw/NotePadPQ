@@ -694,6 +694,31 @@
       "msg_no_replace_text": "Enter the replacement text in the field above.",
       "msg_regex_invalid": "Invalid regular expression:\n{error}",
       "csv_header": "file,line,column,text"
+    },
+    "terminal": {
+      "menu": "Terminal",
+      "dock_title": "Terminal",
+      "description": "Dock panel with integrated terminal (xterm.js + shell)."
+    },
+    "clipboard_history": {
+      "menu": "Clipboard History",
+      "dock_title": "Clipboard History",
+      "description": "Clipboard history: keeps the last 50 copied texts with preview, search and quick paste into the editor."
+    },
+    "compare": {
+      "menu": "Compare & Merge…",
+      "description": "Compare two texts with diff highlighting and interactive merge."
+    },
+    "ftp_browser": {
+      "menu": "FTP Browser",
+      "dock_title": "FTP Browser",
+      "description": "Navigation and file transfer panel for FTP/SFTP."
+    },
+    "encrypt": {
+      "menu": "Encrypt/Decrypt",
+      "encrypt_action": "Encrypt selected text…",
+      "decrypt_action": "Decrypt selected text…",
+      "description": "AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR and Caesar cipher encryption on selected text."
     }
   },
   "db": {
@@ -900,5 +925,9 @@
     "engine_url": "URL ({query})",
     "add_engine": "Add",
     "del_engine": "Remove"
+  },
+  "hex_viewer": {
+    "menu": "Hex Viewer",
+    "dock_title": "Hex Viewer"
   }
 }

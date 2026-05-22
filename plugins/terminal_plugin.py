@@ -20,6 +20,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDockWidget
 
 from plugins.base_plugin import BasePlugin
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -40,7 +41,7 @@ class TerminalPlugin(BasePlugin):
         self._panel = TerminalPanel(main_window)
 
         # Crea il dock
-        self._dock = QDockWidget("Terminal", main_window)
+        self._dock = QDockWidget(tr("plugin.terminal.dock_title"), main_window)
         self._dock.setObjectName("TerminalPluginDock")
         self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(350)
@@ -61,7 +62,7 @@ class TerminalPlugin(BasePlugin):
         self.add_menu_action(
             main_window,
             "plugins",
-            "Terminal",
+            tr("plugin.terminal.menu"),
             lambda: self._dock.setVisible(not self._dock.isVisible()),
             shortcut="Ctrl+Alt+T",
             icon_key="plugin_terminal",

@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont, QTextCharFormat, QColor, QTextCursor
 
 from plugins.base_plugin import BasePlugin
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -199,7 +200,7 @@ class HexViewerPlugin(BasePlugin):
         super().on_load(main_window)
         self._panel = _HexPanel(main_window)
 
-        self._dock = QDockWidget("Hex Viewer", main_window)
+        self._dock = QDockWidget(tr("hex_viewer.dock_title"), main_window)
         self._dock.setObjectName("HexViewerDock")
         self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(600)
@@ -214,7 +215,7 @@ class HexViewerPlugin(BasePlugin):
 
         self.add_menu_action(
             main_window, "plugins",
-            "Hex Viewer",
+            tr("hex_viewer.menu"),
             self._toggle,
             shortcut="Ctrl+Alt+H",
             icon_key="plugin_hex"

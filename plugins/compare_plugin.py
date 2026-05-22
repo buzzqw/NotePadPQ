@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor, QTextCharFormat, QFont, QTextCursor
 
 from plugins.base_plugin import BasePlugin
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -311,7 +312,7 @@ class ComparePlugin(BasePlugin):
         super().on_load(main_window)
         self.add_menu_action(
             main_window, "plugins",
-            "Compare & Merge...",
+            tr("plugin.compare.menu"),
             self._open_compare,
             shortcut="F7",
             icon_key="plugin_compare"

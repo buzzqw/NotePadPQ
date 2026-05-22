@@ -638,8 +638,8 @@
       "manage_drivers": "Gestion des pilotes…"
     },
     "search_results": {
-      "menu": "Search PQ",
-      "dock_title": "Search PQ",
+      "menu": "Recherche PQ",
+      "dock_title": "Recherche PQ",
       "shortcut": "Ctrl+Alt+F",
       "no_search": "Aucune recherche effectuée.",
       "summary": "🔍 \"{query}\" — {total} occurrence{s} dans {n_files} fichier{fs}",
@@ -694,6 +694,31 @@
       "msg_no_replace_text": "Entrez le texte de remplacement dans le champ ci-dessus.",
       "msg_regex_invalid": "Expression régulière invalide :\n{error}",
       "csv_header": "fichier,ligne,colonne,texte"
+    },
+    "terminal": {
+      "menu": "Terminal",
+      "dock_title": "Terminal",
+      "description": "Panneau ancrable avec terminal intégré (xterm.js + shell)."
+    },
+    "clipboard_history": {
+      "menu": "Historique du presse-papier",
+      "dock_title": "Historique du presse-papier",
+      "description": "Historique du presse-papier : conserve les 50 derniers textes copiés avec aperçu, recherche et collage rapide."
+    },
+    "compare": {
+      "menu": "Comparer et fusionner…",
+      "description": "Compare deux textes avec mise en évidence des différences et fusion interactive."
+    },
+    "ftp_browser": {
+      "menu": "Navigateur FTP",
+      "dock_title": "Navigateur FTP",
+      "description": "Panneau de navigation et de transfert de fichiers FTP/SFTP."
+    },
+    "encrypt": {
+      "menu": "Chiffrer/Déchiffrer",
+      "encrypt_action": "Chiffrer le texte sélectionné…",
+      "decrypt_action": "Déchiffrer le texte sélectionné…",
+      "description": "Chiffrement AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR et chiffre de César sur le texte sélectionné."
     }
   },
   "db": {
@@ -881,8 +906,8 @@
     "websearch_custom_url": "URL du moteur de recherche. Utilise {query} comme espace réservé pour le mot recherché.\nExemple: https://example.com/search?q={query}"
   },
   "websearch": {
-    "submenu_title": "Web Search",
-    "panel_title": "Web Search",
+    "submenu_title": "Recherche Web",
+    "panel_title": "Recherche Web",
     "menu_action": "Web Search",
     "settings_action": "Paramètres de recherche Web…",
     "search_placeholder": "Rechercher sur Wikipédia…",
@@ -900,5 +925,9 @@
     "engine_url": "URL ({query})",
     "add_engine": "Ajouter",
     "del_engine": "Supprimer"
+  },
+  "hex_viewer": {
+    "menu": "Visionneuse Hex",
+    "dock_title": "Visionneuse Hex"
   }
 }

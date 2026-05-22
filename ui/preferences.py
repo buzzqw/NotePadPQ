@@ -311,11 +311,8 @@ class PreferencesDialog(QDialog):
         grp = QGroupBox(tr("pref.preview.general", default="Pannello anteprima"))
         gl = QVBoxLayout(grp)
 
-        self._preview_enabled = QCheckBox(tr("pref.preview.enabled",
-                                             default="Abilita pannello anteprima laterale"))
         self._preview_sync    = QCheckBox(tr("pref.preview.sync",
                                              default="Sincronizzazione cursore ↔ anteprima"))
-        gl.addWidget(self._preview_enabled)
         gl.addWidget(self._preview_sync)
 
         fl = QFormLayout()
@@ -484,7 +481,6 @@ class PreferencesDialog(QDialog):
         self._ac_threshold.setValue(s.get("autocomplete/threshold", 2))
 
         # Preview
-        self._preview_enabled.setChecked(s.get("preview/enabled", False))
         self._preview_sync.setChecked(s.get("preview/sync_cursor", True))
         self._preview_delay.setValue(s.get("preview/delay_ms", 500))
 
@@ -598,7 +594,6 @@ class PreferencesDialog(QDialog):
         s.set("autocomplete/threshold", self._ac_threshold.value())
 
         # Preview
-        s.set("preview/enabled",    self._preview_enabled.isChecked())
         s.set("preview/sync_cursor",self._preview_sync.isChecked())
         s.set("preview/delay_ms",   self._preview_delay.value())
 

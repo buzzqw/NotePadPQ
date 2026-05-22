@@ -582,7 +582,7 @@ def install(main_window: "MainWindow") -> _FunctionListPanel:
     """
     panel = _FunctionListPanel(main_window)
 
-    dock = QDockWidget("𝑓  Function List", main_window)
+    dock = QDockWidget("𝑓  " + tr("action.view_function_list", default="Function List"), main_window)
     dock.setObjectName("FunctionListDock")
     dock.setWidget(panel)
     dock.setMinimumWidth(200)
@@ -598,7 +598,7 @@ def install(main_window: "MainWindow") -> _FunctionListPanel:
     # Voce menu Visualizza
     view_menu = main_window._menus.get("view")
     if view_menu:
-        act = QAction("𝑓  Function List", main_window)
+        act = QAction("𝑓  " + tr("action.view_function_list", default="Function List"), main_window)
         act.setShortcut(QKeySequence("Ctrl+Shift+F"))
         act.setCheckable(True)
         act.toggled.connect(dock.setVisible)

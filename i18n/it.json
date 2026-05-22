@@ -219,7 +219,7 @@
     "lsp_refs": "Mostra riferimenti",
     "lsp_rename": "Rinomina simbolo",
     "lsp_format": "Formatta documento (LSP)",
-    "lsp_diag": "Mostra diagnostics",
+    "lsp_diag": "Mostra diagnostici",
     "view_json_xml_panel": "Struttura JSON/XML",
     "smart_highlight": "Evidenziazione automatica parola",
     "mark_color": "Evidenzia in {color} (Ctrl+{num})",
@@ -638,16 +638,16 @@
       "manage_drivers": "Gestione driver…"
     },
     "search_results": {
-      "menu": "Search PQ",
-      "dock_title": "Search PQ",
+      "menu": "Cerca PQ",
+      "dock_title": "Cerca PQ",
       "shortcut": "Ctrl+Alt+F",
       "no_search": "Nessuna ricerca effettuata.",
-      "summary": "\uD83D\uDD0D \"{query}\" — {total} occorrenz{s} in {n_files} file{fs}",
-      "summary_single": "\uD83D\uDD0D \"{query}\" — 1 occorrenza in 1 file",
-      "root_label": "\uD83D\uDD0D \"{query}\"  ({total} occorrenze in {n_files} file)",
-      "file_label": "\uD83D\uDCC4 {fname}  ({count})",
+      "summary": "🔍 \"{query}\" — {total} occorrenz{s} in {n_files} file{fs}",
+      "summary_single": "🔍 \"{query}\" — 1 occorrenza in 1 file",
+      "root_label": "🔍 \"{query}\"  ({total} occorrenze in {n_files} file)",
+      "file_label": "📄 {fname}  ({count})",
       "row_label": "  riga {line:>5}  col {col}",
-      "filter_placeholder": "\uD83D\uDD0E Filtra risultati…",
+      "filter_placeholder": "🔎 Filtra risultati…",
       "replace_placeholder": "Testo sostituzione…",
       "replace_label": "Sostituisci con:",
       "replace_tooltip": "Sostituisce la query trovata nel risultato selezionato con il testo del campo qui sopra",
@@ -680,20 +680,45 @@
       "append_results": "+ Accoda",
       "append_results_tooltip": "Se attivo, i risultati della nuova ricerca vengono ACCODATI a quelli già presenti,\nsenza cancellare le ricerche precedenti.\nPuoi così vedere la cronologia di tutte le ricerche fatte.\nClicca sul titolo di una ricerca precedente (riga in blu) per ripristinarne i parametri nei campi.",
       "msg_no_results_doc": "Nessun risultato per \"{query}\" nel documento corrente.",
-      "ctx_goto": "\u2197 Vai alla riga",
-      "ctx_copy_text": "\uD83D\uDCCB Copia testo riga",
-      "ctx_copy_pos": "\uD83D\uDCCB Copia posizione (file:riga)",
-      "ctx_copy_all": "\uD83D\uDCCB Copia tutti i risultati",
-      "ctx_copy_csv": "\uD83D\uDCCB Copia come CSV",
-      "ctx_replace_sel": "\u270F Sostituisci questa occorrenza",
-      "ctx_replace_all": "\u270F Sostituisci tutte le occorrenze",
-      "ctx_clear": "\uD83D\uDDD1 Pulisci tutti i risultati",
+      "ctx_goto": "↗ Vai alla riga",
+      "ctx_copy_text": "📋 Copia testo riga",
+      "ctx_copy_pos": "📋 Copia posizione (file:riga)",
+      "ctx_copy_all": "📋 Copia tutti i risultati",
+      "ctx_copy_csv": "📋 Copia come CSV",
+      "ctx_replace_sel": "✏ Sostituisci questa occorrenza",
+      "ctx_replace_all": "✏ Sostituisci tutte le occorrenze",
+      "ctx_clear": "🗑 Pulisci tutti i risultati",
       "msg_select_first": "Seleziona prima un risultato nell'elenco.",
       "msg_run_search_first": "Esegui prima una ricerca.",
       "msg_replaced_n": "Sostituite {count} occorrenze.",
       "msg_no_replace_text": "Inserisci il testo sostitutivo nel campo qui sopra.",
       "msg_regex_invalid": "Espressione regolare non valida:\n{error}",
       "csv_header": "file,riga,colonna,testo"
+    },
+    "terminal": {
+      "menu": "Terminale",
+      "dock_title": "Terminale",
+      "description": "Pannello dock con terminale integrato (xterm.js + shell)."
+    },
+    "clipboard_history": {
+      "menu": "Cronologia appunti",
+      "dock_title": "Cronologia appunti",
+      "description": "Cronologia appunti: mantiene gli ultimi 50 testi copiati con anteprima, ricerca e incolla rapido nell'editor."
+    },
+    "compare": {
+      "menu": "Confronta e unisci…",
+      "description": "Confronta due testi con evidenziazione delle differenze e merge interattivo."
+    },
+    "ftp_browser": {
+      "menu": "Navigatore FTP",
+      "dock_title": "Navigatore FTP",
+      "description": "Pannello di navigazione e trasferimento file FTP/SFTP."
+    },
+    "encrypt": {
+      "menu": "Cifra/Decifra",
+      "encrypt_action": "Cifra testo selezionato…",
+      "decrypt_action": "Decifra testo selezionato…",
+      "description": "Cifratura AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR e Caesar cipher sul testo selezionato."
     }
   },
   "db": {
@@ -881,8 +906,8 @@
     "websearch_custom_url": "URL del motore di ricerca. Usa {query} come segnaposto per la parola cercata.\nEsempio: https://example.com/search?q={query}"
   },
   "websearch": {
-    "submenu_title": "Web Search",
-    "panel_title": "Web Search",
+    "submenu_title": "Ricerca Web",
+    "panel_title": "Ricerca Web",
     "menu_action": "Web Search",
     "settings_action": "Impostazioni Ricerca Web…",
     "search_placeholder": "Cerca su Wikipedia…",
@@ -900,5 +925,9 @@
     "engine_url": "URL ({query})",
     "add_engine": "Aggiungi",
     "del_engine": "Rimuovi"
+  },
+  "hex_viewer": {
+    "menu": "Visualizzatore Hex",
+    "dock_title": "Visualizzatore Hex"
   }
 }

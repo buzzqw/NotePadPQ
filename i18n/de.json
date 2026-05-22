@@ -638,8 +638,8 @@
       "manage_drivers": "Treiberverwaltung…"
     },
     "search_results": {
-      "menu": "Search PQ",
-      "dock_title": "Search PQ",
+      "menu": "Suche PQ",
+      "dock_title": "Suche PQ",
       "shortcut": "Ctrl+Alt+F",
       "no_search": "Noch keine Suche durchgeführt.",
       "summary": "🔍 \"{query}\" — {total} Treffer in {n_files} Datei{fs}",
@@ -694,6 +694,31 @@
       "msg_no_replace_text": "Geben Sie den Ersatztext im obigen Feld ein.",
       "msg_regex_invalid": "Ungültiger regulärer Ausdruck:\n{error}",
       "csv_header": "Datei,Zeile,Spalte,Text"
+    },
+    "terminal": {
+      "menu": "Terminal",
+      "dock_title": "Terminal",
+      "description": "Dock-Panel mit integriertem Terminal (xterm.js + Shell)."
+    },
+    "clipboard_history": {
+      "menu": "Zwischenablage-Verlauf",
+      "dock_title": "Zwischenablage-Verlauf",
+      "description": "Verlauf der Zwischenablage: speichert die letzten 50 kopierten Texte mit Vorschau, Suche und schnellem Einfügen."
+    },
+    "compare": {
+      "menu": "Vergleichen & Zusammenführen…",
+      "description": "Vergleicht zwei Texte mit Unterschied-Hervorhebung und interaktivem Merge."
+    },
+    "ftp_browser": {
+      "menu": "FTP-Browser",
+      "dock_title": "FTP-Browser",
+      "description": "Navigations- und Dateiübertragungspanel für FTP/SFTP."
+    },
+    "encrypt": {
+      "menu": "Verschlüsseln/Entschlüsseln",
+      "encrypt_action": "Ausgewählten Text verschlüsseln…",
+      "decrypt_action": "Ausgewählten Text entschlüsseln…",
+      "description": "AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR und Caesar-Verschlüsselung für ausgewählten Text."
     }
   },
   "db": {
@@ -881,8 +906,8 @@
     "websearch_custom_url": "Suchmaschinen-URL. Verwende {query} als Platzhalter für das gesuchte Wort.\nBeispiel: https://example.com/search?q={query}"
   },
   "websearch": {
-    "submenu_title": "Web Search",
-    "panel_title": "Web Search",
+    "submenu_title": "Websuche",
+    "panel_title": "Websuche",
     "menu_action": "Web Search",
     "settings_action": "Websuche-Einstellungen…",
     "search_placeholder": "Auf Wikipedia suchen…",
@@ -900,5 +925,9 @@
     "engine_url": "URL ({query})",
     "add_engine": "Hinzufügen",
     "del_engine": "Entfernen"
+  },
+  "hex_viewer": {
+    "menu": "Hex-Betrachter",
+    "dock_title": "Hex-Betrachter"
   }
 }

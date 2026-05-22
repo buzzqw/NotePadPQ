@@ -1071,6 +1071,8 @@ class _AIPanel(QWidget):
 
     _ollama_ready     = pyqtSignal(object)  # list[str] | None — thread-safe
     _anthropic_ready  = pyqtSignal(object)  # list[str] | None — thread-safe
+    _openai_ready     = pyqtSignal(object)  # list[str] | None — thread-safe
+    _gemini_ready     = pyqtSignal(object)  # list[str] | None — thread-safe
 
     def __init__(self, main_window: "MainWindow", parent=None):
         super().__init__(parent)
@@ -1088,6 +1090,8 @@ class _AIPanel(QWidget):
         self._think_text_acc = ""
         self._ollama_ready.connect(self._set_ollama_models)
         self._anthropic_ready.connect(self._set_anthropic_models)
+        self._openai_ready.connect(self._set_openai_models)
+        self._gemini_ready.connect(self._set_gemini_models)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -1304,11 +1308,15 @@ class _AIPanel(QWidget):
         idx = self._model_combo.findText(default)
         if idx >= 0:
             self._model_combo.setCurrentIndex(idx)
-        self._btn_refresh_models.setVisible(pid in ("anthropic", "ollama"))
+        self._btn_refresh_models.setVisible(pid in ("anthropic", "ollama", "openai", "gemini"))
         if pid == "ollama":
             self._refresh_ollama_models()
         elif pid == "anthropic":
             self._refresh_anthropic_models()
+        elif pid == "openai":
+            self._refresh_openai_models()
+        elif pid == "gemini":
+            self._refresh_gemini_models()
 
     def _on_model_changed(self, model: str) -> None:
         name    = self._provider_combo.currentText()
@@ -1411,6 +1419,110 @@ class _AIPanel(QWidget):
         default_idx = self._model_combo.findText(PROVIDERS["Anthropic (Claude)"]["default"])
         self._model_combo.setCurrentIndex(idx if idx >= 0 else max(default_idx, 0))
 
+    def _refresh_openai_models(self) -> None:
+        """Interroga /v1/models OpenAI in background e aggiorna il combo con i modelli chat."""
+        import threading
+        from config.settings import Settings
+        api_key = Settings.instance().get("ai/openai_key", "").strip()
+        if not api_key:
+            return
+
+        self._btn_refresh_models.setEnabled(False)
+        self._btn_refresh_models.setText("…")
+
+        def _fetch():
+            try:
+                req = urllib.request.Request(
+                    "https://api.openai.com/v1/models",
+                    method="GET",
+                    headers={"Authorization": f"Bearer {api_key}"}
+                )
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read())
+                _EXCL = ("embedding", "dall-e", "whisper", "tts", "text-", "babbage",
+                         "davinci", "curie", "ada-", "realtime", "audio", "transcribe")
+                _INCL = ("gpt-", "o1", "o3", "o4")
+                models = sorted(
+                    [m["id"] for m in data.get("data", [])
+                     if any(m["id"].startswith(p) for p in _INCL)
+                     and not any(ex in m["id"] for ex in _EXCL)],
+                    reverse=True
+                )
+                static = PROVIDERS["OpenAI (ChatGPT)"]["models"]
+                known = [m for m in static if m in models]
+                extra = [m for m in models if m not in static]
+                self._openai_ready.emit(known + extra if (known or extra) else None)
+            except Exception:
+                self._openai_ready.emit(None)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _set_openai_models(self, models) -> None:
+        """Popola il combo con i modelli OpenAI effettivamente disponibili."""
+        self._btn_refresh_models.setEnabled(True)
+        self._btn_refresh_models.setText("↻")
+        if PROVIDERS.get(self._provider_combo.currentText(), {}).get("id") != "openai":
+            return
+        if not models:
+            return
+        current = self._model_combo.currentText()
+        self._model_combo.clear()
+        for m in models:
+            self._model_combo.addItem(m)
+        idx = self._model_combo.findText(current)
+        default_idx = self._model_combo.findText(PROVIDERS["OpenAI (ChatGPT)"]["default"])
+        self._model_combo.setCurrentIndex(idx if idx >= 0 else max(default_idx, 0))
+
+    def _refresh_gemini_models(self) -> None:
+        """Interroga /v1beta/models Gemini in background e aggiorna il combo."""
+        import threading
+        from config.settings import Settings
+        api_key = Settings.instance().get("ai/gemini_key", "").strip()
+        if not api_key:
+            return
+
+        self._btn_refresh_models.setEnabled(False)
+        self._btn_refresh_models.setText("…")
+
+        def _fetch():
+            try:
+                req = urllib.request.Request(
+                    f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
+                    method="GET",
+                )
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read())
+                models = [
+                    m["name"].split("/")[-1]
+                    for m in data.get("models", [])
+                    if m.get("name", "").startswith("models/gemini")
+                    and "generateContent" in m.get("supportedGenerationMethods", [])
+                ]
+                static = PROVIDERS["Google Gemini"]["models"]
+                known = [m for m in static if m in models]
+                extra = [m for m in models if m not in static]
+                self._gemini_ready.emit(known + extra if (known or extra) else None)
+            except Exception:
+                self._gemini_ready.emit(None)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _set_gemini_models(self, models) -> None:
+        """Popola il combo con i modelli Gemini effettivamente disponibili."""
+        self._btn_refresh_models.setEnabled(True)
+        self._btn_refresh_models.setText("↻")
+        if PROVIDERS.get(self._provider_combo.currentText(), {}).get("id") != "gemini":
+            return
+        if not models:
+            return
+        current = self._model_combo.currentText()
+        self._model_combo.clear()
+        for m in models:
+            self._model_combo.addItem(m)
+        idx = self._model_combo.findText(current)
+        default_idx = self._model_combo.findText(PROVIDERS["Google Gemini"]["default"])
+        self._model_combo.setCurrentIndex(idx if idx >= 0 else max(default_idx, 0))
+
     def _manual_refresh_models(self) -> None:
         """Bottone ↻ — forza il ricaricamento indipendentemente dal provider."""
         pid = PROVIDERS.get(self._provider_combo.currentText(), {}).get("id", "")
@@ -1418,6 +1530,10 @@ class _AIPanel(QWidget):
             self._refresh_anthropic_models()
         elif pid == "ollama":
             self._refresh_ollama_models()
+        elif pid == "openai":
+            self._refresh_openai_models()
+        elif pid == "gemini":
+            self._refresh_gemini_models()
 
     # ── Azioni contestuali ────────────────────────────────────────────────────
 
@@ -1492,6 +1608,10 @@ class _AIPanel(QWidget):
             self._refresh_anthropic_models()
         elif pid == "ollama":
             self._refresh_ollama_models()
+        elif pid == "openai":
+            self._refresh_openai_models()
+        elif pid == "gemini":
+            self._refresh_gemini_models()
 
     def _get_key(self, pid: str) -> str:
         from config.settings import Settings

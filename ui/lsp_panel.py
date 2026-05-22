@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
+
+from i18n.i18n import tr
 from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -42,7 +44,7 @@ class DiagnosticsPanel(QWidget):
         bar.setContentsMargins(4, 2, 4, 2)
         self._lbl_count = QLabel("Nessun problema rilevato")
         self._lbl_count.setStyleSheet("color: #858585; font-size: 11px;")
-        btn_clear = QPushButton("Pulisci")
+        btn_clear = QPushButton(tr("button.clear"))
         btn_clear.setFixedWidth(60)
         btn_clear.clicked.connect(self._clear)
         bar.addWidget(self._lbl_count)

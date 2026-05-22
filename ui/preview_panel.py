@@ -338,10 +338,16 @@ class PreviewPanel(QWidget):
         self._pdf_btn_zoom_reset.setToolTip(tr("tooltip.preview_zoom_reset"))
         self._pdf_btn_zoom_reset.clicked.connect(self._pdf_zoom_reset)
 
+        self._pdf_btn_open_external = QToolButton()
+        self._pdf_btn_open_external.setText("↗")
+        self._pdf_btn_open_external.setToolTip(tr("tooltip.preview_open_external"))
+        self._pdf_btn_open_external.clicked.connect(self._pdf_open_external)
+
         for w2 in [self._pdf_btn_prev, self._pdf_lbl_page, self._pdf_btn_next,
                    self._pdf_zoom_out, self._pdf_zoom_in,
                    self._pdf_btn_zoom_reset, self._pdf_btn_fit_width,
-                   self._pdf_btn_fit_page, self._pdf_btn_crop, self._pdf_lbl_synctex]:
+                   self._pdf_btn_fit_page, self._pdf_btn_crop,
+                   self._pdf_btn_open_external, self._pdf_lbl_synctex]:
             pdf_nav.addWidget(w2)
         
         # (Questa è la riga che abbiamo aggiunto prima)
@@ -493,32 +499,29 @@ class PreviewPanel(QWidget):
             self._text_fallback.setPlainText("PyMuPDF non installato. Esegui: pip install pymupdf")
             return
 
-        # Apri il documento se il path è cambiato OPPURE se il doc è stato chiuso
+        # Chiudi sempre il documento corrente prima di riaprire: è necessario
+        # anche quando il path è identico, perché dopo una ricompilazione LaTeX
+        # il file su disco è cambiato ma fitz ha ancora in cache il vecchio PDF.
+        same_path = getattr(self, "_pdf_path", None) == path_str
         doc = getattr(self, "_pdf_doc", None)
-        doc_is_closed = doc is None
-        if not doc_is_closed:
+        if doc is not None:
             try:
-                _ = doc.page_count  # lancia ValueError se closed
-            except (ValueError, AttributeError):
-                doc_is_closed = True
+                doc.close()
+            except Exception:
+                pass
+            self._pdf_doc = None
 
-        if getattr(self, "_pdf_path", None) != path_str or doc_is_closed:
-            # Chiudi il documento precedente se ancora aperto
-            if doc is not None and not doc_is_closed:
-                try:
-                    doc.close()
-                except Exception:
-                    pass
-            try:
-                self._pdf_doc      = _fitz.open(path_str)
-                self._pdf_path     = path_str
+        try:
+            self._pdf_doc  = _fitz.open(path_str)
+            self._pdf_path = path_str
+            if not same_path:
                 self._pdf_page_num = 0
-            except Exception as e:
-                self._pdf_doc  = None
-                self._pdf_path = None
-                self._stack.setCurrentIndex(2)
-                self._text_fallback.setPlainText("Errore apertura PDF: " + str(e))
-                return
+        except Exception as e:
+            self._pdf_doc  = None
+            self._pdf_path = None
+            self._stack.setCurrentIndex(2)
+            self._text_fallback.setPlainText("Errore apertura PDF: " + str(e))
+            return
 
         # Il documento è aperto e valido — mostra la pagina
         self._pdf_show_page()
@@ -1037,6 +1040,14 @@ class PreviewPanel(QWidget):
         zoom_h = panel_h / ph
         self._pdf_zoom = max(0.25, min(4.0, min(zoom_w, zoom_h)))
         self._pdf_show_page()
+
+    def _pdf_open_external(self) -> None:
+        """Apre il PDF corrente con il visualizzatore esterno predefinito."""
+        if not self._pdf_path:
+            return
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(self._pdf_path))
 
     # ── SyncTeX ───────────────────────────────────────────────────────────────
 

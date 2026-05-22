@@ -1014,7 +1014,7 @@ class BuildProfilesDialog(QDialog):
         btn_row.addWidget(self._btn_del)
         left.addLayout(btn_row)
 
-        self._btn_set_active = QPushButton("▶  Imposta come attivo")
+        self._btn_set_active = QPushButton("▶  " + tr("button.set_active"))
         self._btn_set_active.setToolTip(tr("tooltip.build_set_active"))
         self._btn_set_active.setStyleSheet(
             "font-weight: bold; padding: 4px 8px; "

@@ -555,15 +555,6 @@ ESEMPI
             panel = getattr(self._mw, "_find_result_panel", None)
             if panel and file_path:
                 panel.add_results(pattern_text, panel_results)
-                bottom = getattr(self._mw, "_bottom_tabs", None)
-                if bottom:
-                    for i in range(bottom.count()):
-                        if bottom.widget(i) is panel:
-                            bottom.setCurrentIndex(i)
-                            break
-                build_dock = getattr(self._mw, "_build_dock", None)
-                if build_dock:
-                    build_dock.show()
         else:
             self._lbl_status.setText(tr("msg.no_results_query", query=pattern_text))
 
@@ -907,16 +898,6 @@ ESEMPI
                 })
         if results:
             panel.add_results(query, results)
-            # Mostra il tab dei risultati nel pannello inferiore
-            bottom = getattr(self._mw, "_bottom_tabs", None)
-            if bottom:
-                for i in range(bottom.count()):
-                    if bottom.widget(i) is panel:
-                        bottom.setCurrentIndex(i)
-                        break
-            build_dock = getattr(self._mw, "_build_dock", None)
-            if build_dock:
-                build_dock.show()
 
     @classmethod
     def show_replace(cls, main_window: "MainWindow") -> None:

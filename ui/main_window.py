@@ -153,6 +153,7 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "plugin_hex": "file-code.svg", "plugin_pdf": "file-text.svg",
         "plugin_richtext": "pen.svg", "plugin_spreadsheet": "table.svg",
         "plugin_encrypt": "lock.svg", "plugin_encrypt_dec": "keyboard.svg",
+        "plugin_terminal": "terminal.svg", "plugin_search": "search.svg",
         # Split view submenu
         "menu_split_view": "columns-2.svg",
     },
@@ -256,6 +257,7 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         "plugin_hex": "code.svg", "plugin_pdf": "picture_as_pdf.svg",
         "plugin_richtext": "edit.svg", "plugin_spreadsheet": "table_chart.svg",
         "plugin_encrypt": "lock.svg", "plugin_encrypt_dec": "keyboard.svg",
+        "plugin_terminal": "terminal.svg", "plugin_search": "pageview.svg",
         # Split view
         "split_vertical": "view_column.svg", "split_horizontal": "view_agenda.svg",
         "split_rotate": "refresh.svg", "menu_split_view": "view_column.svg",
@@ -385,7 +387,6 @@ class MainWindow(QMainWindow):
         """Inizializza i pannelli dockable (build, output, file browser, terminale)."""
         from ui.build_panel import BuildPanel
         from ui.file_browser import FileBrowser
-        from ui.terminal_panel import TerminalPanel
         from PyQt6.QtWidgets import QTabWidget as _QTabWidget, QTreeWidget as _QTreeWidget, QTreeWidgetItem as _QTreeWidgetItem
 
         # ── Dock sinistro: File Browser ───────────────────────────────────────
@@ -462,15 +463,6 @@ class MainWindow(QMainWindow):
         # Tab 1: Output compilazione
         self._build_panel = BuildPanel(self)
         self._bottom_tabs.addTab(self._build_panel, "⚙  Output compilazione")
-
-        # Tab: Risultati ricerca (Find Result Panel)
-        from ui.find_result_panel import FindResultPanel
-        self._find_result_panel = FindResultPanel(self)
-        self._bottom_tabs.addTab(self._find_result_panel, "🔍  Risultati ricerca")
-
-        # Tab: Terminale integrato
-        self._terminal_panel = TerminalPanel(self)
-        self._bottom_tabs.addTab(self._terminal_panel, "🖥  Terminale")
 
         # Tab: Diagnostics LSP
         from ui.lsp_panel import DiagnosticsPanel

@@ -1,6 +1,6 @@
 # NotePadPQ: Manuale d'uso
 
-> Versione 0.6.6: Editor di testo avanzato basato su **QScintilla/PyQt6**  
+> Versione 0.9.13: Editor di testo avanzato basato su **QScintilla/PyQt6**  
 > Piattaforme: Linux, Windows, macOS
 
 ---
@@ -18,6 +18,8 @@
 9. [Strumenti](#9-strumenti)
 10. [Plugin](#10-plugin)
 23. [Editor Rich Text](#23-editor-rich-text)
+24. [Search PQ](#24-search-pq)
+25. [Terminal](#25-terminal)
 11. [Pannelli laterali e inferiori](#11-pannelli-laterali-e-inferiori)
 12. [Multi-cursore](#12-multi-cursore)
 13. [Split View](#13-split-view)
@@ -54,6 +56,8 @@ L'interfaccia è composta da:
 ---
 
 ## 2. Gestione file
+
+<img alt="Menu File" src="immagini/notepadpq03.png" />
 
 | Azione | Scorciatoia |
 |---|---|
@@ -94,6 +98,8 @@ NotePadPQ monitora i file aperti e reagisce in due modi distinti:
 ---
 
 ## 3. Modifica testo
+
+<img alt="Menu Modifica con submenu Formatta" src="immagini/notepadpq04.png" />
 
 ### Operazioni base
 
@@ -273,6 +279,8 @@ Senza selezione crea l'ambiente vuoto e posiziona il cursore sulla riga interna 
 
 ## 4. Cerca e Sostituisci
 
+<img alt="Menu Cerca" src="immagini/notepadpq05.png" />
+
 ### Elenco comandi: Command Palette (`Ctrl+Shift+P`)
 
 Apre una palette fuzzy-search su tutti i comandi dell'editor. Digita una parola qualsiasi del nome del comando, naviga con `↑`/`↓`, premi `Invio` per eseguire. Utile per accedere a funzioni senza memorizzare la scorciatoia.
@@ -395,6 +403,8 @@ I bookmark vengono salvati nella sessione e ripristinati alla riapertura del fil
 
 ## 7. Visualizzazione
 
+<img alt="Menu Visualizza" src="immagini/notepadpq06.png" />
+
 ### Toolbar e Statusbar
 **Visualizza → Barra strumenti** e **Visualizza → Barra di stato**: mostrano/nascondono./nascondono.
 
@@ -413,7 +423,7 @@ I bookmark vengono salvati nella sessione e ripristinati alla riapertura del fil
 
 > **A capo automatico** è presente sia in **Visualizza** che in **Documento**: sono la stessa azione: spuntarla in un menu aggiorna l'altra automaticamente.
 
-### Modalità testo semplice (`Ctrl+Alt+T`)
+### Modalità testo semplice (`Ctrl+Alt+N`)
 
 **Visualizza → Modalità testo semplice**: toggle per tab. Quando attivo, disabilita sul tab corrente:
 
@@ -501,6 +511,8 @@ Tenendo il cursore fermo per mezzo secondo su determinati elementi, NotePadPQ mo
 
 ## 8. Documento
 
+<img alt="Menu Documento" src="immagini/notepadpq07.png" />
+
 ### Impostazioni documento corrente
 
 - **Tipo indentazione**: Tab o Spazi
@@ -547,6 +559,8 @@ L'apertura di un file con estensione `.go`, `.rs`, `.php`, `.swift`, `.kt`, `.sc
 ---
 
 ## 9. Strumenti
+
+<img alt="Menu Strumenti" src="immagini/notepadpq08.png" />
 
 ### Preferenze (`Ctrl+Alt+P`)
 Apre il dialog di configurazione; vedi [sezione 15](#15-preferenze).
@@ -674,6 +688,9 @@ Tutti i plugin mostrano icone Lucide nel menu Plugin (stesso stile della toolbar
 | **Git Integration** | — | Pannello Git completo (vedi sotto) |
 | **Hex Viewer** | `Ctrl+Alt+H` | Visualizza il file corrente in formato esadecimale |
 | **PDF Viewer** | — | Visualizza file PDF in un tab dedicato |
+| **Search PQ** | `Ctrl+Alt+F` | Ricerca e sostituzione avanzata nel documento: modalità TEXT/REGEXP/LIKE, coda risultati, filtro inline, sostituzione (vedi [sezione 24](#24-search-pq)) |
+| **Terminal** | `Ctrl+Alt+N` | Terminale xterm.js con PTY nativo come pannello dock indipendente (vedi [sezione 25](#25-terminal)) |
+| **Web Search** | — | Ricerca web e Wikipedia sul testo selezionato dal menu contestuale |
 
 ### Plugin Git: dettaglio
 
@@ -727,13 +744,11 @@ Pannello con la lista di funzioni, classi e metodi del file corrente. Si aggiorn
 
 Linguaggi con parser dedicato: Python, JavaScript/TypeScript, C/C++, Java, Bash, SQL, LaTeX, Markdown.
 
-### Pannello compilazione e terminale (`` Ctrl+` ``)
+### Pannello compilazione (`` Ctrl+` ``)
 
-Un unico dock inferiore con due tab:
+Un unico dock inferiore con tre tab. Il terminale e i risultati di ricerca sono stati spostati in plugin dock indipendenti (vedi [sezione 24](#24-search-pq) e [sezione 25](#25-terminal)).
 
 **Tab "Output compilazione"**: output testuale del comando build. La lista errori è cliccabile: click su un errore salta alla riga nel file sorgente. Dopo una compilazione LaTeX riuscita, il pulsante **📄 PDF** apre il documento nel pannello Anteprima.
-
-**Tab "Terminale"**: terminale completo basato su xterm.js con PTY nativo.
 
 **Tab "⚡ Task"**: task runner rapido per comandi arbitrari:
 - Auto-scoperta dei task dal progetto: target `Makefile`, `npm scripts` da `package.json`, task da `pyproject.toml`
@@ -1064,7 +1079,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+Shift+E` | File Browser |
 | `Ctrl+Shift+F` | Function List |
 | `` Ctrl+` `` | Pannello compilazione e terminale |
-| `Ctrl+Alt+T` | Modalità testo semplice (per tab) |
+| `Ctrl+Alt+N` | Modalità testo semplice (per tab) |
 | `F4` | Controllo ortografico |
 
 ### Multi-cursore
@@ -1451,4 +1466,56 @@ Installa pandoc con: `sudo pacman -S pandoc` / `sudo apt install pandoc` / `sudo
 
 ---
 
-*Manuale aggiornato: NotePadPQ 0.6.6*
+## 24. Search PQ
+
+<img width="1920" alt="Plugin Search PQ" src="immagini/notepadpq10.png" />
+
+Il plugin **Search PQ** (`Ctrl+Alt+F`, oppure **Plugin → Search PQ**) apre un pannello dock dedicato alla ricerca e sostituzione avanzata nel documento corrente. Il pannello non si apre automaticamente durante una ricerca normale: va attivato esplicitamente.
+
+### Modalità di ricerca
+
+| Modalità | Sintassi | Comportamento |
+|---|---|---|
+| **TEXT** (default) | parole separate da spazio | AND implicito; prefisso `-` o `!` per NOT (es. `jira -bug` → righe con "jira" ma senza "bug") |
+| `.*` | espressione regolare Python | sintassi `re` completa |
+| `%LIKE%` | SQL LIKE | `%` = sequenza qualsiasi, `_` = singolo carattere |
+
+Opzioni aggiuntive: **Aa** (case-sensitive) e **\b** (confini di parola).
+
+La ricerca parte automaticamente dopo 300 ms dal termine della digitazione (debounce) e si riavvia immediatamente a ogni cambio di opzione.
+
+### Albero dei risultati
+
+I risultati sono raggruppati per file. Un click singolo su una riga naviga direttamente alla posizione nel documento. La riga di intestazione (in blu) mostra parametri e statistiche della ricerca; cliccandola ripristina i valori nei campi di ricerca.
+
+### Coda risultati (Queue)
+
+Il checkbox **+ Queue**: se attivo, ogni nuova ricerca viene aggiunta all'albero senza cancellare le precedenti, creando una cronologia visuale. Cliccare un'intestazione blu precedente ne ripristina i parametri nei campi.
+
+### Filtro inline
+
+Campo di filtro live sull'albero già popolato, nelle stesse tre modalità (TEXT/regexp/LIKE).
+
+### Sostituzione
+
+Il campo **Sostituisci con:** è sempre visibile. I pulsanti **Sostituisci** (occorrenza selezionata) e **Sostituisci tutto** operano sul documento corrente.
+
+### Menu contestuale
+
+Tasto destro su una riga: copia testo riga, posizione, tutte le occorrenze o CSV; naviga occorrenza precedente ▲ / successiva ▼.
+
+---
+
+## 25. Terminal
+
+Il plugin **Terminal** (`Ctrl+Alt+N`, oppure **Plugin → Terminal**) espone il terminale integrato (xterm.js + shell con PTY nativo) come pannello dock indipendente, riposizionabile e flottante come qualsiasi altro pannello.
+
+- Si sincronizza automaticamente con la directory del file aperto nell'editor al cambio tab.
+- Supporta qualsiasi programma interattivo: vim, python REPL, ssh, git, compilatori.
+- Nessuna dipendenza esterna; funziona su Linux, Windows e macOS.
+
+Il pannello può essere agganciato a qualsiasi lato della finestra (alto, basso, sinistra, destra) o staccato come finestra indipendente trascinando la barra del titolo.
+
+---
+
+*Manuale aggiornato: NotePadPQ 0.9.13*

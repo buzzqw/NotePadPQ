@@ -89,9 +89,10 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Smart Crop**: elimina automaticamente i margini bianchi dei PDF (`✂`).
 - Zoom con `Ctrl+Rotella`, navigazione pagine con la rotella.
 
-### 💻 Terminale integrato
-- Terminale completo basato su **PTY nativo** nel pannello inferiore (`` Ctrl+` ``).
+### 💻 Terminale integrato (plugin)
+- Terminale completo basato su **PTY nativo** come pannello dock indipendente (`Ctrl+Alt+T` dal menu Plugin).
 - Supporta qualsiasi programma interattivo: vim, python REPL, ssh, git, compilatori.
+- Si sincronizza automaticamente con la directory del file aperto nell'editor.
 - Nessuna dipendenza esterna; funziona su tutti i sistemi supportati.
 
 ### ⚡ LSP: Language Server Protocol
@@ -135,6 +136,9 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 | **FTP Browser** | Navigazione e modifica file su server FTP |
 | **Git Integration** | Stato repo, commit, diff, branch, PR/MR direttamente dall'editor |
 | **Hex Viewer** | Visualizzazione esadecimale dei file binari |
+| **Search PQ** | Pannello dock per ricerca e sostituzione avanzata: modalità TEXT (AND/NOT), regexp, LIKE; coda di risultati, filtro inline, contesto menu (`Ctrl+Alt+F`) |
+| **Terminal** | Terminale xterm.js+PTY come pannello dock indipendente, sincronizzato con la directory del file aperto (`Ctrl+Alt+T`) |
+| **Web Search** | Ricerca web e Wikipedia sul testo selezionato direttamente dal menu contestuale |
 
 ### 🌍 Interfaccia e UI
 - **Multilingua**: 5 lingue (Italiano, English, Deutsch, Français, Español) cambiabili a caldo.
@@ -142,7 +146,7 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 - **Set icone**: Lucide, Material, Sistema; download automatico al primo utilizzo.
 - **Orologio live** nella barra dei menu con data e ora localizzate.
 - **Controllo ortografico** (`F4`): spell checker in tempo reale con sottolineatura rossa per IT, EN, DE, FR, ES. Lingua del dizionario selezionabile indipendentemente dalla lingua dell'interfaccia (Documento → Lingua dizionario). Click destro su una parola evidenziata per suggerimenti, "Aggiungi al dizionario" o "Ignora tutto".
-- **Modalità testo semplice** (`Ctrl+Alt+T`): disabilita highlighting, brace matching e autocomplete per tab, ripristinabile in un click.
+- **Modalità testo semplice** (`Ctrl+Alt+N`): disabilita highlighting, brace matching e autocomplete per tab, ripristinabile in un click.
 - **Modalità scrittura distraction-free** (`F11`): schermo intero senza toolbar, statusbar, menubar né pannelli. Ripristino completo all'uscita.
 - **Sessioni**: ripristino automatico all'avvio di tutti i file, posizioni cursore e layout pannelli. Auto-save opzionale su perdita del fuoco.
 - **Istanza singola**: aprire un file da file manager lo invia alla finestra già aperta.
@@ -207,7 +211,7 @@ python main.py file1.py file2.md  # apre i file specificati
 
 <img width="1920" alt="NotePadPQ editor" src="immagini/notepadpq2.png" />
 
-*Editor con syntax highlighting, minimap, pannelli split view e Function List*
+*Editor con syntax highlighting, pannello Search PQ con risultati e coda di ricerca*
 
 ---
 
@@ -268,6 +272,14 @@ python main.py file1.py file2.md  # apre i file specificati
 <img width="1920" alt="Database query" src="immagini/query.png" />
 
 *Query editor con risultati paginati, esportazione e navigazione ◀ ▶*
+
+---
+
+### 🔍 Plugin Search PQ
+
+<img width="1920" alt="Search PQ panel" src="immagini/notepadpq10.png" />
+
+*Pannello Search PQ: ricerca multi-modalità (TEXT/REGEXP/LIKE), coda risultati, filtro inline e sostituzione*
 
 ---
 
@@ -340,9 +352,10 @@ Runs natively on Linux, Windows, and FreeBSD.
 - **Smart Crop**: auto-trim PDF white margins (`✂`).
 - Zoom with `Ctrl+Wheel`, page navigation with the scroll wheel.
 
-### 💻 Integrated Terminal
-- Full terminal based on **native PTY** in the bottom panel (`` Ctrl+` ``).
+### 💻 Integrated Terminal (plugin)
+- Full terminal based on **native PTY** as an independent dock panel (`Ctrl+Alt+T` from the Plugin menu).
 - Supports any interactive program: vim, Python REPL, ssh, git, compilers.
+- Automatically syncs with the directory of the file open in the editor.
 - No external dependencies; works on all supported platforms.
 
 ### ⚡ LSP: Language Server Protocol
@@ -386,6 +399,9 @@ Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) d
 | **FTP Browser** | Browse and edit files on FTP servers |
 | **Git Integration** | Full Git panel: status, log, diff, branch, PR/MR |
 | **Hex Viewer** | Hexadecimal view of binary files |
+| **Search PQ** | Dock panel for advanced search and replace: TEXT mode (AND/NOT), regexp, LIKE; result queue, inline filter, context menu (`Ctrl+Alt+F`) |
+| **Terminal** | xterm.js+PTY terminal as an independent dock panel, synced with the open file's directory (`Ctrl+Alt+T`) |
+| **Web Search** | Web and Wikipedia search on selected text directly from the context menu |
 
 ### 🌍 Interface
 - **5 languages**: Italian, English, German, French, Spanish; switch at runtime.
@@ -393,7 +409,7 @@ Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) d
 - **Icon sets**: Lucide, Material, System; auto-downloaded on first use.
 - **Live clock** in the menu bar with localized date and time.
 - **Spell checker** (`F4`): real-time spell checking with red squiggles for IT, EN, DE, FR, ES. Dictionary language is selectable independently from the UI language (Document → Dictionary Language). Right-click a highlighted word for suggestions, "Add to dictionary", or "Ignore all".
-- **Plain text mode** (`Ctrl+Alt+T`): disable highlighting, brace matching and autocomplete per tab, restorable in one click.
+- **Plain text mode** (`Ctrl+Alt+N`): disable highlighting, brace matching and autocomplete per tab, restorable in one click.
 - **Distraction-free writing mode** (`F11`): fullscreen with toolbar, statusbar, menubar, and panels hidden. Fully restored on exit.
 - **Session restore**: all files, cursor positions, and panel layout restored at startup. Optional auto-save on focus loss.
 - **Single instance**: opening files from the file manager sends them to the running window.

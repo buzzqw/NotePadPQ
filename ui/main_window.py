@@ -1305,7 +1305,7 @@ class MainWindow(QMainWindow):
         m.addAction(_df_act)
         m.addAction(self._act("view_typewriter",    "", self._toggle_typewriter,
                                checkable=True, checked=s.get("editor/typewriter_mode", False)))
-        m.addAction(self._act("view_plain_text_mode", "Ctrl+Alt+T",
+        m.addAction(self._act("view_plain_text_mode", "Ctrl+Alt+N",
                                self._toggle_plain_text_mode, checkable=True, checked=False))
         self._sep(m)
 

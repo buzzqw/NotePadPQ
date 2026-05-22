@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 class TerminalPlugin(BasePlugin):
 
-    NAME        = "Terminale"
+    NAME        = "Terminal"
     VERSION     = "1.0"
     DESCRIPTION = "Pannello dock con terminale integrato (xterm.js + shell)."
     AUTHOR      = "NotePadPQ Team"
@@ -40,7 +40,7 @@ class TerminalPlugin(BasePlugin):
         self._panel = TerminalPanel(main_window)
 
         # Crea il dock
-        self._dock = QDockWidget("Terminale", main_window)
+        self._dock = QDockWidget("Terminal", main_window)
         self._dock.setObjectName("TerminalPluginDock")
         self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(350)
@@ -61,7 +61,7 @@ class TerminalPlugin(BasePlugin):
         self.add_menu_action(
             main_window,
             "plugins",
-            "Terminale",
+            "Terminal",
             lambda: self._dock.setVisible(not self._dock.isVisible()),
             shortcut="Ctrl+Alt+T",
             icon_key="plugin_terminal",

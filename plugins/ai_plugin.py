@@ -11,6 +11,7 @@ Provider supportati:
   • OpenAI (GPT-4o, GPT-4o-mini, o3-mini)
   • Google Gemini (gemini-2.0-flash, gemini-1.5-pro)
   • Ollama locale (llama3, mistral, codestral…)
+  • LlamaCPP locale — llama-server (OpenAI-compatible, porta 8080)
 
 BYOK — chiave API per provider salvata in QSettings.
 Shortcut: Ctrl+Alt+A per aprire/chiudere il pannello.
@@ -127,6 +128,14 @@ PROVIDERS: dict[str, dict] = {
         "default": "llama3.2",
         "key_url": "",
         "note":    "Nessuna chiave necessaria. Imposta l'URL del server Ollama.",
+        "thinking_models": [],
+    },
+    "LlamaCPP (locale)": {
+        "id":      "llamacpp",
+        "models":  ["llama-3.2", "llama-3.1", "mistral-7b", "codestral"],
+        "default": "llama-3.2",
+        "key_url": "",
+        "note":    "Nessuna chiave necessaria. Imposta l'URL del server llama-server (default: http://localhost:8080).",
         "thinking_models": [],
     },
 }
@@ -407,7 +416,8 @@ class _AIWorker(QThread):
     def __init__(self, provider_id: str, model: str, api_key: str,
                  messages: list[dict], system: str = "",
                  max_tokens: int = 4096, thinking: bool = False,
-                 ollama_url: str = "http://localhost:11434"):
+                 ollama_url: str = "http://localhost:11434",
+                 llamacpp_url: str = "http://localhost:8080"):
         super().__init__()
         self._provider    = provider_id
         self._model       = model
@@ -417,6 +427,7 @@ class _AIWorker(QThread):
         self._max_tokens  = max_tokens
         self._thinking    = thinking
         self._ollama_url  = ollama_url
+        self._llamacpp_url = llamacpp_url
         self._stop_event    = threading.Event()
         self._current_resp  = None  # risposta HTTP corrente, per chiusura forzata
 
@@ -439,6 +450,8 @@ class _AIWorker(QThread):
                 text = self._call_gemini()
             elif self._provider == "ollama":
                 text = self._call_ollama()
+            elif self._provider == "llamacpp":
+                text = self._call_llamacpp()
             elif self._provider == "jetbrains":
                 text = self._call_jetbrains()
             else:
@@ -678,6 +691,100 @@ class _AIWorker(QThread):
             self._current_resp = None
         return full_text
 
+    # ── LlamaCPP (llama-server, OpenAI-compatible) ────────────────────────────
+
+    def _call_llamacpp(self) -> str:
+        msgs = self._messages
+        if self._system:
+            msgs = [{"role": "system", "content": self._system}] + list(msgs)
+        url  = f"{self._llamacpp_url.rstrip('/')}/v1/chat/completions"
+        body = json.dumps({
+            "model":      self._model,
+            "messages":   msgs,
+            "max_tokens": self._max_tokens,
+            "stream":     True,
+        }).encode()
+        headers = {"Content-Type": "application/json"}
+        if self._key:
+            headers["Authorization"] = f"Bearer {self._key}"
+        req = urllib.request.Request(url, data=body, method="POST", headers=headers)
+        full_text = ""
+        in_think  = False
+        buf       = ""
+        _OPEN     = "<think>"
+        _CLOSE    = "</think>"
+
+        def _flush_normal(text: str) -> None:
+            nonlocal full_text
+            if text:
+                full_text += text
+                self.stream_chunk.emit(text)
+
+        try:
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                self._current_resp = resp
+                for raw_line in resp:
+                    if self._stop_event.is_set():
+                        break
+                    line = raw_line.decode("utf-8").strip()
+                    if not line or not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if payload == "[DONE]":
+                        if buf and not in_think:
+                            _flush_normal(buf)
+                        break
+                    try:
+                        event = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    choices = event.get("choices", [])
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta", {})
+                    # reasoning_content (llama-server --reasoning-format) o thinking (alcune varianti)
+                    native_think = delta.get("reasoning_content") or delta.get("thinking") or ""
+                    if native_think:
+                        self.think_chunk.emit(native_think)
+                    chunk = delta.get("content") or ""
+                    if chunk:
+                        buf += chunk
+                        # smista il buffer su think_chunk / stream_chunk
+                        while buf:
+                            if in_think:
+                                end = buf.find(_CLOSE)
+                                if end >= 0:
+                                    self.think_chunk.emit(buf[:end])
+                                    buf = buf[end + len(_CLOSE):]
+                                    in_think = False
+                                else:
+                                    self.think_chunk.emit(buf)
+                                    buf = ""
+                            else:
+                                start = buf.find(_OPEN)
+                                if start >= 0:
+                                    _flush_normal(buf[:start])
+                                    buf = buf[start + len(_OPEN):]
+                                    in_think = True
+                                else:
+                                    hold = 0
+                                    for i in range(min(len(_OPEN) - 1, len(buf)), 0, -1):
+                                        if buf.endswith(_OPEN[:i]):
+                                            hold = i
+                                            break
+                                    _flush_normal(buf[:-hold] if hold else buf)
+                                    buf = buf[-hold:] if hold else ""
+                                    break
+        except Exception:
+            # resp.close() da stop() può sollevare OSError, IncompleteRead o altri
+            # errori di socket a seconda del server; se lo stop era intenzionale
+            # ignoriamo l'eccezione, altrimenti la rilanciamo.
+            if not self._stop_event.is_set():
+                raise
+        finally:
+            self._current_resp = None
+        return full_text
+
     # ── JetBrains AI ──────────────────────────────────────────────────────────
 
     def _refresh_jetbrains_token(self, refresh_token: str, oauth_config: dict) -> str:
@@ -829,6 +936,7 @@ class _SettingsDialog(QDialog):
             "openai":    "sk-proj-…  (da platform.openai.com)",
             "gemini":    "AIzaSy…  (da aistudio.google.com)",
             "ollama":    "http://localhost:11434",
+            "llamacpp":  "http://localhost:8080",
         }
         for name, info in PROVIDERS.items():
             pid  = info["id"]
@@ -910,8 +1018,8 @@ class _SettingsDialog(QDialog):
             else:
                 # Provider con API key tradizionale
                 edit = QLineEdit()
-                if pid == "ollama":
-                    edit.setPlaceholderText(_placeholders["ollama"])
+                if pid in ("ollama", "llamacpp"):
+                    edit.setPlaceholderText(_placeholders[pid])
                 else:
                     edit.setEchoMode(QLineEdit.EchoMode.Password)
                     edit.setPlaceholderText(_placeholders.get(pid, ""))
@@ -921,7 +1029,7 @@ class _SettingsDialog(QDialog):
                 row_layout = QHBoxLayout(row_widget)
                 row_layout.setContentsMargins(0, 0, 0, 0)
                 row_layout.addWidget(edit, 1)
-                if pid != "ollama":
+                if pid not in ("ollama", "llamacpp"):
                     btn_show = QPushButton("👁")
                     btn_show.setFixedWidth(28)
                     btn_show.setCheckable(True)
@@ -1073,6 +1181,7 @@ class _AIPanel(QWidget):
     _anthropic_ready  = pyqtSignal(object)  # list[str] | None — thread-safe
     _openai_ready     = pyqtSignal(object)  # list[str] | None — thread-safe
     _gemini_ready     = pyqtSignal(object)  # list[str] | None — thread-safe
+    _llamacpp_ready   = pyqtSignal(object)  # list[str] | None — thread-safe
 
     def __init__(self, main_window: "MainWindow", parent=None):
         super().__init__(parent)
@@ -1092,6 +1201,7 @@ class _AIPanel(QWidget):
         self._anthropic_ready.connect(self._set_anthropic_models)
         self._openai_ready.connect(self._set_openai_models)
         self._gemini_ready.connect(self._set_gemini_models)
+        self._llamacpp_ready.connect(self._set_llamacpp_models)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -1308,7 +1418,7 @@ class _AIPanel(QWidget):
         idx = self._model_combo.findText(default)
         if idx >= 0:
             self._model_combo.setCurrentIndex(idx)
-        self._btn_refresh_models.setVisible(pid in ("anthropic", "ollama", "openai", "gemini"))
+        self._btn_refresh_models.setVisible(pid in ("anthropic", "ollama", "openai", "gemini", "llamacpp"))
         if pid == "ollama":
             self._refresh_ollama_models()
         elif pid == "anthropic":
@@ -1317,6 +1427,8 @@ class _AIPanel(QWidget):
             self._refresh_openai_models()
         elif pid == "gemini":
             self._refresh_gemini_models()
+        elif pid == "llamacpp":
+            self._refresh_llamacpp_models()
 
     def _on_model_changed(self, model: str) -> None:
         name    = self._provider_combo.currentText()
@@ -1523,6 +1635,42 @@ class _AIPanel(QWidget):
         default_idx = self._model_combo.findText(PROVIDERS["Google Gemini"]["default"])
         self._model_combo.setCurrentIndex(idx if idx >= 0 else max(default_idx, 0))
 
+    def _refresh_llamacpp_models(self) -> None:
+        """Interroga llama-server /v1/models in background e aggiorna il combo."""
+        import threading
+        from config.settings import Settings
+        llamacpp_url = Settings.instance().get("ai/llamacpp_key", "") or "http://localhost:8080"
+
+        def _fetch():
+            try:
+                url = f"{llamacpp_url.rstrip('/')}/v1/models"
+                req = urllib.request.Request(url, method="GET")
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    data = json.loads(resp.read())
+                models = [m["id"] for m in data.get("data", [])]
+                self._llamacpp_ready.emit(models or [])
+            except Exception:
+                self._llamacpp_ready.emit(None)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _set_llamacpp_models(self, models: Optional[list[str]]) -> None:
+        """Popola il combo con i modelli LlamaCPP disponibili (chiamato nel thread principale)."""
+        if PROVIDERS.get(self._provider_combo.currentText(), {}).get("id") != "llamacpp":
+            return
+        self._model_combo.clear()
+        if models is None:
+            self._model_combo.addItem("⚠ llama-server non raggiungibile")
+            self._model_combo.setEnabled(False)
+            return
+        self._model_combo.setEnabled(True)
+        current = self._model_combo.currentText()
+        for m in models:
+            self._model_combo.addItem(m)
+        idx = self._model_combo.findText(current)
+        if idx >= 0:
+            self._model_combo.setCurrentIndex(idx)
+
     def _manual_refresh_models(self) -> None:
         """Bottone ↻ — forza il ricaricamento indipendentemente dal provider."""
         pid = PROVIDERS.get(self._provider_combo.currentText(), {}).get("id", "")
@@ -1534,6 +1682,8 @@ class _AIPanel(QWidget):
             self._refresh_openai_models()
         elif pid == "gemini":
             self._refresh_gemini_models()
+        elif pid == "llamacpp":
+            self._refresh_llamacpp_models()
 
     # ── Azioni contestuali ────────────────────────────────────────────────────
 
@@ -1612,6 +1762,8 @@ class _AIPanel(QWidget):
             self._refresh_openai_models()
         elif pid == "gemini":
             self._refresh_gemini_models()
+        elif pid == "llamacpp":
+            self._refresh_llamacpp_models()
 
     def _get_key(self, pid: str) -> str:
         from config.settings import Settings
@@ -1651,12 +1803,13 @@ class _AIPanel(QWidget):
             warn = _validate_key(pid, api_key)
             if warn:
                 self._append_msg("system", f"⚠ {warn}", "#ffcc00")
-            key_to_use = "" if pid == "ollama" else api_key
+            key_to_use = "" if pid in ("ollama", "llamacpp") else api_key
 
-        max_tokens = int(s.get("ai/max_tokens", 4096))
-        thinking   = self._chk_thinking.isChecked() and self._chk_thinking.isVisible()
-        system     = self._system_edit.toPlainText().strip()
-        ollama_url = (api_key or "http://localhost:11434") if pid == "ollama" else "http://localhost:11434"
+        max_tokens   = int(s.get("ai/max_tokens", 4096))
+        thinking     = self._chk_thinking.isChecked() and self._chk_thinking.isVisible()
+        system       = self._system_edit.toPlainText().strip()
+        ollama_url   = (api_key or "http://localhost:11434") if pid == "ollama" else "http://localhost:11434"
+        llamacpp_url = (api_key or "http://localhost:8080")  if pid == "llamacpp" else "http://localhost:8080"
 
         # Cattura selezione prima di inviare (usata da inline edit in _on_result)
         if self._chk_inline.isChecked():
@@ -1685,7 +1838,7 @@ class _AIPanel(QWidget):
         self._status.setText(f"⟳ {model} sta elaborando… (0s)")
 
         self._worker = _AIWorker(pid, model, key_to_use, list(self._history),
-                                  system, max_tokens, thinking, ollama_url)
+                                  system, max_tokens, thinking, ollama_url, llamacpp_url)
         self._worker.stream_chunk.connect(self._on_stream_chunk)
         self._worker.think_chunk.connect(self._on_think_chunk)
         self._worker.result_ready.connect(self._on_result)
@@ -1945,7 +2098,7 @@ def _extract_code_block(text: str) -> str:
 class AIAssistantPlugin(BasePlugin):
     NAME        = "AI Assistant"
     VERSION     = "1.1"
-    DESCRIPTION = "Chat AI: Anthropic Claude (streaming + Extended Thinking), OpenAI, Gemini, Ollama"
+    DESCRIPTION = "Chat AI: Anthropic Claude (streaming + Extended Thinking), OpenAI, Gemini, Ollama, LlamaCPP"
     AUTHOR      = "NotePadPQ Team"
 
     def on_load(self, main_window: "MainWindow") -> None:

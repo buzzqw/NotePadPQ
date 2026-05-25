@@ -305,7 +305,7 @@ class BuildPanel(QWidget):
         # Combo override manuale
         self._profile_combo = QComboBox()
         self._profile_combo.setToolTip(tr("tooltip.build_profile_combo"))
-        self._profile_combo.addItem("— automatico —", userData=None)
+        self._profile_combo.addItem(tr("build_panel.auto_profile"), userData=None)
         for name in self._bm.get_profiles():
             self._profile_combo.addItem(name, userData=name)
         self._profile_combo.currentIndexChanged.connect(self._on_combo_changed)
@@ -479,7 +479,7 @@ class BuildPanel(QWidget):
         pdf_path = self._find_generated_pdf()
         self._btn_open_pdf.setEnabled(pdf_path is not None)
         if pdf_path:
-            self._btn_open_pdf.setToolTip(f"Apri: {pdf_path.name}")
+            self._btn_open_pdf.setToolTip(tr("build_panel.open_pdf_tooltip", name=pdf_path.name))
         else:
             self._btn_open_pdf.setToolTip(tr("tooltip.build_open_pdf"))
         # --- FINE AGGIUNTA ---
@@ -629,7 +629,7 @@ class BuildPanel(QWidget):
             pdf_path = self._find_generated_pdf()
             self._btn_open_pdf.setEnabled(pdf_path is not None)
             if pdf_path:
-                self._btn_open_pdf.setToolTip(f"Apri: {pdf_path.name}")
+                self._btn_open_pdf.setToolTip(tr("build_panel.open_pdf_tooltip", name=pdf_path.name))
                 self._btn_open_pdf.setText(f"📄 {pdf_path.name}")
                 # Aggiorna anteprima automaticamente se il dock è già visibile
                 mw = self.window()
@@ -674,7 +674,7 @@ class BuildPanel(QWidget):
         """
         pdf_path = self._find_generated_pdf()
         if not pdf_path:
-            self._status_bar.setText(f"✗  PDF non trovato  — profilo: {self._current_profile}")
+            self._status_bar.setText(tr("build_panel.no_pdf", profile=self._current_profile))
             self._status_bar.setStyleSheet(
                 "padding: 2px 8px; font-size: 11px; "
                 "background: #3a1e1e; color: #f44747; border-top: 1px solid #3c3c3c;"
@@ -890,7 +890,7 @@ class _TaskTab(QWidget):
         from core.build_manager import BuildManager
         tasks = BuildManager.discover_tasks(directory)
         if not tasks:
-            self._task_list.addItem(f"(nessun task trovato in {directory.name})")
+            self._task_list.addItem(tr("build_panel.no_task", dir=directory.name))
             return
         for t in tasks:
             item = QListWidgetItem(f"[{t['source']}]  {t['name']}")
@@ -1106,8 +1106,7 @@ class BuildProfilesDialog(QDialog):
 
         # Nota built-in
         self._note_builtin = QLabel(
-            "ℹ  Profilo built-in: le modifiche vengono salvate come override. "
-            "Premi Salva per applicarle."
+            tr("build_panel.save_prompt")
         )
         self._note_builtin.setStyleSheet("color: #858585; font-size: 11px;")
         self._note_builtin.setWordWrap(True)
@@ -1244,7 +1243,7 @@ class BuildProfilesDialog(QDialog):
     def _save_current(self) -> None:
         name = self._name_edit.text().strip()
         if not name:
-            self._save_status.setText("✗  Inserisci un nome per il profilo")
+            self._save_status.setText(tr("build_panel.save_name_error"))
             self._save_status.setStyleSheet("color: #f44747; font-size: 11px;")
             return
 
@@ -1337,14 +1336,13 @@ class BuildProfilesDialog(QDialog):
         name = current.data(Qt.ItemDataRole.UserRole) or current.text()
         if name in DEFAULT_PROFILES:
             QMessageBox.information(
-                self, "Profilo built-in",
-                f"Il profilo «{name}» è built-in e non può essere eliminato.\n"
-                "Puoi modificarlo e salvare una copia con lo stesso nome."
+                self, tr("build_panel.delete_title"),
+                tr("build_panel.builtin_delete_error", name=name)
             )
             return
         reply = QMessageBox.question(
-            self, "Elimina profilo",
-            f"Eliminare il profilo «{name}»?",
+            self, tr("build_panel.delete_title"),
+            tr("build_panel.delete_confirm", name=name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:

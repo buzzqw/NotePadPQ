@@ -7,6 +7,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 
+from i18n.i18n import tr
+
 
 def _mono_font() -> QFont:
     f = QFont("Monospace")
@@ -28,13 +30,13 @@ class _ConvertTab(QWidget):
 
         self._input = QTextEdit()
         self._input.setFont(_mono_font())
-        self._input.setPlaceholderText("Testo di input…")
+        self._input.setPlaceholderText(tr("text_converter.placeholder_input"))
 
         btn_row = QHBoxLayout()
         btn_enc = QPushButton(encode_label)
         btn_dec = QPushButton(decode_label)
-        btn_swap = QPushButton("⇅ Scambia")
-        btn_copy = QPushButton("📋 Copia output")
+        btn_swap = QPushButton(tr("text_converter.btn_swap"))
+        btn_copy = QPushButton(tr("text_converter.btn_copy_output"))
         btn_row.addWidget(btn_enc)
         btn_row.addWidget(btn_dec)
         btn_row.addStretch()
@@ -44,15 +46,15 @@ class _ConvertTab(QWidget):
         self._output = QTextEdit()
         self._output.setFont(_mono_font())
         self._output.setReadOnly(True)
-        self._output.setPlaceholderText("Risultato…")
+        self._output.setPlaceholderText(tr("text_converter.placeholder_output"))
 
         self._status = QLabel("")
         self._status.setStyleSheet("color: red;")
 
-        vl.addWidget(QLabel("Input:"))
+        vl.addWidget(QLabel(tr("text_converter.label_input")))
         vl.addWidget(self._input, 1)
         vl.addLayout(btn_row)
-        vl.addWidget(QLabel("Output:"))
+        vl.addWidget(QLabel(tr("text_converter.label_output")))
         vl.addWidget(self._output, 1)
         vl.addWidget(self._status)
 
@@ -77,7 +79,7 @@ class _ConvertTab(QWidget):
             result = fn(txt)
             self._output.setPlainText(result)
         except Exception as e:
-            self._status.setText(f"Errore: {e}")
+            self._status.setText(tr("text_converter.error_prefix", error=str(e)))
             self._output.clear()
 
     def _swap(self) -> None:
@@ -134,7 +136,7 @@ def _hex_dec(text: str) -> str:
 class TextConverterDialog(QDialog):
     def __init__(self, parent=None, initial_text: str = ""):
         super().__init__(parent)
-        self.setWindowTitle("Converti testo")
+        self.setWindowTitle(tr("text_converter.title"))
         self.resize(620, 420)
 
         vl = QVBoxLayout(self)

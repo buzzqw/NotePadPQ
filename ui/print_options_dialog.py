@@ -9,6 +9,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QPainter, QColor
 from PyQt6.QtPrintSupport import QPrinter
 
+from i18n.i18n import tr
+
 
 # Token sostituiti a runtime nella stringa header/footer
 _TOKENS = {
@@ -59,7 +61,7 @@ class PrintOptionsDialog(QDialog):
     def __init__(self, parent=None, file_path=None):
         super().__init__(parent)
         self._file_path = file_path
-        self.setWindowTitle("Opzioni di stampa")
+        self.setWindowTitle(tr("print_options.title"))
         self.resize(580, 400)
 
         vl = QVBoxLayout(self)
@@ -87,14 +89,14 @@ class PrintOptionsDialog(QDialog):
         vl.addWidget(grp_h)
 
         # ── Footer ────────────────────────────────────────────────────────────
-        grp_f = QGroupBox("Piè di pagina (footer)")
+        grp_f = QGroupBox(tr("print_options.grp_footer"))
         gf = QVBoxLayout(grp_f)
-        self._ftr_enabled = QCheckBox("Abilita piè di pagina")
+        self._ftr_enabled = QCheckBox(tr("print_options.chk_footer_enabled"))
         self._ftr_enabled.setChecked(True)
         gf.addWidget(self._ftr_enabled)
         self._ftr_row = _HFRow("  Testo")
         gf.addWidget(self._ftr_row)
-        self._ftr_line = QCheckBox("Linea separatrice sopra il piè di pagina")
+        self._ftr_line = QCheckBox(tr("print_options.chk_footer_line"))
         self._ftr_line.setChecked(True)
         gf.addWidget(self._ftr_line)
         vl.addWidget(grp_f)
@@ -107,7 +109,7 @@ class PrintOptionsDialog(QDialog):
         self._hf_size.setRange(6, 24)
         self._hf_size.setValue(8)
         fl.addRow("Font h/f:", self._hf_font)
-        fl.addRow("Dimensione:", self._hf_size)
+        fl.addRow(tr("print_options.label_size"), self._hf_size)
         vl.addLayout(fl)
 
         # ── Token helper ──────────────────────────────────────────────────────

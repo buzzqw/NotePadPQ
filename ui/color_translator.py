@@ -34,6 +34,8 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 
+from i18n.i18n import tr
+
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
@@ -202,7 +204,7 @@ class ColorTranslatorDialog(QDialog):
         super().__init__(main_window)
         self._mw = main_window
         self._color = initial or QColor("#3399ff")
-        self.setWindowTitle("Traduttore colori")
+        self.setWindowTitle(tr("color_translator.title"))
         self.setMinimumWidth(460)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         self._build_ui()
@@ -216,15 +218,13 @@ class ColorTranslatorDialog(QDialog):
 
         # ── Riga input libero ─────────────────────────────────────────────────
         inp_row = QHBoxLayout()
-        inp_row.addWidget(QLabel("Inserisci colore:"))
+        inp_row.addWidget(QLabel(tr("color_translator.label_input")))
         self._input = QLineEdit()
-        self._input.setPlaceholderText(
-            "es.  red   #FF5500   255,85,0   rgb(0,128,255)   hsl(200,80%,50%)"
-        )
+        self._input.setPlaceholderText(tr("color_translator.placeholder_input"))
         self._input.returnPressed.connect(self._apply_input)
         self._input.textChanged.connect(self._on_input_changed)
         inp_row.addWidget(self._input)
-        apply_btn = QPushButton("Applica")
+        apply_btn = QPushButton(tr("color_translator.btn_apply"))
         apply_btn.setFixedWidth(72)
         apply_btn.clicked.connect(self._apply_input)
         inp_row.addWidget(apply_btn)
@@ -232,7 +232,7 @@ class ColorTranslatorDialog(QDialog):
 
         # ── Riga picker + barra del colore ────────────────────────────────────
         top = QHBoxLayout()
-        pick_btn = QPushButton("Scegli colore…")
+        pick_btn = QPushButton(tr("color_translator.btn_pick"))
         pick_btn.clicked.connect(self._pick_color)
         pick_btn.setFixedHeight(32)
         top.addWidget(pick_btn)
@@ -253,12 +253,12 @@ class ColorTranslatorDialog(QDialog):
         self._fields: dict[str, QLineEdit] = {}
 
         rows = [
-            ("nome",   "Nome HTML/CSS:"),
-            ("hex_up", "Hex MAIUSC:"),
-            ("hex_lo", "Hex minusc:"),
-            ("rgb",    "RGB decimale:"),
-            ("rgbp",   "RGB %:"),
-            ("hsl",    "HSL:"),
+            ("nome",   tr("color_translator.label_css_name")),
+            ("hex_up", tr("color_translator.label_hex_upper")),
+            ("hex_lo", tr("color_translator.label_hex_lower")),
+            ("rgb",    tr("color_translator.label_rgb")),
+            ("rgbp",   tr("color_translator.label_rgbp")),
+            ("hsl",    tr("color_translator.label_hsl")),
         ]
 
         for i, (key, label) in enumerate(rows):
@@ -271,12 +271,12 @@ class ColorTranslatorDialog(QDialog):
             self._fields[key] = field
             grid.addWidget(field, i, 1)
 
-            ins_btn = QPushButton("Inserisci")
+            ins_btn = QPushButton(tr("color_translator.btn_insert"))
             ins_btn.setFixedWidth(76)
             ins_btn.clicked.connect(lambda _, k=key: self._insert(k))
             grid.addWidget(ins_btn, i, 2)
 
-            cpy_btn = QPushButton("Copia")
+            cpy_btn = QPushButton(tr("color_translator.btn_copy"))
             cpy_btn.setFixedWidth(60)
             cpy_btn.clicked.connect(lambda _, k=key: self._copy(k))
             grid.addWidget(cpy_btn, i, 3)
@@ -286,7 +286,7 @@ class ColorTranslatorDialog(QDialog):
         # ── Riga inferiore ────────────────────────────────────────────────────
         bot = QHBoxLayout()
         bot.addStretch()
-        close_btn = QPushButton("Chiudi")
+        close_btn = QPushButton(tr("color_translator.btn_close"))
         close_btn.clicked.connect(self.accept)
         bot.addWidget(close_btn)
         vl.addLayout(bot)
@@ -318,7 +318,7 @@ class ColorTranslatorDialog(QDialog):
             self._input.setStyleSheet("border: 1px solid #cc4444;")
 
     def _pick_color(self) -> None:
-        c = QColorDialog.getColor(self._color, self, "Seleziona colore")
+        c = QColorDialog.getColor(self._color, self, tr("color_translator.pick_title"))
         if c.isValid():
             self._color = c
             self._input.clear()

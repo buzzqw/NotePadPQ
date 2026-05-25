@@ -337,7 +337,7 @@ class DBConnectDialog(QDialog):
     def _accept(self) -> None:
         if not self._name.text().strip():
             QMessageBox.warning(self, "NotePadPQ",
-                                "Inserisci un nome per la connessione.")
+                                tr("db_widget.new_conn_prompt"))
             return
         self.accept()
 
@@ -760,11 +760,11 @@ class _QueryTab(QWidget):
         self._btn_cancel.setEnabled(False)
         self._btn_cancel.clicked.connect(self._cancel)
 
-        btn_clear = QPushButton("⌫ Pulisci")
+        btn_clear = QPushButton(tr("db_widget.btn_clear"))
         btn_clear.setFixedHeight(26)
         btn_clear.clicked.connect(self._clear_editor)
 
-        self._btn_export = QPushButton("⬇ Esporta…")
+        self._btn_export = QPushButton(tr("db_widget.btn_export"))
         self._btn_export.setFixedHeight(26)
         self._btn_export.setEnabled(False)
         self._btn_export.clicked.connect(self._export_results)
@@ -903,7 +903,7 @@ class _QueryTab(QWidget):
             self._worker.wait(2000)
         self._btn_run.setEnabled(True)
         self._btn_cancel.setEnabled(False)
-        self._status_lbl.setText("Annullata.")
+        self._status_lbl.setText(tr("db_widget.cancelled"))
 
     def _on_done(self, headers: list, rows: list,
                  error: str, elapsed: float, has_more: bool) -> None:
@@ -1141,7 +1141,7 @@ class DBBrowserWidget(QWidget):
 
         btn_new_q = QPushButton("+ Query")
         btn_new_q.setFixedHeight(24)
-        btn_new_q.setToolTip("Apri un nuovo tab di query")
+        btn_new_q.setToolTip(tr("db_widget.tooltip_new_query"))
         btn_new_q.clicked.connect(self._add_query_tab)
         hrow.addWidget(btn_new_q)
 
@@ -1157,7 +1157,7 @@ class DBBrowserWidget(QWidget):
         sp_layout.setSpacing(0)
 
         self._search_box = QLineEdit()
-        self._search_box.setPlaceholderText("🔍  Filtra oggetti…")
+        self._search_box.setPlaceholderText(tr("db_widget.placeholder_filter"))
         self._search_box.setFixedHeight(26)
         self._search_box.textChanged.connect(self._filter_tree)
         sp_layout.addWidget(self._search_box)
@@ -1296,16 +1296,13 @@ class DBBrowserWidget(QWidget):
         self._ai_on_provider_changed()  # populate models for default provider
 
         self._ai_input = QPlainTextEdit()
-        self._ai_input.setPlaceholderText(
-            "Descrivi la query in linguaggio naturale…\n"
-            "Es. «Mostra i 10 clienti con più ordini nell'ultimo mese»"
-        )
+        self._ai_input.setPlaceholderText(tr("db_widget.ai_placeholder"))
         self._ai_input.setFixedHeight(70)
         self._ai_input.setFont(QFont("sans-serif"))
         body_layout.addWidget(self._ai_input)
 
         ai_row = QHBoxLayout()
-        self._btn_ai_gen = QPushButton("✨ Genera SQL")
+        self._btn_ai_gen = QPushButton(tr("db_widget.btn_ai_gen"))
         self._btn_ai_gen.setFixedHeight(24)
         self._btn_ai_gen.clicked.connect(self._ai_generate_sql)
         self._ai_status = QLabel("")

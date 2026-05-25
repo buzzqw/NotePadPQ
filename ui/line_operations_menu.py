@@ -61,7 +61,7 @@ def build_line_ops_menu(menu: QMenu, main_window: "MainWindow") -> None:
             return
         n, ok = QInputDialog.getInt(
             main_window, tr("action.remove_every_nth"),
-            "Rimuovi ogni N-esima riga (N):", 2, 2, 100
+            tr("line_operations.remove_nth_prompt"), 2, 2, 100
         )
         if ok:
             import core.line_operations as lo

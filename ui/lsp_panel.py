@@ -42,7 +42,7 @@ class DiagnosticsPanel(QWidget):
 
         bar = QHBoxLayout()
         bar.setContentsMargins(4, 2, 4, 2)
-        self._lbl_count = QLabel("Nessun problema rilevato")
+        self._lbl_count = QLabel(tr("lsp_panel.no_problems"))
         self._lbl_count.setStyleSheet("color: #858585; font-size: 11px;")
         btn_clear = QPushButton(tr("button.clear"))
         btn_clear.setFixedWidth(60)
@@ -109,7 +109,7 @@ class DiagnosticsPanel(QWidget):
             for d in diags if d.get("severity", 1) == 2
         )
         if total == 0:
-            self._lbl_count.setText("Nessun problema rilevato")
+            self._lbl_count.setText(tr("lsp_panel.no_problems"))
         else:
             self._lbl_count.setText(f"{errors} errori  {warns} warning  ({total} totale)")
 
@@ -133,4 +133,4 @@ class DiagnosticsPanel(QWidget):
     def _clear(self) -> None:
         self._data.clear()
         self._tree.clear()
-        self._lbl_count.setText("Nessun problema rilevato")
+        self._lbl_count.setText(tr("lsp_panel.no_problems"))

@@ -29,7 +29,7 @@ class KeySequenceEdit(QLineEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setPlaceholderText("Premi la combinazione di tasti...")
+        self.setPlaceholderText(tr("keybinding.placeholder_capture"))
         self.setReadOnly(True)
         self._sequence = QKeySequence()
 
@@ -78,16 +78,21 @@ class KeyBindingDialog(QDialog):
 
         # Ricerca
         search_layout = QHBoxLayout()
-        search_layout.addWidget(QLabel("Filtra:"))
+        search_layout.addWidget(QLabel(tr("keybinding.label_filter")))
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Cerca azione...")
+        self._search.setPlaceholderText(tr("keybinding.placeholder_search"))
         self._search.textChanged.connect(self._filter)
         search_layout.addWidget(self._search, 1)
         layout.addLayout(search_layout)
 
         # Tabella
         self._table = QTableWidget(0, 3)
-        self._table.setHorizontalHeaderLabels(["Azione", "Scorciatoia", "Default"])
+        self._table.setHorizontalHeaderLabels([
+            tr("keybinding.col_action"),
+            tr("keybinding.col_shortcut"),
+            tr("keybinding.col_default"),
+        ])
+        self._table.setSortingEnabled(True)
         self._table.horizontalHeader().setSectionResizeMode(
             0, QHeaderView.ResizeMode.Stretch
         )
@@ -108,13 +113,13 @@ class KeyBindingDialog(QDialog):
 
         # Pannello modifica
         edit_grp_layout = QHBoxLayout()
-        edit_grp_layout.addWidget(QLabel("Nuova scorciatoia:"))
+        edit_grp_layout.addWidget(QLabel(tr("keybinding.label_new_shortcut")))
         self._key_edit = KeySequenceEdit()
         edit_grp_layout.addWidget(self._key_edit, 1)
 
-        self._btn_assign  = QPushButton("Assegna")
-        self._btn_clear   = QPushButton("Rimuovi")
-        self._btn_reset1  = QPushButton("Reset azione")
+        self._btn_assign  = QPushButton(tr("keybinding.btn_assign"))
+        self._btn_clear   = QPushButton(tr("keybinding.btn_remove"))
+        self._btn_reset1  = QPushButton(tr("keybinding.btn_reset_action"))
         self._btn_assign.setEnabled(False)
         self._btn_clear.setEnabled(False)
         self._btn_reset1.setEnabled(False)
@@ -140,7 +145,7 @@ class KeyBindingDialog(QDialog):
         btns.accepted.connect(self._on_ok)
         btns.rejected.connect(self.reject)
         btns.button(QDialogButtonBox.StandardButton.Reset).setText(
-            "Reset tutti"
+            tr("keybinding.btn_reset_all")
         )
         btns.button(QDialogButtonBox.StandardButton.Reset).clicked.connect(
             self._reset_all
@@ -221,7 +226,7 @@ class KeyBindingDialog(QDialog):
         conflict = self._find_conflict(seq_str, key)
         if conflict:
             self._conflict_lbl.setText(
-                f"⚠ Conflitto con: {self._actions[conflict].text()}"
+                tr("keybinding.conflict_msg", action=self._actions[conflict].text())
             )
             return
 
@@ -272,7 +277,7 @@ class KeyBindingDialog(QDialog):
     def _reset_all(self) -> None:
         reply = QMessageBox.question(
             self, tr("action.keybinding_editor"),
-            "Ripristinare tutte le scorciatoie ai valori predefiniti?"
+            tr("keybinding.reset_confirm")
         )
         if reply == QMessageBox.StandardButton.Yes:
             self._modified.clear()

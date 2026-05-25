@@ -6,6 +6,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from i18n.i18n import tr
+
 
 class ColumnEditorDialog(QDialog):
     def __init__(self, parent=None):
@@ -16,7 +18,7 @@ class ColumnEditorDialog(QDialog):
         vl = QVBoxLayout(self)
 
         # ── Modalità ──────────────────────────────────────────────────────────
-        grp_mode = QGroupBox("Modalità")
+        grp_mode = QGroupBox(tr("column_editor.grp_mode"))
         mode_layout = QHBoxLayout(grp_mode)
         self._rb_numbers = QRadioButton("Numeri")
         self._rb_text    = QRadioButton("Testo")
@@ -29,13 +31,13 @@ class ColumnEditorDialog(QDialog):
         vl.addWidget(grp_mode)
 
         # ── Opzioni numeri ────────────────────────────────────────────────────
-        self._grp_num = QGroupBox("Opzioni numeri")
+        self._grp_num = QGroupBox(tr("column_editor.grp_num_options"))
         fl_num = QFormLayout(self._grp_num)
 
         self._num_initial = QSpinBox()
         self._num_initial.setRange(-999999, 999999)
         self._num_initial.setValue(1)
-        fl_num.addRow("Valore iniziale:", self._num_initial)
+        fl_num.addRow(tr("column_editor.label_initial"), self._num_initial)
 
         self._num_step = QSpinBox()
         self._num_step.setRange(-999999, 999999)
@@ -43,11 +45,11 @@ class ColumnEditorDialog(QDialog):
         fl_num.addRow("Incremento:", self._num_step)
 
         self._num_fmt = QComboBox()
-        self._num_fmt.addItem("Decimale",     "dec")
-        self._num_fmt.addItem("Esadecimale",  "hex")
-        self._num_fmt.addItem("Ottale",       "oct")
-        self._num_fmt.addItem("Binario",      "bin")
-        fl_num.addRow("Formato:", self._num_fmt)
+        self._num_fmt.addItem(tr("column_editor.item_decimal"),     "dec")
+        self._num_fmt.addItem(tr("column_editor.item_hex"),  "hex")
+        self._num_fmt.addItem(tr("column_editor.item_octal"),       "oct")
+        self._num_fmt.addItem(tr("column_editor.item_binary"),      "bin")
+        fl_num.addRow(tr("column_editor.label_format"), self._num_fmt)
 
         self._num_padding = QSpinBox()
         self._num_padding.setRange(0, 20)
@@ -66,11 +68,11 @@ class ColumnEditorDialog(QDialog):
         vl.addWidget(self._grp_num)
 
         # ── Opzioni testo ─────────────────────────────────────────────────────
-        self._grp_txt = QGroupBox("Opzioni testo")
+        self._grp_txt = QGroupBox(tr("column_editor.grp_text_options"))
         fl_txt = QFormLayout(self._grp_txt)
         self._txt_value = QLineEdit()
-        self._txt_value.setPlaceholderText("Testo da inserire su ogni riga…")
-        fl_txt.addRow("Testo:", self._txt_value)
+        self._txt_value.setPlaceholderText(tr("column_editor.placeholder_text"))
+        fl_txt.addRow(tr("column_editor.label_text"), self._txt_value)
         self._grp_txt.setVisible(False)
         vl.addWidget(self._grp_txt)
 
@@ -78,7 +80,7 @@ class ColumnEditorDialog(QDialog):
         self._preview = QLabel("")
         self._preview.setStyleSheet("font-family: monospace; color: gray;")
         self._preview.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        vl.addWidget(QLabel("Anteprima (prime 5 righe):"))
+        vl.addWidget(QLabel(tr("column_editor.label_preview")))
         vl.addWidget(self._preview)
 
         # ── Bottoni ───────────────────────────────────────────────────────────

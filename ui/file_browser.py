@@ -138,32 +138,32 @@ class FileBrowser(QWidget):
         menu = QMenu(self)
 
         if path and path.is_file():
-            act_open = QAction("Apri", self)
+            act_open = QAction(tr("file_browser.act_open"), self)
             act_open.triggered.connect(lambda: self.file_open_requested.emit(path))
             menu.addAction(act_open)
             menu.addSeparator()
 
         # Nuovo file / Nuova cartella
-        act_new_file = QAction("Nuovo file…", self)
+        act_new_file = QAction(tr("file_browser.act_new_file"), self)
         act_new_file.triggered.connect(lambda: self._new_file(folder))
         menu.addAction(act_new_file)
 
-        act_new_folder = QAction("Nuova cartella…", self)
+        act_new_folder = QAction(tr("file_browser.act_new_folder"), self)
         act_new_folder.triggered.connect(lambda: self._new_folder(folder))
         menu.addAction(act_new_folder)
 
         if path:
             menu.addSeparator()
-            act_rename = QAction("Rinomina…", self)
+            act_rename = QAction(tr("file_browser.act_rename"), self)
             act_rename.triggered.connect(lambda: self._rename(path))
             menu.addAction(act_rename)
 
-            act_delete = QAction("Elimina", self)
+            act_delete = QAction(tr("file_browser.act_delete"), self)
             act_delete.triggered.connect(lambda: self._delete(path))
             menu.addAction(act_delete)
 
             menu.addSeparator()
-            act_set_root = QAction("Imposta come cartella radice", self)
+            act_set_root = QAction(tr("file_browser.act_set_root"), self)
             act_set_root.triggered.connect(
                 lambda: self._set_root(path if path.is_dir() else path.parent)
             )
@@ -178,7 +178,7 @@ class FileBrowser(QWidget):
     # ── Operazioni filesystem ─────────────────────────────────────────────────
 
     def _new_file(self, folder: Path) -> None:
-        name, ok = QInputDialog.getText(self, "Nuovo file", "Nome del file:")
+        name, ok = QInputDialog.getText(self, tr("file_browser.new_file_title"), tr("file_browser.new_file_prompt"))
         if not ok or not name.strip():
             return
         target = folder / name.strip()
@@ -186,25 +186,25 @@ class FileBrowser(QWidget):
             target.touch(exist_ok=False)
             self.file_open_requested.emit(target)
         except FileExistsError:
-            QMessageBox.warning(self, "Errore", f"Il file '{name}' esiste già.")
+            QMessageBox.warning(self, tr("file_browser.error_title"), tr("file_browser.file_exists_error", name=name))
         except Exception as e:
             QMessageBox.critical(self, "Errore", str(e))
 
     def _new_folder(self, folder: Path) -> None:
-        name, ok = QInputDialog.getText(self, "Nuova cartella", "Nome della cartella:")
+        name, ok = QInputDialog.getText(self, tr("file_browser.new_folder_title"), tr("file_browser.new_folder_prompt"))
         if not ok or not name.strip():
             return
         target = folder / name.strip()
         try:
             target.mkdir(parents=False, exist_ok=False)
         except FileExistsError:
-            QMessageBox.warning(self, "Errore", f"La cartella '{name}' esiste già.")
+            QMessageBox.warning(self, tr("file_browser.error_title"), tr("file_browser.folder_exists_error", name=name))
         except Exception as e:
             QMessageBox.critical(self, "Errore", str(e))
 
     def _rename(self, path: Path) -> None:
         new_name, ok = QInputDialog.getText(
-            self, "Rinomina", "Nuovo nome:", text=path.name
+            self, tr("file_browser.rename_title"), tr("file_browser.rename_prompt"), text=path.name
         )
         if not ok or not new_name.strip() or new_name.strip() == path.name:
             return
@@ -215,11 +215,11 @@ class FileBrowser(QWidget):
             QMessageBox.critical(self, "Errore rinomina", str(e))
 
     def _delete(self, path: Path) -> None:
-        kind = "la cartella" if path.is_dir() else "il file"
+        kind = path.name
         reply = QMessageBox.question(
             self,
-            "Conferma eliminazione",
-            f"Eliminare {kind} '{path.name}'?\nL'operazione non è reversibile.",
+            tr("file_browser.delete_confirm_title"),
+            tr("file_browser.delete_confirm", kind=kind, name=path.name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:

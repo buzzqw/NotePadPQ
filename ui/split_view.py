@@ -140,7 +140,7 @@ class SplitViewManager(QWidget):
         layout.addWidget(self._splitter)
 
         # Pannello primario (sempre presente)
-        self._primary = _SplitPanel(TabManager(self), "① Pannello 1", show_header=False)
+        self._primary = _SplitPanel(TabManager(self), tr("split_view.panel1"), show_header=False)
         self._splitter.addWidget(self._primary)
 
         self._secondary: Optional[_SplitPanel] = None
@@ -276,7 +276,7 @@ class SplitViewManager(QWidget):
 
         if self._secondary is None:
             secondary_tm = TabManager(self)
-            self._secondary = _SplitPanel(secondary_tm, "② Pannello 2", show_header=True)
+            self._secondary = _SplitPanel(secondary_tm, tr("split_view.panel2"), show_header=True)
             self._secondary.header().close_requested.connect(self.unsplit)
             self._splitter.addWidget(self._secondary)
             self._connect_panel(self._secondary)

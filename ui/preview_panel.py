@@ -260,7 +260,7 @@ class PreviewPanel(QWidget):
 
         btn_refresh = QToolButton()
         btn_refresh.setText("↺")
-        btn_refresh.setToolTip(tr("preview.refresh", default="Aggiorna"))
+        btn_refresh.setToolTip(tr("preview.refresh"))
         btn_refresh.clicked.connect(self._update_preview)
         toolbar.addWidget(btn_refresh)
 
@@ -366,8 +366,10 @@ class PreviewPanel(QWidget):
         self._crop_r = QSpinBox(); self._crop_r.setToolTip(tr("tooltip.preview_crop_right"))
 
         crop_layout.addStretch() # Spinge i contatori al centro
-        for label, sp in [("Su:", self._crop_t), ("Giù:", self._crop_b),
-                          ("Sinistra:", self._crop_l), ("Destra:", self._crop_r)]:
+        for label, sp in [(tr("preview.crop_top"), self._crop_t),
+                          (tr("preview.crop_bottom"), self._crop_b),
+                          (tr("preview.crop_left"), self._crop_l),
+                          (tr("preview.crop_right"), self._crop_r)]:
             sp.setRange(0, 500)  # Fino a 500 punti di taglio
             sp.setValue(0)
             sp.setFixedWidth(50)

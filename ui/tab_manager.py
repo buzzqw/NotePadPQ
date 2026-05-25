@@ -374,7 +374,7 @@ class TabManager(QTabWidget):
                 name = path.name if path else "foglio di calcolo"
                 reply = QMessageBox.question(
                     self, "NotePadPQ",
-                    f"Il foglio '{name}' ha modifiche non salvate.\nSalvare prima di chiudere?",
+                    tr("tab_manager.save_before_close", name=name),
                     QMessageBox.StandardButton.Save |
                     QMessageBox.StandardButton.Discard |
                     QMessageBox.StandardButton.Cancel

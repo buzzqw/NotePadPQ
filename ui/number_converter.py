@@ -15,13 +15,15 @@ from PyQt6.QtWidgets import (
     QPushButton, QHBoxLayout, QFrame
 )
 
+from i18n.i18n import tr
+
 
 class NumberConverterDialog(QDialog):
     """Dialog per conversione numeri tra basi."""
 
     def __init__(self, parent=None, initial_text: str = ""):
         super().__init__(parent)
-        self.setWindowTitle("Convertitore numeri")
+        self.setWindowTitle(tr("number_converter.title"))
         self.setMinimumWidth(320)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         self._building = False
@@ -47,15 +49,15 @@ class NumberConverterDialog(QDialog):
         grid = QGridLayout()
         grid.setColumnMinimumWidth(0, 80)
 
-        grid.addWidget(QLabel("Decimale:"),   0, 0)
-        grid.addWidget(QLabel("Esadecimale:"),1, 0)
-        grid.addWidget(QLabel("Binario:"),    2, 0)
-        grid.addWidget(QLabel("Ottale:"),     3, 0)
+        grid.addWidget(QLabel(tr("number_converter.label_dec")),   0, 0)
+        grid.addWidget(QLabel(tr("number_converter.label_hex")), 1, 0)
+        grid.addWidget(QLabel(tr("number_converter.label_bin")),    2, 0)
+        grid.addWidget(QLabel(tr("number_converter.label_oct")),     3, 0)
 
-        self._dec_edit = QLineEdit(); self._dec_edit.setPlaceholderText("es. 255")
-        self._hex_edit = QLineEdit(); self._hex_edit.setPlaceholderText("es. FF")
-        self._bin_edit = QLineEdit(); self._bin_edit.setPlaceholderText("es. 11111111")
-        self._oct_edit = QLineEdit(); self._oct_edit.setPlaceholderText("es. 377")
+        self._dec_edit = QLineEdit(); self._dec_edit.setPlaceholderText(tr("number_converter.placeholder_dec"))
+        self._hex_edit = QLineEdit(); self._hex_edit.setPlaceholderText(tr("number_converter.placeholder_hex"))
+        self._bin_edit = QLineEdit(); self._bin_edit.setPlaceholderText(tr("number_converter.placeholder_bin"))
+        self._oct_edit = QLineEdit(); self._oct_edit.setPlaceholderText(tr("number_converter.placeholder_oct"))
 
         grid.addWidget(self._dec_edit, 0, 1)
         grid.addWidget(self._hex_edit, 1, 1)
@@ -68,8 +70,8 @@ class NumberConverterDialog(QDialog):
         layout.addWidget(sep)
 
         btn_row = QHBoxLayout()
-        clear_btn = QPushButton("Pulisci")
-        close_btn = QPushButton("Chiudi")
+        clear_btn = QPushButton(tr("number_converter.btn_clear"))
+        close_btn = QPushButton(tr("number_converter.btn_close"))
         clear_btn.clicked.connect(self._clear)
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(clear_btn)

@@ -19,6 +19,8 @@ from PyQt6.QtCore import Qt, QRect, QSize, QPoint
 from PyQt6.QtGui import QPainter, QColor, QPen, QFont
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QFrame
 
+from i18n.i18n import tr
+
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
 
@@ -133,7 +135,7 @@ class _GridPopup(QFrame):
         layout.setSpacing(4)
 
         # Etichetta tipo linguaggio
-        lang_label = QLabel("LaTeX tabular" if is_latex else "Tabella Markdown")
+        lang_label = QLabel(tr("table_grid_picker.label_latex") if is_latex else tr("table_grid_picker.label_markdown"))
         lang_label.setStyleSheet("color: #9cdcfe; font-size: 10px; font-weight: bold;")
         lang_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(lang_label)
@@ -143,7 +145,7 @@ class _GridPopup(QFrame):
         layout.addWidget(self._grid)
 
         # Etichetta selezione corrente
-        self._lbl = QLabel("Sposta il mouse sulla griglia")
+        self._lbl = QLabel(tr("table_grid_picker.label_hint"))
         self._lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._lbl.setStyleSheet("color: #cccccc; font-size: 11px; padding: 2px;")
         font = QFont()

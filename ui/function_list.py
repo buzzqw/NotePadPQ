@@ -348,7 +348,7 @@ class _FunctionListPanel(QWidget):
         # Barra superiore
         top = QHBoxLayout()
         self._filter = QLineEdit()
-        self._filter.setPlaceholderText("Filtra funzioni…")
+        self._filter.setPlaceholderText(tr("function_list.placeholder_filter"))
         self._filter.setFixedHeight(24)
         self._filter.textChanged.connect(self._apply_filter)
         top.addWidget(self._filter, 1)
@@ -481,7 +481,7 @@ class _FunctionListPanel(QWidget):
         self._model.clear()
         editor = self._editor
         if not editor:
-            self._info.setText("Nessun editor")
+            self._info.setText(tr("function_list.no_editor"))
             return
 
         parser = _get_parser(editor)
@@ -496,7 +496,7 @@ class _FunctionListPanel(QWidget):
         self._symbols = parser.parse(text)
 
         if not self._symbols:
-            self._info.setText("Nessuna funzione trovata")
+            self._info.setText(tr("function_list.no_functions"))
             return
 
         if isinstance(parser, self._HIERARCHICAL_PARSERS):
@@ -509,7 +509,7 @@ class _FunctionListPanel(QWidget):
 
         count = len(self._symbols)
         lang  = editor.file_path.suffix if editor.file_path else ""
-        self._info.setText(f"{count} simboli trovati  {lang}")
+        self._info.setText(tr("function_list.symbols_found", count=count, lang=lang))
 
     # ── Filtro e ordinamento ──────────────────────────────────────────────────
 
@@ -560,7 +560,7 @@ class _FunctionListPanel(QWidget):
         if isinstance(line, int):
             menu.addAction("Vai alla riga",
                            lambda: self._editor and self._editor.go_to_line(line))
-            menu.addAction("Copia nome",
+            menu.addAction(tr("function_list.copy_name"),
                            lambda: self._copy_name(item))
         menu.addSeparator()
         menu.addAction("Aggiorna lista", self._refresh)

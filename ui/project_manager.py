@@ -20,6 +20,8 @@ from PyQt6.QtWidgets import (
     QMenu, QAbstractItemView, QLabel, QPushButton,
 )
 
+from i18n.i18n import tr
+
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
@@ -64,13 +66,13 @@ class ProjectManager(QWidget):
             a.triggered.connect(slot)
             return a
 
-        tb.addAction(_act("Nuovo",   "Nuovo progetto",       self.action_new))
-        tb.addAction(_act("Apri",    "Apri progetto…",       self.action_open))
-        tb.addAction(_act("Salva",   "Salva progetto",       self.action_save))
+        tb.addAction(_act(tr("project_manager.btn_new"),       tr("project_manager.tooltip_new"),       self.action_new))
+        tb.addAction(_act(tr("project_manager.btn_open"),      tr("project_manager.tooltip_open"),      self.action_open))
+        tb.addAction(_act(tr("project_manager.btn_save"),      tr("project_manager.tooltip_save"),      self.action_save))
         tb.addSeparator()
-        tb.addAction(_act("+File",   "Aggiungi file…",       self.action_add_files))
-        tb.addAction(_act("+Gruppo", "Aggiungi gruppo…",     self.action_add_group))
-        tb.addAction(_act("Rimuovi", "Rimuovi selezionato",  self.action_remove))
+        tb.addAction(_act(tr("project_manager.btn_add_file"),  tr("project_manager.tooltip_add_file"),  self.action_add_files))
+        tb.addAction(_act(tr("project_manager.btn_add_group"), tr("project_manager.tooltip_add_group"), self.action_add_group))
+        tb.addAction(_act(tr("project_manager.btn_remove"),    tr("project_manager.tooltip_remove"),    self.action_remove))
         vl.addWidget(tb)
 
         # Etichetta nome progetto
@@ -122,8 +124,8 @@ class ProjectManager(QWidget):
     def action_new(self) -> None:
         if self._dirty and self._project_path:
             r = QMessageBox.question(
-                self, "Salva progetto",
-                "Il progetto ha modifiche non salvate. Salvare?",
+                self, tr("project_manager.save_unsaved_title"),
+                tr("project_manager.save_unsaved_msg"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No |
                 QMessageBox.StandardButton.Cancel,
             )
@@ -132,7 +134,7 @@ class ProjectManager(QWidget):
             if r == QMessageBox.StandardButton.Yes:
                 self.action_save()
 
-        name, ok = QInputDialog.getText(self, "Nuovo progetto", "Nome del progetto:")
+        name, ok = QInputDialog.getText(self, tr("project_manager.new_project_title"), tr("project_manager.new_project_prompt"))
         if not ok or not name.strip():
             return
         self._project_path = None
@@ -154,7 +156,7 @@ class ProjectManager(QWidget):
             self._data = data
             self._rebuild_tree()
         except Exception as e:
-            QMessageBox.critical(self, "Errore", f"Impossibile aprire il progetto:\n{e}")
+            QMessageBox.critical(self, tr("project_manager.error_title"), tr("project_manager.open_error", error=str(e)))
 
     def action_save(self) -> None:
         if self._project_path is None:
@@ -180,13 +182,13 @@ class ProjectManager(QWidget):
                 json.dump(self._project_data(), f, ensure_ascii=False, indent=2)
             self._dirty = False
         except Exception as e:
-            QMessageBox.critical(self, "Errore", f"Impossibile salvare:\n{e}")
+            QMessageBox.critical(self, tr("project_manager.error_title"), tr("project_manager.save_error", error=str(e)))
 
     def action_add_files(self) -> None:
         if not self._project_data().get("groups"):
             QMessageBox.information(
-                self, "Aggiungi file",
-                "Crea prima un gruppo con il pulsante '+Gruppo'."
+                self, tr("project_manager.no_group_title"),
+                tr("project_manager.add_file_no_group")
             )
             return
         paths, _ = QFileDialog.getOpenFileNames(
@@ -207,7 +209,7 @@ class ProjectManager(QWidget):
         self._set_data(data)
 
     def action_add_group(self) -> None:
-        name, ok = QInputDialog.getText(self, "Aggiungi gruppo", "Nome del gruppo:")
+        name, ok = QInputDialog.getText(self, tr("project_manager.add_group_title"), tr("project_manager.add_group_prompt"))
         if not ok or not name.strip():
             return
         data = self._project_data()
@@ -266,10 +268,10 @@ class ProjectManager(QWidget):
         if item:
             d = item.data(0, Qt.ItemDataRole.UserRole)
             if d and d["type"] == "file":
-                menu.addAction("Apri file", lambda: self.file_open_requested.emit(Path(d["path"])))
+                menu.addAction(tr("project_manager.ctx_open_file"), lambda: self.file_open_requested.emit(Path(d["path"])))
                 menu.addSeparator()
-            menu.addAction("Rimuovi", self.action_remove)
+            menu.addAction(tr("project_manager.ctx_remove"), self.action_remove)
         menu.addSeparator()
-        menu.addAction("Aggiungi file…",  self.action_add_files)
-        menu.addAction("Aggiungi gruppo…", self.action_add_group)
+        menu.addAction(tr("project_manager.ctx_add_file"),  self.action_add_files)
+        menu.addAction(tr("project_manager.ctx_add_group"), self.action_add_group)
         menu.exec(self._tree.viewport().mapToGlobal(pos))

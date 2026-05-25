@@ -14,8 +14,10 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import Qt, QSortFilterProxyModel
 from PyQt6.QtGui import QStandardItemModel, QStandardItem
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QLineEdit, QListView, QLabel,
+     QDialog, QVBoxLayout, QLineEdit, QListView, QLabel,
 )
+
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -59,7 +61,7 @@ class CommandPaletteDialog(QDialog):
         vl.setSpacing(0)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Cerca comando…")
+        self._search.setPlaceholderText(tr("command_palette.placeholder"))
         self._search.textChanged.connect(self._filter)
         vl.addWidget(self._search)
 

@@ -22,6 +22,8 @@ from PyQt6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from i18n.i18n import tr
+
 
 # ─── Formula helpers ─────────────────────────────────────────────────────────
 

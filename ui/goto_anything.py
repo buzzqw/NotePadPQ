@@ -20,6 +20,8 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLineEdit, QListView, QLabel,
 )
 
+from i18n.i18n import tr
+
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
@@ -71,9 +73,7 @@ class GotoAnythingDialog(QDialog):
         vl.setSpacing(0)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText(
-            "Cerca file aperto… (>comando  :riga  @simbolo)"
-        )
+        self._search.setPlaceholderText(tr("goto_anything.placeholder"))
         self._search.textChanged.connect(self._on_text_changed)
         self._search.returnPressed.connect(self._execute)
         vl.addWidget(self._search)
@@ -164,7 +164,7 @@ class GotoAnythingDialog(QDialog):
             label = f"Vai alla riga {n}" + (f"  (file: {lines} righe)" if lines else "")
             self._hint.setText(f": riga — file corrente ha {lines} righe")
         except ValueError:
-            label = "Inserisci un numero di riga"
+            label = tr("goto_anything.label_goto_line")
             self._hint.setText(": riga — inserisci numero")
         item = QStandardItem(label)
         item.setData(text, Qt.ItemDataRole.UserRole)

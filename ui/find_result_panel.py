@@ -6,6 +6,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QFont
 
+from i18n.i18n import tr
+
 
 _COL_INFO  = 0   # "file:riga" o testo risultato
 _COL_TEXT  = 1   # testo della riga
@@ -25,17 +27,17 @@ class FindResultPanel(QWidget):
 
         # ── Toolbar compatta ──────────────────────────────────────────────────
         tb = QHBoxLayout()
-        self._lbl_summary = QLabel("Nessuna ricerca effettuata.")
+        self._lbl_summary = QLabel(tr("find_result_panel.no_search"))
         self._lbl_summary.setStyleSheet("font-weight: bold;")
-        btn_clear  = QPushButton("🗑 Pulisci")
+        btn_clear  = QPushButton(tr("find_result_panel.btn_clear"))
         btn_clear.setFixedHeight(22)
         btn_clear.setToolTip("Rimuove tutti i risultati")
         btn_prev   = QPushButton("▲")
         btn_prev.setFixedWidth(28); btn_prev.setFixedHeight(22)
-        btn_prev.setToolTip("Risultato precedente")
+        btn_prev.setToolTip(tr("find_result_panel.tooltip_prev"))
         btn_next   = QPushButton("▼")
         btn_next.setFixedWidth(28); btn_next.setFixedHeight(22)
-        btn_next.setToolTip("Risultato successivo")
+        btn_next.setToolTip(tr("find_result_panel.tooltip_next"))
         tb.addWidget(self._lbl_summary, 1)
         tb.addWidget(btn_prev)
         tb.addWidget(btn_next)
@@ -45,7 +47,10 @@ class FindResultPanel(QWidget):
         # ── Albero risultati ──────────────────────────────────────────────────
         self._tree = QTreeWidget()
         self._tree.setColumnCount(2)
-        self._tree.setHeaderLabels(["Posizione", "Testo"])
+        self._tree.setHeaderLabels([
+            tr("find_result_panel.col_position"),
+            tr("find_result_panel.col_text"),
+        ])
         self._tree.setColumnWidth(0, 200)
         self._tree.setAlternatingRowColors(True)
         self._tree.setRootIsDecorated(True)
@@ -126,7 +131,7 @@ class FindResultPanel(QWidget):
 
     def clear_all(self) -> None:
         self._tree.clear()
-        self._lbl_summary.setText("Nessuna ricerca effettuata.")
+        self._lbl_summary.setText(tr("find_result_panel.no_search"))
 
     # ── Navigazione ───────────────────────────────────────────────────────────
 
@@ -187,10 +192,10 @@ class FindResultPanel(QWidget):
     def _show_context_menu(self, pos) -> None:
         item = self._tree.itemAt(pos)
         menu = QMenu(self)
-        act_copy = menu.addAction("📋 Copia testo riga")
-        act_copy_all = menu.addAction("📋 Copia tutti i risultati")
+        act_copy = menu.addAction(tr("find_result_panel.copy_line"))
+        act_copy_all = menu.addAction(tr("find_result_panel.copy_all"))
         menu.addSeparator()
-        act_clear = menu.addAction("🗑 Pulisci tutti i risultati")
+        act_clear = menu.addAction(tr("find_result_panel.clear_all"))
 
         chosen = menu.exec(self._tree.viewport().mapToGlobal(pos))
         if chosen == act_copy and item:

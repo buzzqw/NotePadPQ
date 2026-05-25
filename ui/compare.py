@@ -68,7 +68,7 @@ class CompareDialog(QDialog):
         la.addWidget(btn_file_a)
         sel_layout.addWidget(grp_a, 1)
 
-        grp_b = QGroupBox("File B (Destra / Modificato)")
+        grp_b = QGroupBox(tr("compare.grp_file_b"))
         lb = QHBoxLayout(grp_b)
         self._combo_b = QComboBox()
         btn_file_b = QPushButton("📂")
@@ -105,11 +105,11 @@ class CompareDialog(QDialog):
         self._btn_next = QPushButton("▼ Succ."); self._btn_next.clicked.connect(self._next_diff)
         
         # Pulsanti per il merging
-        self._btn_to_right = QPushButton("Copia a Destra ⮕")
+        self._btn_to_right = QPushButton(tr("compare.btn_copy_right"))
         self._btn_to_right.setStyleSheet("background-color: #e1f5fe; font-weight: bold; padding: 5px;")
         self._btn_to_right.clicked.connect(self._merge_to_right)
         
-        self._btn_to_left = QPushButton("⬅ Copia a Sinistra")
+        self._btn_to_left = QPushButton(tr("compare.btn_copy_left"))
         self._btn_to_left.setStyleSheet("background-color: #f1f8e9; font-weight: bold; padding: 5px;")
         self._btn_to_left.clicked.connect(self._merge_to_left)
 
@@ -125,11 +125,11 @@ class CompareDialog(QDialog):
         layout.addLayout(merge_bar)
 
         btns = QHBoxLayout()
-        self._btn_apply = QPushButton("✅ Applica modifiche e Chiudi")
+        self._btn_apply = QPushButton(tr("compare.btn_apply"))
         self._btn_apply.clicked.connect(self._apply_and_close)
         self._btn_apply.hide()
         
-        close_btn = QPushButton("Chiudi")
+        close_btn = QPushButton(tr("compare.btn_close"))
         close_btn.clicked.connect(self.reject)
         
         btns.addStretch()
@@ -211,7 +211,7 @@ class CompareDialog(QDialog):
 
         self._render_view(self._view_a, la_out)
         self._render_view(self._view_b, lb_out)
-        self._lbl_stats.setText(f"Differenze trovate: {len(self._opcodes)}")
+        self._lbl_stats.setText(tr("compare.diffs_found", n=len(self._opcodes)))
         self._btn_apply.show()
         
         if self._diff_idx == -1 and self._opcodes:

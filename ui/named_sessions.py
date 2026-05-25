@@ -108,29 +108,29 @@ class NamedSessionsDialog(QDialog):
     def __init__(self, main_window: "MainWindow"):
         super().__init__(main_window)
         self._mw = main_window
-        self.setWindowTitle("Gestione sessioni")
+        self.setWindowTitle(tr("named_sessions.title"))
         self.setMinimumSize(380, 300)
         self._build_ui()
         self._refresh()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Sessioni salvate:"))
+        layout.addWidget(QLabel(tr("named_sessions.label_saved")))
 
         self._list = QListWidget()
         self._list.setAlternatingRowColors(True)
         layout.addWidget(self._list)
 
         btn_row = QHBoxLayout()
-        self._btn_save   = QPushButton("💾  Salva corrente...")
-        self._btn_load   = QPushButton("📂  Carica")
-        self._btn_delete = QPushButton("🗑  Elimina")
+        self._btn_save   = QPushButton(tr("named_sessions.btn_save"))
+        self._btn_load   = QPushButton(tr("named_sessions.btn_load"))
+        self._btn_delete = QPushButton(tr("named_sessions.btn_delete"))
         btn_row.addWidget(self._btn_save)
         btn_row.addWidget(self._btn_load)
         btn_row.addWidget(self._btn_delete)
         layout.addLayout(btn_row)
 
-        close_btn = QPushButton("Chiudi")
+        close_btn = QPushButton(tr("named_sessions.btn_close"))
         close_btn.clicked.connect(self.accept)
         layout.addWidget(close_btn)
 
@@ -149,19 +149,19 @@ class NamedSessionsDialog(QDialog):
         return item.text() if item else None
 
     def _on_save(self) -> None:
-        name, ok = QInputDialog.getText(self, "Salva sessione", "Nome sessione:")
+        name, ok = QInputDialog.getText(self, tr("named_sessions.save_title"), tr("named_sessions.save_prompt"))
         if ok and name.strip():
             if save_named_session(name.strip(), self._mw):
                 self._refresh()
             else:
-                QMessageBox.warning(self, "Errore", "Impossibile salvare la sessione.")
+                QMessageBox.warning(self, tr("named_sessions.error_title"), tr("named_sessions.save_error"))
 
     def _on_load(self) -> None:
         name = self._selected_name()
         if not name:
             return
         if not load_named_session(name, self._mw):
-            QMessageBox.warning(self, "Errore", f"Impossibile caricare la sessione '{name}'.")
+            QMessageBox.warning(self, tr("named_sessions.error_title"), tr("named_sessions.load_error", name=name))
         else:
             self.accept()
 
@@ -169,8 +169,8 @@ class NamedSessionsDialog(QDialog):
         name = self._selected_name()
         if not name:
             return
-        r = QMessageBox.question(self, "Elimina sessione",
-                                 f"Eliminare la sessione '{name}'?")
+        r = QMessageBox.question(self, tr("named_sessions.delete_title"),
+                                 tr("named_sessions.delete_confirm", name=name))
         if r == QMessageBox.StandardButton.Yes:
             delete_session(name)
             self._refresh()

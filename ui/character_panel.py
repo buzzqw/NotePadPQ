@@ -8,30 +8,38 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont
 
+from i18n.i18n import tr
+
 
 # Categorie Unicode con range di code point da mostrare
-_CATEGORIES = [
-    ("Latino base",          0x0020, 0x007E),
-    ("Latino esteso-A",      0x00C0, 0x017E),
-    ("Latino esteso-B",      0x0180, 0x024F),
-    ("IPA / Fonetica",       0x0250, 0x02AF),
-    ("Diacritici",           0x0300, 0x036F),
-    ("Greco e Copto",        0x0370, 0x03FF),
-    ("Cirillico",            0x0400, 0x04FF),
-    ("Ebraico",              0x05D0, 0x05EA),
-    ("Arabo",                0x0600, 0x06FF),
-    ("Punteggiatura gen.",   0x2000, 0x206F),
-    ("Simboli valuta",       0x20A0, 0x20CF),
-    ("Simboli letterali",    0x2100, 0x214F),
-    ("Frecce",               0x2190, 0x21FF),
-    ("Operatori matematici", 0x2200, 0x22FF),
-    ("Varie tecniche",       0x2300, 0x23FF),
-    ("Simboli miscellanei",  0x2600, 0x26FF),
-    ("Dingbats",             0x2700, 0x27BF),
-    ("CJK (comuni)",         0x4E00, 0x4EFF),
-    ("Emoji comuni",         0x1F300, 0x1F5FF),
-    ("Emoji viso/persone",   0x1F600, 0x1F64F),
+# Le chiavi i18n vengono risolte a runtime in _build_categories()
+_CATEGORY_KEYS = [
+    ("character_panel.cat_latin_basic",   0x0020, 0x007E),
+    ("character_panel.cat_latin_ext_a",   0x00C0, 0x017E),
+    ("character_panel.cat_latin_ext_b",   0x0180, 0x024F),
+    ("character_panel.cat_ipa",           0x0250, 0x02AF),
+    ("character_panel.cat_diacritics",    0x0300, 0x036F),
+    ("character_panel.cat_greek",         0x0370, 0x03FF),
+    ("character_panel.cat_cyrillic",      0x0400, 0x04FF),
+    ("character_panel.cat_hebrew",        0x05D0, 0x05EA),
+    ("character_panel.cat_arabic",        0x0600, 0x06FF),
+    ("character_panel.cat_punctuation",   0x2000, 0x206F),
+    ("character_panel.cat_currency",      0x20A0, 0x20CF),
+    ("character_panel.cat_letterlike",    0x2100, 0x214F),
+    ("character_panel.cat_arrows",        0x2190, 0x21FF),
+    ("character_panel.cat_math",          0x2200, 0x22FF),
+    ("character_panel.cat_technical",     0x2300, 0x23FF),
+    ("character_panel.cat_misc",          0x2600, 0x26FF),
+    ("character_panel.cat_dingbats",      0x2700, 0x27BF),
+    ("character_panel.cat_cjk",           0x4E00, 0x4EFF),
+    ("character_panel.cat_emoji",         0x1F300, 0x1F5FF),
+    ("character_panel.cat_emoji_people",  0x1F600, 0x1F64F),
 ]
+
+
+def _build_categories():
+    """Costruisce la lista categorie con i nomi tradotti."""
+    return [(tr(key), start, end) for key, start, end in _CATEGORY_KEYS]
 
 _CELL_SIZE = 28
 _COLS      = 16
@@ -39,7 +47,7 @@ _COLS      = 16
 
 class CharacterPanel(QDockWidget):
     def __init__(self, main_window):
-        super().__init__("Pannello caratteri", main_window)
+        super().__init__(tr("character_panel.dock_title"), main_window)
         self._mw = main_window
         self.setObjectName("CharacterPanel")
         self.setAllowedAreas(
@@ -55,11 +63,12 @@ class CharacterPanel(QDockWidget):
 
         # Barra superiore: combo categoria + filtro ricerca
         top = QHBoxLayout()
+        self._categories = _build_categories()
         self._combo = QComboBox()
-        for name, *_ in _CATEGORIES:
+        for name, *_ in self._categories:
             self._combo.addItem(name)
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Cerca (es. 'arrow', 'euro', U+20AC)…")
+        self._search.setPlaceholderText(tr("character_panel.placeholder_search"))
         self._search.setClearButtonEnabled(True)
         top.addWidget(self._combo, 2)
         top.addWidget(self._search, 3)
@@ -103,7 +112,7 @@ class CharacterPanel(QDockWidget):
         self._search.blockSignals(True)
         self._search.clear()
         self._search.blockSignals(False)
-        _, start, end = _CATEGORIES[idx]
+        _, start, end = self._categories[idx]
         chars = []
         for cp in range(start, end + 1):
             try:

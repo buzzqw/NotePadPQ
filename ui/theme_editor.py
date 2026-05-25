@@ -109,7 +109,7 @@ class ThemeEditorDialog(QDialog):
         # Se è un built-in, chiede il nome per il clone
         if source in BUILTIN_THEMES and not theme_name:
             name, ok = QInputDialog.getText(
-                self, "Nuovo tema",
+                self, tr("theme_editor.new_theme_title"),
                 f"Nome per il nuovo tema (copia di {source}):"
             )
             if not ok or not name:
@@ -202,7 +202,7 @@ class ThemeEditorDialog(QDialog):
         self._font_size.setRange(6, 72)
         gf.addRow(tr("label.font"), self._font_combo)
         gf.addRow(tr("label.font_size"), self._font_size)
-        btn_apply_font = QPushButton("Applica font")
+        btn_apply_font = QPushButton(tr("theme_editor.btn_apply_font"))
         btn_apply_font.clicked.connect(self._apply_global_font)
         gf.addRow("", btn_apply_font)
         self._right_layout.addWidget(grp_global)
@@ -217,9 +217,9 @@ class ThemeEditorDialog(QDialog):
 
         # ── Pulsanti ──────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        btn_preview = QPushButton("Anteprima")
+        btn_preview = QPushButton(tr("theme_editor.btn_preview"))
         btn_preview.clicked.connect(self._preview)
-        btn_import  = QPushButton("Importa colori da...")
+        btn_import  = QPushButton(tr("theme_editor.btn_import"))
         btn_import.clicked.connect(self._import_colors)
         btn_row.addWidget(btn_preview)
         btn_row.addWidget(btn_import)
@@ -291,7 +291,7 @@ class ThemeEditorDialog(QDialog):
         color = QColorDialog.getColor(
             QColor(current) if current else QColor("#ffffff"),
             self,
-            "Scegli colore"
+            tr("theme_editor.pick_color_title")
         )
         if not color.isValid():
             return
@@ -366,7 +366,7 @@ class ThemeEditorDialog(QDialog):
         names = self._tm.available_themes()
         from PyQt6.QtWidgets import QInputDialog
         name, ok = QInputDialog.getItem(
-            self, "Importa colori", "Da quale tema:",
+            self, tr("theme_editor.import_title"), tr("theme_editor.import_prompt"),
             names, 0, False
         )
         if ok:

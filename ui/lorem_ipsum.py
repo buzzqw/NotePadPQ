@@ -15,6 +15,8 @@ from PyQt6.QtWidgets import (
     QGroupBox,
 )
 
+from i18n.i18n import tr
+
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
@@ -92,7 +94,7 @@ class LoremIpsumDialog(QDialog):
     def __init__(self, main_window: "MainWindow"):
         super().__init__(main_window)
         self._mw = main_window
-        self.setWindowTitle("Generatore testo segnaposto")
+        self.setWindowTitle(tr("lorem_ipsum.title"))
         self.setMinimumWidth(540)
         self.setMinimumHeight(380)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
@@ -104,31 +106,31 @@ class LoremIpsumDialog(QDialog):
         vl.setSpacing(8)
 
         # Opzioni
-        opt_box = QGroupBox("Opzioni")
+        opt_box = QGroupBox(tr("lorem_ipsum.grp_options"))
         grid = QGridLayout(opt_box)
 
-        grid.addWidget(QLabel("Paragrafi:"), 0, 0)
+        grid.addWidget(QLabel(tr("lorem_ipsum.label_paragraphs")), 0, 0)
         self._spin_para = QSpinBox()
         self._spin_para.setRange(1, 20)
         self._spin_para.setValue(3)
         grid.addWidget(self._spin_para, 0, 1)
 
-        grid.addWidget(QLabel("Frasi per paragrafo:"), 0, 2)
+        grid.addWidget(QLabel(tr("lorem_ipsum.label_sentences")), 0, 2)
         self._spin_sent = QSpinBox()
         self._spin_sent.setRange(1, 12)
         self._spin_sent.setValue(4)
         grid.addWidget(self._spin_sent, 0, 3)
 
-        grid.addWidget(QLabel("Separatore:"), 1, 0)
+        grid.addWidget(QLabel(tr("lorem_ipsum.label_separator")), 1, 0)
         self._combo_sep = QComboBox()
         self._combo_sep.addItems([
-            "Riga vuota (\\n\\n)",
-            "Singola riga (\\n)",
-            "Nessuno",
+            tr("lorem_ipsum.sep_double_newline"),
+            tr("lorem_ipsum.sep_single_newline"),
+            tr("lorem_ipsum.sep_none"),
         ])
         grid.addWidget(self._combo_sep, 1, 1)
 
-        self._chk_classic = QCheckBox("Primo paragrafo classico")
+        self._chk_classic = QCheckBox(tr("lorem_ipsum.chk_classic"))
         self._chk_classic.setChecked(True)
         grid.addWidget(self._chk_classic, 1, 2, 1, 2)
 
@@ -141,11 +143,11 @@ class LoremIpsumDialog(QDialog):
 
         # Pulsanti
         btn_row = QHBoxLayout()
-        gen_btn = QPushButton("Genera")
+        gen_btn = QPushButton(tr("lorem_ipsum.btn_generate"))
         gen_btn.clicked.connect(self._generate)
-        ins_btn = QPushButton("Inserisci nel documento")
+        ins_btn = QPushButton(tr("lorem_ipsum.btn_insert"))
         ins_btn.clicked.connect(self._insert)
-        close_btn = QPushButton("Chiudi")
+        close_btn = QPushButton(tr("lorem_ipsum.btn_close"))
         close_btn.clicked.connect(self.reject)
 
         btn_row.addWidget(gen_btn)

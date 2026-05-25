@@ -82,7 +82,7 @@ class FilePropertiesDialog(QDialog):
         )
         lbl_path.setWordWrap(True)
 
-        btn_copy = QPushButton("Copia percorso")
+        btn_copy = QPushButton(tr("file_properties.btn_copy_path"))
         btn_copy.setMaximumWidth(120)
         btn_copy.clicked.connect(
             lambda: QApplication.clipboard().setText(path_str)
@@ -93,9 +93,9 @@ class FilePropertiesDialog(QDialog):
         path_row.addWidget(btn_copy)
 
         form_file.addRow("Percorso:", path_row)  # type: ignore
-        form_file.addRow("Dimensione:", QLabel(size_str))
-        form_file.addRow("Modificato:", QLabel(mtime_str))
-        form_file.addRow("Creato:",    QLabel(ctime_str))
+        form_file.addRow(tr("file_properties.label_size"), QLabel(size_str))
+        form_file.addRow(tr("file_properties.label_modified"), QLabel(mtime_str))
+        form_file.addRow(tr("file_properties.label_created"), QLabel(ctime_str))
         layout.addWidget(grp_file)
 
         # ── Documento ─────────────────────────────────────────────────────

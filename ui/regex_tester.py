@@ -7,7 +7,7 @@ Dialog non modale con:
 - Testo di test con evidenziazione match in tempo reale
 - Lista gruppi di cattura
 - Anteprima sostituzione con backreference
-- Riferimento rapido sintassi regex
+- Riferimento rapido sintassi regex (sempre visibile, pannello laterale)
 """
 
 from __future__ import annotations
@@ -37,53 +37,6 @@ _GROUP_COLORS = [
     QColor("#2a004a"),  # viola scuro
 ]
 
-_REGEX_REFERENCE = """
-CARATTERI BASE
-.       Qualsiasi carattere (tranne \\n)
-\\d      Cifra [0-9]
-\\D      Non-cifra
-\\w      Parola [a-zA-Z0-9_]
-\\W      Non-parola
-\\s      Spazio bianco
-\\S      Non-spazio
-\\b      Confine di parola
-\\B      Non-confine
-
-QUANTIFICATORI
-*       0 o più (greedy)
-+       1 o più (greedy)
-?       0 o 1 (greedy)
-*?      0 o più (lazy)
-+?      1 o più (lazy)
-{n}     Esattamente n volte
-{n,m}   Da n a m volte
-
-ANCORE
-^       Inizio riga/stringa
-$       Fine riga/stringa
-\\A      Inizio stringa
-\\Z      Fine stringa
-
-GRUPPI
-(...)       Gruppo di cattura
-(?:...)     Gruppo non catturante
-(?P<n>...)  Gruppo con nome n
-(?=...)     Lookahead positivo
-(?!...)     Lookahead negativo
-(?<=...)    Lookbehind positivo
-(?<!...)    Lookbehind negativo
-
-CLASSI
-[abc]   a, b o c
-[^abc]  Non a, b o c
-[a-z]   Da a a z
-[\\d\\w]  Cifre e parole
-
-SOSTITUZIONE
-\\1, \\2  Gruppo catturato per numero
-\\g<n>   Gruppo catturato per nome n
-"""
-
 
 class RegexTesterDialog(QDialog):
 
@@ -91,7 +44,7 @@ class RegexTesterDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr("action.regex_tester"))
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
-        self.resize(780, 580)
+        self.resize(980, 600)
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -103,24 +56,32 @@ class RegexTesterDialog(QDialog):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
 
+        # ── Splitter principale: sinistra=editor, destra=riferimento sintassi ──
+        main_splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # ── Pannello sinistro ──────────────────────────────────────────────────
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+
         # ── Pattern ───────────────────────────────────────────────────────
-        grp_pat = QGroupBox("Pattern")
+        grp_pat = QGroupBox(tr("regex_tester.grp_pattern"))
         pat_lay = QVBoxLayout(grp_pat)
 
         row1 = QHBoxLayout()
-        row1.addWidget(QLabel("Regex:"))
+        row1.addWidget(QLabel(tr("regex_tester.label_regex")))
         self._pattern = QLineEdit()
         self._pattern.setFont(QFont("Monospace", 11))
-        self._pattern.setPlaceholderText(r"es. (\w+)\s+(\d+)")
+        self._pattern.setPlaceholderText(tr("regex_tester.placeholder_regex"))
         self._pattern.textChanged.connect(self._schedule)
         row1.addWidget(self._pattern, 1)
         pat_lay.addLayout(row1)
 
         row2 = QHBoxLayout()
-        self._chk_i = QCheckBox("Ignora maiuscole (i)")
-        self._chk_m = QCheckBox("Multiriga (m)")
-        self._chk_s = QCheckBox("Punto=tutto (s)")
-        self._chk_x = QCheckBox("Verbose (x)")
+        self._chk_i = QCheckBox(tr("regex_tester.chk_ignorecase"))
+        self._chk_m = QCheckBox(tr("regex_tester.chk_multiline"))
+        self._chk_s = QCheckBox(tr("regex_tester.chk_dotall"))
+        self._chk_x = QCheckBox(tr("regex_tester.chk_verbose"))
         for chk in [self._chk_i, self._chk_m, self._chk_s, self._chk_x]:
             chk.stateChanged.connect(self._schedule)
             row2.addWidget(chk)
@@ -130,18 +91,18 @@ class RegexTesterDialog(QDialog):
         row2.addWidget(self._lbl_err)
         pat_lay.addLayout(row2)
 
-        layout.addWidget(grp_pat)
+        left_layout.addWidget(grp_pat)
 
         # ── Sostituzione ──────────────────────────────────────────────────
-        grp_sub = QGroupBox("Sostituzione (backreference)")
+        grp_sub = QGroupBox(tr("regex_tester.grp_replace"))
         sub_lay = QHBoxLayout(grp_sub)
-        sub_lay.addWidget(QLabel("Replace:"))
+        sub_lay.addWidget(QLabel(tr("regex_tester.label_replace")))
         self._replace = QLineEdit()
         self._replace.setFont(QFont("Monospace", 11))
-        self._replace.setPlaceholderText(r"es. \1 - \2  oppure  \g<nome>")
+        self._replace.setPlaceholderText(tr("regex_tester.placeholder_replace"))
         self._replace.textChanged.connect(self._schedule)
         sub_lay.addWidget(self._replace, 1)
-        layout.addWidget(grp_sub)
+        left_layout.addWidget(grp_sub)
 
         # ── Corpo principale ──────────────────────────────────────────────
         tabs = QTabWidget()
@@ -152,55 +113,46 @@ class RegexTesterDialog(QDialog):
 
         self._test_edit = QPlainTextEdit()
         self._test_edit.setFont(QFont("Monospace", 11))
-        self._test_edit.setPlaceholderText("Incolla qui il testo su cui testare la regex...")
+        self._test_edit.setPlaceholderText(tr("regex_tester.placeholder_test"))
         self._test_edit.textChanged.connect(self._schedule)
         test_lay.addWidget(self._test_edit, 2)
 
         # Risultato sostituzione
-        test_lay.addWidget(QLabel("Risultato sostituzione:"))
+        test_lay.addWidget(QLabel(tr("regex_tester.label_result")))
         self._result_edit = QPlainTextEdit()
         self._result_edit.setFont(QFont("Monospace", 11))
         self._result_edit.setReadOnly(True)
         self._result_edit.setMaximumHeight(100)
         test_lay.addWidget(self._result_edit, 1)
 
-        tabs.addTab(test_widget, "Testo di test")
+        tabs.addTab(test_widget, tr("regex_tester.tab_test"))
 
         # Tab: Gruppi di cattura
         groups_widget = QWidget()
         groups_lay = QVBoxLayout(groups_widget)
-        self._lbl_match_count = QLabel("0 match trovati")
+        self._lbl_match_count = QLabel(tr("regex_tester.match_count_zero"))
         groups_lay.addWidget(self._lbl_match_count)
         self._groups_table = QTableWidget(0, 4)
-        self._groups_table.setHorizontalHeaderLabels(
-            ["Match #", "Testo completo", "Inizio", "Fine"]
-        )
+        self._groups_table.setHorizontalHeaderLabels([
+            tr("regex_tester.col_match_num"),
+            tr("regex_tester.col_match_text"),
+            tr("regex_tester.col_start"),
+            tr("regex_tester.col_end"),
+        ])
         self._groups_table.horizontalHeader().setStretchLastSection(True)
         groups_lay.addWidget(self._groups_table, 1)
-        tabs.addTab(groups_widget, "Match e gruppi")
+        tabs.addTab(groups_widget, tr("regex_tester.tab_groups"))
 
-        # Tab: Riferimento sintassi
-        ref_widget = QScrollArea()
-        ref_inner = QLabel(_REGEX_REFERENCE)
-        ref_inner.setFont(QFont("Monospace", 10))
-        ref_inner.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-        )
-        ref_inner.setMargin(12)
-        ref_widget.setWidget(ref_inner)
-        ref_widget.setWidgetResizable(True)
-        tabs.addTab(ref_widget, "Riferimento sintassi")
-
-        layout.addWidget(tabs, 1)
+        left_layout.addWidget(tabs, 1)
 
         # ── Pulsanti ──────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        btn_copy = QPushButton("Copia pattern")
+        btn_copy = QPushButton(tr("regex_tester.btn_copy_pattern"))
         btn_copy.clicked.connect(
             lambda: __import__("PyQt6.QtWidgets", fromlist=["QApplication"])
             .QApplication.clipboard().setText(self._pattern.text())
         )
-        btn_clear = QPushButton("Pulisci tutto")
+        btn_clear = QPushButton(tr("regex_tester.btn_clear_all"))
         btn_clear.clicked.connect(self._clear_all)
         btn_close = QPushButton(tr("button.close"))
         btn_close.clicked.connect(self.close)
@@ -208,7 +160,34 @@ class RegexTesterDialog(QDialog):
         btn_row.addWidget(btn_clear)
         btn_row.addStretch()
         btn_row.addWidget(btn_close)
-        layout.addLayout(btn_row)
+        left_layout.addLayout(btn_row)
+
+        main_splitter.addWidget(left_widget)
+
+        # ── Pannello destro: riferimento sintassi (sempre visibile) ───────
+        ref_widget = QWidget()
+        ref_layout = QVBoxLayout(ref_widget)
+        ref_layout.setContentsMargins(4, 0, 0, 0)
+        ref_title = QLabel(tr("regex_tester.tab_syntax"))
+        ref_title.setStyleSheet("font-weight: bold; margin-bottom: 4px;")
+        ref_layout.addWidget(ref_title)
+
+        self._ref_label = QLabel(tr("regex_tester.syntax_reference"))
+        self._ref_label.setFont(QFont("Monospace", 10))
+        self._ref_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._ref_label.setMargin(8)
+        ref_scroll = QScrollArea()
+        ref_scroll.setWidget(self._ref_label)
+        ref_scroll.setWidgetResizable(True)
+        ref_scroll.setMinimumWidth(220)
+        ref_layout.addWidget(ref_scroll, 1)
+
+        main_splitter.addWidget(ref_widget)
+        main_splitter.setSizes([700, 280])
+
+        layout.addWidget(main_splitter, 1)
 
     # ── Logica ────────────────────────────────────────────────────────────────
 
@@ -231,7 +210,7 @@ class RegexTesterDialog(QDialog):
         self._lbl_err.setText("")
         self._groups_table.setRowCount(0)
         self._result_edit.setPlainText("")
-        self._lbl_match_count.setText("0 match trovati")
+        self._lbl_match_count.setText(tr("regex_tester.match_count_zero"))
 
         if not pattern_str:
             self._clear_highlights()
@@ -245,9 +224,11 @@ class RegexTesterDialog(QDialog):
             return
 
         matches = list(compiled.finditer(text))
-        self._lbl_match_count.setText(
-            f"{len(matches)} match troват{'o' if len(matches)==1 else 'i'}"
-        )
+        n = len(matches)
+        if n == 1:
+            self._lbl_match_count.setText(tr("regex_tester.match_count_one"))
+        else:
+            self._lbl_match_count.setText(tr("regex_tester.match_count", n=n))
 
         # Evidenzia nel test editor
         self._highlight_matches(matches, text)
@@ -269,7 +250,7 @@ class RegexTesterDialog(QDialog):
                     self._groups_table.insertRow(sub_row)
                     self._groups_table.setItem(
                         sub_row, 0,
-                        QTableWidgetItem(f"  └ gruppo {gi}")
+                        QTableWidgetItem(f"  └ {tr('regex_tester.group_label', n=gi)}")
                     )
                     self._groups_table.setItem(
                         sub_row, 1,
@@ -282,7 +263,7 @@ class RegexTesterDialog(QDialog):
                 result = compiled.sub(replace_str, text)
                 self._result_edit.setPlainText(result)
             except re.error as e:
-                self._result_edit.setPlainText(f"Errore sostituzione: {e}")
+                self._result_edit.setPlainText(tr("regex_tester.error_replace", error=str(e)))
 
     def _highlight_matches(self, matches: list, text: str) -> None:
         cursor = self._test_edit.textCursor()
@@ -313,7 +294,7 @@ class RegexTesterDialog(QDialog):
         self._result_edit.clear()
         self._groups_table.setRowCount(0)
         self._lbl_err.setText("")
-        self._lbl_match_count.setText("0 match trovati")
+        self._lbl_match_count.setText(tr("regex_tester.match_count_zero"))
 
     def set_pattern(self, pattern: str) -> None:
         """Imposta il pattern dall'esterno (es. da Find/Replace)."""

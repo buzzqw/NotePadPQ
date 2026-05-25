@@ -23,7 +23,10 @@ if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
 _SEPARATOR_KEY = "|"
-_SEPARATOR_LABEL = "─────── Separatore ───────"
+def _get_separator_label():
+    return tr("customize_toolbar.separator_label")
+
+_SEPARATOR_LABEL = "─────── Separatore ───────"  # fallback statico
 
 DEFAULT_TOOLBAR: list[str] = [
     "new", "open", "save", "save_all",
@@ -38,7 +41,7 @@ DEFAULT_TOOLBAR: list[str] = [
 
 def _action_label(key: str, actions: dict) -> str:
     if key == _SEPARATOR_KEY:
-        return _SEPARATOR_LABEL
+        return tr("customize_toolbar.separator_label")
     action = actions.get(key)
     if action is None:
         return key
@@ -69,7 +72,7 @@ class CustomizeToolbarDialog(QDialog):
         left = QVBoxLayout()
         left.addWidget(QLabel("Azioni disponibili"))
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Cerca…")
+        self._search.setPlaceholderText(tr("customize_toolbar.placeholder_search"))
         self._search.setClearButtonEnabled(True)
         self._search.textChanged.connect(self._filter_avail)
         left.addWidget(self._search)
@@ -85,11 +88,11 @@ class CustomizeToolbarDialog(QDialog):
         center.addStretch()
         self._btn_add = QPushButton("→")
         self._btn_add.setFixedWidth(36)
-        self._btn_add.setToolTip("Aggiungi alla toolbar")
+        self._btn_add.setToolTip(tr("customize_toolbar.tooltip_add"))
         self._btn_add.clicked.connect(self._add_selected)
         self._btn_remove = QPushButton("←")
         self._btn_remove.setFixedWidth(36)
-        self._btn_remove.setToolTip("Rimuovi dalla toolbar")
+        self._btn_remove.setToolTip(tr("customize_toolbar.tooltip_remove"))
         self._btn_remove.clicked.connect(self._remove_selected)
         center.addWidget(self._btn_add)
         center.addSpacing(4)
@@ -109,9 +112,9 @@ class CustomizeToolbarDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(4)
         self._btn_up   = QPushButton("Su")
-        self._btn_down = QPushButton("Giù")
-        self._btn_sep  = QPushButton("+ Separatore")
-        self._btn_rem2 = QPushButton("Rimuovi")
+        self._btn_down = QPushButton(tr("customize_toolbar.btn_down"))
+        self._btn_sep  = QPushButton(tr("customize_toolbar.btn_separator"))
+        self._btn_rem2 = QPushButton(tr("customize_toolbar.btn_remove"))
         self._btn_up.clicked.connect(self._move_up)
         self._btn_down.clicked.connect(self._move_down)
         self._btn_sep.clicked.connect(self._add_separator)
@@ -125,7 +128,7 @@ class CustomizeToolbarDialog(QDialog):
 
         # Reset + OK/Cancel
         bottom = QHBoxLayout()
-        btn_reset = QPushButton("Ripristina default")
+        btn_reset = QPushButton(tr("customize_toolbar.btn_reset"))
         btn_reset.clicked.connect(self._reset_default)
         bottom.addWidget(btn_reset)
         bottom.addStretch()

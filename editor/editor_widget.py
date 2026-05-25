@@ -264,7 +264,10 @@ class EditorWidget(QsciScintilla):
         self._zoom_level: int  = 0
         self._overwrite: bool  = False
         self._show_line_numbers: bool = True
-        self._smart_highlight_enabled: bool = True
+        from config.settings import Settings
+        self._smart_highlight_enabled: bool = Settings.instance().get(
+            "editor/smart_highlight_enabled", True
+        )
         self._plain_text_mode: bool = False
         self._saved_language: str = ""
         self._auto_indent_paste: bool = False
@@ -550,6 +553,18 @@ class EditorWidget(QsciScintilla):
         line, col = self.getCursorPosition()
         word = self.wordAtLineIndex(line, col)
         if not word or len(word) < 2:
+            if self._smart_hl_word:
+                self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+                self._smart_hl_word = ""
+                self._smart_hl_text_len = 0
+            return
+
+        # Non evidenziare se il cursore è sul bordo destro della parola:
+        # c'è un carattere-parola a sinistra ma non a destra → cursore appena dopo l'ultima lettera.
+        line_text = self.text(line)
+        char_right = line_text[col] if col < len(line_text) else ""
+        char_left  = line_text[col - 1] if col > 0 else ""
+        if (char_left.isalnum() or char_left == "_") and not (char_right.isalnum() or char_right == "_"):
             if self._smart_hl_word:
                 self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
                 self._smart_hl_word = ""

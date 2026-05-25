@@ -112,6 +112,12 @@ class SmartHighlighter:
             self._clear_editor_indicators(self._active_editor)
             self._last_word = ""
             self._timer.stop()
+        # Propaga a tutti gli editor aperti (sistema interno editor_widget)
+        try:
+            for ed in self._mw._tab_manager.all_editors():
+                ed.set_smart_highlight_enabled(enabled)
+        except Exception:
+            pass
 
     def _clear_editor_indicators(self, editor: Optional["EditorWidget"]) -> None:
         if editor:
@@ -193,20 +199,28 @@ class SmartHighlighter:
         self._highlight_all(editor, word)
 
     def _word_at_cursor(self, editor: "EditorWidget") -> str:
-        r"""Restituisce la parola sotto il cursore (solo caratteri \w)."""
+        """Restituisce la parola sotto il cursore usando l'API nativa QScintilla.
+        Non evidenzia se il cursore è posizionato subito a destra dell'ultima lettera."""
         line, col = editor.getCursorPosition()
-        text = editor.text(line)
-        if not text:
+
+        # wordAtLineIndex usa internamente SCI_WORDSTARTPOSITION / SCI_WORDENDPOSITION:
+        # restituisce "" quando il carattere a col non è un carattere-parola.
+        word = editor.wordAtLineIndex(line, col)
+        if not word:
             return ""
-        # Espandi a sinistra
-        start = col
-        while start > 0 and (text[start - 1].isalnum() or text[start - 1] == "_"):
-            start -= 1
-        # Espandi a destra
-        end = col
-        while end < len(text) and (text[end].isalnum() or text[end] == "_"):
-            end += 1
-        return text[start:end]
+
+        # Doppio controllo: se il cursore è sul bordo destro della parola
+        # (carattere a destra di col non è parola ma quello a sinistra sì),
+        # l'API potrebbe comunque restituire la parola — in quel caso non evidenziare.
+        text = editor.text(line)
+        char_right = text[col] if col < len(text) else ""
+        char_left  = text[col - 1] if col > 0 else ""
+        right_is_word = char_right.isalnum() or char_right == "_"
+        left_is_word  = char_left.isalnum()  or char_left  == "_"
+        if left_is_word and not right_is_word:
+            return ""
+
+        return word
 
     def _highlight_all(self, editor: "EditorWidget", word: str) -> None:
         """Evidenzia tutte le occorrenze. Una sola chiamata API per ottenere il testo."""

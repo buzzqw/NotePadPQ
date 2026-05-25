@@ -6,7 +6,7 @@
 
 # NotePadPQ
 
-**Un editor di testo avanzato, moderno e multipiattaforma, costruito con Python e PyQt6**
+**A modern, cross-platform text editor built with Python and PyQt6, featuring advanced editing tools, AI support, live document previews and many tools.**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://python.org)
 [![PyQt6](https://img.shields.io/badge/PyQt6-6.x-green?logo=qt)](https://riverbankcomputing.com/software/pyqt/)

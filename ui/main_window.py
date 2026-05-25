@@ -307,7 +307,7 @@ class TripleClickFilter(QObject):
 class MainWindow(QMainWindow):
 
     APP_NAME    = "NotePadPQ"
-    APP_VERSION = "1.0.7"
+    APP_VERSION = "1.0.8"
 
     def __init__(self):
         super().__init__()

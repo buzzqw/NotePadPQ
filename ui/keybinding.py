@@ -155,6 +155,9 @@ class KeyBindingDialog(QDialog):
     # ── Dati ─────────────────────────────────────────────────────────────────
 
     def _populate(self) -> None:
+        # Disabilita il sorting durante il popolamento per evitare che
+        # Qt riordini le righe mentre vengono inserite, disallineando le colonne.
+        self._table.setSortingEnabled(False)
         self._table.setRowCount(0)
         self._rows: list[tuple[str, QAction]] = []   # (key, action)
 
@@ -185,6 +188,9 @@ class KeyBindingDialog(QDialog):
             self._table.setItem(row, 1, item_curr)
             self._table.setItem(row, 2, item_def)
             self._rows.append((key, action))
+
+        # Riabilita il sorting dopo che tutte le righe sono state inserite
+        self._table.setSortingEnabled(True)
 
     def _filter(self, text: str) -> None:
         text = text.lower()

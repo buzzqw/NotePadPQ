@@ -332,7 +332,7 @@ class EditorWidget(QsciScintilla):
         self.setWhitespaceVisibility(
             QsciScintilla.WhitespaceVisibility.WsInvisible
         )
-        self.setWhitespaceSize(1)
+        self.setWhitespaceSize(2)
 
         # Encoding interno Scintilla — sempre UTF-8, la conversione
         # a/da encoding del file è gestita da file_manager.py

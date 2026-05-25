@@ -383,37 +383,64 @@ class SplitViewManager(QWidget):
 
     def set_sync_cursor(self, enabled: bool) -> None:
         """
-        Sincronizza il cursore tra i due pannelli.
-        Quando un pannello scorre, l'altro si posiziona alla stessa riga.
+        Sincronizza cursore e scroll tra i due pannelli.
+        Quando un pannello sposta il cursore o scorre, l'altro si allinea.
         """
         self._sync_cursor = enabled
+        self._sync_scroll_guard = False
+
+        # Disconnetti connessioni precedenti
+        for ed, slots in getattr(self, "_sync_connections", {}).items():
+            cursor_slot, scroll_slot = slots
+            try:
+                ed.cursor_changed.disconnect(cursor_slot)
+            except Exception:
+                pass
+            try:
+                ed.verticalScrollBar().valueChanged.disconnect(scroll_slot)
+            except Exception:
+                pass
+        self._sync_connections: dict = {}
+
+        if not enabled:
+            return
+
         for panel in self._panels():
             for ed in panel.tab_manager.all_editors():
-                try:
-                    ed.cursor_changed.disconnect(self._on_sync_cursor)
-                except Exception:
-                    pass
-                if enabled:
-                    ed.cursor_changed.connect(self._on_sync_cursor)
+                cursor_slot = lambda ln, col, e=ed: self._on_sync_cursor_from(e, ln, col)
+                scroll_slot = lambda val, e=ed: self._on_sync_scroll_from(e, val)
+                ed.cursor_changed.connect(cursor_slot)
+                ed.verticalScrollBar().valueChanged.connect(scroll_slot)
+                self._sync_connections[ed] = (cursor_slot, scroll_slot)
 
-    def _on_sync_cursor(self, line: int, col: int) -> None:
-        """Handler sync: muove il cursore nell'altro pannello."""
-        sender_ed = self.sender()
-        if sender_ed is None:
-            return
-
-        # Trova il pannello opposto
+    def _on_sync_cursor_from(self, sender_ed, line: int, col: int) -> None:
+        """line e col sono 1-based (da cursor_changed); converti a 0-based per QScintilla."""
         in_primary = sender_ed in self._primary.tab_manager.all_editors()
-        other = (self._secondary if in_primary else self._primary)
+        other = self._secondary if in_primary else self._primary
         if other is None:
             return
-
         other_ed = other.tab_manager.current_editor()
         if other_ed and other_ed is not sender_ed:
+            line0 = max(0, min(line - 1, other_ed.lines() - 1))
+            col0  = max(0, col - 1)
             other_ed.blockSignals(True)
-            other_ed.setCursorPosition(line, col)
-            other_ed.ensureLineVisible(line)
+            other_ed.setCursorPosition(line0, col0)
+            other_ed.ensureLineVisible(line0)
             other_ed.blockSignals(False)
+
+    def _on_sync_scroll_from(self, sender_ed, value: int) -> None:
+        """Sincronizza la posizione verticale dello scroll nell'altro pannello."""
+        if getattr(self, "_sync_scroll_guard", False):
+            return
+        in_primary = sender_ed in self._primary.tab_manager.all_editors()
+        other = self._secondary if in_primary else self._primary
+        if other is None:
+            return
+        other_ed = other.tab_manager.current_editor()
+        if other_ed and other_ed is not sender_ed:
+            self._sync_scroll_guard = True
+            other_ed.verticalScrollBar().setValue(value)
+            self._sync_scroll_guard = False
 
     # ── Connessioni segnali pannello ──────────────────────────────────────────
 

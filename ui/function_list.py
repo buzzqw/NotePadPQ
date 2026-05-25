@@ -598,11 +598,16 @@ def install(main_window: "MainWindow") -> _FunctionListPanel:
     # Voce menu Visualizza
     view_menu = main_window._menus.get("view")
     if view_menu:
-        act = QAction("𝑓  " + tr("action.view_function_list", default="Function List"), main_window)
+        act = QAction(tr("action.view_function_list", default="Function List"), main_window)
         act.setShortcut(QKeySequence("Ctrl+Shift+F"))
         act.setCheckable(True)
+        act.setIconVisibleInMenu(True)
         act.toggled.connect(dock.setVisible)
-        dock.visibilityChanged.connect(act.setChecked)
+        def _sync_fl(visible, a=act):
+            a.blockSignals(True)
+            a.setChecked(visible)
+            a.blockSignals(False)
+        dock.visibilityChanged.connect(_sync_fl)
         view_menu.addAction(act)
         main_window._actions["function_list"] = act
 

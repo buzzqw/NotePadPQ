@@ -287,7 +287,7 @@ class KeyBindingDialog(QDialog):
         for key, action in self._actions.items():
             if key == exclude_key:
                 continue
-            current = self._saved.get(key, action.shortcut().toString())
+            current = self._modified.get(key, self._saved.get(key, action.shortcut().toString()))
             if current == seq_str:
                 return key
         return None

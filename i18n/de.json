@@ -451,7 +451,11 @@
     "row_n": "Zeile {n}",
     "select_directory": "Verzeichnis auswählen",
     "ready": "Bereit.",
-    "ollama_unreachable": "⚠ ollama nicht erreichbar"
+    "ollama_unreachable": "⚠ ollama nicht erreichbar",
+    "macro_no_macro": "Kein Makro aufgezeichnet.",
+    "macro_play_n_title": "Makro N-mal ausführen",
+    "macro_play_n_prompt": "Anzahl der Wiederholungen:",
+    "macro_save_name_prompt": "Makroname:"
   },
   "pref": {
     "title": "Einstellungen",

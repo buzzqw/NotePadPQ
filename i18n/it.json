@@ -451,7 +451,11 @@
     "row_n": "Riga {n}",
     "select_directory": "Seleziona directory",
     "ready": "Pronto.",
-    "ollama_unreachable": "⚠ ollama non raggiungibile"
+    "ollama_unreachable": "⚠ ollama non raggiungibile",
+    "macro_no_macro": "Nessuna macro registrata.",
+    "macro_play_n_title": "Esegui macro N volte",
+    "macro_play_n_prompt": "Numero di ripetizioni:",
+    "macro_save_name_prompt": "Nome macro:"
   },
   "pref": {
     "title": "Preferenze",

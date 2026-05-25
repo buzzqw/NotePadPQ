@@ -3620,10 +3620,10 @@ class MainWindow(QMainWindow):
         from core.macro import MacroManager
         mm = MacroManager.instance()
         if not mm.has_macro():
-            QMessageBox.information(self, self.APP_NAME, "Nessuna macro registrata.")
+            QMessageBox.information(self, self.APP_NAME, tr("msg.macro_no_macro"))
             return
         n, ok = QInputDialog.getInt(
-            self, "Esegui macro N volte", "Numero di ripetizioni:", 1, 1, 9999
+            self, tr("msg.macro_play_n_title"), tr("msg.macro_play_n_prompt"), 1, 1, 9999
         )
         if ok:
             mm.play_n_times(self._current_editor(), n)

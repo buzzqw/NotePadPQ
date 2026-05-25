@@ -451,7 +451,11 @@
     "row_n": "Línea {n}",
     "select_directory": "Seleccionar directorio",
     "ready": "Listo.",
-    "ollama_unreachable": "⚠ ollama no accesible"
+    "ollama_unreachable": "⚠ ollama no accesible",
+    "macro_no_macro": "No hay ninguna macro grabada.",
+    "macro_play_n_title": "Ejecutar macro N veces",
+    "macro_play_n_prompt": "Número de repeticiones:",
+    "macro_save_name_prompt": "Nombre de la macro:"
   },
   "pref": {
     "title": "Preferencias",

@@ -451,7 +451,11 @@
     "row_n": "Line {n}",
     "select_directory": "Select directory",
     "ready": "Ready.",
-    "ollama_unreachable": "⚠ ollama unreachable"
+    "ollama_unreachable": "⚠ ollama unreachable",
+    "macro_no_macro": "No macro recorded.",
+    "macro_play_n_title": "Run Macro N Times",
+    "macro_play_n_prompt": "Number of repetitions:",
+    "macro_save_name_prompt": "Macro name:"
   },
   "pref": {
     "title": "Preferences",

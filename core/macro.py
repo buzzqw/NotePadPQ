@@ -109,7 +109,7 @@ class MacroManager(QObject):
 
     def save_dialog(self, parent) -> None:
         name, ok = QInputDialog.getText(
-            parent, tr("action.save_macro"), "Nome macro:"
+            parent, tr("action.save_macro"), tr("msg.macro_save_name_prompt")
         )
         if ok and name:
             self.save(name)

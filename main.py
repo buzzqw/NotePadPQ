@@ -92,7 +92,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("NotePadPQ")
     app.setOrganizationName("NotePadPQ")
-    app.setApplicationVersion("1.0.4")
+    app.setApplicationVersion("1.0.5")
 
     # Su alcune configurazioni Linux il flag può essere True di default.
     # Lo forziamo False per garantire che le icone nei menu siano visibili.

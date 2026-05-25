@@ -254,7 +254,7 @@ class _EncryptDialog(QDialog):
         super().__init__(parent)
         self.mode   = mode
         self.result_text: Optional[str] = None
-        self.setWindowTitle("Cifratura" if mode == "encrypt" else "Decifratura")
+        self.setWindowTitle(tr("plugin.encrypt.dialog_encrypt") if mode == "encrypt" else tr("plugin.encrypt.dialog_decrypt"))
         self.resize(400, 220)
         self._build_ui()
 
@@ -275,15 +275,15 @@ class _EncryptDialog(QDialog):
                 "DES-CBC",
             ])
         self._algo.addItems(["XOR", "Caesar cipher"])
-        form.addRow("Algoritmo:", self._algo)
+        form.addRow(tr("plugin.encrypt.label_algorithm"), self._algo)
 
         # Password
         self._pwd = QLineEdit()
         self._pwd.setEchoMode(QLineEdit.EchoMode.Password)
         self._pwd.setPlaceholderText("Password / chiave di cifratura")
-        form.addRow("Password:", self._pwd)
+        form.addRow(tr("plugin.encrypt.label_password"), self._pwd)
 
-        self._show_pwd = QCheckBox("Mostra password")
+        self._show_pwd = QCheckBox(tr("plugin.encrypt.show_password"))
         self._show_pwd.toggled.connect(
             lambda v: self._pwd.setEchoMode(
                 QLineEdit.EchoMode.Normal if v else QLineEdit.EchoMode.Password
@@ -304,11 +304,7 @@ class _EncryptDialog(QDialog):
         layout.addLayout(form)
 
         if not _has_cryptography():
-            warn = QLabel(
-                "⚠ 'cryptography' non installata.\n"
-                "Solo XOR e Caesar disponibili.\n"
-                "Installa con: pip install cryptography"
-            )
+            warn = QLabel(tr("plugin.encrypt.no_crypto_warning"))
             warn.setStyleSheet("color: #f0a000; font-size: 11px;")
             layout.addWidget(warn)
 
@@ -332,7 +328,7 @@ class _EncryptDialog(QDialog):
         pwd  = self._pwd.text()
 
         if algo != "Caesar cipher" and not pwd:
-            QMessageBox.warning(self, "Encrypt", "Inserire una password.")
+            QMessageBox.warning(self, "Encrypt", tr("plugin.encrypt.password_required"))
             return
 
         self.result_algo     = algo
@@ -397,7 +393,7 @@ def do_encrypt(editor: "EditorWidget", parent) -> None:
         _apply(editor, result, sel)
 
     except Exception as e:
-        QMessageBox.critical(parent, "Errore cifratura", str(e))
+        QMessageBox.critical(parent, tr("plugin.encrypt.error_encrypt"), str(e))
 
 
 def do_decrypt(editor: "EditorWidget", parent) -> None:
@@ -435,9 +431,8 @@ def do_decrypt(editor: "EditorWidget", parent) -> None:
         _apply(editor, result, sel)
 
     except Exception as e:
-        QMessageBox.critical(parent, "Errore decifratura",
-                             f"Decifratura fallita:\n{e}\n\n"
-                             "Verifica password e algoritmo.")
+        QMessageBox.critical(parent, tr("plugin.encrypt.error_decrypt"),
+                             tr("plugin.encrypt.decrypt_failed", error=str(e)))
 
 
 # ─── Plugin ───────────────────────────────────────────────────────────────────

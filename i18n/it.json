@@ -449,7 +449,9 @@
     "no_results_query": "Nessun risultato per «{query}»",
     "file_matches": "{matches} corrispondenze",
     "row_n": "Riga {n}",
-    "select_directory": "Seleziona directory"
+    "select_directory": "Seleziona directory",
+    "ready": "Pronto.",
+    "ollama_unreachable": "⚠ ollama non raggiungibile"
   },
   "pref": {
     "title": "Preferenze",
@@ -584,6 +586,10 @@
     "error": "Errore"
   },
   "preview": {
+    "crop_top": "Su:",
+    "crop_bottom": "Giù:",
+    "crop_left": "Sinistra:",
+    "crop_right": "Destra:",
     "refresh": "Aggiorna",
     "plain_text": "Testo"
   },
@@ -718,7 +724,17 @@
       "menu": "Cifra/Decifra",
       "encrypt_action": "Cifra testo selezionato…",
       "decrypt_action": "Decifra testo selezionato…",
-      "description": "Cifratura AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR e Caesar cipher sul testo selezionato."
+      "description": "Cifratura AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR e Caesar cipher sul testo selezionato.",
+      "dialog_encrypt": "Cifratura",
+      "dialog_decrypt": "Decifratura",
+      "label_algorithm": "Algoritmo:",
+      "label_password": "Password:",
+      "show_password": "Mostra password",
+      "password_required": "Inserire una password.",
+      "no_crypto_warning": "⚠ 'cryptography' non installata.\nSolo XOR e Caesar disponibili.\nInstalla con: pip install cryptography",
+      "error_encrypt": "Errore cifratura",
+      "error_decrypt": "Errore decifratura",
+      "decrypt_failed": "Decifratura fallita:\n{error}\n\nVerifica password e algoritmo."
     }
   },
   "db": {
@@ -1126,7 +1142,45 @@
     "new_profile_prompt": "Nome profilo:",
     "builtin_delete_error": "Il profilo «{name}» è built-in e non può essere eliminato.\n",
     "delete_title": "Elimina profilo",
-    "delete_confirm": "Eliminare il profilo «{name}»?"
+    "delete_confirm": "Eliminare il profilo «{name}»?",
+    "profile_label": "  Profilo: ",
+    "override_label": "  Override: ",
+    "no_profile": "  (nessun profilo)  ",
+    "no_compile_cmd": "(nessun comando compile per questo profilo)",
+    "no_run_cmd": "(nessun comando run per questo profilo)",
+    "no_build_cmd": "(nessun comando build per questo profilo)",
+    "in_progress": "▶ {action} in corso — profilo: {profile} …",
+    "available_profiles": "Profili disponibili:",
+    "active_profile_banner": "▶  Profilo attivo:  <b>{name}</b>",
+    "no_file_banner": "(nessun file aperto — profilo non determinato)",
+    "profile_config_title": "Configurazione profilo",
+    "profile_name_label": "Nome profilo:",
+    "extensions_label": "Estensioni file:",
+    "error_regex_label": "Regex errori:",
+    "unsaved_changes": "⚠  Modifiche non salvate",
+    "save_override_ok": "✓  Override salvato (sovrascrive il built-in)",
+    "save_ok": "✓  Profilo salvato",
+    "close_unsaved_title": "Modifiche non salvate",
+    "close_unsaved_msg": "Ci sono modifiche non salvate al profilo corrente. Chiudere senza salvare?",
+    "task_run_btn": "▶ Esegui",
+    "task_stop_btn": "■ Stop",
+    "task_cmd_placeholder": "Comando da eseguire (es. make test, npm run build, pytest)",
+    "task_open_file": "(apri un file per scoprire i task del progetto)",
+    "task_done_ok": "OK",
+    "task_done_fail": "Fallito",
+    "new_profile_dialog": "Nuovo profilo",
+    "vars_title": "Variabili disponibili",
+    "vars_syntax": "sintassi",
+    "var_file_desc": "percorso completo del file",
+    "var_dir_desc": "directory del file",
+    "var_filename_desc": "nome file con estensione",
+    "var_basename_desc": "nome file senza estensione",
+    "var_basefile_desc": "percorso completo senza estensione",
+    "var_ext_desc": "estensione con punto",
+    "var_line_desc": "riga corrente del cursore",
+    "var_col_desc": "colonna corrente del cursore",
+    "cmd_placeholder_empty": "vuoto = non applicabile",
+    "vars_or": "o"
   },
   "compare": {
     "grp_file_b": "File B (Destra / Modificato)",
@@ -1325,12 +1379,5 @@
     "multisheets_warning_xlsx": "Caricato solo il foglio attivo: «{sheet}».\nIl supporto multi-foglio non è ancora disponibile.",
     "multisheets_warning_xls": "Caricato solo il primo foglio: «{sheet}».\nIl supporto multi-foglio non è ancora disponibile.",
     "no_sheet_found": "Nessun foglio trovato"
-  },
-  "preview": {
-    "crop_top": "Su:",
-    "crop_bottom": "Giù:",
-    "crop_left": "Sinistra:",
-    "crop_right": "Destra:",
-    "refresh": "Aggiorna"
   }
 }

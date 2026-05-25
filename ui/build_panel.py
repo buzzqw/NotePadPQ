@@ -79,7 +79,7 @@ class _AIAnalyzeDialog(QDialog):
 
         self._btn_refresh = QPushButton("↻")
         self._btn_refresh.setFixedWidth(28)
-        self._btn_refresh.setToolTip("Ricarica modelli disponibili")
+        self._btn_refresh.setToolTip(tr("tooltip.build_reload_tasks"))
         self._btn_refresh.clicked.connect(self._manual_refresh)
         row.addWidget(self._btn_refresh)
         root.addLayout(row)
@@ -188,7 +188,7 @@ class _AIAnalyzeDialog(QDialog):
             return
         self._model_combo.clear()
         if models is None:
-            self._model_combo.addItem("⚠ ollama non raggiungibile")
+            self._model_combo.addItem(tr("msg.ollama_unreachable", default="⚠ ollama non raggiungibile"))
             self._model_combo.setEnabled(False)
             return
         self._model_combo.setEnabled(True)
@@ -310,9 +310,9 @@ class BuildPanel(QWidget):
             self._profile_combo.addItem(name, userData=name)
         self._profile_combo.currentIndexChanged.connect(self._on_combo_changed)
 
-        tb.addWidget(QLabel("  Profilo: "))
+        tb.addWidget(QLabel(tr("build_panel.profile_label")))
         tb.addWidget(self._lbl_profile)
-        tb.addWidget(QLabel("  Override: "))
+        tb.addWidget(QLabel(tr("build_panel.override_label")))
         tb.addWidget(self._profile_combo)
         tb.addSeparator()
 
@@ -347,7 +347,7 @@ class BuildPanel(QWidget):
             "padding: 2px 8px; font-size: 11px; "
             "background: #252526; color: #858585; border-top: 1px solid #3c3c3c;"
         )
-        self._status_bar.setText("Pronto.")
+        self._status_bar.setText(tr("msg.ready", default="Pronto."))
 
         # ── Tabs: Output | Errori ─────────────────────────────────────────────
         self._tabs = QTabWidget()
@@ -389,7 +389,7 @@ class BuildPanel(QWidget):
         """)
         self._error_tree.setAlternatingRowColors(True)
         self._error_tree.setHeaderLabels([
-            tr("label.file", default="File"), "Riga",
+            tr("label.file", default="File"), tr("label.line", default="Riga"),
             tr("label.message", default="Messaggio")
         ])
         self._error_tree.setColumnWidth(0, 220)
@@ -523,7 +523,7 @@ class BuildPanel(QWidget):
                 "background: #264f78; color: #9cdcfe; border-radius: 3px;"
             )
         else:
-            self._lbl_profile.setText("  (nessun profilo)  ")
+            self._lbl_profile.setText(tr("build_panel.no_profile"))
             self._lbl_profile.setStyleSheet(
                 "font-weight: bold; padding: 2px 8px; "
                 "background: #3c3c3c; color: #858585; border-radius: 3px;"
@@ -544,9 +544,9 @@ class BuildPanel(QWidget):
         self._btn_run.setEnabled(    bool(run_cmd))
         self._btn_build.setEnabled(  bool(build_cmd))
 
-        self._btn_compile.setToolTip(compile_cmd or "(nessun comando compile per questo profilo)")
-        self._btn_run.setToolTip(    run_cmd     or "(nessun comando run per questo profilo)")
-        self._btn_build.setToolTip(  build_cmd   or "(nessun comando build per questo profilo)")
+        self._btn_compile.setToolTip(compile_cmd or tr("build_panel.no_compile_cmd"))
+        self._btn_run.setToolTip(    run_cmd     or tr("build_panel.no_run_cmd"))
+        self._btn_build.setToolTip(  build_cmd   or tr("build_panel.no_build_cmd"))
 
         if not profile_name:
             for btn in [self._btn_compile, self._btn_run, self._btn_build]:
@@ -575,7 +575,7 @@ class BuildPanel(QWidget):
             self._btn_run.setEnabled(False)
             self._btn_build.setEnabled(False)
             self._status_bar.setText(
-                f"▶ {action.capitalize()} in corso — profilo: {self._current_profile} …"
+                tr("build_panel.in_progress", action=action.capitalize(), profile=self._current_profile)
             )
             self._status_bar.setStyleSheet(
                 "padding: 2px 8px; font-size: 11px; "
@@ -618,7 +618,7 @@ class BuildPanel(QWidget):
         self._output.appendHtml(
             f'<span style="color:{color_fg}"><b>{icon} {message}</b></span>'
         )
-        self._status_bar.setText(f"{icon} {message}  — profilo: {self._current_profile}")
+        self._status_bar.setText(f"{icon} {message}  — {self._current_profile}")
         self._status_bar.setStyleSheet(
             f"padding: 2px 8px; font-size: 11px; "
             f"background: {color_bg}; color: {color_fg}; border-top: 1px solid #3c3c3c;"
@@ -828,13 +828,13 @@ class _TaskTab(QWidget):
         # Riga: input + pulsanti
         row = QHBoxLayout()
         self._cmd_edit = QLineEdit()
-        self._cmd_edit.setPlaceholderText("Comando da eseguire (es. make test, npm run build, pytest)")
+        self._cmd_edit.setPlaceholderText(tr("build_panel.task_cmd_placeholder"))
         self._cmd_edit.setStyleSheet("background:#1e1e1e; color:#d4d4d4; border:1px solid #3c3c3c; padding:2px 4px;")
         self._cmd_edit.returnPressed.connect(self._run_command)
-        self._btn_run  = QPushButton("▶ Esegui")
+        self._btn_run  = QPushButton(tr("build_panel.task_run_btn"))
         self._btn_run.setFixedWidth(80)
         self._btn_run.clicked.connect(self._run_command)
-        self._btn_stop = QPushButton("■ Stop")
+        self._btn_stop = QPushButton(tr("build_panel.task_stop_btn"))
         self._btn_stop.setFixedWidth(60)
         self._btn_stop.setEnabled(False)
         self._btn_stop.setStyleSheet("color:#f44747;")
@@ -885,7 +885,7 @@ class _TaskTab(QWidget):
         path = getattr(editor, "file_path", None) if editor else None
         directory = path.parent if path else None
         if not directory:
-            self._task_list.addItem("(apri un file per scoprire i task del progetto)")
+            self._task_list.addItem(tr("build_panel.task_open_file"))
             return
         from core.build_manager import BuildManager
         tasks = BuildManager.discover_tasks(directory)
@@ -943,7 +943,7 @@ class _TaskTab(QWidget):
         self._btn_stop.setEnabled(False)
         color = "#4caf50" if ok else "#f44747"
         icon  = "✓" if ok else "✗"
-        self._output.appendHtml(f'<span style="color:{color}"><b>{icon} {"OK" if ok else "Fallito"}</b></span>')
+        self._output.appendHtml(f'<span style="color:{color}"><b>{icon} {tr("build_panel.task_done_ok") if ok else tr("build_panel.task_done_fail")}</b></span>')
 
 
 # ─── Dialog configurazione profili ───────────────────────────────────────────
@@ -979,14 +979,14 @@ class BuildProfilesDialog(QDialog):
         # ── Colonna sinistra: lista profili ───────────────────────────────────
         left = QVBoxLayout()
 
-        lbl = QLabel("Profili disponibili:")
+        lbl = QLabel(tr("build_panel.available_profiles"))
         lbl.setStyleSheet("font-weight: bold;")
         left.addWidget(lbl)
 
         # Banner profilo attivo
         if self._active_profile_name:
             self._active_banner = QLabel(
-                f"▶  Profilo attivo:  <b>{self._active_profile_name}</b>"
+                tr("build_panel.active_profile_banner", name=self._active_profile_name)
             )
             self._active_banner.setTextFormat(Qt.TextFormat.RichText)
             self._active_banner.setStyleSheet(
@@ -995,7 +995,7 @@ class BuildProfilesDialog(QDialog):
             )
             self._active_banner.setToolTip(tr("tooltip.build_auto_banner"))
         else:
-            self._active_banner = QLabel("(nessun file aperto — profilo non determinato)")
+            self._active_banner = QLabel(tr("build_panel.no_file_banner"))
             self._active_banner.setStyleSheet(
                 "color: #858585; font-size: 11px; padding: 4px 6px;"
             )
@@ -1034,7 +1034,7 @@ class BuildProfilesDialog(QDialog):
         # ── Colonna destra: form dettaglio ────────────────────────────────────
         right = QVBoxLayout()
 
-        self._grp = QGroupBox("Configurazione profilo")
+        self._grp = QGroupBox(tr("build_panel.profile_config_title"))
         form = QFormLayout(self._grp)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
@@ -1042,39 +1042,40 @@ class BuildProfilesDialog(QDialog):
         self._ext_edit     = QLineEdit()
         self._ext_edit.setPlaceholderText(".py  .pyw  (separati da spazio o ;)")
         self._compile_edit = QLineEdit()
-        self._compile_edit.setPlaceholderText("vuoto = non applicabile")
+        self._compile_edit.setPlaceholderText(tr("build_panel.cmd_placeholder_empty"))
         self._run_edit     = QLineEdit()
-        self._run_edit.setPlaceholderText("vuoto = non applicabile")
+        self._run_edit.setPlaceholderText(tr("build_panel.cmd_placeholder_empty"))
         self._build_edit   = QLineEdit()
-        self._build_edit.setPlaceholderText("vuoto = non applicabile")
+        self._build_edit.setPlaceholderText(tr("build_panel.cmd_placeholder_empty"))
         self._regex_edit   = QLineEdit()
         self._regex_edit.setPlaceholderText(r'es. File "([^"]+)", line (\d+)')
 
-        form.addRow("Nome profilo:",                      self._name_edit)
-        form.addRow("Estensioni file:",                   self._ext_edit)
+        form.addRow(tr("build_panel.profile_name_label"),    self._name_edit)
+        form.addRow(tr("build_panel.extensions_label"),       self._ext_edit)
         form.addRow(tr("action.compile", default="Compila") + " →", self._compile_edit)
         form.addRow(tr("action.run",     default="Esegui")  + " →", self._run_edit)
         form.addRow(tr("action.build",   default="Build")   + " →", self._build_edit)
-        form.addRow("Regex errori:",                      self._regex_edit)
+        form.addRow(tr("build_panel.error_regex_label"),     self._regex_edit)
 
+        _vs = tr("build_panel.vars_syntax")
         var_lbl = QLabel(
-            "<small><b>Variabili disponibili</b> (sintassi <code>${VAR}</code> o <code>$(VAR)</code>):<br>"
+            f"<small><b>{tr('build_panel.vars_title')}</b> ({_vs} <code>${{VAR}}</code> {tr('build_panel.vars_or')} <code>$(VAR)</code>):<br>"
             "<table cellspacing='2'>"
-            "<tr><td><code>${FILE}</code></td><td>— percorso completo del file&nbsp;&nbsp;</td>"
+            f"<tr><td><code>${{FILE}}</code></td><td>— {tr('build_panel.var_file_desc')}&nbsp;&nbsp;</td>"
             "<td><i>es. /home/user/doc/main.py</i></td></tr>"
-            "<tr><td><code>${DIR}</code></td><td>— directory del file</td>"
+            f"<tr><td><code>${{DIR}}</code></td><td>— {tr('build_panel.var_dir_desc')}</td>"
             "<td><i>es. /home/user/doc</i></td></tr>"
-            "<tr><td><code>${FILENAME}</code></td><td>— nome file con estensione</td>"
+            f"<tr><td><code>${{FILENAME}}</code></td><td>— {tr('build_panel.var_filename_desc')}</td>"
             "<td><i>es. main.py</i></td></tr>"
-            "<tr><td><code>${BASENAME}</code></td><td>— nome file senza estensione</td>"
+            f"<tr><td><code>${{BASENAME}}</code></td><td>— {tr('build_panel.var_basename_desc')}</td>"
             "<td><i>es. main</i></td></tr>"
-            "<tr><td><code>${BASEFILE}</code></td><td>— percorso completo senza estensione</td>"
+            f"<tr><td><code>${{BASEFILE}}</code></td><td>— {tr('build_panel.var_basefile_desc')}</td>"
             "<td><i>es. /home/user/doc/main</i></td></tr>"
-            "<tr><td><code>${EXT}</code></td><td>— estensione con punto</td>"
+            f"<tr><td><code>${{EXT}}</code></td><td>— {tr('build_panel.var_ext_desc')}</td>"
             "<td><i>es. .py</i></td></tr>"
-            "<tr><td><code>${LINE}</code></td><td>— riga corrente del cursore</td>"
+            f"<tr><td><code>${{LINE}}</code></td><td>— {tr('build_panel.var_line_desc')}</td>"
             "<td><i>es. 42</i></td></tr>"
-            "<tr><td><code>${COL}</code></td><td>— colonna corrente del cursore</td>"
+            f"<tr><td><code>${{COL}}</code></td><td>— {tr('build_panel.var_col_desc')}</td>"
             "<td><i>es. 7</i></td></tr>"
             "</table></small>"
         )
@@ -1186,7 +1187,7 @@ class BuildProfilesDialog(QDialog):
         if self._dirty:
             return
         self._dirty = True
-        self._save_status.setText("⚠  Modifiche non salvate")
+        self._save_status.setText(tr("build_panel.unsaved_changes"))
         self._save_status.setStyleSheet("color: #ffcc00; font-size: 11px;")
         self._btn_save.setStyleSheet(
             "font-weight: bold; padding: 4px 12px; "
@@ -1205,7 +1206,7 @@ class BuildProfilesDialog(QDialog):
         self._active_profile_name = name
 
         # Aggiorna banner
-        self._active_banner.setText(f"▶  Profilo attivo:  <b>{name}</b>")
+        self._active_banner.setText(tr("build_panel.active_profile_banner", name=name))
         self._active_banner.setStyleSheet(
             "background: #264f78; color: #9cdcfe; "
             "font-size: 12px; padding: 4px 6px; border-radius: 3px;"
@@ -1285,9 +1286,9 @@ class BuildProfilesDialog(QDialog):
         self._dirty = False
         from core.build_manager import DEFAULT_PROFILES
         if name in DEFAULT_PROFILES:
-            self._save_status.setText("✓  Override salvato (sovrascrive il built-in)")
+            self._save_status.setText(tr("build_panel.save_override_ok"))
         else:
-            self._save_status.setText("✓  Profilo salvato")
+            self._save_status.setText(tr("build_panel.save_ok"))
         self._save_status.setStyleSheet("color: #4caf50; font-size: 11px;")
         # Aggiorna nota built-in (ora è un override, ma teniamo la nota informativa)
         self._note_builtin.setVisible(False)
@@ -1304,7 +1305,7 @@ class BuildProfilesDialog(QDialog):
     def _new_profile(self) -> None:
         from PyQt6.QtWidgets import QInputDialog
         name, ok = QInputDialog.getText(
-            self, "Nuovo profilo", "Nome profilo:"
+            self, tr("build_panel.new_profile_title"), tr("build_panel.new_profile_prompt")
         )
         if not ok or not name.strip():
             return
@@ -1352,8 +1353,8 @@ class BuildProfilesDialog(QDialog):
     def _on_close(self) -> None:
         if self._dirty:
             reply = QMessageBox.question(
-                self, "Modifiche non salvate",
-                "Ci sono modifiche non salvate al profilo corrente. Chiudere senza salvare?",
+                self, tr("build_panel.close_unsaved_title"),
+                tr("build_panel.close_unsaved_msg"),
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.No:

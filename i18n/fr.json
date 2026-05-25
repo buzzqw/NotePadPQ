@@ -449,7 +449,9 @@
     "no_results_query": "Aucun résultat pour « {query} »",
     "file_matches": "{matches} correspondances",
     "row_n": "Ligne {n}",
-    "select_directory": "Sélectionner un répertoire"
+    "select_directory": "Sélectionner un répertoire",
+    "ready": "Prêt.",
+    "ollama_unreachable": "⚠ ollama inaccessible"
   },
   "pref": {
     "title": "Préférences",
@@ -588,7 +590,8 @@
     "crop_bottom": "Bas:",
     "crop_left": "Gauche:",
     "crop_right": "Droite:",
-    "refresh": "Actualiser"
+    "refresh": "Actualiser",
+    "plain_text": "Texte brut"
   },
   "richtext": {
     "downloading_jodit": "Téléchargement de l'éditeur Jodit…",
@@ -721,7 +724,17 @@
       "menu": "Chiffrer/Déchiffrer",
       "encrypt_action": "Chiffrer le texte sélectionné…",
       "decrypt_action": "Déchiffrer le texte sélectionné…",
-      "description": "Chiffrement AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR et chiffre de César sur le texte sélectionné."
+      "description": "Chiffrement AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR et chiffre de César sur le texte sélectionné.",
+      "dialog_encrypt": "Chiffrement",
+      "dialog_decrypt": "Déchiffrement",
+      "label_algorithm": "Algorithme:",
+      "label_password": "Mot de passe:",
+      "show_password": "Afficher le mot de passe",
+      "password_required": "Veuillez entrer un mot de passe.",
+      "no_crypto_warning": "⚠ 'cryptography' non installé.\nSeuls XOR et Caesar sont disponibles.\nInstaller avec: pip install cryptography",
+      "error_encrypt": "Erreur de chiffrement",
+      "error_decrypt": "Erreur de déchiffrement",
+      "decrypt_failed": "Déchiffrement échoué:\n{error}\n\nVérifiez le mot de passe et l'algorithme."
     }
   },
   "db": {
@@ -1129,7 +1142,45 @@
     "new_profile_prompt": "Nom du profil:",
     "builtin_delete_error": "Profile «{name}» is built-in and cannot be deleted.\n",
     "delete_title": "Supprimer le profil",
-    "delete_confirm": "Delete profile «{name}»?"
+    "delete_confirm": "Delete profile «{name}»?",
+    "profile_label": "  Profil: ",
+    "override_label": "  Remplacer: ",
+    "no_profile": "  (aucun profil)  ",
+    "no_compile_cmd": "(aucune commande de compilation pour ce profil)",
+    "no_run_cmd": "(aucune commande d'exécution pour ce profil)",
+    "no_build_cmd": "(aucune commande de build pour ce profil)",
+    "in_progress": "▶ {action} en cours — profil: {profile} …",
+    "available_profiles": "Profils disponibles:",
+    "active_profile_banner": "▶  Profil actif:  <b>{name}</b>",
+    "no_file_banner": "(aucun fichier ouvert — profil non déterminé)",
+    "profile_config_title": "Configuration du profil",
+    "profile_name_label": "Nom du profil:",
+    "extensions_label": "Extensions de fichier:",
+    "error_regex_label": "Regex d'erreurs:",
+    "unsaved_changes": "⚠  Modifications non enregistrées",
+    "save_override_ok": "✓  Remplacement enregistré (remplace le built-in)",
+    "save_ok": "✓  Profil enregistré",
+    "close_unsaved_title": "Modifications non enregistrées",
+    "close_unsaved_msg": "Il y a des modifications non enregistrées dans le profil actuel. Fermer sans enregistrer?",
+    "task_run_btn": "▶ Exécuter",
+    "task_stop_btn": "■ Stop",
+    "task_cmd_placeholder": "Commande à exécuter (ex. make test, npm run build, pytest)",
+    "task_open_file": "(ouvrir un fichier pour découvrir les tâches du projet)",
+    "task_done_ok": "OK",
+    "task_done_fail": "Échoué",
+    "new_profile_dialog": "Nouveau profil",
+    "vars_title": "Variables disponibles",
+    "vars_syntax": "syntaxe",
+    "var_file_desc": "chemin complet du fichier",
+    "var_dir_desc": "répertoire du fichier",
+    "var_filename_desc": "nom de fichier avec extension",
+    "var_basename_desc": "nom de fichier sans extension",
+    "var_basefile_desc": "chemin complet sans extension",
+    "var_ext_desc": "extension avec point",
+    "var_line_desc": "ligne courante du curseur",
+    "var_col_desc": "colonne courante du curseur",
+    "cmd_placeholder_empty": "vide = non applicable",
+    "vars_or": "ou"
   },
   "compare": {
     "grp_file_b": "File B (Right / Modified)",

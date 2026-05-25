@@ -449,7 +449,9 @@
     "no_results_query": "Keine Ergebnisse für «{query}»",
     "file_matches": "{matches} Treffer",
     "row_n": "Zeile {n}",
-    "select_directory": "Verzeichnis auswählen"
+    "select_directory": "Verzeichnis auswählen",
+    "ready": "Bereit.",
+    "ollama_unreachable": "⚠ ollama nicht erreichbar"
   },
   "pref": {
     "title": "Einstellungen",
@@ -588,7 +590,8 @@
     "crop_bottom": "Unten:",
     "crop_left": "Links:",
     "crop_right": "Rechts:",
-    "refresh": "Aktualisieren"
+    "refresh": "Aktualisieren",
+    "plain_text": "Einfacher Text"
   },
   "richtext": {
     "downloading_jodit": "Jodit-Editor wird heruntergeladen…",
@@ -721,7 +724,17 @@
       "menu": "Verschlüsseln/Entschlüsseln",
       "encrypt_action": "Ausgewählten Text verschlüsseln…",
       "decrypt_action": "Ausgewählten Text entschlüsseln…",
-      "description": "AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR und Caesar-Verschlüsselung für ausgewählten Text."
+      "description": "AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR und Caesar-Verschlüsselung für ausgewählten Text.",
+      "dialog_encrypt": "Verschlüsselung",
+      "dialog_decrypt": "Entschlüsselung",
+      "label_algorithm": "Algorithmus:",
+      "label_password": "Passwort:",
+      "show_password": "Passwort anzeigen",
+      "password_required": "Bitte ein Passwort eingeben.",
+      "no_crypto_warning": "⚠ 'cryptography' nicht installiert.\nNur XOR und Caesar verfügbar.\nInstallieren mit: pip install cryptography",
+      "error_encrypt": "Verschlüsselungsfehler",
+      "error_decrypt": "Entschlüsselungsfehler",
+      "decrypt_failed": "Entschlüsselung fehlgeschlagen:\n{error}\n\nPasswort und Algorithmus prüfen."
     }
   },
   "db": {
@@ -1129,7 +1142,45 @@
     "new_profile_prompt": "Profilname:",
     "builtin_delete_error": "Profile «{name}» is built-in and cannot be deleted.\n",
     "delete_title": "Profil löschen",
-    "delete_confirm": "Delete profile «{name}»?"
+    "delete_confirm": "Delete profile «{name}»?",
+    "profile_label": "  Profil: ",
+    "override_label": "  Überschreiben: ",
+    "no_profile": "  (kein Profil)  ",
+    "no_compile_cmd": "(kein Kompilierbefehl für dieses Profil)",
+    "no_run_cmd": "(kein Ausführungsbefehl für dieses Profil)",
+    "no_build_cmd": "(kein Build-Befehl für dieses Profil)",
+    "in_progress": "▶ {action} läuft — Profil: {profile} …",
+    "available_profiles": "Verfügbare Profile:",
+    "active_profile_banner": "▶  Aktives Profil:  <b>{name}</b>",
+    "no_file_banner": "(keine Datei offen — Profil nicht bestimmt)",
+    "profile_config_title": "Profilkonfiguration",
+    "profile_name_label": "Profilname:",
+    "extensions_label": "Dateiendungen:",
+    "error_regex_label": "Fehler-Regex:",
+    "unsaved_changes": "⚠  Nicht gespeicherte Änderungen",
+    "save_override_ok": "✓  Override gespeichert (überschreibt Built-in)",
+    "save_ok": "✓  Profil gespeichert",
+    "close_unsaved_title": "Nicht gespeicherte Änderungen",
+    "close_unsaved_msg": "Es gibt nicht gespeicherte Änderungen am aktuellen Profil. Ohne Speichern schließen?",
+    "task_run_btn": "▶ Ausführen",
+    "task_stop_btn": "■ Stop",
+    "task_cmd_placeholder": "Befehl zum Ausführen (z.B. make test, npm run build, pytest)",
+    "task_open_file": "(Datei öffnen, um Projektaufgaben zu entdecken)",
+    "task_done_ok": "OK",
+    "task_done_fail": "Fehlgeschlagen",
+    "new_profile_dialog": "Neues Profil",
+    "vars_title": "Verfügbare Variablen",
+    "vars_syntax": "Syntax",
+    "var_file_desc": "vollständiger Dateipfad",
+    "var_dir_desc": "Verzeichnis der Datei",
+    "var_filename_desc": "Dateiname mit Erweiterung",
+    "var_basename_desc": "Dateiname ohne Erweiterung",
+    "var_basefile_desc": "vollständiger Pfad ohne Erweiterung",
+    "var_ext_desc": "Erweiterung mit Punkt",
+    "var_line_desc": "aktuelle Cursor-Zeile",
+    "var_col_desc": "aktuelle Cursor-Spalte",
+    "cmd_placeholder_empty": "leer = nicht anwendbar",
+    "vars_or": "oder"
   },
   "compare": {
     "grp_file_b": "File B (Right / Modified)",

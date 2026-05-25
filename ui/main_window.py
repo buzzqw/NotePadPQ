@@ -437,7 +437,7 @@ class MainWindow(QMainWindow):
         # ── Dock anteprima (spostabile, alternativa allo split inline) ────────
         from ui.preview_panel import PreviewPanel
         self._preview_panel_dock = PreviewPanel()
-        self._preview_dock = QDockWidget("👁  Anteprima", self)
+        self._preview_dock = QDockWidget(f"👁  {tr('label.preview_panel')}", self)
         self._preview_dock.setObjectName("PreviewDock")
         self._preview_dock.setWidget(self._preview_panel_dock)
         self._preview_dock.setMinimumWidth(220)

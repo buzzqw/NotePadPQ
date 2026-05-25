@@ -449,7 +449,9 @@
     "no_results_query": "Sin resultados para «{query}»",
     "file_matches": "{matches} coincidencias",
     "row_n": "Línea {n}",
-    "select_directory": "Seleccionar directorio"
+    "select_directory": "Seleccionar directorio",
+    "ready": "Listo.",
+    "ollama_unreachable": "⚠ ollama no accesible"
   },
   "pref": {
     "title": "Preferencias",
@@ -588,7 +590,8 @@
     "crop_bottom": "Abajo:",
     "crop_left": "Izquierda:",
     "crop_right": "Derecha:",
-    "refresh": "Actualizar"
+    "refresh": "Actualizar",
+    "plain_text": "Texto plano"
   },
   "richtext": {
     "downloading_jodit": "Descargando el editor Jodit…",
@@ -721,7 +724,17 @@
       "menu": "Cifrar/Descifrar",
       "encrypt_action": "Cifrar texto seleccionado…",
       "decrypt_action": "Descifrar texto seleccionado…",
-      "description": "Cifrado AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR y cifrado César sobre texto seleccionado."
+      "description": "Cifrado AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR y cifrado César sobre texto seleccionado.",
+      "dialog_encrypt": "Cifrado",
+      "dialog_decrypt": "Descifrado",
+      "label_algorithm": "Algoritmo:",
+      "label_password": "Contraseña:",
+      "show_password": "Mostrar contraseña",
+      "password_required": "Por favor, ingrese una contraseña.",
+      "no_crypto_warning": "⚠ 'cryptography' no instalado.\nSolo XOR y Caesar disponibles.\nInstalar con: pip install cryptography",
+      "error_encrypt": "Error de cifrado",
+      "error_decrypt": "Error de descifrado",
+      "decrypt_failed": "Descifrado fallido:\n{error}\n\nVerifique la contraseña y el algoritmo."
     }
   },
   "db": {
@@ -1129,7 +1142,45 @@
     "new_profile_prompt": "Nombre de perfil:",
     "builtin_delete_error": "Profile «{name}» is built-in and cannot be deleted.\n",
     "delete_title": "Eliminar perfil",
-    "delete_confirm": "Delete profile «{name}»?"
+    "delete_confirm": "Delete profile «{name}»?",
+    "profile_label": "  Perfil: ",
+    "override_label": "  Anular: ",
+    "no_profile": "  (sin perfil)  ",
+    "no_compile_cmd": "(sin comando de compilación para este perfil)",
+    "no_run_cmd": "(sin comando de ejecución para este perfil)",
+    "no_build_cmd": "(sin comando de build para este perfil)",
+    "in_progress": "▶ {action} en progreso — perfil: {profile} …",
+    "available_profiles": "Perfiles disponibles:",
+    "active_profile_banner": "▶  Perfil activo:  <b>{name}</b>",
+    "no_file_banner": "(ningún archivo abierto — perfil no determinado)",
+    "profile_config_title": "Configuración de perfil",
+    "profile_name_label": "Nombre del perfil:",
+    "extensions_label": "Extensiones de archivo:",
+    "error_regex_label": "Regex de errores:",
+    "unsaved_changes": "⚠  Cambios sin guardar",
+    "save_override_ok": "✓  Override guardado (sobreescribe el integrado)",
+    "save_ok": "✓  Perfil guardado",
+    "close_unsaved_title": "Cambios sin guardar",
+    "close_unsaved_msg": "Hay cambios sin guardar en el perfil actual. ¿Cerrar sin guardar?",
+    "task_run_btn": "▶ Ejecutar",
+    "task_stop_btn": "■ Stop",
+    "task_cmd_placeholder": "Comando a ejecutar (ej. make test, npm run build, pytest)",
+    "task_open_file": "(abrir un archivo para descubrir las tareas del proyecto)",
+    "task_done_ok": "OK",
+    "task_done_fail": "Fallido",
+    "new_profile_dialog": "Nuevo perfil",
+    "vars_title": "Variables disponibles",
+    "vars_syntax": "sintaxis",
+    "var_file_desc": "ruta completa del archivo",
+    "var_dir_desc": "directorio del archivo",
+    "var_filename_desc": "nombre de archivo con extensión",
+    "var_basename_desc": "nombre de archivo sin extensión",
+    "var_basefile_desc": "ruta completa sin extensión",
+    "var_ext_desc": "extensión con punto",
+    "var_line_desc": "línea actual del cursor",
+    "var_col_desc": "columna actual del cursor",
+    "cmd_placeholder_empty": "vacío = no aplicable",
+    "vars_or": "o"
   },
   "compare": {
     "grp_file_b": "File B (Right / Modified)",

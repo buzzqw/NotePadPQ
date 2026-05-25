@@ -449,7 +449,9 @@
     "no_results_query": "No results for «{query}»",
     "file_matches": "{matches} matches",
     "row_n": "Line {n}",
-    "select_directory": "Select directory"
+    "select_directory": "Select directory",
+    "ready": "Ready.",
+    "ollama_unreachable": "⚠ ollama unreachable"
   },
   "pref": {
     "title": "Preferences",
@@ -584,6 +586,10 @@
     "error": "Error"
   },
   "preview": {
+    "crop_top": "Top:",
+    "crop_bottom": "Bottom:",
+    "crop_left": "Left:",
+    "crop_right": "Right:",
     "refresh": "Refresh",
     "plain_text": "Plain text"
   },
@@ -718,7 +724,17 @@
       "menu": "Encrypt/Decrypt",
       "encrypt_action": "Encrypt selected text…",
       "decrypt_action": "Decrypt selected text…",
-      "description": "AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR and Caesar cipher encryption on selected text."
+      "description": "AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR and Caesar cipher encryption on selected text.",
+      "dialog_encrypt": "Encrypt",
+      "dialog_decrypt": "Decrypt",
+      "label_algorithm": "Algorithm:",
+      "label_password": "Password:",
+      "show_password": "Show password",
+      "password_required": "Please enter a password.",
+      "no_crypto_warning": "⚠ 'cryptography' not installed.\nOnly XOR and Caesar available.\nInstall with: pip install cryptography",
+      "error_encrypt": "Encryption error",
+      "error_decrypt": "Decryption error",
+      "decrypt_failed": "Decryption failed:\n{error}\n\nCheck password and algorithm."
     }
   },
   "db": {
@@ -1126,7 +1142,45 @@
     "new_profile_prompt": "Profile name:",
     "builtin_delete_error": "Profile «{name}» is built-in and cannot be deleted.\n",
     "delete_title": "Delete profile",
-    "delete_confirm": "Delete profile «{name}»?"
+    "delete_confirm": "Delete profile «{name}»?",
+    "profile_label": "  Profile: ",
+    "override_label": "  Override: ",
+    "no_profile": "  (no profile)  ",
+    "no_compile_cmd": "(no compile command for this profile)",
+    "no_run_cmd": "(no run command for this profile)",
+    "no_build_cmd": "(no build command for this profile)",
+    "in_progress": "▶ {action} running — profile: {profile} …",
+    "available_profiles": "Available profiles:",
+    "active_profile_banner": "▶  Active profile:  <b>{name}</b>",
+    "no_file_banner": "(no file open — profile not determined)",
+    "profile_config_title": "Profile configuration",
+    "profile_name_label": "Profile name:",
+    "extensions_label": "File extensions:",
+    "error_regex_label": "Error regex:",
+    "unsaved_changes": "⚠  Unsaved changes",
+    "save_override_ok": "✓  Override saved (overwrites built-in)",
+    "save_ok": "✓  Profile saved",
+    "close_unsaved_title": "Unsaved changes",
+    "close_unsaved_msg": "There are unsaved changes to the current profile. Close without saving?",
+    "task_run_btn": "▶ Run",
+    "task_stop_btn": "■ Stop",
+    "task_cmd_placeholder": "Command to run (e.g. make test, npm run build, pytest)",
+    "task_open_file": "(open a file to discover project tasks)",
+    "task_done_ok": "OK",
+    "task_done_fail": "Failed",
+    "new_profile_dialog": "New profile",
+    "vars_title": "Available variables",
+    "vars_syntax": "syntax",
+    "var_file_desc": "full path of the file",
+    "var_dir_desc": "directory of the file",
+    "var_filename_desc": "file name with extension",
+    "var_basename_desc": "file name without extension",
+    "var_basefile_desc": "full path without extension",
+    "var_ext_desc": "extension with dot",
+    "var_line_desc": "current cursor line",
+    "var_col_desc": "current cursor column",
+    "cmd_placeholder_empty": "empty = not applicable",
+    "vars_or": "or"
   },
   "compare": {
     "grp_file_b": "File B (Right / Modified)",
@@ -1325,12 +1379,5 @@
     "multisheets_warning_xlsx": "Only the active sheet was loaded: «{sheet}».\nMulti-sheet support is not yet available.",
     "multisheets_warning_xls": "Only the first sheet was loaded: «{sheet}».\nMulti-sheet support is not yet available.",
     "no_sheet_found": "No sheet found"
-  },
-  "preview": {
-    "crop_top": "Top:",
-    "crop_bottom": "Bottom:",
-    "crop_left": "Left:",
-    "crop_right": "Right:",
-    "refresh": "Refresh"
   }
 }

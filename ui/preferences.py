@@ -395,13 +395,9 @@ class PreferencesDialog(QDialog):
         fl = QFormLayout(grp)
 
         self._lang_combo = QComboBox()
-        langs = [
-            ("it", "Italiano"),
-            ("en", "English"),
-            ("de", "Deutsch"),
-            ("fr", "Français"),
-            ("es", "Español"),
-        ]
+        from i18n.i18n import I18n as _I18n
+        langs = sorted(_I18n.instance().available_languages().items(),
+                       key=lambda x: x[1])   # ordine alfabetico per nome nativo
         for code, label in langs:
             self._lang_combo.addItem(label, code)
         fl.addRow(tr("pref.lang.label", default="Lingua:"), self._lang_combo)

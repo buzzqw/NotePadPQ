@@ -14,7 +14,228 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20FreeBSD-lightgrey)]()
 [![Version](https://img.shields.io/badge/Version-1.0.8-orange)]()
 
-[🇮🇹 Italiano](#-italiano) · [🇬🇧 English](#-english) · [💖 Dona / Donate](https://www.paypal.com/donate/?business=azanzani%40gmail.com&currency_code=EUR)
+[🇬🇧 English](#-english) · [🇮🇹 Italiano](#-italiano) · [💖 Dona / Donate](https://www.paypal.com/donate/?business=azanzani%40gmail.com&currency_code=EUR)
+
+</div>
+
+---
+
+
+# 🇬🇧 English
+
+## What is NotePadPQ?
+
+NotePadPQ is an advanced, free and open source text editor built with **Python 3**, **PyQt6**, and **QScintilla**. Inspired by Notepad++ but cross-platform and modern, it offers a professional feature set without sacrificing performance.
+
+Runs natively on Linux, Windows, and FreeBSD.
+
+---
+
+## ✨ Key Features
+
+### 📝 Advanced Editor
+- **Syntax highlighting** for 40+ languages: native QScintilla lexers (Python, JavaScript, TypeScript, C/C++, Java, C#, Bash, SQL, LaTeX, Markdown, HTML, CSS, XML, JSON, YAML, Ruby, Perl, Lua, Pascal, Fortran, Verilog…) plus Pygments-backed lexers (Go, Rust, PHP, Swift, Kotlin, Scala, Dart, R, TOML, Haskell, Elixir, Julia). **Auto-detect** from extension, filename, or content.
+- **Code folding**: collapse code blocks, classes, and functions from the gutter.
+- **Smart Highlight**: all occurrences of the word under the cursor are highlighted automatically, with no typing lag.
+- **Dynamic line numbers**: column width adapts to file size automatically.
+- **Minimap** sidebar for quick navigation in long files.
+- **Word wrap** configurable (`Alt+Z`).
+- **Smart autocomplete**: words in document, per-language snippets, API dictionaries, LSP support.
+- **Auto-close** brackets, quotes, and tags.
+- **Show whitespace/tabs** and end-of-line characters.
+- **Markup shortcuts**: `Ctrl+B` (Bold), `Ctrl+I` (Italic), `Ctrl+Shift+X` (Strikethrough): work natively in Markdown (`**`, `*`, `~~`) and LaTeX (`\textbf`, `\textit`, `\sout`).
+
+### 🗂️ Tab Management & Split View
+- **Multiple tabs** with drag & drop, modification indicator, session restore at startup.
+- **Horizontal and vertical split view** (`Ctrl+Alt+2` / `Ctrl+Alt+3`).
+- **Clone tab** to work on the same file at two positions simultaneously.
+- **Project Manager** (PSPad-style): group files into named projects saved as `.npqproj` (JSON); toolbar to create groups, add/remove files; double-click to open.
+
+### 🔍 Search, Navigation & Command Palette
+- **Command Palette** (`Ctrl+Shift+P`): fuzzy-search over all editor commands.
+- **Goto Anything** (`Ctrl+Shift+G`): Sublime-style quick navigation: open files, `:line`, `@symbol`, `>command`.
+- Find/Replace with full **regular expressions** (Python syntax) and capture group substitution.
+- **Search across all open tabs** simultaneously.
+- **Search in files** on disk with extension filter and recursive search.
+- **Inline incremental search** (`Ctrl+Shift+F2`).
+- **Go to line** (`Ctrl+G`) and jump to matching bracket.
+- **Bookmarks**: add (`Ctrl+F2`), navigate (`F2` / `Shift+F2`), remove.
+- **5-color Mark** system for highlighting blocks of text (`Ctrl+1..5`).
+
+### 🛠️ Editing Tools
+- **Multi-cursor**: select next occurrence (`Ctrl+D`), all occurrences (`Ctrl+Shift+D`), add cursor above/below (`Ctrl+Alt+↑↓`), insert incremental numbers.
+- **Macros**: record, save, load, and run N times.
+- **Case conversion**: UPPERCASE, lowercase, Title Case, Invert Case.
+- **Comment/uncomment** lines (`Ctrl+E`) with automatic language detection.
+- **Smart indentation**, tabs↔spaces. **Auto-indent on paste**: pasted lines align automatically to the cursor context.
+- **Sort lines** by 5 criteria: alphabetical, reverse, by length, random.
+- **Word frequency**: occurrence analysis on the document or selection.
+- **Table alignment** for Markdown/LaTeX, **wrap in environment/tag**.
+- **Color Translator**: pick a color and get HTML/CSS name, `#HEX`, `rgb()`, `rgb(%)`, `hsl()`: insert or copy each format individually.
+- **Lorem Ipsum generator**: insert placeholder text with configurable paragraphs, sentences, and separator.
+- Interactive regex tester, numeric converter (dec/hex/bin/oct).
+
+### 🏗️ Build Panel
+- Configurable **build profiles** per language (LaTeX, Python, C/C++, Markdown, etc.).
+- **Command variables**: `${FILE}` (full path), `${DIR}` (directory), `${BASENAME}` (name without extension), `${BASEFILE}` (full path without extension), `${FILENAME}`, `${EXT}`, `${LINE}`, `${COL}`. Also accepted as `$(VAR)`.
+- Real-time output with **clickable error list**; click an error to jump directly to the line.
+- **Automatic PDF detection**: the preview button activates instantly if a compiled PDF is already present.
+- **Auto-save** before compilation.
+
+### 👁️ Preview Panel
+- **Live preview** for Markdown, HTML, reStructuredText, LaTeX (structure), PDF.
+- **Hover preview**: mouse over `\includegraphics{...}`, `![img](...)`, or `<img src="...">` to see a floating image thumbnail (including vector PDF).
+- **Math equation rendering** on hover in LaTeX/Markdown files (`$...$`, `$$...$$`, `\[...\]`).
+- **SyncTeX**: bidirectional sync between editor cursor and PDF position.
+- **Smart Crop**: auto-trim PDF white margins (`✂`).
+- Zoom with `Ctrl+Wheel`, page navigation with the scroll wheel.
+
+### 💻 Integrated Terminal (plugin)
+- Full terminal based on **native PTY** as an independent dock panel (`Ctrl+Alt+T` from the Plugin menu).
+- Supports any interactive program: vim, Python REPL, ssh, git, compilers.
+- Automatically syncs with the directory of the file open in the editor.
+- No external dependencies; works on all supported platforms.
+
+### ⚡ LSP: Language Server Protocol
+
+Native Language Server integration: real-time errors/warnings, hover documentation, go to definition, find references, rename symbol, format document.
+
+Supported servers: `pylsp` (Python), `clangd` (C/C++), `rust-analyzer` (Rust), `gopls` (Go), `typescript-language-server` (TS/JS), `texlab` (LaTeX).
+
+### ⚡ Task Runner
+
+Dedicated tab in the bottom panel with auto-discovery of project tasks (Makefile, `npm scripts`, `pyproject.toml`) and a field for arbitrary manual commands.
+
+### 🤖 AI Assistant (plugin)
+
+Dock panel with multi-provider AI chat:
+
+| Provider | Special features |
+|---|---|
+| **Anthropic Claude** | SSE streaming, Extended Thinking (Opus), **dynamic model list** from the API key |
+| **OpenAI** | GPT-4o, GPT-4o-mini, o3-mini |
+| **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro |
+| **Ollama** | Local models auto-detected (no key, no cost) |
+
+Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) directly from right-click in the editor. Bring-your-own-key; each provider has its own configurable API key.
+
+### 🔌 Plugin System
+
+<img width="1920" alt="Plugin menu" src="immagini/notepadpq09.png" />
+
+*The Plugins menu displays the full extension ecosystem available*
+
+| Plugin | Function |
+|--------|----------|
+| **AI Assistant** | Multi-provider AI chat with streaming, Extended Thinking, and dynamic model list |
+| **Clipboard History** | Multi-entry clipboard with quick selection |
+| **Compare & Merge** | Visual side-by-side file comparison |
+| **Database** | Browser and query editor for SQLite, PostgreSQL, MySQL/MariaDB with AI SQL generation |
+| **Encrypt/Decrypt** | AES-256-GCM and ChaCha20-Poly1305 encryption |
+| **Rich Text Editor** | WYSIWYG editor for .doc, .docx, .odt, .rtf, .html powered by Jodit 4 |
+| **Spreadsheet** | Full CSV, TSV, XLSX, XLS, XLSM, ODS editor with sort, filter, formulas, and charts |
+| **FTP Browser** | Browse and edit files on FTP servers |
+| **Git Integration** | Full Git panel: status, log, diff, branch, PR/MR |
+| **Hex Viewer** | Hexadecimal view of binary files |
+| **Search PQ** | Dock panel for advanced search and replace: TEXT mode (AND/NOT), regexp, LIKE; result queue, inline filter, context menu (`Ctrl+Alt+F`) |
+| **Terminal** | xterm.js+PTY terminal as an independent dock panel, synced with the open file's directory (`Ctrl+Alt+T`) |
+| **Web Search** | Web and Wikipedia search on selected text directly from the context menu |
+
+### 🌍 Interface
+- **6 languages**: Italian, English, German, French, Spanish, Polish; switch at runtime.
+- **17 built-in themes** + theme editor with live preview; import/export JSON.
+- **Icon sets**: Lucide, Material, System; auto-downloaded on first use.
+- **Live clock** in the menu bar with localized date and time.
+- **Spell checker** (`F4`): real-time spell checking with red squiggles for IT, EN, DE, FR, ES. Dictionary language is selectable independently from the UI language (Document → Dictionary Language). Right-click a highlighted word for suggestions, "Add to dictionary", or "Ignore all".
+- **Plain text mode** (`Ctrl+Alt+N`): disable highlighting, brace matching and autocomplete per tab, restorable in one click.
+- **Distraction-free writing mode** (`F11`): fullscreen with toolbar, statusbar, menubar, and panels hidden. Fully restored on exit.
+- **Session restore**: all files, cursor positions, and panel layout restored at startup. Optional auto-save on focus loss.
+- **Single instance**: opening files from the file manager sends them to the running window.
+
+---
+
+## 🚀 Installation
+
+### Automated Setup (recommended)
+
+```bash
+git clone https://github.com/buzzqw/NotePadPQ.git
+cd NotePadPQ
+bash setup.sh
+python main.py
+```
+
+### Manual Installation
+
+**Core dependencies** (always required):
+```bash
+pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pygments pyspellchecker PyGithub python-gitlab keyring
+```
+
+**Rich Text Editor plugin** (optional):
+```bash
+pip install mammoth htmldocx   # DOCX read/write
+# pandoc: system-level install for ODT/RTF
+# libreoffice: system-level install for .doc (Word 97-2003)
+```
+
+**Database plugin** (optional):
+```bash
+pip install psycopg2-binary    # PostgreSQL
+pip install pymysql            # MySQL/MariaDB
+pip install cx_Oracle          # Oracle
+# SQLite: included in Python standard library
+```
+
+**LaTeX optional** (only if you write/compile LaTeX):
+```bash
+pip install pymupdf matplotlib sympy
+# synctex: included in TeX Live
+```
+
+> If you already have TeX Live for LaTeX compilation, all advanced LaTeX features (PDF hover preview, equation rendering, SyncTeX) activate automatically.
+
+---
+
+---
+
+## 🌐 Adding a New Language
+
+NotePadPQ automatically detects available languages by scanning `*.json` files in the `i18n/` folder.
+To add a new language (e.g. Polish), just:
+
+1. Copy `i18n/en.json` to `i18n/pl.json`
+2. Edit the `meta` field in the new file:
+   ```json
+   "meta": {
+     "language": "pl",
+     "name": "Polski",
+     "version": "1.0",
+     "authors": ["Your name"]
+   }
+   ```
+3. Translate all string values in the file (do not change the JSON keys)
+4. Start NotePadPQ: the new language will appear automatically in **Preferences → Interface Language**
+
+No source code changes are needed: the i18n engine discovers languages from the files present in the folder.
+
+## 💖 Support the project
+
+NotePadPQ is developed in spare time with passion. If you find it useful, consider a small donation; it helps keep the project alive.
+
+<div align="center">
+
+[![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/donate/?business=azanzani%40gmail.com&currency_code=EUR)
+
+</div>
+
+---
+
+<div align="center">
+
+Fatto con ❤️ in Italia · Made with ❤️ in Italy
+
+**[⬆ Torna su / Back to top](#notepadpq)**
 
 </div>
 
@@ -141,7 +362,7 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 | **Web Search** | Ricerca web e Wikipedia sul testo selezionato direttamente dal menu contestuale |
 
 ### 🌍 Interfaccia e UI
-- **Multilingua**: 5 lingue (Italiano, English, Deutsch, Français, Español) cambiabili a caldo.
+- **Multilingua**: 6 lingue (Italiano, English, Deutsch, Français, Español, Polski) cambiabili a caldo.
 - **Temi**: 17 temi integrati + editor di temi con anteprima live; importa/esporta in JSON.
 - **Set icone**: Lucide, Material, Sistema; download automatico al primo utilizzo.
 - **Orologio live** nella barra dei menu con data e ora localizzate.
@@ -280,201 +501,24 @@ python main.py file1.py file2.md  # apre i file specificati
 <img width="1920" alt="Search PQ panel" src="immagini/notepadpq10.png" />
 
 *Pannello Search PQ: ricerca multi-modalità (TEXT/REGEXP/LIKE), coda risultati, filtro inline e sostituzione*
-
 ---
 
-# 🇬🇧 English
+## 🌐 Aggiungere una nuova lingua
 
-## What is NotePadPQ?
+NotePadPQ rileva automaticamente le lingue disponibili scansionando i file `*.json` nella cartella `i18n/`.
+Per aggiungere una nuova lingua (es. polacco) è sufficiente:
 
-NotePadPQ is an advanced, free and open source text editor built with **Python 3**, **PyQt6**, and **QScintilla**. Inspired by Notepad++ but cross-platform and modern, it offers a professional feature set without sacrificing performance.
+1. Copiare `i18n/en.json` in `i18n/pl.json`
+2. Modificare il campo `meta` del nuovo file:
+   ```json
+   "meta": {
+     "language": "pl",
+     "name": "Polski",
+     "version": "1.0",
+     "authors": ["Il tuo nome"]
+   }
+   ```
+3. Tradurre tutti i valori stringa nel file (le chiavi JSON non vanno modificate)
+4. Avviare NotePadPQ: la nuova lingua comparirà automaticamente nel menu **Impostazioni → Lingua**
 
-Runs natively on Linux, Windows, and FreeBSD.
-
----
-
-## ✨ Key Features
-
-### 📝 Advanced Editor
-- **Syntax highlighting** for 40+ languages: native QScintilla lexers (Python, JavaScript, TypeScript, C/C++, Java, C#, Bash, SQL, LaTeX, Markdown, HTML, CSS, XML, JSON, YAML, Ruby, Perl, Lua, Pascal, Fortran, Verilog…) plus Pygments-backed lexers (Go, Rust, PHP, Swift, Kotlin, Scala, Dart, R, TOML, Haskell, Elixir, Julia). **Auto-detect** from extension, filename, or content.
-- **Code folding**: collapse code blocks, classes, and functions from the gutter.
-- **Smart Highlight**: all occurrences of the word under the cursor are highlighted automatically, with no typing lag.
-- **Dynamic line numbers**: column width adapts to file size automatically.
-- **Minimap** sidebar for quick navigation in long files.
-- **Word wrap** configurable (`Alt+Z`).
-- **Smart autocomplete**: words in document, per-language snippets, API dictionaries, LSP support.
-- **Auto-close** brackets, quotes, and tags.
-- **Show whitespace/tabs** and end-of-line characters.
-- **Markup shortcuts**: `Ctrl+B` (Bold), `Ctrl+I` (Italic), `Ctrl+Shift+X` (Strikethrough): work natively in Markdown (`**`, `*`, `~~`) and LaTeX (`\textbf`, `\textit`, `\sout`).
-
-### 🗂️ Tab Management & Split View
-- **Multiple tabs** with drag & drop, modification indicator, session restore at startup.
-- **Horizontal and vertical split view** (`Ctrl+Alt+2` / `Ctrl+Alt+3`).
-- **Clone tab** to work on the same file at two positions simultaneously.
-- **Project Manager** (PSPad-style): group files into named projects saved as `.npqproj` (JSON); toolbar to create groups, add/remove files; double-click to open.
-
-### 🔍 Search, Navigation & Command Palette
-- **Command Palette** (`Ctrl+Shift+P`): fuzzy-search over all editor commands.
-- **Goto Anything** (`Ctrl+Shift+G`): Sublime-style quick navigation: open files, `:line`, `@symbol`, `>command`.
-- Find/Replace with full **regular expressions** (Python syntax) and capture group substitution.
-- **Search across all open tabs** simultaneously.
-- **Search in files** on disk with extension filter and recursive search.
-- **Inline incremental search** (`Ctrl+Shift+F2`).
-- **Go to line** (`Ctrl+G`) and jump to matching bracket.
-- **Bookmarks**: add (`Ctrl+F2`), navigate (`F2` / `Shift+F2`), remove.
-- **5-color Mark** system for highlighting blocks of text (`Ctrl+1..5`).
-
-### 🛠️ Editing Tools
-- **Multi-cursor**: select next occurrence (`Ctrl+D`), all occurrences (`Ctrl+Shift+D`), add cursor above/below (`Ctrl+Alt+↑↓`), insert incremental numbers.
-- **Macros**: record, save, load, and run N times.
-- **Case conversion**: UPPERCASE, lowercase, Title Case, Invert Case.
-- **Comment/uncomment** lines (`Ctrl+E`) with automatic language detection.
-- **Smart indentation**, tabs↔spaces. **Auto-indent on paste**: pasted lines align automatically to the cursor context.
-- **Sort lines** by 5 criteria: alphabetical, reverse, by length, random.
-- **Word frequency**: occurrence analysis on the document or selection.
-- **Table alignment** for Markdown/LaTeX, **wrap in environment/tag**.
-- **Color Translator**: pick a color and get HTML/CSS name, `#HEX`, `rgb()`, `rgb(%)`, `hsl()`: insert or copy each format individually.
-- **Lorem Ipsum generator**: insert placeholder text with configurable paragraphs, sentences, and separator.
-- Interactive regex tester, numeric converter (dec/hex/bin/oct).
-
-### 🏗️ Build Panel
-- Configurable **build profiles** per language (LaTeX, Python, C/C++, Markdown, etc.).
-- **Command variables**: `${FILE}` (full path), `${DIR}` (directory), `${BASENAME}` (name without extension), `${BASEFILE}` (full path without extension), `${FILENAME}`, `${EXT}`, `${LINE}`, `${COL}`. Also accepted as `$(VAR)`.
-- Real-time output with **clickable error list**; click an error to jump directly to the line.
-- **Automatic PDF detection**: the preview button activates instantly if a compiled PDF is already present.
-- **Auto-save** before compilation.
-
-### 👁️ Preview Panel
-- **Live preview** for Markdown, HTML, reStructuredText, LaTeX (structure), PDF.
-- **Hover preview**: mouse over `\includegraphics{...}`, `![img](...)`, or `<img src="...">` to see a floating image thumbnail (including vector PDF).
-- **Math equation rendering** on hover in LaTeX/Markdown files (`$...$`, `$$...$$`, `\[...\]`).
-- **SyncTeX**: bidirectional sync between editor cursor and PDF position.
-- **Smart Crop**: auto-trim PDF white margins (`✂`).
-- Zoom with `Ctrl+Wheel`, page navigation with the scroll wheel.
-
-### 💻 Integrated Terminal (plugin)
-- Full terminal based on **native PTY** as an independent dock panel (`Ctrl+Alt+T` from the Plugin menu).
-- Supports any interactive program: vim, Python REPL, ssh, git, compilers.
-- Automatically syncs with the directory of the file open in the editor.
-- No external dependencies; works on all supported platforms.
-
-### ⚡ LSP: Language Server Protocol
-
-Native Language Server integration: real-time errors/warnings, hover documentation, go to definition, find references, rename symbol, format document.
-
-Supported servers: `pylsp` (Python), `clangd` (C/C++), `rust-analyzer` (Rust), `gopls` (Go), `typescript-language-server` (TS/JS), `texlab` (LaTeX).
-
-### ⚡ Task Runner
-
-Dedicated tab in the bottom panel with auto-discovery of project tasks (Makefile, `npm scripts`, `pyproject.toml`) and a field for arbitrary manual commands.
-
-### 🤖 AI Assistant (plugin)
-
-Dock panel with multi-provider AI chat:
-
-| Provider | Special features |
-|---|---|
-| **Anthropic Claude** | SSE streaming, Extended Thinking (Opus), **dynamic model list** from the API key |
-| **OpenAI** | GPT-4o, GPT-4o-mini, o3-mini |
-| **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro |
-| **Ollama** | Local models auto-detected (no key, no cost) |
-
-Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) directly from right-click in the editor. Bring-your-own-key; each provider has its own configurable API key.
-
-### 🔌 Plugin System
-
-<img width="1920" alt="Plugin menu" src="immagini/notepadpq09.png" />
-
-*The Plugins menu displays the full extension ecosystem available*
-
-| Plugin | Function |
-|--------|----------|
-| **AI Assistant** | Multi-provider AI chat with streaming, Extended Thinking, and dynamic model list |
-| **Clipboard History** | Multi-entry clipboard with quick selection |
-| **Compare & Merge** | Visual side-by-side file comparison |
-| **Database** | Browser and query editor for SQLite, PostgreSQL, MySQL/MariaDB with AI SQL generation |
-| **Encrypt/Decrypt** | AES-256-GCM and ChaCha20-Poly1305 encryption |
-| **Rich Text Editor** | WYSIWYG editor for .doc, .docx, .odt, .rtf, .html powered by Jodit 4 |
-| **Spreadsheet** | Full CSV, TSV, XLSX, XLS, XLSM, ODS editor with sort, filter, formulas, and charts |
-| **FTP Browser** | Browse and edit files on FTP servers |
-| **Git Integration** | Full Git panel: status, log, diff, branch, PR/MR |
-| **Hex Viewer** | Hexadecimal view of binary files |
-| **Search PQ** | Dock panel for advanced search and replace: TEXT mode (AND/NOT), regexp, LIKE; result queue, inline filter, context menu (`Ctrl+Alt+F`) |
-| **Terminal** | xterm.js+PTY terminal as an independent dock panel, synced with the open file's directory (`Ctrl+Alt+T`) |
-| **Web Search** | Web and Wikipedia search on selected text directly from the context menu |
-
-### 🌍 Interface
-- **5 languages**: Italian, English, German, French, Spanish; switch at runtime.
-- **17 built-in themes** + theme editor with live preview; import/export JSON.
-- **Icon sets**: Lucide, Material, System; auto-downloaded on first use.
-- **Live clock** in the menu bar with localized date and time.
-- **Spell checker** (`F4`): real-time spell checking with red squiggles for IT, EN, DE, FR, ES. Dictionary language is selectable independently from the UI language (Document → Dictionary Language). Right-click a highlighted word for suggestions, "Add to dictionary", or "Ignore all".
-- **Plain text mode** (`Ctrl+Alt+N`): disable highlighting, brace matching and autocomplete per tab, restorable in one click.
-- **Distraction-free writing mode** (`F11`): fullscreen with toolbar, statusbar, menubar, and panels hidden. Fully restored on exit.
-- **Session restore**: all files, cursor positions, and panel layout restored at startup. Optional auto-save on focus loss.
-- **Single instance**: opening files from the file manager sends them to the running window.
-
----
-
-## 🚀 Installation
-
-### Automated Setup (recommended)
-
-```bash
-git clone https://github.com/buzzqw/NotePadPQ.git
-cd NotePadPQ
-bash setup.sh
-python main.py
-```
-
-### Manual Installation
-
-**Core dependencies** (always required):
-```bash
-pip install PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pygments pyspellchecker PyGithub python-gitlab keyring
-```
-
-**Rich Text Editor plugin** (optional):
-```bash
-pip install mammoth htmldocx   # DOCX read/write
-# pandoc: system-level install for ODT/RTF
-# libreoffice: system-level install for .doc (Word 97-2003)
-```
-
-**Database plugin** (optional):
-```bash
-pip install psycopg2-binary    # PostgreSQL
-pip install pymysql            # MySQL/MariaDB
-pip install cx_Oracle          # Oracle
-# SQLite: included in Python standard library
-```
-
-**LaTeX optional** (only if you write/compile LaTeX):
-```bash
-pip install pymupdf matplotlib sympy
-# synctex: included in TeX Live
-```
-
-> If you already have TeX Live for LaTeX compilation, all advanced LaTeX features (PDF hover preview, equation rendering, SyncTeX) activate automatically.
-
----
-
-## 💖 Support the project
-
-NotePadPQ is developed in spare time with passion. If you find it useful, consider a small donation; it helps keep the project alive.
-
-<div align="center">
-
-[![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/donate/?business=azanzani%40gmail.com&currency_code=EUR)
-
-</div>
-
----
-
-<div align="center">
-
-Fatto con ❤️ in Italia · Made with ❤️ in Italy
-
-**[⬆ Torna su / Back to top](#notepadpq)**
-
-</div>
+Non è necessario modificare il codice sorgente: il sistema i18n scopre le lingue dai file presenti nella cartella.

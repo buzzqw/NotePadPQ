@@ -827,6 +827,7 @@
     "preview_zoom_out": "Zoom indietro  [Ctrl+-]",
     "preview_fit_width": "Adatta alla larghezza",
     "preview_fit_page": "Adatta alla pagina intera",
+    "preview_links_toggle": "Mostra/nascondi hyperlink nel PDF (\ud83d\udd17 attivo = link evidenziati in blu)",
     "preview_crop": "Taglia margini bianchi",
     "preview_zoom_reset": "Zoom 100%",
     "preview_crop_top": "Taglio in Alto (Top)",

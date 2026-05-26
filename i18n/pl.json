@@ -827,6 +827,7 @@
     "preview_zoom_out": "Pomniejsz  [Ctrl+-]",
     "preview_fit_width": "Dopasuj do szerokości",
     "preview_fit_page": "Dopasuj do całej strony",
+    "preview_links_toggle": "Poka\u017c/ukryj hiper\u0142\u0105cza w PDF (\ud83d\udd17 aktywny = \u0142\u0105cza pod\u015bwietlone na niebiesko)",
     "preview_crop": "Przytnij białe marginesy",
     "preview_zoom_reset": "Powiększenie 100%",
     "preview_crop_top": "Przycięcie z góry",

@@ -827,6 +827,7 @@
     "preview_zoom_out": "Alejar  [Ctrl+-]",
     "preview_fit_width": "Ajustar al ancho",
     "preview_fit_page": "Ajustar a la página completa",
+    "preview_links_toggle": "Mostrar/ocultar hiperv\u00ednculos en el PDF (\ud83d\udd17 activo = enlaces resaltados en azul)",
     "preview_crop": "Recortar márgenes en blanco",
     "preview_zoom_reset": "Zoom 100%",
     "preview_crop_top": "Recorte superior",

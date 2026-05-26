@@ -827,6 +827,7 @@
     "preview_zoom_out": "Verkleinern  [Strg+-]",
     "preview_fit_width": "An Breite anpassen",
     "preview_fit_page": "An ganze Seite anpassen",
+    "preview_links_toggle": "Hyperlinks im PDF anzeigen/verbergen (\ud83d\udd17 aktiv = Links blau hervorgehoben)",
     "preview_crop": "Weiße Ränder abschneiden",
     "preview_zoom_reset": "Zoom 100%",
     "preview_crop_top": "Oben beschneiden",

@@ -1641,11 +1641,30 @@ class EditorWidget(QsciScintilla):
             except Exception as e:
                 print(f"[Math Hover] Impossibile renderizzare la formula: {e}")
 
-        # Nessuna immagine/formula trovata — chiedi LSP
+        # ---------------------------------------------------------
+        # PARTE 3: DOCUMENTAZIONE COMANDI LaTeX
+        # ---------------------------------------------------------
+        if "latex" in lang or "tex" in lang:
+            cmd_match = None
+            for m in re.finditer(r'\\([a-zA-Z@]+\*?)', text):
+                if m.start() <= relative_pos <= m.end():
+                    cmd_match = m
+                    break
+            if cmd_match:
+                from editor.latex_tooltips import get_latex_tooltip_html
+                cmd_name = cmd_match.group(1).rstrip('*')
+                html = get_latex_tooltip_html(cmd_name)
+                if not html:
+                    html = get_latex_tooltip_html(cmd_match.group(1))
+                if html:
+                    self._create_html_tooltip_popup(html, x, y)
+                    return
+
+        # Nessuna immagine/formula/comando trovato — chiedi LSP
         self.lsp_hover_requested.emit(line_idx, relative_pos)
 
 
-    # -- Helper per creare il popup finale
+    # -- Helper per creare il popup con immagine
     def _create_tooltip_popup(self, pixmap, x, y):
         from PyQt6.QtCore import Qt, QPoint
         from PyQt6.QtWidgets import QLabel
@@ -1654,7 +1673,34 @@ class EditorWidget(QsciScintilla):
         self._hover_popup.setStyleSheet("border: 2px solid #555; background-color: #1e1e1e; border-radius: 4px;")
         global_pos = self.mapToGlobal(QPoint(x, y))
         self._hover_popup.move(global_pos.x() + 15, global_pos.y() + 15)
-        self._hover_popup.show()        
+        self._hover_popup.show()
+
+    # -- Helper per creare il popup con HTML (documentazione comandi)
+    def _create_html_tooltip_popup(self, html: str, x: int, y: int) -> None:
+        from PyQt6.QtCore import Qt, QPoint
+        from PyQt6.QtWidgets import QLabel, QApplication
+        lbl = QLabel(self, Qt.WindowType.ToolTip)
+        # Sfondo fisso crema: uguale alla cella <td> nell'HTML così Qt non
+        # inserisce il background nero del tema tra il bordo e il contenuto
+        lbl.setStyleSheet(
+            "QLabel { background-color: #fdf6d8; color: #1a1a1a;"
+            " border: 1px solid #c8ad00; border-radius: 6px;"
+            " padding: 0; margin: 0; }"
+        )
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setText(html)
+        lbl.setWordWrap(True)
+        lbl.setMaximumWidth(460)
+        lbl.adjustSize()
+        screen = QApplication.primaryScreen().availableGeometry()
+        gp = self.mapToGlobal(QPoint(x + 16, y + 18))
+        if gp.x() + lbl.width() > screen.right() - 10:
+            gp.setX(screen.right() - lbl.width() - 10)
+        if gp.y() + lbl.height() > screen.bottom() - 10:
+            gp.setY(gp.y() - lbl.height() - 36)
+        lbl.move(gp)
+        lbl.show()
+        self._hover_popup = lbl
 
 
     # ── Metodi per compatibilità ─────────────────────────────────────────────

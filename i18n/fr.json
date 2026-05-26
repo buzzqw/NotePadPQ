@@ -827,6 +827,7 @@
     "preview_zoom_out": "Zoom arrière  [Ctrl+-]",
     "preview_fit_width": "Ajuster à la largeur",
     "preview_fit_page": "Ajuster à la page entière",
+    "preview_links_toggle": "Afficher/masquer les hyperliens dans le PDF (\ud83d\udd17 actif = liens surlign\u00e9s en bleu)",
     "preview_crop": "Rogner les marges blanches",
     "preview_zoom_reset": "Zoom 100%",
     "preview_crop_top": "Rognage en haut",

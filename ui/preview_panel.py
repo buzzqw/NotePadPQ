@@ -343,10 +343,19 @@ class PreviewPanel(QWidget):
         self._pdf_btn_open_external.setToolTip(tr("tooltip.preview_open_external"))
         self._pdf_btn_open_external.clicked.connect(self._pdf_open_external)
 
+        self._pdf_btn_links = QToolButton()
+        self._pdf_btn_links.setText("🔗")
+        self._pdf_btn_links.setCheckable(True)
+        self._pdf_btn_links.setChecked(True)
+        self._pdf_btn_links.setToolTip(tr("tooltip.preview_links_toggle",
+                                         default="Mostra/nascondi hyperlink nel PDF"))
+        self._pdf_btn_links.toggled.connect(self._pdf_toggle_links)
+
         for w2 in [self._pdf_btn_prev, self._pdf_lbl_page, self._pdf_btn_next,
                    self._pdf_zoom_out, self._pdf_zoom_in,
                    self._pdf_btn_zoom_reset, self._pdf_btn_fit_width,
                    self._pdf_btn_fit_page, self._pdf_btn_crop,
+                   self._pdf_btn_links,
                    self._pdf_btn_open_external, self._pdf_lbl_synctex]:
             pdf_nav.addWidget(w2)
         
@@ -396,11 +405,13 @@ class PreviewPanel(QWidget):
         self._stack.addWidget(self._pdf_widget)
 
         # Stato PDF
-        self._pdf_doc       = None
-        self._pdf_path      = None
-        self._pdf_page_num  = 0
-        self._pdf_zoom      = 1.5
-        self._pdf_page_size = (595.0, 842.0)  # punti A4 default
+        self._pdf_doc        = None
+        self._pdf_path       = None
+        self._pdf_page_num   = 0
+        self._pdf_zoom       = 1.5
+        self._pdf_page_size  = (595.0, 842.0)  # punti A4 default
+        self._pdf_show_links = True
+        self._pdf_links: list = []
 
         vl.addWidget(self._stack)
 
@@ -973,14 +984,38 @@ class PreviewPanel(QWidget):
             self._pdf_current_clip = clip_rect
             
             mat = _fitz.Matrix(self._pdf_zoom, self._pdf_zoom)
-            
+
             # Passiamo "clip=clip_rect" alla libreria per farle disegnare solo l'area utile
             pix = page.get_pixmap(matrix=mat, alpha=False, clip=clip_rect)
-            
-            from PyQt6.QtGui import QImage, QPixmap
+
+            from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QBrush, QColor
             img = QImage(pix.samples, pix.width, pix.height,
                          pix.stride, QImage.Format.Format_RGB888)
-            self._pdf_lbl_img.setPixmap(QPixmap.fromImage(img))
+            pm  = QPixmap.fromImage(img)
+
+            # ── Link overlay ──────────────────────────────────────────────
+            self._pdf_links = page.get_links()
+            if self._pdf_show_links and self._pdf_links:
+                ox = clip_rect.x0
+                oy = clip_rect.y0
+                z  = self._pdf_zoom
+                painter = QPainter(pm)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                for lnk in self._pdf_links:
+                    r = lnk["from"]
+                    px0 = (r.x0 - ox) * z
+                    py0 = (r.y0 - oy) * z
+                    pw2 = (r.x1 - r.x0) * z
+                    ph2 = (r.y1 - r.y0) * z
+                    if pw2 < 2 or ph2 < 2:
+                        continue
+                    painter.setPen(QPen(QColor(30, 120, 255, 210), 1))
+                    painter.setBrush(QBrush(QColor(30, 120, 255, 40)))
+                    painter.drawRoundedRect(int(px0), int(py0), int(pw2), int(ph2), 2, 2)
+                painter.end()
+            # ─────────────────────────────────────────────────────────────
+
+            self._pdf_lbl_img.setPixmap(pm)
             self._stack.setCurrentIndex(3)
         except Exception as e:
             self._stack.setCurrentIndex(2)
@@ -1051,6 +1086,10 @@ class PreviewPanel(QWidget):
         from PyQt6.QtGui import QDesktopServices
         QDesktopServices.openUrl(QUrl.fromLocalFile(self._pdf_path))
 
+    def _pdf_toggle_links(self, checked: bool) -> None:
+        self._pdf_show_links = checked
+        self._pdf_show_page()
+
     # ── SyncTeX ───────────────────────────────────────────────────────────────
 
     def _update_synctex_label(self, pdf_path) -> None:
@@ -1071,19 +1110,18 @@ class PreviewPanel(QWidget):
 
     def _on_pdf_clicked(self, x: int, y: int) -> None:
         """
-        Click sul PDF: usa SyncTeX per trovare la riga nel .tex e navigarci.
+        Click sul PDF: prima controlla se è su un hyperlink, poi usa SyncTeX.
         x, y sono coordinate pixel sull'immagine.
         """
         if self._pdf_doc is None or not self._pdf_path:
             return
-            
+
         # Converti pixel → punti PDF
         pix_w = self._pdf_lbl_img.pixmap().width()  if self._pdf_lbl_img.pixmap() else 1
         pix_h = self._pdf_lbl_img.pixmap().height() if self._pdf_lbl_img.pixmap() else 1
         pw, ph = self._pdf_page_size
-        
+
         # --- COMPENSAZIONE RITAGLIO ---
-        # Se abbiamo tagliato i margini, dobbiamo aggiungere lo spostamento (offset)
         offset_x = 0
         offset_y = 0
         if getattr(self, "_pdf_crop_margins", False) and hasattr(self, "_pdf_current_clip"):
@@ -1093,6 +1131,24 @@ class PreviewPanel(QWidget):
         pdf_x = offset_x + (x / pix_w) * pw
         pdf_y = offset_y + (y / pix_h) * ph
 
+        # --- LINK CLICK ---
+        if self._pdf_show_links and self._pdf_links and _get_fitz():
+            pt = _fitz.Point(pdf_x, pdf_y)
+            for lnk in self._pdf_links:
+                if pt in lnk["from"]:
+                    uri = lnk.get("uri", "")
+                    if uri:
+                        from PyQt6.QtGui import QDesktopServices
+                        from PyQt6.QtCore import QUrl
+                        QDesktopServices.openUrl(QUrl(uri))
+                        return
+                    page_num = lnk.get("page", -1)
+                    if page_num >= 0:
+                        self._pdf_page_num = page_num
+                        self._pdf_show_page()
+                        return
+
+        # --- SYNCTEX ---
         try:
             from editor.synctex import SyncTeX
             from pathlib import Path as _Path

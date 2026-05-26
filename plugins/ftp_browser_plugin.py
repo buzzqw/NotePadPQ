@@ -204,6 +204,13 @@ class _FtpPanel(QWidget):
         btn_up.setToolTip(tr("tooltip.ftp_parent_dir"))
         btn_up.clicked.connect(self._go_up)
         path_row.addWidget(btn_up)
+
+        btn_refresh = QPushButton("⟳")
+        btn_refresh.setFixedWidth(28)
+        btn_refresh.setToolTip(tr("tooltip.ftp_refresh"))
+        btn_refresh.clicked.connect(self._refresh)
+        path_row.addWidget(btn_refresh)
+
         layout.addLayout(path_row)
 
         # Albero file
@@ -502,6 +509,12 @@ class _FtpPanel(QWidget):
         if parent != self._current_dir:
             self._list_directory(parent)
 
+    def _refresh(self) -> None:
+        if self._conn is None:
+            self._status.setText(tr("plugin.ftp_not_connected", default="Non connesso"))
+            return
+        self._list_directory(self._current_dir)
+
     def _on_item_double_clicked(self, item: QTreeWidgetItem, col: int) -> None:
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if not data:
@@ -727,18 +740,85 @@ class _FtpPanel(QWidget):
                 self._conn[1].storbinary(f"STOR {remote_path}", buf)
             elif kind == "sftp":
                 self._conn[1].putfo(buf, remote_path)
-                
-            self._status.setText(f"✓ Salvato online: {remote_path}")
-            
-            # --- FIX DEFINITIVO: Segna come salvato e aggiorna l'interfaccia ---
-            # setModified(False) è il comando standard di Scintilla:
-            # toglie l'asterisco e avvisa MainWindow di aggiornare il titolo.
             editor.setModified(False)
             self._mw._on_editor_changed(editor)
-            
+            self._upload_ok(remote_path)
         except Exception as e:
             QMessageBox.warning(self, "FTP Browser", f"Upload fallito:\n{e}")
             self._conn = None
+
+    def upload_editor(self, editor) -> None:
+        """Upload an editor's file to FTP — works for FTP-opened files and local files."""
+        if not editor or not editor.file_path:
+            QMessageBox.information(self, "FTP Browser", "Il file non è ancora salvato localmente.")
+            return
+
+        # Determine remote path
+        remote_path = getattr(editor, "_ftp_remote_path", None)
+        if not remote_path:
+            # Local file → upload to currently browsed FTP directory
+            if not self._conn:
+                QMessageBox.information(self, "FTP Browser", "Nessuna connessione FTP attiva.")
+                return
+            if not self._current_dir:
+                QMessageBox.information(self, "FTP Browser", "Nessuna cartella FTP aperta nel browser.")
+                return
+            remote_path = self._current_dir.rstrip("/") + "/" + editor.file_path.name
+
+        # Reconnect if needed
+        if self._conn is None:
+            profile = getattr(editor, "_ftp_profile", None)
+            if profile:
+                self._current_profile = profile
+                self._status.setText(f"Riconnessione a {profile.host}…")
+                QApplication.processEvents()
+                try:
+                    if profile.protocol == "SFTP":
+                        self._conn = self._connect_sftp(profile)
+                    else:
+                        self._conn = self._connect_ftp(profile)
+                    self._btn_connect.setText("Disconnetti")
+                except Exception as e:
+                    QMessageBox.warning(self, "FTP Browser", f"Riconnessione fallita:\n{e}")
+                    return
+            else:
+                QMessageBox.information(self, "FTP Browser", "Nessuna connessione FTP attiva.")
+                return
+
+        content = editor.get_content()
+        raw = content.encode(editor.encoding, errors="replace")
+        try:
+            kind = self._conn[0]
+            buf = io.BytesIO(raw)
+            if kind == "ftp":
+                self._conn[1].storbinary(f"STOR {remote_path}", buf)
+            elif kind == "sftp":
+                self._conn[1].putfo(buf, remote_path)
+            editor.setModified(False)
+            self._mw._on_editor_changed(editor)
+            self._upload_ok(remote_path)
+        except Exception as e:
+            QMessageBox.warning(self, "FTP Browser", f"Upload fallito:\n{e}")
+            self._conn = None
+
+    def _upload_ok(self, remote_path: str) -> None:
+        """Show upload success feedback and refresh the directory listing."""
+        msg = tr("plugin.ftp_upload_ok", path=remote_path, default=f"✓ Caricato: {remote_path}")
+        self._status.setStyleSheet("font-size: 11px; color: #2ecc71; font-weight: bold;")
+        self._status.setText(msg)
+        # Show in main window status bar too
+        if hasattr(self._mw, "statusBar"):
+            self._mw.statusBar().showMessage(msg, 5000)
+        # Reset status label style and refresh listing after 4 s
+        QTimer.singleShot(4000, self._reset_status_style)
+        # Refresh directory so size/date update
+        try:
+            self._list_directory(self._current_dir)
+        except Exception:
+            pass
+
+    def _reset_status_style(self) -> None:
+        self._status.setStyleSheet("font-size: 11px; color: #888;")
 
     @staticmethod
     def _fmt_size(size: int) -> str:

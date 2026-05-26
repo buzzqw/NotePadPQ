@@ -145,6 +145,7 @@
     "set_encoding": "Set Encoding",
     "set_line_ending": "Set Line Ending",
     "clone_document": "Clone Document",
+    "ftp_upload_tab": "Upload to FTP",
     "trim_trailing": "Trim Trailing Whitespace",
     "tabs_to_spaces": "Convert Tabs to Spaces",
     "spaces_to_tabs": "Convert Spaces to Tabs",
@@ -276,7 +277,21 @@
     "convert_table_md": "Markdown",
     "convert_table_tex": "LaTeX tabularx",
     "table_header_row": "First row as header",
-    "table_data_rows": "All rows as data"
+    "table_data_rows": "All rows as data",
+    "lang_toolbar_cite_key": "Citation key:",
+    "lang_toolbar_bibliography": "Bibliography",
+    "lang_toolbar_bib_file": ".bib file name (without extension):",
+    "lang_toolbar_bibliographystyle": "Bibliography style",
+    "lang_toolbar_bib_style": "Style:",
+    "latex_insert_table": "Insert table…",
+    "latex_math_inline": "$…$  (inline)",
+    "latex_math_display": "\\[…\\]  (display)",
+    "latex_math_equation": "\\begin{equation}  (numbered)",
+    "latex_math_align": "\\begin{align}  (aligned)",
+    "latex_math_gather": "\\begin{gather}  (gather)",
+    "latex_wrap_custom": "Custom…",
+    "lang_toolbar_label_key": "Label key:",
+    "lang_toolbar_ref_key": "Reference key:"
   },
   "color": {
     "red": "Red",
@@ -724,6 +739,8 @@
       "dock_title": "FTP Browser",
       "description": "Navigation and file transfer panel for FTP/SFTP."
     },
+    "ftp_upload_ok": "✓ Uploaded: {path}",
+    "ftp_not_connected": "Not connected",
     "encrypt": {
       "menu": "Encrypt/Decrypt",
       "encrypt_action": "Encrypt selected text…",
@@ -853,6 +870,7 @@
     "ftp_edit_profile": "Edit profile",
     "ftp_del_profile": "Delete profile",
     "ftp_parent_dir": "Parent directory",
+    "ftp_refresh": "Refresh file list",
     "ftp_new_file": "New file",
     "terminal_clear": "Clear screen",
     "terminal_restart": "Restart terminal session",
@@ -923,7 +941,15 @@
     "all_replace_btn": "Replace the text in all open documents",
     "websearch_search_btn": "Search on Wikipedia",
     "websearch_open_browser": "Open the full Wikipedia page in the default browser",
-    "websearch_custom_url": "Search engine URL. Use {query} as a placeholder for the searched word.\nExample: https://example.com/search?q={query}"
+    "websearch_custom_url": "Search engine URL. Use {query} as a placeholder for the searched word.\nExample: https://example.com/search?q={query}",
+    "latex_section_combo": "Section level",
+    "latex_size_combo": "Text size",
+    "latex_footnote": "Footnote  \\footnote{}",
+    "latex_cite_combo": "Cite / Bib",
+    "latex_inline_math": "Inline math  $…$",
+    "latex_label": "\\label{}  (label)",
+    "latex_ref": "\\ref{}  (reference)",
+    "latex_wrap_menu": "Wrap in environment"
   },
   "websearch": {
     "submenu_title": "Web Search",

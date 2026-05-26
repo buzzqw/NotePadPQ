@@ -145,6 +145,7 @@
     "set_encoding": "Codierung festlegen",
     "set_line_ending": "Zeilenende festlegen",
     "clone_document": "Dokument klonen",
+    "ftp_upload_tab": "Auf FTP hochladen",
     "trim_trailing": "Nachgestellte Leerzeichen entfernen",
     "tabs_to_spaces": "Tabulatoren in Leerzeichen umwandeln",
     "spaces_to_tabs": "Leerzeichen in Tabulatoren umwandeln",
@@ -276,7 +277,21 @@
     "convert_table_md": "Markdown",
     "convert_table_tex": "LaTeX tabularx",
     "table_header_row": "Erste Zeile als Kopfzeile",
-    "table_data_rows": "Alle Zeilen als Daten"
+    "table_data_rows": "Alle Zeilen als Daten",
+    "lang_toolbar_cite_key": "Zitierschlüssel:",
+    "lang_toolbar_bibliography": "Bibliographie",
+    "lang_toolbar_bib_file": ".bib-Dateiname (ohne Erweiterung):",
+    "lang_toolbar_bibliographystyle": "Bibliographiestil",
+    "lang_toolbar_bib_style": "Stil:",
+    "latex_insert_table": "Tabelle einfügen…",
+    "latex_math_inline": "$…$  (inline)",
+    "latex_math_display": "\\[…\\]  (Block)",
+    "latex_math_equation": "\\begin{equation}  (nummeriert)",
+    "latex_math_align": "\\begin{align}  (ausgerichtet)",
+    "latex_math_gather": "\\begin{gather}  (gesammelt)",
+    "latex_wrap_custom": "Benutzerdefiniert…",
+    "lang_toolbar_label_key": "Label-Schlüssel:",
+    "lang_toolbar_ref_key": "Referenzschlüssel:"
   },
   "color": {
     "red": "Rot",
@@ -724,6 +739,8 @@
       "dock_title": "FTP-Browser",
       "description": "Navigations- und Dateiübertragungspanel für FTP/SFTP."
     },
+    "ftp_upload_ok": "✓ Hochgeladen: {path}",
+    "ftp_not_connected": "Nicht verbunden",
     "encrypt": {
       "menu": "Verschlüsseln/Entschlüsseln",
       "encrypt_action": "Ausgewählten Text verschlüsseln…",
@@ -853,6 +870,7 @@
     "ftp_edit_profile": "Profil bearbeiten",
     "ftp_del_profile": "Profil löschen",
     "ftp_parent_dir": "Übergeordnetes Verzeichnis",
+    "ftp_refresh": "Dateiliste aktualisieren",
     "ftp_new_file": "Neue Datei",
     "terminal_clear": "Bildschirm leeren",
     "terminal_restart": "Terminalsitzung neu starten",
@@ -923,7 +941,15 @@
     "all_replace_btn": "Text in allen geöffneten Dokumenten ersetzen",
     "websearch_search_btn": "Auf Wikipedia suchen",
     "websearch_open_browser": "Vollständige Wikipedia-Seite im Standardbrowser öffnen",
-    "websearch_custom_url": "Suchmaschinen-URL. Verwende {query} als Platzhalter für das gesuchte Wort.\nBeispiel: https://example.com/search?q={query}"
+    "websearch_custom_url": "Suchmaschinen-URL. Verwende {query} als Platzhalter für das gesuchte Wort.\nBeispiel: https://example.com/search?q={query}",
+    "latex_section_combo": "Abschnittsebene",
+    "latex_size_combo": "Textgröße",
+    "latex_footnote": "Fußnote  \\footnote{}",
+    "latex_cite_combo": "Zitieren / Bib",
+    "latex_inline_math": "Inline-Mathematik  $…$",
+    "latex_label": "\\label{}  (Bezeichnung)",
+    "latex_ref": "\\ref{}  (Verweis)",
+    "latex_wrap_menu": "In Umgebung einbetten"
   },
   "websearch": {
     "submenu_title": "Websuche",

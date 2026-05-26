@@ -19,7 +19,7 @@ from typing import Optional, TYPE_CHECKING
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QIcon, QKeySequence, QCursor, QPainter, QPixmap
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QToolButton, QFrame,
+    QWidget, QHBoxLayout, QToolButton, QFrame, QMenu,
     QInputDialog, QApplication, QSizePolicy,
     QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
 )
@@ -58,9 +58,10 @@ _MD_ICON_FILES: dict[str, str] = {
     "latex_align_l":  "align-left.svg",
     "latex_align_c":  "align-center.svg",
     "latex_align_r":  "align-right.svg",
-    "latex_begin":    "chevron-right.svg",
-    "latex_end":      "chevron-left.svg",
     "latex_image":    "image.svg",
+    "latex_footnote": "type.svg",
+    "latex_label":    "bookmark.svg",
+    "latex_ref":      "link.svg",
 }
 
 _ICON_SIZE = QSize(20, 20)
@@ -74,6 +75,47 @@ _TABLE_BTN_TEXT: dict[str, str] = {
     "del_row":   "−↕",
     "del_col":   "−↔",
 }
+
+
+_LATEX_SECTIONS: list[tuple[str, str]] = [
+    ("parte",               r"\part"),
+    ("capitolo",            r"\chapter"),
+    ("sezione",             r"\section"),
+    ("sottosezione",        r"\subsection"),
+    ("sottosottosezione",   r"\subsubsection"),
+    ("paragrafo",           r"\paragraph"),
+    ("sottoparagrafo",      r"\subparagraph"),
+    ("parte*",              r"\part*"),
+    ("capitolo*",           r"\chapter*"),
+    ("sezione*",            r"\section*"),
+    ("sottosezione*",       r"\subsection*"),
+    ("sottosottosezione*",  r"\subsubsection*"),
+    ("paragrafo*",          r"\paragraph*"),
+    ("sottoparagrafo*",     r"\subparagraph*"),
+]
+
+_LATEX_FONT_SIZES: list[tuple[str, str]] = [
+    ("tiny",         r"\tiny"),
+    ("scriptsize",   r"\scriptsize"),
+    ("footnotesize", r"\footnotesize"),
+    ("piccola",      r"\small"),
+    ("normalsize",   r"\normalsize"),
+    ("large",        r"\large"),
+    ("Large",        r"\Large"),
+    ("LARGE",        r"\LARGE"),
+    ("huge",         r"\huge"),
+    ("Huge",         r"\Huge"),
+]
+
+_LATEX_CITE_ITEMS: list[tuple[str, str]] = [
+    (r"\cite{}",              "cite"),
+    (r"\citet{}",             "citet"),
+    (r"\citep{}",             "citep"),
+    (r"\nocite{*}",           "nocite_all"),
+    (r"\bibliography{}",      "bibliography"),
+    (r"\bibliographystyle{}", "bibliographystyle"),
+]
+
 
 
 def _make_table_icon(key: str, mw: "MainWindow") -> QIcon:
@@ -235,7 +277,9 @@ class _LanguageToolbarWidget(QWidget):
             "  background-color: rgba(0, 0, 0, 70);"
             "}"
             "QToolButton:checked {"
-            "  background: palette(midlight);"
+            "  background-color: rgba(128, 128, 128, 120);"
+            "  border-radius: 3px;"
+            "  font-weight: bold;"
             "}"
         )
 
@@ -442,11 +486,7 @@ class _LanguageToolbarWidget(QWidget):
         self._add_separator()
 
         # Inserimenti
-        tip = tr("action.lang_toolbar_table", default="Tabella")
-        btn_tbl = self._add_icon_btn("md_table", "▦", tip)
-        btn_tbl.clicked.connect(self._show_md_table_picker)
-
-        self._add_table_edit_buttons()
+        self._add_md_table_menu_btn()
 
         tip = tr("action.lang_toolbar_link", default="Link") + "  Ctrl+Shift+K"
         btn_link = self._add_icon_btn("md_link", "🔗", tip)
@@ -486,58 +526,432 @@ class _LanguageToolbarWidget(QWidget):
     # ── LaTeX ─────────────────────────────────────────────────────────────────
 
     def _add_latex_actions(self, acts: dict) -> None:
-        # Formattazione inline
+        # ── 1. Struttura documento ────────────────────────────────────────────
+        self._add_latex_menu_btn(
+            _LATEX_SECTIONS, "sezione", 105,
+            tr("tooltip.latex_section_combo", default="Struttura sezione"),
+            self._insert_latex_section,
+        )
+        self._add_latex_menu_btn(
+            _LATEX_FONT_SIZES, "normalsize", 100,
+            tr("tooltip.latex_size_combo", default="Dimensione testo"),
+            self._insert_latex_fontsize,
+        )
+        self._add_separator()
+
+        # ── 2. Formattazione inline ───────────────────────────────────────────
         for key in ("markup_bold", "markup_italic", "markup_strike"):
             if key in acts:
                 self._add_action_button(acts[key])
         self._add_separator()
 
-        # Inserisci immagine
+        # ── 3. Matematica ─────────────────────────────────────────────────────
+        self._add_latex_math_menu_btn()
+        self._add_separator()
+
+        # ── 4. Inserimenti: immagine, tabella ─────────────────────────────────
         tip = tr("tooltip.latex_insert_image", default="Inserisci immagine")
         btn_img = self._add_icon_btn("latex_image", "🖼", tip)
         btn_img.clicked.connect(self._show_latex_insert_image)
 
-        # Tabella
-        tip = tr("action.lang_toolbar_table", default="Tabella")
-        btn_tbl = self._add_icon_btn("md_table", "▦", tip)
-        btn_tbl.clicked.connect(self._show_latex_table_picker)
-
-        self._add_table_edit_buttons()
-
-        # Avvolgi ambiente
-        if "wrap_env" in acts:
-            self._add_action_button(acts["wrap_env"])
-
-        # Allinea tabella
+        self._add_latex_table_menu_btn()
         if "align_table" in acts:
             self._add_action_button(acts["align_table"])
         self._add_separator()
 
-        # Allineamento LaTeX
-        for key, env, tr_key, default, fallback in [
-            ("latex_align_l", "flushleft",  "action.lang_toolbar_align_left",  "Allinea a sinistra", "⬅"),
-            ("latex_align_c", "center",     "action.lang_toolbar_align_center", "Centra",             "↔"),
-            ("latex_align_r", "flushright", "action.lang_toolbar_align_right",  "Allinea a destra",   "➡"),
-        ]:
-            tip = tr(tr_key, default=default)
-            btn = self._add_icon_btn(key, fallback, tip)
-            btn.clicked.connect(lambda c, e=env: self._wrap_latex_env(e))
+        # ── 5. Avvolgi in ambiente ────────────────────────────────────────────
+        self._add_latex_wrap_menu_btn()
         self._add_separator()
 
-        # Begin / End ambiente
-        tip_begin = tr("action.lang_toolbar_begin_env", default="Inizio ambiente")
-        btn_begin = self._add_icon_btn("latex_begin", r"\begin{}", tip_begin)
-        btn_begin.clicked.connect(self._latex_begin)
+        # ── 6. Riferimenti: label, ref, nota, citazioni ───────────────────────
+        tip = tr("tooltip.latex_label", default="\\label{}")
+        btn_lbl = self._add_icon_btn("latex_label", "\\label", tip)
+        btn_lbl.clicked.connect(self._insert_latex_label)
 
-        tip_end = tr("action.lang_toolbar_end_env", default="Fine ambiente")
-        btn_end = self._add_icon_btn("latex_end", r"\end{}", tip_end)
-        btn_end.clicked.connect(self._latex_end)
+        tip = tr("tooltip.latex_ref", default="\\ref{}")
+        btn_ref = self._add_icon_btn("latex_ref", "\\ref", tip)
+        btn_ref.clicked.connect(self._insert_latex_ref)
+
+        tip = tr("tooltip.latex_footnote", default="Nota a piè di pagina  \\footnote{}")
+        btn_fn = self._add_icon_btn("latex_footnote", "FN", tip)
+        btn_fn.clicked.connect(self._insert_latex_footnote)
+
+        self._add_latex_cite_btn()
         self._add_separator()
 
-        # Build
-        for key in ("compile", "run", "build", "stop_build"):
+        # ── 7. Build ──────────────────────────────────────────────────────────
+        for key in ("compile", "run", "stop_build"):
             if key in acts:
                 self._add_action_button(acts[key])
+
+    # ── Helper menu-button LaTeX ──────────────────────────────────────────────
+
+    def _add_latex_menu_btn(self, items: list[tuple[str, str]], default_label: str,
+                             width: int, tooltip: str, handler) -> QToolButton:
+        """QToolButton + QMenu (InstantPopup): si apre al click, mostra l'ultimo elemento scelto."""
+        btn = QToolButton(self)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        btn.setToolTip(tooltip)
+        btn.setFixedWidth(width)
+        btn.setText(default_label)
+
+        menu = QMenu(btn)
+        for label, cmd in items:
+            action = menu.addAction(label)
+            action.triggered.connect(
+                lambda checked=False, _lbl=label, _cmd=cmd: (
+                    btn.setText(_lbl),
+                    handler(_cmd),
+                )
+            )
+        btn.setMenu(menu)
+        self._layout.insertWidget(self._layout.count() - 1, btn)
+        return btn
+
+    def _add_latex_cite_btn(self) -> QToolButton:
+        label = tr("tooltip.latex_cite_combo", default="Cita / Bib")
+        btn = QToolButton(self)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        btn.setToolTip(label)
+        btn.setFixedWidth(95)
+        btn.setText(label)
+
+        menu = QMenu(btn)
+        cite_entries = [
+            (r"\cite{}",              "cite"),
+            (r"\citet{}",             "citet"),
+            (r"\citep{}",             "citep"),
+            (r"\nocite{*}",           "nocite_all"),
+            (r"\bibliography{}",      "bibliography"),
+            (r"\bibliographystyle{}", "bibliographystyle"),
+        ]
+        for item_label, key in cite_entries:
+            action = menu.addAction(item_label)
+            action.triggered.connect(lambda checked=False, k=key: self._dispatch_cite(k))
+        btn.setMenu(menu)
+        self._layout.insertWidget(self._layout.count() - 1, btn)
+        return btn
+
+    def _add_latex_math_menu_btn(self) -> QToolButton:
+        """MenuButtonPopup: click principale = inline math, freccia = altri modi."""
+        btn = QToolButton(self)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        btn.setText("$")
+        btn.setToolTip(tr("tooltip.latex_inline_math", default="Matematica inline  $…$"))
+        btn.clicked.connect(self._insert_latex_inline_math)
+
+        menu = QMenu(btn)
+        menu.addAction(tr("action.latex_math_inline",   default="$…$  (inline)"),
+                       self._insert_latex_inline_math)
+        menu.addAction(tr("action.latex_math_display",  default="\\[…\\]  (blocco)"),
+                       self._insert_latex_display_math)
+        menu.addSeparator()
+        menu.addAction(tr("action.latex_math_equation", default="\\begin{equation}"),
+                       lambda: self._wrap_latex_env("equation"))
+        menu.addAction(tr("action.latex_math_align",    default="\\begin{align}"),
+                       lambda: self._wrap_latex_env("align"))
+        menu.addAction(tr("action.latex_math_gather",   default="\\begin{gather}"),
+                       lambda: self._wrap_latex_env("gather"))
+        btn.setMenu(menu)
+        self._layout.insertWidget(self._layout.count() - 1, btn)
+        return btn
+
+    def _add_latex_table_menu_btn(self) -> QToolButton:
+        """MenuButtonPopup: click principale = inserisci tabella, freccia = modifica."""
+        btn = QToolButton(self)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        icon = _load_icon("md_table", self._mw)
+        if not icon.isNull():
+            btn.setIcon(icon)
+            btn.setIconSize(_ICON_SIZE)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        else:
+            btn.setText("▦")
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        btn.setToolTip(tr("action.lang_toolbar_table", default="Tabella"))
+        btn.clicked.connect(self._show_latex_table_picker)
+
+        menu = QMenu(btn)
+        menu.addAction(tr("action.latex_insert_table", default="Inserisci tabella…"),
+                       self._show_latex_table_picker)
+        menu.addSeparator()
+        for label, action, where in [
+            (tr("tooltip.table_row_above",  default="Riga sopra"),          "row", "above"),
+            (tr("tooltip.table_row_below",  default="Riga sotto"),          "row", "below"),
+            (tr("tooltip.table_col_left",   default="Colonna sinistra"),    "col", "left"),
+            (tr("tooltip.table_col_right",  default="Colonna destra"),      "col", "right"),
+        ]:
+            menu.addAction(label, lambda a=action, w=where: self._table_edit(a, w))
+        menu.addSeparator()
+        menu.addAction(tr("tooltip.table_delete_row", default="Elimina riga"),
+                       lambda: self._table_edit("del_row", None))
+        menu.addAction(tr("tooltip.table_delete_col", default="Elimina colonna"),
+                       lambda: self._table_edit("del_col", None))
+        btn.setMenu(menu)
+        self._layout.insertWidget(self._layout.count() - 1, btn)
+        return btn
+
+    def _add_md_table_menu_btn(self) -> QToolButton:
+        """MenuButtonPopup per Markdown: click = inserisci, freccia = modifica."""
+        btn = QToolButton(self)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        icon = _load_icon("md_table", self._mw)
+        if not icon.isNull():
+            btn.setIcon(icon)
+            btn.setIconSize(_ICON_SIZE)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        else:
+            btn.setText("▦")
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        btn.setToolTip(tr("action.lang_toolbar_table", default="Tabella"))
+        btn.clicked.connect(self._show_md_table_picker)
+
+        menu = QMenu(btn)
+        menu.addAction(tr("action.latex_insert_table", default="Inserisci tabella…"),
+                       self._show_md_table_picker)
+        menu.addSeparator()
+        for label, action, where in [
+            (tr("tooltip.table_row_above",  default="Riga sopra"),          "row", "above"),
+            (tr("tooltip.table_row_below",  default="Riga sotto"),          "row", "below"),
+            (tr("tooltip.table_col_left",   default="Colonna sinistra"),    "col", "left"),
+            (tr("tooltip.table_col_right",  default="Colonna destra"),      "col", "right"),
+        ]:
+            menu.addAction(label, lambda a=action, w=where: self._table_edit(a, w))
+        menu.addSeparator()
+        menu.addAction(tr("tooltip.table_delete_row", default="Elimina riga"),
+                       lambda: self._table_edit("del_row", None))
+        menu.addAction(tr("tooltip.table_delete_col", default="Elimina colonna"),
+                       lambda: self._table_edit("del_col", None))
+        btn.setMenu(menu)
+        self._layout.insertWidget(self._layout.count() - 1, btn)
+        return btn
+
+    def _add_latex_wrap_menu_btn(self) -> QToolButton:
+        """InstantPopup con ambienti comuni (allineamento + float + riquadri)."""
+        btn = QToolButton(self)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        btn.setText(tr("tooltip.latex_wrap_menu", default="Avvolgi"))
+        btn.setToolTip(tr("tooltip.latex_wrap_menu", default="Avvolgi in ambiente"))
+
+        menu = QMenu(btn)
+        # Allineamento
+        menu.addAction("center  (↔)",      lambda: self._wrap_latex_env("center"))
+        menu.addAction("flushleft  (←)",   lambda: self._wrap_latex_env("flushleft"))
+        menu.addAction("flushright  (→)",  lambda: self._wrap_latex_env("flushright"))
+        menu.addSeparator()
+        # Float e figure
+        menu.addAction("figure",           lambda: self._wrap_latex_env("figure"))
+        menu.addAction("table",            lambda: self._wrap_latex_env("table"))
+        menu.addAction("minipage",         lambda: self._wrap_latex_env("minipage"))
+        menu.addAction("multicols",        lambda: self._wrap_latex_env("multicols"))
+        menu.addSeparator()
+        # Riquadri
+        menu.addAction("framed",           lambda: self._wrap_latex_env("framed"))
+        menu.addAction("verbatim",         lambda: self._wrap_latex_env("verbatim"))
+        menu.addSeparator()
+        menu.addAction(tr("action.latex_wrap_custom", default="Personalizzato…"),
+                       self._latex_wrap_custom)
+        btn.setMenu(menu)
+        self._layout.insertWidget(self._layout.count() - 1, btn)
+        return btn
+
+    def _dispatch_cite(self, key: str) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        if key == "cite":
+            self._latex_cite_dialog(editor, r"\cite")
+        elif key == "citet":
+            self._latex_cite_dialog(editor, r"\citet")
+        elif key == "citep":
+            self._latex_cite_dialog(editor, r"\citep")
+        elif key == "nocite_all":
+            self._latex_insert_raw(editor, r"\nocite{*}")
+        elif key == "bibliography":
+            self._latex_bibliography_dialog(editor)
+        elif key == "bibliographystyle":
+            self._latex_bibliographystyle_dialog(editor)
+        editor.setFocus()
+
+    # ── Handler LaTeX — sezioni ───────────────────────────────────────────────
+
+    def _insert_latex_section(self, cmd: str) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        sel = editor.selectedText()
+        editor.beginUndoAction()
+        if sel:
+            editor.replaceSelectedText(f"{cmd}{{{sel}}}")
+        else:
+            line, col = editor.getCursorPosition()
+            editor.insert(f"{cmd}{{}}")
+            editor.setCursorPosition(line, col + len(cmd) + 1)
+        editor.endUndoAction()
+        editor.setFocus()
+
+    # ── Handler LaTeX — matematica ───────────────────────────────────────────
+
+    def _insert_latex_inline_math(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        sel = editor.selectedText()
+        editor.beginUndoAction()
+        if sel:
+            editor.replaceSelectedText(f"${sel}$")
+        else:
+            line, col = editor.getCursorPosition()
+            editor.insert("$$")
+            editor.setCursorPosition(line, col + 1)
+        editor.endUndoAction()
+        editor.setFocus()
+
+    def _insert_latex_display_math(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        sel = editor.selectedText()
+        editor.beginUndoAction()
+        if sel:
+            editor.replaceSelectedText(f"\\[\n    {sel}\n\\]")
+        else:
+            line, _ = editor.getCursorPosition()
+            editor.insert("\\[\n    \n\\]")
+            editor.setCursorPosition(line + 1, 4)
+        editor.endUndoAction()
+        editor.setFocus()
+
+    # ── Handler LaTeX — riferimenti ───────────────────────────────────────────
+
+    def _insert_latex_label(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        key, ok = QInputDialog.getText(
+            self._mw,
+            tr("tooltip.latex_label", default="\\label{}"),
+            tr("action.lang_toolbar_label_key", default="Chiave label:"),
+        )
+        if not ok:
+            return
+        self._latex_insert_raw(editor, f"\\label{{{key.strip()}}}")
+        editor.setFocus()
+
+    def _insert_latex_ref(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        key, ok = QInputDialog.getText(
+            self._mw,
+            tr("tooltip.latex_ref", default="\\ref{}"),
+            tr("action.lang_toolbar_ref_key", default="Chiave di riferimento:"),
+        )
+        if not ok:
+            return
+        self._latex_insert_raw(editor, f"\\ref{{{key.strip()}}}")
+        editor.setFocus()
+
+    def _latex_wrap_custom(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        env, ok = QInputDialog.getText(
+            self._mw,
+            tr("action.lang_toolbar_begin_env", default="Inizio ambiente"),
+            tr("action.lang_toolbar_env_name",  default="Nome ambiente:"),
+        )
+        if ok and env.strip():
+            self._wrap_latex_env(env.strip())
+        editor.setFocus()
+
+    # ── Handler LaTeX — dimensione testo ──────────────────────────────────────
+
+    def _insert_latex_fontsize(self, cmd: str) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        sel = editor.selectedText()
+        editor.beginUndoAction()
+        if sel:
+            editor.replaceSelectedText(f"{{{cmd} {sel}}}")
+        else:
+            line, col = editor.getCursorPosition()
+            snippet = f"{{{cmd} }}"
+            editor.insert(snippet)
+            editor.setCursorPosition(line, col + len(cmd) + 2)
+        editor.endUndoAction()
+        editor.setFocus()
+
+    # ── Handler LaTeX — nota e citazioni ──────────────────────────────────────
+
+    def _insert_latex_footnote(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        sel = editor.selectedText()
+        editor.beginUndoAction()
+        if sel:
+            editor.replaceSelectedText(f"\\footnote{{{sel}}}")
+        else:
+            line, col = editor.getCursorPosition()
+            editor.insert(r"\footnote{}")
+            editor.setCursorPosition(line, col + len(r"\footnote{"))
+        editor.endUndoAction()
+        editor.setFocus()
+
+    def _latex_cite_dialog(self, editor, cmd: str) -> None:
+        key, ok = QInputDialog.getText(
+            self._mw,
+            tr("tooltip.latex_cite_combo", default="Cita / Bib"),
+            tr("action.lang_toolbar_cite_key", default="Chiave di citazione:"),
+        )
+        if not ok or not key.strip():
+            return
+        sel = editor.selectedText()
+        editor.beginUndoAction()
+        if sel:
+            editor.replaceSelectedText(f"{cmd}[{sel}]{{{key.strip()}}}")
+        else:
+            line, col = editor.getCursorPosition()
+            snippet = f"{cmd}{{{key.strip()}}}"
+            editor.insert(snippet)
+            editor.setCursorPosition(line, col + len(snippet))
+        editor.endUndoAction()
+
+    def _latex_bibliography_dialog(self, editor) -> None:
+        name, ok = QInputDialog.getText(
+            self._mw,
+            tr("action.lang_toolbar_bibliography", default="Bibliografia"),
+            tr("action.lang_toolbar_bib_file", default="Nome file .bib (senza estensione):"),
+        )
+        if not ok or not name.strip():
+            return
+        self._latex_insert_raw(editor, f"\\bibliography{{{name.strip()}}}")
+
+    def _latex_bibliographystyle_dialog(self, editor) -> None:
+        from PyQt6.QtWidgets import QInputDialog
+        styles = ["plain", "alpha", "abbrv", "unsrt", "apalike", "ieeetr", "acm", "siam"]
+        style, ok = QInputDialog.getItem(
+            self._mw,
+            tr("action.lang_toolbar_bibliographystyle", default="Stile bibliografia"),
+            tr("action.lang_toolbar_bib_style", default="Stile:"),
+            styles, 0, True,
+        )
+        if not ok or not style.strip():
+            return
+        self._latex_insert_raw(editor, f"\\bibliographystyle{{{style.strip()}}}")
+
+    def _latex_insert_raw(self, editor, snippet: str) -> None:
+        editor.beginUndoAction()
+        line, col = editor.getCursorPosition()
+        editor.insert(snippet)
+        editor.setCursorPosition(line, col + len(snippet))
+        editor.endUndoAction()
 
     # ── Handler Markdown — intestazioni ──────────────────────────────────────
 

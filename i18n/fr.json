@@ -145,6 +145,7 @@
     "set_encoding": "Définir l'encodage",
     "set_line_ending": "Définir la fin de ligne",
     "clone_document": "Cloner le document",
+    "ftp_upload_tab": "Envoyer vers FTP",
     "trim_trailing": "Supprimer les espaces de fin",
     "tabs_to_spaces": "Convertir les tabulations en espaces",
     "spaces_to_tabs": "Convertir les espaces en tabulations",
@@ -276,7 +277,21 @@
     "convert_table_md": "Markdown",
     "convert_table_tex": "LaTeX tabularx",
     "table_header_row": "Première ligne comme en-tête",
-    "table_data_rows": "Toutes les lignes comme données"
+    "table_data_rows": "Toutes les lignes comme données",
+    "lang_toolbar_cite_key": "Clé de citation :",
+    "lang_toolbar_bibliography": "Bibliographie",
+    "lang_toolbar_bib_file": "Nom du fichier .bib (sans extension) :",
+    "lang_toolbar_bibliographystyle": "Style de bibliographie",
+    "lang_toolbar_bib_style": "Style :",
+    "latex_insert_table": "Insérer un tableau…",
+    "latex_math_inline": "$…$  (en ligne)",
+    "latex_math_display": "\\[…\\]  (bloc)",
+    "latex_math_equation": "\\begin{equation}  (numérotée)",
+    "latex_math_align": "\\begin{align}  (aligné)",
+    "latex_math_gather": "\\begin{gather}  (rassemblement)",
+    "latex_wrap_custom": "Personnalisé…",
+    "lang_toolbar_label_key": "Clé d'étiquette :",
+    "lang_toolbar_ref_key": "Clé de référence :"
   },
   "color": {
     "red": "Rouge",
@@ -724,6 +739,8 @@
       "dock_title": "Navigateur FTP",
       "description": "Panneau de navigation et de transfert de fichiers FTP/SFTP."
     },
+    "ftp_upload_ok": "✓ Envoyé : {path}",
+    "ftp_not_connected": "Non connecté",
     "encrypt": {
       "menu": "Chiffrer/Déchiffrer",
       "encrypt_action": "Chiffrer le texte sélectionné…",
@@ -853,6 +870,7 @@
     "ftp_edit_profile": "Modifier le profil",
     "ftp_del_profile": "Supprimer le profil",
     "ftp_parent_dir": "Répertoire parent",
+    "ftp_refresh": "Actualiser la liste",
     "ftp_new_file": "Nouveau fichier",
     "terminal_clear": "Effacer l'écran",
     "terminal_restart": "Redémarrer la session terminal",
@@ -923,7 +941,15 @@
     "all_replace_btn": "Remplacer le texte dans tous les documents ouverts",
     "websearch_search_btn": "Rechercher sur Wikipédia",
     "websearch_open_browser": "Ouvrir la page Wikipédia complète dans le navigateur par défaut",
-    "websearch_custom_url": "URL du moteur de recherche. Utilise {query} comme espace réservé pour le mot recherché.\nExemple: https://example.com/search?q={query}"
+    "websearch_custom_url": "URL du moteur de recherche. Utilise {query} comme espace réservé pour le mot recherché.\nExemple: https://example.com/search?q={query}",
+    "latex_section_combo": "Niveau de section",
+    "latex_size_combo": "Taille du texte",
+    "latex_footnote": "Note de bas de page  \\footnote{}",
+    "latex_cite_combo": "Citer / Bib",
+    "latex_inline_math": "Maths en ligne  $…$",
+    "latex_label": "\\label{}  (étiquette)",
+    "latex_ref": "\\ref{}  (référence)",
+    "latex_wrap_menu": "Encadrer dans un environnement"
   },
   "websearch": {
     "submenu_title": "Recherche Web",

@@ -522,6 +522,24 @@ class TabManager(QTabWidget):
             lambda: self._clone_tab(editor)
         )
 
+        # FTP upload — only for local files (files opened from FTP use the panel's own upload)
+        try:
+            from plugins.plugin_manager import PluginManager
+            ftp_entry = PluginManager.instance().get_all().get("FTP Browser")
+            if ftp_entry and ftp_entry.get("enabled"):
+                ftp_panel = ftp_entry["instance"]._panel
+                is_ftp_file = bool(getattr(editor, "_ftp_remote_path", None))
+                has_connection = ftp_panel._conn is not None
+                has_current_dir = bool(ftp_panel._current_dir)
+                if (not is_ftp_file) and has_connection and has_current_dir and editor.file_path:
+                    menu.addSeparator()
+                    dest = ftp_panel._current_dir.rstrip("/") + "/" + editor.file_path.name
+                    act_ftp = menu.addAction(tr("action.ftp_upload_tab", default="Upload to FTP"))
+                    act_ftp.setToolTip(dest)
+                    act_ftp.triggered.connect(lambda: ftp_panel.upload_editor(editor))
+        except Exception:
+            pass
+
         menu.exec(self._tab_bar.mapToGlobal(pos))
 
     def _open_containing_dir(self, editor: EditorWidget) -> None:

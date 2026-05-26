@@ -667,6 +667,22 @@ class AutoCompleteManager(QObject):
         language: stringa lowercase es. "python", "latex", "html"
         """
         self._language = language.lower()
+        # Per LaTeX, \ deve essere un word-character in modo che \label{},
+        # \pageref{} ecc. vengano abbinati quando si digita \la…, \pa…
+        # (senza questa impostazione \ non è word-char e le voci API con \cmd{}
+        # non vengono mai proposte dall'autocomplete)
+        from PyQt6.Qsci import QsciScintilla as _QSci
+        if self._language in ("latex", "bibtex"):
+            self._editor.SendScintilla(
+                _QSci.SCI_SETWORDCHARS,
+                b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_\\"
+            )
+        else:
+            self._editor.SendScintilla(
+                _QSci.SCI_SETWORDCHARS,
+                b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+            )
+        self._editor.setAutoCompletionWordSeparators([])
         self._rebuild_api()
 
     def _rebuild_api(self) -> None:
@@ -777,9 +793,23 @@ class AutoCompleteManager(QObject):
 
         cmd = match.group(1)
 
-        if cmd in ("ref", "eqref", "pageref", "autoref", "cref", "Cref",
-                   "nameref", "hyperref", "vref", "cpageref", "labelcref"):
+        if cmd in ("ref", "eqref", "pageref", "autoref",
+                   "cref", "Cref", "crefrange",
+                   "nameref", "namecrefs", "lcnamecref",
+                   "vref", "vpageref", "cpageref", "labelcref"):
             self._complete_labels()
+            return True
+        elif cmd == "hyperref":
+            # \hyperref[label]{text} — il label va fra [ ], non { }
+            # ma intercettiamo anche \hyperref{ come fallback
+            self._complete_labels()
+            return True
+        elif cmd in ("hyperlink",):
+            self._complete_hypertargets()
+            return True
+        elif cmd in ("hypertarget",):
+            # mostra i target esistenti per evitare duplicati
+            self._complete_hypertargets()
             return True
         elif cmd in ("cite", "citep", "citet", "citeauthor", "citeyear",
                      "parencite", "footcite", "textcite", "autocite",
@@ -833,6 +863,11 @@ class AutoCompleteManager(QObject):
         ed = self._editor
         line, col = ed.getCursorPosition()
         line_text = ed.text(line)[:col]
+
+        # \\hyperref[  →  label del progetto (il label di hyperref è fra [ ])
+        if re.search(r'\\hyperref\[$', line_text):
+            self._complete_labels()
+            return True
 
         # \\begin{env}[  →  opzioni ambiente
         m = re.search(r'\\begin\{([^}]+)\}\[$', line_text)
@@ -913,15 +948,28 @@ class AutoCompleteManager(QObject):
             return []
 
     def _complete_labels(self) -> None:
-        """Popup con tutte le \\label{} del documento e dei file inclusi."""
+        """Popup con tutte le \\label{} del progetto con tipo rilevato."""
         from editor.latex_support import LaTeXSupport
         fp = getattr(self._editor, "file_path", None)
         if fp:
-            labels = LaTeXSupport.extract_labels_multifile(fp)
+            pairs = LaTeXSupport.extract_labels_with_context_multifile(fp)
         else:
-            labels = LaTeXSupport.extract_labels(self._editor.text())
-        if labels:
-            self._editor.showUserList(1, labels)
+            pairs = LaTeXSupport.extract_labels_with_context(self._editor.text())
+        if pairs:
+            items = [f"{key}  [{hint}]" if hint and hint != "label" else key
+                     for key, hint in pairs]
+            self._editor.showUserList(5, sorted(items))
+
+    def _complete_hypertargets(self) -> None:
+        """Popup con i nomi \\hypertarget definiti nel progetto."""
+        from editor.latex_support import LaTeXSupport
+        fp = getattr(self._editor, "file_path", None)
+        if fp:
+            names = LaTeXSupport.extract_hypertargets_multifile(fp)
+        else:
+            names = LaTeXSupport.extract_hypertargets(self._editor.text())
+        if names:
+            self._editor.showUserList(6, names)
 
     def _complete_cite_keys(self) -> None:
         """Popup con le chiavi BibTeX (supporto multi-file)."""

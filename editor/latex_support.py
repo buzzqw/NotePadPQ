@@ -809,6 +809,57 @@ class LaTeXSupport:
             lambda char: LaTeXSupport._on_char_added(editor, char)
         )
 
+        # SCN_AUTOCCOMPLETED: aggiunge {} dopo comandi LaTeX completati da API
+        prev_ac_handler = getattr(editor, "_latex_ac_done_handler", None)
+        if prev_ac_handler:
+            try:
+                editor.SCN_AUTOCCOMPLETED.disconnect(prev_ac_handler)
+            except Exception:
+                pass
+        handler = lambda sel, pos, ch, method: LaTeXSupport._on_autocomplete_done(
+            editor, sel, pos, ch, method
+        )
+        editor._latex_ac_done_handler = handler
+        editor.SCN_AUTOCCOMPLETED.connect(handler)
+
+    @staticmethod
+    def _on_autocomplete_done(editor: "EditorWidget", selection, position: int,
+                               ch: int, method: int) -> None:
+        """
+        Dopo la selezione di un'API LaTeX con {}, posiziona il cursore dentro
+        le graffe e attiva il popup contestuale.
+
+        Gestisce due casi a seconda della versione QScintilla:
+        - A) {} già inserite (cursore dopo }) → sposta cursore dentro
+        - B) {} non inserite (cursore dopo \\cmd) → le inserisce poi sposta
+        """
+        sel = selection or ""
+        if "{}" not in sel:
+            return
+
+        line, col = editor.getCursorPosition()
+        line_text = editor.text(line)
+        text_before = line_text[:col]
+        ac = getattr(editor, "_autocomplete", None)
+
+        if text_before.endswith("{}"):
+            # Caso A: {} già presenti — sposta cursore dentro
+            editor.setCursorPosition(line, col - 1)
+            if ac:
+                ac.handle_latex_special("{")
+
+        elif re.search(r'\\[a-zA-Z]+$', text_before):
+            # Caso B: solo il comando, senza {} — le aggiungiamo
+            if col >= len(line_text) or line_text[col] != "{":
+                editor._in_paste = True
+                try:
+                    editor.insert("{}")
+                    editor.setCursorPosition(line, col + 1)
+                finally:
+                    editor._in_paste = False
+                if ac:
+                    ac.handle_latex_special("{")
+
     @staticmethod
     def _on_char_added(editor: "EditorWidget", char_int: int) -> None:
         """Gestisce i caratteri speciali LaTeX."""
@@ -962,10 +1013,169 @@ class LaTeXSupport:
 
     # ── Estrazione struttura documento ───────────────────────────────────────
 
+    # ── Mappe per rilevamento tipo label ─────────────────────────────────────
+    _LABEL_PREFIX_MAP: dict[str, str] = {
+        "fig": "figura",    "figure": "figura",
+        "tab": "tabella",   "tbl": "tabella",   "table": "tabella",
+        "eq":  "equazione", "eqn": "equazione",
+        "sec": "sezione",   "sect": "sezione",  "section": "sezione",
+        "sub": "sottosezione", "subsec": "sottosezione",
+        "ch":  "capitolo",  "chap": "capitolo",
+        "alg": "algoritmo", "algo": "algoritmo",
+        "lst": "codice",    "listing": "codice", "code": "codice",
+        "thm": "teorema",   "theorem": "teorema",
+        "lem": "lemma",
+        "prop": "proposizione",
+        "cor": "corollario",
+        "def": "definizione",
+        "app": "appendice",
+    }
+
+    _ENV_TYPE_MAP: dict[str, str] = {
+        "figure": "figura",     "figure*": "figura",    "subfigure": "figura",
+        "table":  "tabella",    "table*": "tabella",
+        "equation": "equazione","equation*": "equazione",
+        "align":    "equazione","align*": "equazione",
+        "gather":   "equazione","gather*": "equazione",
+        "eqnarray": "equazione","eqnarray*": "equazione",
+        "multline": "equazione","multline*": "equazione",
+        "flalign":  "equazione","flalign*": "equazione",
+        "algorithm": "algoritmo", "algorithm2e": "algoritmo",
+        "lstlisting": "codice", "verbatim": "codice", "minted": "codice",
+        "theorem": "teorema",   "thm": "teorema",
+        "lemma":   "lemma",     "lem": "lemma",
+        "proposition": "proposizione",
+        "corollary": "corollario",
+        "definition": "definizione", "defn": "definizione",
+        "proof": "dimostrazione",
+        "frame": "slide",
+    }
+
+    _SECTION_CMD_MAP: dict[str, str] = {
+        "part": "parte",            "chapter": "capitolo",
+        "section": "sezione",       "subsection": "sottosezione",
+        "subsubsection": "sottosottosezione",
+        "paragraph": "paragrafo",   "subparagraph": "sottoparagrafo",
+    }
+
     @staticmethod
     def extract_labels(text: str) -> list[str]:
         """Estrae tutte le \\label{} dal documento."""
         return sorted(set(re.findall(r'\\label\{([^}]+)\}', text)))
+
+    @staticmethod
+    def extract_labels_with_context(text: str) -> list[tuple[str, str]]:
+        """Restituisce [(chiave_label, tipo_rilevato), ...].
+
+        Il tipo viene rilevato:
+        1. Dal prefisso della chiave (fig:, tab:, eq:, sec:, ...)
+        2. Scansionando l'ambiente o il comando di sezionamento più vicino
+           nei ~600 caratteri precedenti la \\label.
+        """
+        pm  = LaTeXSupport._LABEL_PREFIX_MAP
+        em  = LaTeXSupport._ENV_TYPE_MAP
+        sm  = LaTeXSupport._SECTION_CMD_MAP
+        sec_re = re.compile(
+            r'\\(' + '|'.join(re.escape(k) for k in sm) + r')\*?(?:\[.*?\])?\{',
+            re.DOTALL,
+        )
+        results: list[tuple[str, str]] = []
+        seen: set[str] = set()
+
+        for m in re.finditer(r'\\label\{([^}]+)\}', text):
+            key = m.group(1).strip()
+            if key in seen:
+                continue
+            seen.add(key)
+
+            # 1. Prefisso
+            prefix = key.split(":")[0].lower() if ":" in key else ""
+            if prefix in pm:
+                results.append((key, pm[prefix]))
+                continue
+
+            # 2. Contesto
+            context = text[max(0, m.start() - 600): m.start()]
+            type_hint = ""
+
+            sec_m = list(sec_re.finditer(context))
+            env_m = list(re.finditer(r'\\begin\{([^}]+)\}', context))
+
+            sec_pos = sec_m[-1].start() if sec_m else -1
+            env_pos = env_m[-1].start() if env_m else -1
+
+            if sec_pos >= env_pos and sec_m:
+                type_hint = sm.get(sec_m[-1].group(1), "sezione")
+            elif env_m:
+                env_name = env_m[-1].group(1).lower().rstrip("*")
+                type_hint = em.get(env_name, "")
+
+            results.append((key, type_hint or "label"))
+
+        return sorted(results, key=lambda x: x[0])
+
+    @staticmethod
+    def extract_labels_with_context_multifile(
+        tex_path: Optional[Path],
+    ) -> list[tuple[str, str]]:
+        """Versione multi-file di extract_labels_with_context."""
+        out: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for fpath in LaTeXSupport.collect_project_files(tex_path):
+            try:
+                text = fpath.read_text(encoding="utf-8", errors="replace")
+                for key, hint in LaTeXSupport.extract_labels_with_context(text):
+                    if key not in seen:
+                        seen.add(key)
+                        out.append((key, hint))
+            except Exception:
+                pass
+        return sorted(out, key=lambda x: x[0])
+
+    _REF_KEY_RE = re.compile(
+        r'\\(?:ref|pageref|eqref|autoref|cref|Cref|nameref|namecrefs?|lcnamecref|'
+        r'vref|vpageref|cpageref|labelcref|crefrange)\{([^}]+)\}'
+        r'|\\hyperref\[([^\]]+)\]',
+    )
+
+    @staticmethod
+    def extract_ref_keys(text: str) -> list[str]:
+        """Chiavi usate in comandi \\ref{}, \\pageref{}, \\hyperref[], ecc."""
+        keys: set[str] = set()
+        for m in LaTeXSupport._REF_KEY_RE.finditer(text):
+            k = (m.group(1) or m.group(2) or "").strip()
+            if k:
+                keys.add(k)
+        return sorted(keys)
+
+    @staticmethod
+    def extract_ref_keys_multifile(tex_path: Optional[Path]) -> list[str]:
+        """Versione multi-file di extract_ref_keys."""
+        keys: set[str] = set()
+        for fpath in LaTeXSupport.collect_project_files(tex_path):
+            try:
+                text = fpath.read_text(encoding="utf-8", errors="replace")
+                keys.update(LaTeXSupport.extract_ref_keys(text))
+            except Exception:
+                pass
+        return sorted(keys)
+
+    @staticmethod
+    def extract_hypertargets(text: str) -> list[str]:
+        """Estrae i nomi definiti con \\hypertarget{nome}{...}."""
+        return sorted(set(re.findall(r'\\hypertarget\{([^}]+)\}', text)))
+
+    @staticmethod
+    def extract_hypertargets_multifile(tex_path: Optional[Path]) -> list[str]:
+        """Versione multi-file di extract_hypertargets."""
+        names: list[str] = []
+        for fpath in LaTeXSupport.collect_project_files(tex_path):
+            try:
+                text = fpath.read_text(encoding="utf-8", errors="replace")
+                names.extend(LaTeXSupport.extract_hypertargets(text))
+            except Exception:
+                pass
+        return sorted(set(names))
 
     @staticmethod
     def extract_bibtex_keys(text: str,

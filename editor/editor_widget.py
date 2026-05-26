@@ -1471,7 +1471,29 @@ class EditorWidget(QsciScintilla):
     def _on_user_list_selection(self, list_id: int, text: str) -> None:
         """Inserisce la chiave selezionata nel testo."""
         if list_id == 1:
-            self.insert(text)
+            self._insert_and_close_brace(text)
+        elif list_id == 5:
+            key = text.split("  [")[0] if "  [" in text else text
+            self._insert_and_close_brace(key)
+        elif list_id == 6:
+            self._insert_and_close_brace(text)
+
+    def _insert_and_close_brace(self, key: str) -> None:
+        """Inserisce key alla posizione cursore, sposta il cursore dopo key
+        e aggiunge } se non già presente (robustezza per testo digitato manualmente)."""
+        line, col = self.getCursorPosition()
+        self.insert(key)
+        # insert() non sposta il cursore → calcoliamo la nuova posizione
+        line_text = self.text(line)
+        new_col = col + len(key)
+        if new_col < len(line_text) and line_text[new_col] == "}":
+            # } già presente (inserita automaticamente) — salta oltre
+            self.setCursorPosition(line, new_col + 1)
+        else:
+            # } assente (testo scritto manualmente) — la aggiungiamo
+            self.setCursorPosition(line, new_col)
+            self.insert("}")
+            self.setCursorPosition(line, new_col + 1)
             
     # ── Tooltip Immagini (Hover) ──────────────────────────────────────────────
 

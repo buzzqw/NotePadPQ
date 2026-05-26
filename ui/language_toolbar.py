@@ -62,6 +62,8 @@ _MD_ICON_FILES: dict[str, str] = {
     "latex_footnote": "type.svg",
     "latex_label":    "bookmark.svg",
     "latex_ref":      "link.svg",
+    "latex_math":     "sigma.svg",
+    "latex_table":    "table.svg",
 }
 
 _ICON_SIZE = QSize(20, 20)
@@ -77,35 +79,40 @@ _TABLE_BTN_TEXT: dict[str, str] = {
 }
 
 
-_LATEX_SECTIONS: list[tuple[str, str]] = [
-    ("parte",               r"\part"),
-    ("capitolo",            r"\chapter"),
-    ("sezione",             r"\section"),
-    ("sottosezione",        r"\subsection"),
-    ("sottosottosezione",   r"\subsubsection"),
-    ("paragrafo",           r"\paragraph"),
-    ("sottoparagrafo",      r"\subparagraph"),
-    ("parte*",              r"\part*"),
-    ("capitolo*",           r"\chapter*"),
-    ("sezione*",            r"\section*"),
-    ("sottosezione*",       r"\subsection*"),
-    ("sottosottosezione*",  r"\subsubsection*"),
-    ("paragrafo*",          r"\paragraph*"),
-    ("sottoparagrafo*",     r"\subparagraph*"),
-]
+def _get_latex_sections() -> list[tuple[str, str]]:
+    def s(key: str) -> str:
+        return tr(f"latex_toolbar.{key}")
+    return [
+        (s("part"),                        r"\part"),
+        (s("chapter"),                     r"\chapter"),
+        (s("section"),                     r"\section"),
+        (s("subsection"),                  r"\subsection"),
+        (s("subsubsection"),               r"\subsubsection"),
+        (s("paragraph"),                   r"\paragraph"),
+        (s("subparagraph"),                r"\subparagraph"),
+        (s("part")          + "*",         r"\part*"),
+        (s("chapter")       + "*",         r"\chapter*"),
+        (s("section")       + "*",         r"\section*"),
+        (s("subsection")    + "*",         r"\subsection*"),
+        (s("subsubsection") + "*",         r"\subsubsection*"),
+        (s("paragraph")     + "*",         r"\paragraph*"),
+        (s("subparagraph")  + "*",         r"\subparagraph*"),
+    ]
 
-_LATEX_FONT_SIZES: list[tuple[str, str]] = [
-    ("tiny",         r"\tiny"),
-    ("scriptsize",   r"\scriptsize"),
-    ("footnotesize", r"\footnotesize"),
-    ("piccola",      r"\small"),
-    ("normalsize",   r"\normalsize"),
-    ("large",        r"\large"),
-    ("Large",        r"\Large"),
-    ("LARGE",        r"\LARGE"),
-    ("huge",         r"\huge"),
-    ("Huge",         r"\Huge"),
-]
+
+def _get_latex_font_sizes() -> list[tuple[str, str]]:
+    return [
+        ("tiny",                                    r"\tiny"),
+        ("scriptsize",                              r"\scriptsize"),
+        ("footnotesize",                            r"\footnotesize"),
+        (tr("latex_toolbar.size_small"),            r"\small"),
+        ("normalsize",                              r"\normalsize"),
+        ("large",                                   r"\large"),
+        ("Large",                                   r"\Large"),
+        ("LARGE",                                   r"\LARGE"),
+        ("huge",                                    r"\huge"),
+        ("Huge",                                    r"\Huge"),
+    ]
 
 _LATEX_CITE_ITEMS: list[tuple[str, str]] = [
     (r"\cite{}",              "cite"),
@@ -175,6 +182,25 @@ def _make_table_icon(key: str, mw: "MainWindow") -> QIcon:
                 color = grid_color
             p.fillRect(x, y, cell, cell, color)
 
+    p.end()
+    return QIcon(pm)
+
+
+def _make_math_icon(mw: "MainWindow") -> QIcon:
+    """Genera un'icona 20×20 con il simbolo Σ per il bottone matematica."""
+    from PyQt6.QtGui import QPalette, QFont
+    size = 20
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    color = mw.palette().color(QPalette.ColorRole.WindowText)
+    p.setPen(color)
+    font = QFont()
+    font.setPointSize(12)
+    font.setBold(True)
+    p.setFont(font)
+    p.drawText(pm.rect(), Qt.AlignmentFlag.AlignCenter, "Σ")
     p.end()
     return QIcon(pm)
 
@@ -528,12 +554,12 @@ class _LanguageToolbarWidget(QWidget):
     def _add_latex_actions(self, acts: dict) -> None:
         # ── 1. Struttura documento ────────────────────────────────────────────
         self._add_latex_menu_btn(
-            _LATEX_SECTIONS, "sezione", 105,
+            _get_latex_sections(), 2,
             tr("tooltip.latex_section_combo", default="Struttura sezione"),
             self._insert_latex_section,
         )
         self._add_latex_menu_btn(
-            _LATEX_FONT_SIZES, "normalsize", 100,
+            _get_latex_font_sizes(), 4,
             tr("tooltip.latex_size_combo", default="Dimensione testo"),
             self._insert_latex_fontsize,
         )
@@ -586,37 +612,43 @@ class _LanguageToolbarWidget(QWidget):
 
     # ── Helper menu-button LaTeX ──────────────────────────────────────────────
 
-    def _add_latex_menu_btn(self, items: list[tuple[str, str]], default_label: str,
-                             width: int, tooltip: str, handler) -> QToolButton:
-        """QToolButton + QMenu (InstantPopup): si apre al click, mostra l'ultimo elemento scelto."""
+    def _add_latex_menu_btn(self, items: list[tuple[str, str]], default_idx: int,
+                             tooltip: str, handler) -> QToolButton:
+        """MenuButtonPopup: click principale = inserisce l'elemento corrente, freccia = scegli."""
         btn = QToolButton(self)
-        btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         btn.setToolTip(tooltip)
-        btn.setFixedWidth(width)
-        btn.setText(default_label)
+
+        idx = default_idx if 0 <= default_idx < len(items) else 0
+        _current = [items[idx][1]] if items else [""]
+        btn.setText(items[idx][0] if items else "")
+
+        btn.clicked.connect(lambda: handler(_current[0]))
+
+        def _on_select(lbl: str, cmd: str) -> None:
+            btn.setText(lbl)
+            _current[0] = cmd
+            handler(cmd)
 
         menu = QMenu(btn)
         for label, cmd in items:
             action = menu.addAction(label)
-            action.triggered.connect(
-                lambda checked=False, _lbl=label, _cmd=cmd: (
-                    btn.setText(_lbl),
-                    handler(_cmd),
-                )
-            )
+            action.triggered.connect(lambda checked=False, _l=label, _c=cmd: _on_select(_l, _c))
         btn.setMenu(menu)
         self._layout.insertWidget(self._layout.count() - 1, btn)
         return btn
 
     def _add_latex_cite_btn(self) -> QToolButton:
-        label = tr("tooltip.latex_cite_combo", default="Cita / Bib")
+        """MenuButtonPopup: click principale = \\cite{}, freccia = varianti e bibliography."""
+        label = tr("tooltip.latex_cite_combo", default="Cite / Bib")
         btn = QToolButton(self)
-        btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         btn.setToolTip(label)
         btn.setFixedWidth(95)
         btn.setText(label)
+        btn.clicked.connect(lambda: self._dispatch_cite("cite"))
 
         menu = QMenu(btn)
         cite_entries = [
@@ -638,9 +670,14 @@ class _LanguageToolbarWidget(QWidget):
         """MenuButtonPopup: click principale = inline math, freccia = altri modi."""
         btn = QToolButton(self)
         btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        btn.setText("$")
         btn.setToolTip(tr("tooltip.latex_inline_math", default="Matematica inline  $…$"))
+        icon = _load_icon("latex_math", self._mw)
+        if icon.isNull():
+            icon = _make_math_icon(self._mw)
+        btn.setIcon(icon)
+        btn.setIconSize(_ICON_SIZE)
+        btn.setText("$")
+        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         btn.clicked.connect(self._insert_latex_inline_math)
 
         menu = QMenu(btn)
@@ -663,15 +700,17 @@ class _LanguageToolbarWidget(QWidget):
         """MenuButtonPopup: click principale = inserisci tabella, freccia = modifica."""
         btn = QToolButton(self)
         btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        icon = _load_icon("md_table", self._mw)
+        btn.setText("Table")
+        btn.setToolTip(tr("action.lang_toolbar_table", default="Tabella"))
+        icon = _load_icon("latex_table", self._mw)
+        if icon.isNull():
+            icon = _load_icon("md_table", self._mw)
         if not icon.isNull():
             btn.setIcon(icon)
             btn.setIconSize(_ICON_SIZE)
-            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         else:
-            btn.setText("▦")
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        btn.setToolTip(tr("action.lang_toolbar_table", default="Tabella"))
         btn.clicked.connect(self._show_latex_table_picker)
 
         menu = QMenu(btn)
@@ -698,15 +737,15 @@ class _LanguageToolbarWidget(QWidget):
         """MenuButtonPopup per Markdown: click = inserisci, freccia = modifica."""
         btn = QToolButton(self)
         btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        btn.setText("Table")
+        btn.setToolTip(tr("action.lang_toolbar_table", default="Tabella"))
         icon = _load_icon("md_table", self._mw)
         if not icon.isNull():
             btn.setIcon(icon)
             btn.setIconSize(_ICON_SIZE)
-            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         else:
-            btn.setText("▦")
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        btn.setToolTip(tr("action.lang_toolbar_table", default="Tabella"))
         btn.clicked.connect(self._show_md_table_picker)
 
         menu = QMenu(btn)
@@ -730,28 +769,31 @@ class _LanguageToolbarWidget(QWidget):
         return btn
 
     def _add_latex_wrap_menu_btn(self) -> QToolButton:
-        """InstantPopup con ambienti comuni (allineamento + float + riquadri)."""
+        """MenuButtonPopup: click principale = avvolgi con l'ultimo ambiente usato, freccia = scegli."""
         btn = QToolButton(self)
-        btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        btn.setText(tr("tooltip.latex_wrap_menu", default="Avvolgi"))
+        btn.setText(tr("tooltip.latex_wrap_menu", default="Wrap in environment"))
         btn.setToolTip(tr("tooltip.latex_wrap_menu", default="Avvolgi in ambiente"))
+        _last_env = ["center"]
+        btn.clicked.connect(lambda: self._wrap_latex_env(_last_env[0]))
+
+        def _wrap(env: str) -> None:
+            _last_env[0] = env
+            self._wrap_latex_env(env)
 
         menu = QMenu(btn)
-        # Allineamento
-        menu.addAction("center  (↔)",      lambda: self._wrap_latex_env("center"))
-        menu.addAction("flushleft  (←)",   lambda: self._wrap_latex_env("flushleft"))
-        menu.addAction("flushright  (→)",  lambda: self._wrap_latex_env("flushright"))
+        menu.addAction("center  (↔)",      lambda: _wrap("center"))
+        menu.addAction("flushleft  (←)",   lambda: _wrap("flushleft"))
+        menu.addAction("flushright  (→)",  lambda: _wrap("flushright"))
         menu.addSeparator()
-        # Float e figure
-        menu.addAction("figure",           lambda: self._wrap_latex_env("figure"))
-        menu.addAction("table",            lambda: self._wrap_latex_env("table"))
-        menu.addAction("minipage",         lambda: self._wrap_latex_env("minipage"))
-        menu.addAction("multicols",        lambda: self._wrap_latex_env("multicols"))
+        menu.addAction("figure",           lambda: _wrap("figure"))
+        menu.addAction("table",            lambda: _wrap("table"))
+        menu.addAction("minipage",         lambda: _wrap("minipage"))
+        menu.addAction("multicols",        lambda: _wrap("multicols"))
         menu.addSeparator()
-        # Riquadri
-        menu.addAction("framed",           lambda: self._wrap_latex_env("framed"))
-        menu.addAction("verbatim",         lambda: self._wrap_latex_env("verbatim"))
+        menu.addAction("framed",           lambda: _wrap("framed"))
+        menu.addAction("verbatim",         lambda: _wrap("verbatim"))
         menu.addSeparator()
         menu.addAction(tr("action.latex_wrap_custom", default="Personalizzato…"),
                        self._latex_wrap_custom)

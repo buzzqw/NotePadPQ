@@ -2244,6 +2244,10 @@ class MainWindow(QMainWindow):
             self._notify_plugins_file_saved(path)
             self._autosave_file_to_backup(editor)
 
+            # 5. Se il file è stato aperto da FTP, sincronizza sul server remoto
+            if getattr(editor, "_ftp_remote_path", None):
+                self._ftp_sync_after_save(editor)
+
             # 5. Riattiva il watcher in modo sicuro dopo un ritardo maggiore
             if hasattr(editor, "_watcher"):
                 def restore_watcher():
@@ -2267,6 +2271,28 @@ class MainWindow(QMainWindow):
                 tr("msg.file_write_error", path=str(path), error=str(e))
             )
             return False
+
+    def _ftp_sync_after_save(self, editor) -> None:
+        """After a local save, upload to FTP if the file was originally opened from FTP."""
+        remote_path = getattr(editor, "_ftp_remote_path", None)
+        if not remote_path:
+            return
+        try:
+            from plugins.plugin_manager import PluginManager
+            ftp_entry = PluginManager.instance().get_all().get("FTP Browser")
+            if not (ftp_entry and ftp_entry.get("enabled")):
+                return
+            panel = ftp_entry["instance"]._panel
+            raw = editor.get_content().encode(editor.encoding, errors="replace")
+            profile = getattr(editor, "_ftp_profile", None)
+            if panel._do_upload(remote_path, raw, profile):
+                panel._upload_ok(remote_path)
+            else:
+                self.statusBar().showMessage(
+                    tr("msg.ftp_sync_failed", default="FTP sync fallito — vedi pannello FTP"), 5000
+                )
+        except Exception as e:
+            self.statusBar().showMessage(f"FTP sync error: {e}", 5000)
 
     def action_reload(self) -> None:
         editor = self._current_editor()
@@ -4288,19 +4314,12 @@ class MainWindow(QMainWindow):
     def action_align_table(self) -> None:
         """Allinea automaticamente le colonne di una tabella in LaTeX (&), Markdown (|) o testo generico."""
         editor = self._current_editor()
-        if not editor or not editor.hasSelectedText():
-            self.statusBar().showMessage("⚠️ Seleziona prima le righe della tabella da allineare!", 3000)
+        if not editor:
             return
 
         from editor.lexers import get_language_name
         lang = get_language_name(editor).lower()
-        text = editor.selectedText()
-        lines = text.splitlines()
-        if not lines:
-            return
 
-        # Determina il separatore: linguaggio → auto-detect sul testo selezionato.
-        # NOTA: "tex" in "plain text" è True → usare parole intere per LaTeX.
         _lang_words = set(lang.split())
         _is_latex_lang = "latex" in lang or bool(_lang_words & {"tex", "bibtex", "plaintex"})
         if "markdown" in lang:
@@ -4308,7 +4327,47 @@ class MainWindow(QMainWindow):
         elif _is_latex_lang:
             sep = "&"
         else:
-            # File generico: rileva il separatore più frequente nel testo selezionato
+            sep = None
+
+        is_md = "markdown" in lang
+
+        _LATEX_PASS_CMDS = (
+            r"\hline", r"\toprule", r"\midrule", r"\bottomrule", r"\cline",
+            r"\endfirsthead", r"\endhead", r"\endfoot", r"\endlastfoot",
+        )
+
+        def is_table_line(ln: int) -> bool:
+            txt = editor.text(ln).rstrip("\n\r")
+            if sep == "|":
+                return "|" in txt
+            elif sep == "&":
+                return "&" in txt or any(txt.strip().startswith(c) for c in _LATEX_PASS_CMDS)
+            else:
+                return "|" in txt or "&" in txt or "\t" in txt
+
+        # Auto-selezione quando non c'è testo selezionato
+        if not editor.hasSelectedText():
+            cur_line, _ = editor.getCursorPosition()
+            line_count = editor.lines()
+            if not is_table_line(cur_line):
+                self.statusBar().showMessage("⚠️ Cursore non su una riga di tabella.", 3000)
+                return
+            start_line = cur_line
+            while start_line > 0 and is_table_line(start_line - 1):
+                start_line -= 1
+            end_line = cur_line
+            while end_line < line_count - 1 and is_table_line(end_line + 1):
+                end_line += 1
+            end_col = len(editor.text(end_line).rstrip("\n\r"))
+            editor.setSelection(start_line, 0, end_line, end_col)
+
+        text = editor.selectedText()
+        lines = text.splitlines()
+        if not lines:
+            return
+
+        # Auto-detect separatore per file generici
+        if sep is None:
             pipe_count = sum(line.count("|") for line in lines)
             amp_count  = sum(line.count("&")  for line in lines)
             tab_count  = sum(line.count("\t")  for line in lines)
@@ -4322,47 +4381,57 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage("⚠️ Nessun separatore rilevato nel testo selezionato (|, &, tab).", 3000)
                 return
 
-        is_md = "markdown" in lang
-
-        # 1. Suddivide le righe nelle loro singole celle
-        parsed_rows = []
+        # Parsing: None = riga non-dati (passa invariata)
+        parsed = []
         for line in lines:
             end_marker = ""
-
-            # Preserva la fine riga tipica di LaTeX (\\)
             if sep == "&":
+                stripped = line.strip()
+                if "&" not in line:
+                    parsed.append(None)
+                    continue
                 line_stripped = line.rstrip()
                 if line_stripped.endswith(r"\\"):
                     end_marker = r" \\"
                     line = line_stripped[:-2]
-
             cells = [c.strip() for c in line.split(sep)]
-            parsed_rows.append((cells, end_marker))
+            parsed.append((cells, end_marker))
 
-        # 2. Calcola la larghezza massima di ogni colonna
-        max_cols = max((len(c) for c, _ in parsed_rows), default=0)
+        # Larghezza massima per colonna (solo righe dati)
+        max_cols = max((len(cells) for row in parsed if row is not None for cells, _ in [row]), default=0)
         col_widths = [0] * max_cols
-        for cells, _ in parsed_rows:
+        for row in parsed:
+            if row is None:
+                continue
+            cells, _ = row
             for i, cell in enumerate(cells):
-                col_widths[i] = max(col_widths[i], len(cell))
+                if i < max_cols:
+                    col_widths[i] = max(col_widths[i], len(cell))
 
-        # 3. Ricostruisce le righe allineate
+        def pad_md_sep(cell: str, w: int) -> str:
+            lc = cell.startswith(":")
+            rc = cell.endswith(":")
+            inner = max(1, w - int(lc) - int(rc))
+            return (":" if lc else "") + "-" * inner + (":" if rc else "")
+
+        # Ricostruzione righe allineate
         new_lines = []
-        for cells, end_marker in parsed_rows:
-            padded_cells = []
+        for idx, row in enumerate(parsed):
+            if row is None:
+                new_lines.append(lines[idx])
+                continue
+            cells, end_marker = row
+            padded = []
             for i, cell in enumerate(cells):
-                # Riga separatore Markdown (es: |---|---|)
+                w = col_widths[i] if i < len(col_widths) else len(cell)
                 if is_md and set(cell) <= {"-", ":"}:
-                    padded_cells.append(cell.ljust(col_widths[i], "-") if cell else "")
+                    padded.append(pad_md_sep(cell, w))
                 else:
-                    padded_cells.append(cell.ljust(col_widths[i]))
-
+                    padded.append(cell.ljust(w))
             if sep == "\t":
-                joined_line = "\t".join(padded_cells)
+                joined_line = "\t".join(padded)
             else:
-                joined_line = f" {sep} ".join(padded_cells)
-                joined_line = joined_line.strip()
-
+                joined_line = f" {sep} ".join(padded).strip()
             if end_marker:
                 joined_line += end_marker
 

@@ -216,7 +216,8 @@ class BuildManager(QObject):
         super().__init__()
         self._profiles: dict[str, dict] = dict(DEFAULT_PROFILES)
         self._worker: Optional[BuildWorker] = None
-        self._active_profile: str = ""
+        self._active_profile: str = ""  # mantenuto per compatibilità
+        self._profile_overrides: dict[str, str] = {}  # ext → nome profilo (override per-estensione)
         self._load_user_profiles()
 
     @classmethod
@@ -275,12 +276,25 @@ class BuildManager(QObject):
             self._profiles.pop(name, None)
             self.save_profiles()
 
+    def set_profile_override(self, ext: str, name: str) -> None:
+        """Imposta un override esplicito per un'estensione (es. '.py' → 'Python (uv)')."""
+        if ext:
+            self._profile_overrides[ext] = name
+        self._active_profile = name  # compat
+
+    def clear_profile_override(self, ext: str) -> None:
+        """Rimuove l'override per un'estensione, tornando all'auto-detect."""
+        self._profile_overrides.pop(ext, None)
+
     def get_profile_for_file(self, path: Path) -> Optional[str]:
         """Trova il profilo più adatto per un file.
-        Se è stato impostato manualmente un profilo attivo, ha la precedenza."""
-        if self._active_profile and self._active_profile in self._profiles:
-            return self._active_profile
+        Priorità: override per-estensione → auto-detect dalla lista profili."""
         ext = path.suffix.lower()
+        # Override esplicito per questa estensione
+        override = self._profile_overrides.get(ext, "")
+        if override and override in self._profiles:
+            return override
+        # Auto-detect
         for name, profile in self._profiles.items():
             if ext in profile.get("extensions", []):
                 return name

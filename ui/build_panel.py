@@ -472,45 +472,67 @@ class BuildPanel(QWidget):
 
     def _sync_profile_to_editor(self) -> None:
         """
-        Aggiorna il profilo attivo in base al file aperto nell'editor corrente.
-        Se l'utente ha selezionato un override manuale, lo rispetta.
+        Aggiorna profilo attivo e combo in base al file corrente.
+        Se esiste un override per-estensione lo mostra nel combo, altrimenti usa auto-detect.
         """
-        # --- INIZIO AGGIUNTA: CONTROLLO PDF ESISTENTE ---
         pdf_path = self._find_generated_pdf()
         self._btn_open_pdf.setEnabled(pdf_path is not None)
         if pdf_path:
             self._btn_open_pdf.setToolTip(tr("build_panel.open_pdf_tooltip", name=pdf_path.name))
         else:
             self._btn_open_pdf.setToolTip(tr("tooltip.build_open_pdf"))
-        # --- FINE AGGIUNTA ---
-
-        # Se c'è un override manuale (combo != "— automatico —"), non toccare
-        if self._profile_combo.currentIndex() > 0:
-            return
 
         editor = self._mw._tab_manager.current_editor()
         if editor is None:
+            self._profile_combo.blockSignals(True)
+            self._profile_combo.setCurrentIndex(0)
+            self._profile_combo.blockSignals(False)
             self._set_active_profile("")
             return
-
-        # ... (lascia intatto il resto del codice che segue)
 
         path = getattr(editor, "file_path", None) or getattr(editor, "_file_path", None)
         if path is None:
+            self._profile_combo.blockSignals(True)
+            self._profile_combo.setCurrentIndex(0)
+            self._profile_combo.blockSignals(False)
             self._set_active_profile("")
             return
 
-        name = self._bm.get_profile_for_file(path)
-        self._set_active_profile(name or "")
+        ext = path.suffix.lower()
+        override = self._bm._profile_overrides.get(ext, "")
+
+        if override and override in self._bm.get_profiles():
+            # Estensione ha override esplicito → mostralo nel combo
+            idx = self._profile_combo.findData(override)
+            self._profile_combo.blockSignals(True)
+            self._profile_combo.setCurrentIndex(idx if idx > 0 else 0)
+            self._profile_combo.blockSignals(False)
+            self._set_active_profile(override)
+        else:
+            # Auto-detect
+            self._profile_combo.blockSignals(True)
+            self._profile_combo.setCurrentIndex(0)
+            self._profile_combo.blockSignals(False)
+            name = self._bm.get_profile_for_file(path)
+            self._set_active_profile(name or "")
 
     def _on_combo_changed(self, index: int) -> None:
         """L'utente ha scelto un profilo manuale (o resettato ad automatico)."""
+        editor = self._mw._tab_manager.current_editor() if hasattr(self._mw, "_tab_manager") else None
+        path = getattr(editor, "file_path", None) if editor else None
+        ext = path.suffix.lower() if path else ""
+
         if index == 0:
-            # Automatico: risincronizza dal file corrente
+            # Auto: rimuovi override per questa estensione e risincronizza
+            if ext:
+                self._bm.clear_profile_override(ext)
             self._sync_profile_to_editor()
         else:
-            name = self._profile_combo.itemData(index)
-            self._set_active_profile(name or "")
+            name = self._profile_combo.itemData(index) or ""
+            if name:
+                if ext:
+                    self._bm.set_profile_override(ext, name)
+                self._set_active_profile(name)
 
     def _set_active_profile(self, name: str) -> None:
         """Imposta il profilo attivo e aggiorna tutti gli elementi UI."""
@@ -560,10 +582,6 @@ class BuildPanel(QWidget):
         editor = self._mw._tab_manager.current_editor()
         if editor is None:
             return
-
-        # Inietta il profilo selezionato nel BuildManager se è un override manuale
-        if self._profile_combo.currentIndex() > 0 and self._current_profile:
-            self._bm._active_profile = self._current_profile
 
         started = self._bm.run(action, editor)
         if started:
@@ -1195,14 +1213,21 @@ class BuildProfilesDialog(QDialog):
         )
 
     def _set_as_active(self) -> None:
-        """Forza il profilo selezionato come attivo per il file corrente."""
+        """Forza il profilo selezionato come attivo per l'estensione del file corrente."""
         current = self._profile_list.currentItem()
         if not current:
             return
         name = current.data(Qt.ItemDataRole.UserRole) or ""
         if not name:
             return
-        self._bm._active_profile = name
+        # Override per-estensione (se disponibile)
+        editor = self._mw._tab_manager.current_editor() if hasattr(self._mw, "_tab_manager") else None
+        path = getattr(editor, "file_path", None) if editor else None
+        ext = path.suffix.lower() if path else ""
+        if ext:
+            self._bm.set_profile_override(ext, name)
+        else:
+            self._bm._active_profile = name
         self._active_profile_name = name
 
         # Aggiorna banner

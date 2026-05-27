@@ -69,6 +69,41 @@ STANDARD_ENVIRONMENTS: list[str] = sorted([
     "thebibliography", "theindex",
 ])
 
+# ─── Ambienti aggiuntivi per pacchetto ───────────────────────────────────────
+# Ambienti NON già presenti in STANDARD_ENVIRONMENTS, attivati dal \usepackage
+
+PACKAGE_ENVIRONMENTS: dict[str, list[str]] = {
+    "tasks":        ["tasks"],
+    "cases":        ["numcases", "subnumcases"],
+    "empheq":       ["empheq"],
+    "tabularray":   ["tblr", "longtblr", "talltblr"],
+    "tabu":         ["tabu", "longtabu"],
+    "xltabular":    ["xltabular"],
+    "pgfplots":     ["semilogxaxis", "semilogyaxis", "loglogaxis", "groupplot",
+                     "polaraxis"],
+    "tikz-cd":      ["tikzcd"],
+    "subcaption":   ["subfigure", "subtable"],
+    "verbatim":     ["comment"],
+    "comment":      ["comment"],
+    "beamer":       ["onlyenv", "visibleenv", "actionenv", "beamercolorbox",
+                     "beamertab", "semiverbatim"],
+    "csquotes":     ["displayquote", "displayblockquote"],
+    "forest":       ["forest"],
+    "circuitikz":   ["circuitikz"],
+    "standalone":   ["standalone"],
+    "rotating":     ["turn", "rotate"],
+    "spreadtab":    ["spreadtab"],
+    "quoting":      ["quoting"],
+    "lstlistings":  ["lstlisting"],
+    "minted":       ["listing"],
+    "tcolorbox":    ["tcbitemize", "tcbeamer", "tcbverbatimwrite",
+                     "tcblisting", "tcolorbox"],
+    "framed":       ["oframed", "leftbar", "snugshade"],
+    "mdframed":     ["mdframed"],
+    "enumitem":     ["enumerate*", "itemize*", "description*"],
+    "multicol":     ["multicols", "multicols*"],
+}
+
 # ─── Comandi LaTeX per pacchetto (usati per completamento contestuale) ────────
 
 PACKAGE_COMMANDS: dict[str, list[str]] = {
@@ -884,54 +919,150 @@ class LaTeXSupport:
     @staticmethod
     def _handle_newline(editor: "EditorWidget") -> None:
         """
-        Su invio dopo \\begin{env}: inserisce automaticamente \\end{env}.
-        Funziona per QUALSIASI ambiente, come TeXstudio.
+        Su invio in ambiente LaTeX:
+        - dopo \\item con testo: inserisce nuovo \\item sulla riga successiva
+        - dopo \\item vuoto: rimuove il \\item e lascia cursore prima di \\end
+        - dopo \\begin{env}: inserisce \\end{env} (con \\item se env e' list)
         """
         line, col = editor.getCursorPosition()
         if line < 1:
             return
         prev_line = editor.text(line - 1)
+        current_line_text = editor.text(line)
 
-        # Cerca \begin{qualcosa} sulla riga precedente
+        # ── \item continuation ──────────────────────────────────────────────
+        item_m = re.match(r'^(\s*)\\item(.*)', prev_line.rstrip('\n\r'))
+        if item_m:
+            indent_str = item_m.group(1)
+            item_content = item_m.group(2).strip()
+            if not item_content:
+                # Empty \item → remove the \item line, leave cursor on current line
+                editor.beginUndoAction()
+                editor.setSelection(line - 1, 0, line, 0)
+                editor.removeSelectedText()
+                editor.setCursorPosition(line - 1, 0)
+                editor.endUndoAction()
+            elif not current_line_text.strip():
+                # \item with content → insert new \item on current empty line
+                new_item = f"{indent_str}\\item "
+                editor.beginUndoAction()
+                editor.setCursorPosition(line, 0)
+                editor.insert(new_item)
+                editor.setCursorPosition(line, len(new_item))
+                editor.endUndoAction()
+            return
+
+        # ── \begin{env} → \end{env} ─────────────────────────────────────────
         m = re.search(r'\\begin\{([^}]+)\}', prev_line)
         if not m:
             return
         env = m.group(1)
-
-        # Calcola indentazione della riga precedente
         indent = len(prev_line) - len(prev_line.lstrip())
         indent_str = prev_line[:indent]
-
-        # Inserisce una riga vuota indentata + \end{env}
-        # Il cursore si posiziona sulla riga vuota (dentro l'ambiente)
-        current_line_text = editor.text(line)
-
+        inner_indent = indent_str + "    "
         end_cmd = f"{indent_str}\\end{{{env}}}"
 
-        # Se la riga corrente è vuota o solo spazi, inserisci \end dopo
         if not current_line_text.strip():
             editor.beginUndoAction()
-            # Posizionati alla fine della riga corrente
             editor.setCursorPosition(line, len(current_line_text.rstrip("\n")))
-            inner_indent = indent_str + "    "
-            # Inserisci indentazione interna sulla riga corrente
-            if not current_line_text.strip():
+            if env in LaTeXSupport._LIST_ENVIRONMENTS:
+                editor.insert(f"{inner_indent}\\item \n{end_cmd}")
+                editor.setCursorPosition(line, len(inner_indent) + 6)
+            else:
                 editor.insert(inner_indent.lstrip(indent_str) if indent_str else "    ")
-            # Inserisci una nuova riga con \end{env}
-            editor.insert(f"\n{end_cmd}")
-            # Torna alla riga interna
-            editor.setCursorPosition(line, len(inner_indent))
+                editor.insert(f"\n{end_cmd}")
+                editor.setCursorPosition(line, len(inner_indent))
             editor.endUndoAction()
 
     @staticmethod
     def _handle_open_brace(editor: "EditorWidget") -> None:
         """
-        Dopo '{': controlla il comando precedente e
-        attiva completamento contestuale via autocomplete.
+        Dopo '{': attiva completamento contestuale; se nessun caso speciale,
+        auto-chiude } per pattern \\cmd{.
         """
         ac = getattr(editor, "_autocomplete", None)
-        if ac:
-            ac.handle_latex_special("{")
+        handled = ac.handle_latex_special("{") if ac else False
+        if not handled:
+            LaTeXSupport._auto_close_generic_brace(editor)
+
+    @staticmethod
+    def _auto_close_generic_brace(editor: "EditorWidget") -> None:
+        """Auto-inserisce } dopo \\cmd{ se il cursore e' immediatamente dopo la {."""
+        line, col = editor.getCursorPosition()
+        line_text = editor.text(line)
+        text_before = line_text[:col]
+        if not re.search(r'\\[a-zA-Z]+\{$', text_before):
+            return
+        if line_text[col:col + 1] == '}':
+            return
+        editor._in_paste = True
+        try:
+            editor.insert('}')
+        finally:
+            editor._in_paste = False
+
+    # ─── Inserimento ambiente da popup ───────────────────────────────────────
+
+    _LIST_ENVIRONMENTS: frozenset = frozenset({
+        "itemize", "enumerate", "description", "list",
+        "thebibliography", "compactitem", "compactenum",
+        "itemize*", "enumerate*", "description*", "tasks",
+    })
+
+    @staticmethod
+    def insert_environment(editor: "EditorWidget", env_name: str) -> None:
+        """
+        Inserisce l'ambiente completo dopo la selezione dal popup \\begin{.
+        - Cancella il prefisso parziale gia' digitato
+        - Aggiunge \\end{env} con indentazione corretta
+        - Per ambienti lista aggiunge anche il primo \\item
+        """
+        line, col = editor.getCursorPosition()
+        line_text = editor.text(line)
+
+        # Trova il prefisso parziale digitato dopo l'ultimo {
+        text_before = line_text[:col]
+        brace_pos = text_before.rfind('{')
+        partial = text_before[brace_pos + 1:] if brace_pos >= 0 else ""
+
+        # Indentazione della riga corrente
+        indent_str = line_text[:len(line_text) - len(line_text.lstrip())]
+        inner_indent = indent_str + "    "
+
+        # Cancella prefisso parziale
+        if partial:
+            editor.setSelection(line, col - len(partial), line, col)
+            editor.removeSelectedText()
+            line, col = editor.getCursorPosition()
+
+        # Argomenti obbligatori dell'ambiente (testo statico)
+        extra_args = ENV_MANDATORY_ARGS.get(env_name, [])
+        mandatory_str = "".join(extra_args)
+
+        if env_name in LaTeXSupport._LIST_ENVIRONMENTS:
+            insert_text = (
+                f"{env_name}}}{mandatory_str}\n"
+                f"{inner_indent}\\item \n"
+                f"{indent_str}\\end{{{env_name}}}"
+            )
+            cursor_col = len(inner_indent) + 6   # dopo \item + spazio
+        else:
+            insert_text = (
+                f"{env_name}}}{mandatory_str}\n"
+                f"{inner_indent}\n"
+                f"{indent_str}\\end{{{env_name}}}"
+            )
+            cursor_col = len(inner_indent)
+
+        editor._in_paste = True
+        try:
+            editor.beginUndoAction()
+            editor.insert(insert_text)
+            editor.endUndoAction()
+        finally:
+            editor._in_paste = False
+
+        editor.setCursorPosition(line + 1, cursor_col)
 
     @staticmethod
     def _handle_close_brace(editor: "EditorWidget") -> None:
@@ -1278,10 +1409,14 @@ class LaTeXSupport:
     def get_all_environments(text: str) -> list[str]:
         """
         Restituisce tutti gli ambienti disponibili:
-        standard + custom dal documento.
+        standard + custom dal documento + ambienti dei pacchetti caricati.
         """
         custom = LaTeXSupport.extract_custom_environments(text)
-        return sorted(set(STANDARD_ENVIRONMENTS + custom))
+        pkgs = LaTeXSupport.extract_used_packages(text)
+        pkg_envs: list[str] = []
+        for pkg in pkgs:
+            pkg_envs.extend(PACKAGE_ENVIRONMENTS.get(pkg.lower(), []))
+        return sorted(set(STANDARD_ENVIRONMENTS + custom + pkg_envs))
 
     # ── Indentazione intelligente ─────────────────────────────────────────────
 

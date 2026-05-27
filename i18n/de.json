@@ -827,7 +827,7 @@
     "preview_zoom_out": "Verkleinern  [Strg+-]",
     "preview_fit_width": "An Breite anpassen",
     "preview_fit_page": "An ganze Seite anpassen",
-    "preview_links_toggle": "Hyperlinks im PDF anzeigen/verbergen (\ud83d\udd17 aktiv = Links blau hervorgehoben)",
+    "preview_links_toggle": "Hyperlinks im PDF anzeigen/verbergen (🔗 aktiv = Links blau hervorgehoben)",
     "preview_crop": "Weiße Ränder abschneiden",
     "preview_zoom_reset": "Zoom 100%",
     "preview_crop_top": "Oben beschneiden",
@@ -951,7 +951,10 @@
     "latex_inline_math": "Inline-Mathematik  $…$",
     "latex_label": "\\label{}  (Bezeichnung)",
     "latex_ref": "\\ref{}  (Verweis)",
-    "latex_wrap_menu": "In Umgebung einbetten"
+    "latex_wrap_menu": "In Umgebung einbetten",
+    "build_profile_move_up": "Nach oben",
+    "build_profile_move_down": "Nach unten",
+    "build_error_regex": "Regulärer Ausdruck zum Erfassen von Compiler-Fehlern. Gruppen: erste Gruppe () = Dateipfad, zweite = Zeilennummer. Bsp.: File \"([^\"]+)\", line (\\d+)"
   },
   "websearch": {
     "submenu_title": "Websuche",

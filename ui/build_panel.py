@@ -1019,9 +1019,31 @@ class BuildProfilesDialog(QDialog):
             )
         left.addWidget(self._active_banner)
 
+        list_row = QHBoxLayout()
+
         self._profile_list = QListWidget()
+        self._profile_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+        self._profile_list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self._profile_list.currentItemChanged.connect(self._on_profile_item_changed)
-        left.addWidget(self._profile_list, 1)
+        self._profile_list.model().rowsMoved.connect(self._on_profile_order_changed)
+        list_row.addWidget(self._profile_list, 1)
+
+        # Pulsanti ▲/▼ a fianco della lista
+        move_col = QVBoxLayout()
+        self._btn_up = QPushButton("▲")
+        self._btn_down = QPushButton("▼")
+        self._btn_up.setFixedSize(24, 24)
+        self._btn_down.setFixedSize(24, 24)
+        self._btn_up.setToolTip(tr("tooltip.build_profile_move_up"))
+        self._btn_down.setToolTip(tr("tooltip.build_profile_move_down"))
+        self._btn_up.clicked.connect(self._move_profile_up)
+        self._btn_down.clicked.connect(self._move_profile_down)
+        move_col.addWidget(self._btn_up)
+        move_col.addWidget(self._btn_down)
+        move_col.addStretch()
+        list_row.addLayout(move_col)
+
+        left.addLayout(list_row, 1)
 
         btn_row = QHBoxLayout()
         self._btn_new = QPushButton(tr("button.add", default="Nuovo"))
@@ -1067,6 +1089,7 @@ class BuildProfilesDialog(QDialog):
         self._build_edit.setPlaceholderText(tr("build_panel.cmd_placeholder_empty"))
         self._regex_edit   = QLineEdit()
         self._regex_edit.setPlaceholderText(r'es. File "([^"]+)", line (\d+)')
+        self._regex_edit.setToolTip(tr("tooltip.build_error_regex"))
 
         form.addRow(tr("build_panel.profile_name_label"),    self._name_edit)
         form.addRow(tr("build_panel.extensions_label"),       self._ext_edit)
@@ -1159,10 +1182,13 @@ class BuildProfilesDialog(QDialog):
                 item.setBackground(QColor("#1e3a5f"))
                 active_row = i
             elif name in DEFAULT_PROFILES:
-                item.setForeground(QColor("#858585"))
+                item.setForeground(self._profile_list.palette().color(
+                    self._profile_list.palette().ColorRole.PlaceholderText))
                 item.setToolTip(tr("tooltip.build_profile_builtin"))
             else:
-                item.setForeground(QColor("#9cdcfe"))
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
                 item.setToolTip(tr("tooltip.build_profile_user"))
             self._profile_list.addItem(item)
 
@@ -1374,6 +1400,34 @@ class BuildProfilesDialog(QDialog):
         if reply == QMessageBox.StandardButton.Yes:
             self._bm.remove_profile(name)
             self._profile_list.takeItem(self._profile_list.currentRow())
+
+    def _current_profile_order(self) -> list:
+        return [
+            self._profile_list.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(self._profile_list.count())
+        ]
+
+    def _on_profile_order_changed(self) -> None:
+        """Chiamato dopo drag-and-drop: salva il nuovo ordine."""
+        self._bm.reorder_profiles(self._current_profile_order())
+
+    def _move_profile_up(self) -> None:
+        row = self._profile_list.currentRow()
+        if row <= 0:
+            return
+        item = self._profile_list.takeItem(row)
+        self._profile_list.insertItem(row - 1, item)
+        self._profile_list.setCurrentRow(row - 1)
+        self._bm.reorder_profiles(self._current_profile_order())
+
+    def _move_profile_down(self) -> None:
+        row = self._profile_list.currentRow()
+        if row < 0 or row >= self._profile_list.count() - 1:
+            return
+        item = self._profile_list.takeItem(row)
+        self._profile_list.insertItem(row + 1, item)
+        self._profile_list.setCurrentRow(row + 1)
+        self._bm.reorder_profiles(self._current_profile_order())
 
     def _on_close(self) -> None:
         if self._dirty:

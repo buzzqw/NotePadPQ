@@ -236,7 +236,20 @@ class BuildManager(QObject):
         if path.exists():
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
+                order = data.pop("__order__", None)
+                overrides = data.pop("__overrides__", None)
                 self._profiles.update(data)
+                if order:
+                    reordered = {}
+                    for name in order:
+                        if name in self._profiles:
+                            reordered[name] = self._profiles[name]
+                    for name, profile in self._profiles.items():
+                        if name not in reordered:
+                            reordered[name] = profile
+                    self._profiles = reordered
+                if overrides and isinstance(overrides, dict):
+                    self._profile_overrides.update(overrides)
             except Exception:
                 pass
 
@@ -247,15 +260,17 @@ class BuildManager(QObject):
         - sono built-in ma modificati rispetto al default
         I profili built-in non modificati non vengono salvati (vengono
         ricaricati dai DEFAULT_PROFILES ad ogni avvio).
+        Salva sempre __order__ per ripristinare l'ordine personalizzato.
         """
         profiles_to_save = {}
         for name, profile in self._profiles.items():
             if name not in DEFAULT_PROFILES:
-                # Profilo utente nuovo
                 profiles_to_save[name] = profile
             elif profile != DEFAULT_PROFILES[name]:
-                # Profilo built-in modificato — salvalo come override
                 profiles_to_save[name] = profile
+        profiles_to_save["__order__"] = list(self._profiles.keys())
+        if self._profile_overrides:
+            profiles_to_save["__overrides__"] = dict(self._profile_overrides)
         try:
             self._profiles_path().write_text(
                 json.dumps(profiles_to_save, ensure_ascii=False, indent=2),
@@ -266,6 +281,19 @@ class BuildManager(QObject):
 
     def get_profiles(self) -> dict[str, dict]:
         return dict(self._profiles)
+
+    def reorder_profiles(self, names: list) -> None:
+        """Riordina i profili secondo la lista di nomi fornita, poi salva."""
+        reordered = {}
+        for name in names:
+            if name in self._profiles:
+                reordered[name] = self._profiles[name]
+        # Aggiungi eventuali profili non presenti nella lista (safety)
+        for name, profile in self._profiles.items():
+            if name not in reordered:
+                reordered[name] = profile
+        self._profiles = reordered
+        self.save_profiles()
 
     def add_profile(self, name: str, profile: dict) -> None:
         self._profiles[name] = profile
@@ -281,10 +309,12 @@ class BuildManager(QObject):
         if ext:
             self._profile_overrides[ext] = name
         self._active_profile = name  # compat
+        self.save_profiles()
 
     def clear_profile_override(self, ext: str) -> None:
         """Rimuove l'override per un'estensione, tornando all'auto-detect."""
         self._profile_overrides.pop(ext, None)
+        self.save_profiles()
 
     def get_profile_for_file(self, path: Path) -> Optional[str]:
         """Trova il profilo più adatto per un file.

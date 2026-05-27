@@ -827,7 +827,7 @@
     "preview_zoom_out": "Zoom out  [Ctrl+-]",
     "preview_fit_width": "Fit to width",
     "preview_fit_page": "Fit to full page",
-    "preview_links_toggle": "Show/hide hyperlinks in PDF (\ud83d\udd17 active = links highlighted in blue)",
+    "preview_links_toggle": "Show/hide hyperlinks in PDF (🔗 active = links highlighted in blue)",
     "preview_crop": "Trim white margins",
     "preview_zoom_reset": "Zoom 100%",
     "preview_crop_top": "Top crop",
@@ -951,7 +951,10 @@
     "latex_inline_math": "Inline math  $…$",
     "latex_label": "\\label{}  (label)",
     "latex_ref": "\\ref{}  (reference)",
-    "latex_wrap_menu": "Wrap in environment"
+    "latex_wrap_menu": "Wrap in environment",
+    "build_profile_move_up": "Move up",
+    "build_profile_move_down": "Move down",
+    "build_error_regex": "Regular expression to capture errors from compiler output. Use capture groups: first group () must be the file path, second the line number. E.g.: File \"([^\"]+)\", line (\\d+)"
   },
   "websearch": {
     "submenu_title": "Web Search",

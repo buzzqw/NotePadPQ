@@ -827,7 +827,7 @@
     "preview_zoom_out": "Zoom arrière  [Ctrl+-]",
     "preview_fit_width": "Ajuster à la largeur",
     "preview_fit_page": "Ajuster à la page entière",
-    "preview_links_toggle": "Afficher/masquer les hyperliens dans le PDF (\ud83d\udd17 actif = liens surlign\u00e9s en bleu)",
+    "preview_links_toggle": "Afficher/masquer les hyperliens dans le PDF (🔗 actif = liens surlignés en bleu)",
     "preview_crop": "Rogner les marges blanches",
     "preview_zoom_reset": "Zoom 100%",
     "preview_crop_top": "Rognage en haut",
@@ -951,7 +951,10 @@
     "latex_inline_math": "Maths en ligne  $…$",
     "latex_label": "\\label{}  (étiquette)",
     "latex_ref": "\\ref{}  (référence)",
-    "latex_wrap_menu": "Encadrer dans un environnement"
+    "latex_wrap_menu": "Encadrer dans un environnement",
+    "build_profile_move_up": "Monter",
+    "build_profile_move_down": "Descendre",
+    "build_error_regex": "Expression régulière pour capturer les erreurs du compilateur. Groupes de capture: premier groupe () = chemin fichier, second = numéro de ligne. Ex.: File \"([^\"]+)\", line (\\d+)"
   },
   "websearch": {
     "submenu_title": "Recherche Web",

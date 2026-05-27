@@ -827,7 +827,7 @@
     "preview_zoom_out": "Zoom indietro  [Ctrl+-]",
     "preview_fit_width": "Adatta alla larghezza",
     "preview_fit_page": "Adatta alla pagina intera",
-    "preview_links_toggle": "Mostra/nascondi hyperlink nel PDF (\ud83d\udd17 attivo = link evidenziati in blu)",
+    "preview_links_toggle": "Mostra/nascondi hyperlink nel PDF (🔗 attivo = link evidenziati in blu)",
     "preview_crop": "Taglia margini bianchi",
     "preview_zoom_reset": "Zoom 100%",
     "preview_crop_top": "Taglio in Alto (Top)",
@@ -951,7 +951,10 @@
     "latex_inline_math": "Matematica inline  $…$",
     "latex_label": "\\label{}  (etichetta)",
     "latex_ref": "\\ref{}  (riferimento)",
-    "latex_wrap_menu": "Avvolgi in ambiente"
+    "latex_wrap_menu": "Avvolgi in ambiente",
+    "build_profile_move_up": "Sposta su",
+    "build_profile_move_down": "Sposta giù",
+    "build_error_regex": "Espressione regolare per catturare errori dall'output del compilatore. Usa gruppi di cattura: il primo gruppo () deve essere il percorso del file, il secondo il numero di riga. Es: File \"([^\"]+)\", line (\\d+)"
   },
   "websearch": {
     "submenu_title": "Ricerca Web",

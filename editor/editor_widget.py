@@ -1469,14 +1469,60 @@ class EditorWidget(QsciScintilla):
             self.showUserList(1, bib_keys)
 
     def _on_user_list_selection(self, list_id: int, text: str) -> None:
-        """Inserisce la chiave selezionata nel testo."""
+        """Inserisce la voce selezionata nel testo."""
         if list_id == 1:
             self._insert_and_close_brace(text)
+        elif list_id in (2, 4, 9):
+            # Chiavi BibTeX (\citep/\citet/…), file paths, temi beamer
+            # — rimpiazza il prefisso parziale digitato dopo {
+            self._insert_replacing_partial_and_close_brace(text)
+        elif list_id == 3:
+            # Ambienti LaTeX da \begin{
+            from editor.latex_support import LaTeXSupport
+            LaTeXSupport.insert_environment(self, text)
         elif list_id == 5:
             key = text.split("  [")[0] if "  [" in text else text
             self._insert_and_close_brace(key)
         elif list_id == 6:
             self._insert_and_close_brace(text)
+        elif list_id in (10, 11):
+            # Opzioni comando/ambiente/pacchetto da [...] — inserisci senza chiudere
+            self._insert_replacing_partial(text, delimiter='[')
+
+    def _insert_replacing_partial(self, text: str, delimiter: str) -> None:
+        """Sostituisce il prefisso parziale dopo delimiter con text."""
+        line, col = self.getCursorPosition()
+        line_text = self.text(line)
+        text_before = line_text[:col]
+        delim_pos = text_before.rfind(delimiter)
+        partial = text_before[delim_pos + 1:] if delim_pos >= 0 else ""
+        if partial:
+            self.setSelection(line, col - len(partial), line, col)
+            self.removeSelectedText()
+            line, col = self.getCursorPosition()
+        self.insert(text)
+        self.setCursorPosition(line, col + len(text))
+
+    def _insert_replacing_partial_and_close_brace(self, key: str) -> None:
+        """Come _insert_replacing_partial ma usa { come delimitatore e chiude con }."""
+        line, col = self.getCursorPosition()
+        line_text = self.text(line)
+        text_before = line_text[:col]
+        brace_pos = text_before.rfind('{')
+        partial = text_before[brace_pos + 1:] if brace_pos >= 0 else ""
+        if partial:
+            self.setSelection(line, col - len(partial), line, col)
+            self.removeSelectedText()
+            line, col = self.getCursorPosition()
+        self.insert(key)
+        new_col = col + len(key)
+        line_text = self.text(line)
+        if new_col < len(line_text) and line_text[new_col] == '}':
+            self.setCursorPosition(line, new_col + 1)
+        else:
+            self.setCursorPosition(line, new_col)
+            self.insert('}')
+            self.setCursorPosition(line, new_col + 1)
 
     def _insert_and_close_brace(self, key: str) -> None:
         """Inserisce key alla posizione cursore, sposta il cursore dopo key
@@ -1510,7 +1556,7 @@ class EditorWidget(QsciScintilla):
 
     def _on_dwell_start(self, position: int, x: int, y: int) -> None:
         """Il mouse è fermo su una posizione, mostra l'immagine o l'equazione renderizzata."""
-        if position < 0 or not self.file_path:
+        if position < 0:
             return
 
         self._hide_hover_popup()
@@ -1539,13 +1585,13 @@ class EditorWidget(QsciScintilla):
         img_path_str = None
         for p in img_patterns:
             for m in re.finditer(p, text):
-                if m.start() <= relative_pos <= m.end():
+                if m.start(1) <= relative_pos <= m.end(1):
                     img_path_str = m.group(1)
                     break
             if img_path_str:
                 break
 
-        if img_path_str:
+        if img_path_str and self.file_path:
             base_dir = self.file_path.parent
             img_path = base_dir / img_path_str
 
@@ -1645,13 +1691,15 @@ class EditorWidget(QsciScintilla):
         # PARTE 3: DOCUMENTAZIONE COMANDI LaTeX
         # ---------------------------------------------------------
         if "latex" in lang or "tex" in lang:
+            from editor.latex_tooltips import get_latex_tooltip_html
+
+            # Cerca \cmd sotto il cursore
             cmd_match = None
             for m in re.finditer(r'\\([a-zA-Z@]+\*?)', text):
                 if m.start() <= relative_pos <= m.end():
                     cmd_match = m
                     break
             if cmd_match:
-                from editor.latex_tooltips import get_latex_tooltip_html
                 cmd_name = cmd_match.group(1).rstrip('*')
                 html = get_latex_tooltip_html(cmd_name)
                 if not html:
@@ -1659,6 +1707,15 @@ class EditorWidget(QsciScintilla):
                 if html:
                     self._create_html_tooltip_popup(html, x, y)
                     return
+
+            # Cerca nome ambiente dentro \begin{...} o \end{...}
+            for m in re.finditer(r'\\(?:begin|end)\{([a-zA-Z@*]+)\}', text):
+                if m.start(1) <= relative_pos <= m.end(1):
+                    html = get_latex_tooltip_html(m.group(1))
+                    if html:
+                        self._create_html_tooltip_popup(html, x, y)
+                        return
+                    break
 
         # Nessuna immagine/formula/comando trovato — chiedi LSP
         self.lsp_hover_requested.emit(line_idx, relative_pos)

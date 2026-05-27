@@ -1543,8 +1543,8 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("run",          "F5", self.action_run))
         m.addAction(self._act("compile",      "F6", self.action_compile))
         m.addAction(self._act("build",        "F7", self.action_build))
-        m.addAction(self._act("build_profiles","F8", self.action_build_profiles))
         m.addAction(self._act("stop_build",   "",   self.action_stop_build))
+        m.addAction(self._act("build_profiles","F8", self.action_build_profiles))
         self._sep(m)
         self._menus["lsp"] = m
         m.addSection("⚡  LSP")

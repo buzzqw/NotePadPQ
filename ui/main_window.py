@@ -1130,6 +1130,9 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("uncomment_line","",             self.action_uncomment_lines))
         self._sep(m)
         m.addAction(self._act("align_table",   "Alt+T",        self.action_align_table))
+        sub_ct = m.addMenu(tr("action.convert_table"))
+        sub_ct.addAction(self._act("convert_table_md",  "Ctrl+Alt+T", self.action_convert_table_md))
+        sub_ct.addAction(self._act("convert_table_tex", "",           self.action_convert_table_tex))
         self._sep(m)
         m.addAction(self._act("indent",        "Ctrl+Shift+I", self.action_indent))
         m.addAction(self._act("unindent",      "Ctrl+U",       self.action_unindent))
@@ -4395,6 +4398,12 @@ class MainWindow(QMainWindow):
                     end_marker = r" \\"
                     line = line_stripped[:-2]
             cells = [c.strip() for c in line.split(sep)]
+            # Rimuove celle vuote iniziali/finali generate da | col | col | format
+            if sep == "|":
+                if cells and cells[0] == '':
+                    cells = cells[1:]
+                if cells and cells[-1] == '':
+                    cells = cells[:-1]
             parsed.append((cells, end_marker))
 
         # Larghezza massima per colonna (solo righe dati)
@@ -4430,6 +4439,8 @@ class MainWindow(QMainWindow):
                     padded.append(cell.ljust(w))
             if sep == "\t":
                 joined_line = "\t".join(padded)
+            elif sep == "|":
+                joined_line = "| " + " | ".join(padded) + " |"
             else:
                 joined_line = f" {sep} ".join(padded).strip()
             if end_marker:
@@ -4440,6 +4451,117 @@ class MainWindow(QMainWindow):
         aligned_text = "\n".join(new_lines)
         editor.replaceSelectedText(aligned_text)
         self.statusBar().showMessage("✨ Tabella allineata con successo!", 3000)
+
+    # ── Convert ASCII table → Markdown / LaTeX ────────────────────────────────
+
+    def _parse_ascii_table(self, text: str):
+        """Parse a space-padded ASCII/Unicode table.
+
+        Separator lines (all ─ ━ ═ - = + | chars) are skipped.
+        Columns are split by 2+ consecutive spaces so that numeric
+        right-aligned values always align correctly with their headers.
+        Returns (headers: list[str], rows: list[list[str]]) or (None, None).
+        """
+        import re
+        SEP_RE = re.compile(r'^[\s─━═\-=+|]+$')
+        SPLIT_RE = re.compile(r'\s{2,}')
+
+        data_lines = []
+        for ln in text.splitlines():
+            stripped = ln.strip()
+            if not stripped:
+                continue
+            if SEP_RE.match(stripped):
+                continue
+            data_lines.append(stripped)
+
+        if not data_lines:
+            return None, None
+
+        headers = SPLIT_RE.split(data_lines[0])
+        if not headers:
+            return None, None
+        n = len(headers)
+        rows = [(SPLIT_RE.split(ln) + [''] * n)[:n] for ln in data_lines[1:]]
+        return headers, rows
+
+    def action_convert_table_md(self) -> None:
+        editor = self._current_editor()
+        if not editor:
+            return
+        text = editor.selectedText() if editor.hasSelectedText() else editor.text()
+        headers, rows = self._parse_ascii_table(text)
+        if not headers:
+            self.statusBar().showMessage("⚠️ Nessuna tabella rilevata nel testo.", 3000)
+            return
+
+        n = len(headers)
+        out = []
+        out.append("| " + " | ".join(headers) + " |")
+        out.append("| " + " | ".join(["---"] * n) + " |")
+        for row in rows:
+            padded = (row + [""] * n)[:n]
+            out.append("| " + " | ".join(padded) + " |")
+
+        result = "\n".join(out)
+        if editor.hasSelectedText():
+            editor.replaceSelectedText(result)
+        else:
+            editor.beginUndoAction()
+            editor.selectAll()
+            editor.replaceSelectedText(result)
+            editor.endUndoAction()
+        self.statusBar().showMessage("✨ Tabella convertita in Markdown!", 3000)
+
+    def action_convert_table_tex(self) -> None:
+        import re
+        editor = self._current_editor()
+        if not editor:
+            return
+        text = editor.selectedText() if editor.hasSelectedText() else editor.text()
+        headers, rows = self._parse_ascii_table(text)
+        if not headers:
+            self.statusBar().showMessage("⚠️ Nessuna tabella rilevata nel testo.", 3000)
+            return
+
+        # Detect numeric columns for right-alignment
+        NUM_RE = re.compile(r'^-?\d[\d.,]*[%hHkKmMgGbBkK]?$|^N/A$|^-$|^$')
+        n = len(headers)
+        alignments = []
+        for i in range(n):
+            vals = [(row[i] if i < len(row) else "") for row in rows]
+            if i == 0 or not all(NUM_RE.match(v) for v in vals):
+                alignments.append("l")
+            else:
+                alignments.append("r")
+        col_spec = "".join(alignments)
+
+        _ESC = str.maketrans({"&": r"\&", "%": r"\%", "_": r"\_", "#": r"\#",
+                               "$": r"\$", "{": r"\{", "}": r"\}", "^": r"\^{}", "~": r"\textasciitilde{}"})
+
+        def esc(s: str) -> str:
+            return s.translate(_ESC)
+
+        out = []
+        out.append(f"\\begin{{tabularx}}{{\\linewidth}}{{{col_spec}}}")
+        out.append("\\toprule")
+        out.append(" & ".join(esc(h) for h in headers) + " \\\\")
+        out.append("\\midrule")
+        for row in rows:
+            padded = (row + [""] * n)[:n]
+            out.append(" & ".join(esc(c) for c in padded) + " \\\\")
+        out.append("\\bottomrule")
+        out.append("\\end{tabularx}")
+
+        result = "\n".join(out)
+        if editor.hasSelectedText():
+            editor.replaceSelectedText(result)
+        else:
+            editor.beginUndoAction()
+            editor.selectAll()
+            editor.replaceSelectedText(result)
+            editor.endUndoAction()
+        self.statusBar().showMessage("✨ Tabella convertita in LaTeX tabularx!", 3000)
 
     def _toggle_spellcheck(self, checked: bool) -> None:
         """Attiva o disattiva il controllo ortografico per tutti i tab aperti."""

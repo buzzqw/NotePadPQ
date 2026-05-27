@@ -611,6 +611,24 @@ def install(main_window: "MainWindow") -> _FunctionListPanel:
         view_menu.addAction(act)
         main_window._actions["function_list"] = act
 
+        # Applica subito l'icona con il colore testo corrente (evita timing fragile)
+        try:
+            from pathlib import Path
+            from PyQt6.QtGui import QPalette, QPixmap
+            from config.settings import Settings
+            icon_set = Settings.instance().get("ui/icon_set", "lucide")
+            icon_path = Path(__file__).parent.parent / "icons" / icon_set / "list-tree.svg"
+            if not icon_path.exists():
+                icon_path = Path(__file__).parent.parent / "icons" / "lucide" / "list-tree.svg"
+            if icon_path.exists():
+                wtext = main_window.palette().color(QPalette.ColorRole.WindowText).name()
+                svg = icon_path.read_bytes().replace(b"currentColor", wtext.encode())
+                pm = QPixmap()
+                if pm.loadFromData(svg, "SVG") and not pm.isNull():
+                    act.setIcon(QIcon(pm))
+        except Exception:
+            pass
+
     main_window._function_list_dock  = dock
     main_window._function_list_panel = panel
     return panel

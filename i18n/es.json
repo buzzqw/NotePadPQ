@@ -836,6 +836,7 @@
     "preview_crop_right": "Recorte derecho",
     "preview_synctex": "SyncTeX activo: haga clic en el PDF para ir a la línea fuente",
     "preview_open_external": "Abrir el PDF con el visor externo predeterminado",
+    "preview_sync_toggle": "Activar/desactivar sincronización de navegación PDF ↔ TeX",
     "ai_show_key": "Mostrar/ocultar clave",
     "ai_provider": "Elija el servicio de IA a utilizar.\nCada proveedor requiere su propia clave API (excepto Ollama, que es local).",
     "ai_model": "Modelo a usar para la respuesta.\nLos modelos más grandes (Opus, GPT-4o) son más capaces pero más lentos y costosos.\nLos modelos flash/mini son más rápidos y económicos para tareas simples.",

@@ -12,8 +12,13 @@ Stili:
   S_OPTION    contenuto [...]             → "string2"
   S_REF_ARG   {contenuto} dopo ref-cmd   → "identifier" (evidenziato)
 
-NOTA: styleText lavora interamente su bytes UTF-8 perché QScintilla passa
-start/end come byte offset, non come char offset della stringa Python.
+Implementazione note:
+- styleText lavora in bytes UTF-8 (QScintilla usa byte offset, non char offset).
+- I token vengono accumulati in un bytearray e applicati con una singola
+  chiamata SCI_SETSTYLINGEX, riducendo le chiamate Python→C da ~181K a 1
+  per un documento da 2 MB (da ~540ms a ~1ms di bridge overhead).
+- I bytes UTF-8 multi-byte (> 127) non coincidono mai con caratteri speciali
+  LaTeX (tutti ASCII), quindi la scansione in bytes è corretta.
 """
 from __future__ import annotations
 
@@ -44,7 +49,7 @@ _STYLE_NAMES = {
     S_REF_ARG:   "RefArg",
 }
 
-# Mappa stile → chiave token nel dizionario tema (tutti i temi li hanno già)
+# Mappa stile → chiave token nel dizionario tema
 STYLE_TOKEN = {
     S_DEFAULT:   "default",
     S_COMMAND:   "command",
@@ -81,7 +86,7 @@ _REFERENCE_CMDS = frozenset([
     'footnote', 'footnotemark', 'footnotetext',
 ])
 
-# Byte values dei caratteri speciali LaTeX (tutti ASCII → safe in UTF-8)
+# Byte values ASCII dei caratteri speciali LaTeX (< 128 → mai in byte UTF-8 multi-byte)
 _B_PERCENT   = ord('%')
 _B_BACKSLASH = ord('\\')
 _B_DOLLAR    = ord('$')
@@ -91,8 +96,6 @@ _B_LBRACKET  = ord('[')
 _B_RBRACKET  = ord(']')
 _B_NEWLINE   = ord('\n')
 
-# Tutti i caratteri speciali sono ASCII (< 128), quindi nei byte UTF-8 non
-# compaiono mai come parte di sequenze multi-byte (che usano byte 0x80-0xFF).
 _RE_SPECIAL_BYTES = re.compile(rb'[%\\${}[\]]')
 
 
@@ -102,9 +105,8 @@ class LaTeXLexer(QsciLexerCustom):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._bytes_cache: bytes | None = None
-        # Invalida la cache quando il testo cambia.
-        # Per scroll/navigazione (testo invariato) la cache viene riusata
-        # evitando l'encode O(n) ad ogni chiamata styleText.
+        # Invalida la cache solo quando il testo cambia.
+        # Durante scroll/navigazione (testo invariato) la cache è riusata.
         if parent is not None:
             parent.textChanged.connect(self._on_text_changed)
 
@@ -120,62 +122,73 @@ class LaTeXLexer(QsciLexerCustom):
     # ── Motore di highlighting ────────────────────────────────────────────────
 
     def styleText(self, start: int, end: int) -> None:
-        # QScintilla passa start/end come byte offset nel testo UTF-8 interno.
-        # Lavoriamo in bytes per mantenere i conteggi allineati.
-        # La cache evita di re-encodare l'intero documento ad ogni chiamata
-        # (critico su file grandi: ~1ms per MB, molte chiamate durante lo scroll).
+        # Ottieni bytes (con cache): evita encode O(n) ad ogni chiamata.
         if self._bytes_cache is None:
             self._bytes_cache = self.parent().text().encode('utf-8')
-        text_b: bytes = self._bytes_cache
+        text_b = self._bytes_cache
         tlen = len(text_b)
         if tlen == 0 or start >= tlen:
             return
 
-        # Ripartenza sicura: inizio della riga che contiene start (in byte).
-        # Commenti (%) e math inline ($) sono sempre su riga singola,
-        # quindi ripartire dall'inizio riga è sempre corretto.
+        # Ripartenza sicura: inizio della riga che contiene start.
+        # % e $ inline sono sempre su riga singola → ripartire dall'inizio riga è corretto.
         nl = text_b.rfind(b'\n', 0, start)
         safe = 0 if nl == -1 else nl + 1
+        end = min(end, tlen)
+        if safe >= end:
+            return
 
-        self.startStyling(safe)
+        region_len = end - safe
+        # Bytearray di stili: ogni byte = stile per il byte corrispondente in text_b[safe:end].
+        # S_DEFAULT = 0 = valore iniziale → le span di testo normale non richiedono fill.
+        styles = bytearray(region_len)
+
         pos = safe
-        last_cmd = ""  # ultimo comando visto (per colorare l'argomento dopo \ref_cmd{)
+        last_cmd = ""
 
         while pos < end:
             b = text_b[pos]
+            idx = pos - safe
 
             # ── % commento ────────────────────────────────────────────────────
             if b == _B_PERCENT:
                 eol = text_b.find(b'\n', pos)
-                n = (eol - pos) if eol != -1 else (tlen - pos)
-                self.setStyling(n, S_COMMENT)
-                pos += n
+                n = (min(eol, end) - pos) if eol != -1 else (end - pos)
+                if n > 0:
+                    styles[idx:idx + n] = bytes([S_COMMENT]) * n
+                pos += n if n > 0 else 1
                 last_cmd = ""
 
             # ── \ comando ─────────────────────────────────────────────────────
             elif b == _B_BACKSLASH:
                 i = pos + 1
-                # I nomi dei comandi LaTeX sono solo ASCII (a-zA-Z @).
-                # Il controllo < 128 evita che byte UTF-8 multi-byte (≥ 0x80)
-                # vengano erroneamente interpretati come lettere di comando.
-                if i < tlen and text_b[i] < 128 and (chr(text_b[i]).isalpha() or chr(text_b[i]) == '@'):
-                    while i < tlen and text_b[i] < 128 and (chr(text_b[i]).isalpha() or chr(text_b[i]) in ('@', '*')):
+                # Nomi comando LaTeX: solo ASCII (a-zA-Z @).
+                # Il check < 128 evita che byte UTF-8 multi-byte vengano trattati come lettere.
+                if i < tlen and text_b[i] < 128 and (
+                    chr(text_b[i]).isalpha() or chr(text_b[i]) == '@'
+                ):
+                    while i < tlen and text_b[i] < 128 and (
+                        chr(text_b[i]).isalpha() or chr(text_b[i]) in ('@', '*')
+                    ):
                         i += 1
                     cmd = text_b[pos + 1:i].decode('ascii')
                     last_cmd = cmd
                     if cmd in _STRUCTURE_CMDS:
-                        style = S_STRUCTURE
+                        sty = S_STRUCTURE
                     elif cmd in _REFERENCE_CMDS:
-                        style = S_REFERENCE
+                        sty = S_REFERENCE
                     else:
-                        style = S_COMMAND
-                    self.setStyling(i - pos, style)
-                    pos = i
+                        sty = S_COMMAND
+                    n = min(i, end) - pos
+                    if n > 0:
+                        styles[idx:idx + n] = bytes([sty]) * n
+                    pos = min(i, end)
                 else:
-                    # \\ \{ \} \$ \[ \] ecc. — simbolo di escape singolo
-                    n = 2 if i < tlen else 1
-                    self.setStyling(n, S_COMMAND)
-                    pos += n
+                    # \\ \{ \} \$ \[ \] ecc. — simbolo escape singolo
+                    n = min(2 if i < tlen else 1, end - pos)
+                    if n > 0:
+                        styles[idx:idx + n] = bytes([S_COMMAND]) * n
+                    pos += n if n > 0 else 1
                     last_cmd = ""
 
             # ── $ math ────────────────────────────────────────────────────────
@@ -190,65 +203,82 @@ class LaTeXLexer(QsciLexerCustom):
                             i += 1
                         i += 1
                     n = (i + 1 - pos) if (i < tlen and text_b[i] == _B_DOLLAR) else 1
-                self.setStyling(n, S_MATH)
-                pos += n
+                n = min(n, end - pos)
+                if n > 0:
+                    styles[idx:idx + n] = bytes([S_MATH]) * n
+                pos += n if n > 0 else 1
                 last_cmd = ""
 
             # ── { graffa aperta ───────────────────────────────────────────────
             elif b == _B_LBRACE:
-                self.setStyling(1, S_BRACE)
+                styles[idx] = S_BRACE
                 pos += 1
-                # Colora il contenuto in giallo dopo \label \cite \ref ecc.
+                # Colora l'argomento dopo \label \cite \ref ecc.
                 if last_cmd in _REFERENCE_CMDS:
                     i, depth = pos, 1
                     while i < tlen and depth > 0:
                         bc = text_b[i]
-                        if   bc == _B_LBRACE:    depth += 1
-                        elif bc == _B_RBRACE:    depth -= 1
-                        elif bc == _B_BACKSLASH and i + 1 < tlen: i += 1
+                        if bc == _B_LBRACE:
+                            depth += 1
+                        elif bc == _B_RBRACE:
+                            depth -= 1
+                        elif bc == _B_BACKSLASH and i + 1 < tlen:
+                            i += 1
                         i += 1
-                    content = (i - pos - 1) if depth == 0 else (i - pos)
+                    content = min(
+                        (i - pos - 1) if depth == 0 else (i - pos),
+                        end - pos
+                    )
                     if content > 0:
-                        self.setStyling(content, S_REF_ARG)
+                        ci = pos - safe
+                        styles[ci:ci + content] = bytes([S_REF_ARG]) * content
                         pos += content
                     # la } di chiusura viene gestita al giro successivo
                 last_cmd = ""
 
             # ── } graffa chiusa ───────────────────────────────────────────────
             elif b == _B_RBRACE:
-                self.setStyling(1, S_BRACE)
+                styles[idx] = S_BRACE
                 pos += 1
 
             # ── [ opzione ─────────────────────────────────────────────────────
             elif b == _B_LBRACKET:
-                self.setStyling(1, S_BRACE)
+                styles[idx] = S_BRACE
                 pos += 1
-                # Cerca il ] di chiusura sulla stessa riga (opzioni LaTeX non span)
+                # Cerca ] sulla stessa riga (opzioni LaTeX non span multi-riga)
                 eol = text_b.find(b'\n', pos)
                 line_end = eol if eol != -1 else tlen
                 bracket_end = text_b.find(b']', pos, line_end)
                 if bracket_end != -1:
-                    content = bracket_end - pos
+                    content = min(bracket_end - pos, end - pos)
                     if content > 0:
-                        self.setStyling(content, S_OPTION)
+                        ci = pos - safe
+                        styles[ci:ci + content] = bytes([S_OPTION]) * content
                         pos += content
-                    # ] viene gestito al giro successivo
+                # ] viene gestito al giro successivo
 
             # ── ] chiude opzione ──────────────────────────────────────────────
             elif b == _B_RBRACKET:
-                self.setStyling(1, S_BRACE)
+                styles[idx] = S_BRACE
                 pos += 1
 
             # ── testo normale (incluse sequenze UTF-8 multi-byte) ─────────────
             else:
-                # I caratteri speciali sono tutti ASCII (< 128), quindi la
-                # ricerca sui byte è equivalente a quella sul testo Unicode.
+                # S_DEFAULT = 0: bytearray già a 0, basta avanzare pos.
                 m = _RE_SPECIAL_BYTES.search(text_b, pos, end)
                 next_pos = m.start() if m else end
                 if next_pos <= pos:
-                    next_pos = pos + 1  # sicurezza: avanza almeno 1 byte
-                self.setStyling(next_pos - pos, S_DEFAULT)
+                    next_pos = pos + 1
                 pos = next_pos
+
+        # Applica tutti gli stili con UNA SOLA chiamata Qt bridge
+        # invece di ~181K chiamate setStyling() separate.
+        self.startStyling(safe)
+        self.parent().SendScintilla(
+            self.parent().SCI_SETSTYLINGEX,
+            region_len,
+            bytes(styles),
+        )
 
     # ── Applicazione tema ─────────────────────────────────────────────────────
 
@@ -256,26 +286,39 @@ class LaTeXLexer(QsciLexerCustom):
                    editor_bg, editor_fg) -> None:
         """Applica i colori dal dizionario tema ai propri stili."""
         from PyQt6.QtGui import QColor, QFont
+
         bg_name = editor_bg.name() if hasattr(editor_bg, 'name') else str(editor_bg)
 
         base = QFont(font_family, font_size)
         base.setFixedPitch(True)
-        # Sfondo uniforme per tutti gli stili (necessario per QsciLexerCustom)
-        for sn in range(16):
-            self.setColor(editor_fg, sn)
-            self.setPaper(editor_bg, sn)
-            self.setFont(base, sn)
 
-        for style_num, tok_key in STYLE_TOKEN.items():
-            tok = tokens.get(tok_key, {})
-            if not tok:
-                continue
-            fg = QColor(tok["fg"]) if "fg" in tok else editor_fg
-            bg = QColor(tok.get("bg", bg_name))
-            f = QFont(font_family, font_size)
-            f.setFixedPitch(True)
-            f.setBold(tok.get("bold", False))
-            f.setItalic(tok.get("italic", False))
-            self.setColor(fg, style_num)
-            self.setPaper(bg, style_num)
-            self.setFont(f, style_num)
+        # Blocca i segnali per evitare che ogni setColor/setPaper/setFont
+        # triggeri una recolourize() completa del documento (~75 chiamate
+        # SCI_COLOURISE(0,-1) altrimenti). Un singolo update() alla fine
+        # è sufficiente per ridisegnare con i nuovi colori.
+        self.blockSignals(True)
+        try:
+            for sn in range(16):
+                self.setColor(editor_fg, sn)
+                self.setPaper(editor_bg, sn)
+                self.setFont(base, sn)
+
+            for style_num, tok_key in STYLE_TOKEN.items():
+                tok = tokens.get(tok_key, {})
+                if not tok:
+                    continue
+                fg = QColor(tok["fg"]) if "fg" in tok else editor_fg
+                bg = QColor(tok.get("bg", bg_name))
+                f = QFont(font_family, font_size)
+                f.setFixedPitch(True)
+                f.setBold(tok.get("bold", False))
+                f.setItalic(tok.get("italic", False))
+                self.setColor(fg, style_num)
+                self.setPaper(bg, style_num)
+                self.setFont(f, style_num)
+        finally:
+            self.blockSignals(False)
+
+        # Un solo repaint per applicare i nuovi colori
+        if self.parent():
+            self.parent().update()

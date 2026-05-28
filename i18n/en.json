@@ -836,6 +836,7 @@
     "preview_crop_right": "Right crop",
     "preview_synctex": "SyncTeX active: click the PDF to go to the source line",
     "preview_open_external": "Open PDF with the default external viewer",
+    "preview_sync_toggle": "Enable/disable PDF ↔ TeX navigation sync",
     "ai_show_key": "Show/hide key",
     "ai_provider": "Choose the AI service to use.\nEach provider requires its own API key (except Ollama, which runs locally).",
     "ai_model": "Model to use for the response.\nLarger models (Opus, GPT-4o) are more capable but slower and more expensive.\nFlash/mini models are faster and cheaper for simple tasks.",

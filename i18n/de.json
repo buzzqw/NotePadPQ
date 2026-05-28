@@ -836,6 +836,7 @@
     "preview_crop_right": "Rechts beschneiden",
     "preview_synctex": "SyncTeX aktiv: auf PDF klicken, um zur Quellzeile zu springen",
     "preview_open_external": "PDF mit dem Standard-Betrachter öffnen",
+    "preview_sync_toggle": "PDF ↔ TeX-Navigationssynchronisierung ein-/ausschalten",
     "ai_show_key": "Schlüssel anzeigen/verbergen",
     "ai_provider": "KI-Dienst auswählen.\nJeder Anbieter benötigt einen eigenen API-Schlüssel (außer Ollama, das lokal läuft).",
     "ai_model": "Modell für die Antwort.\nGrößere Modelle (Opus, GPT-4o) sind leistungsfähiger, aber langsamer und teurer.\nFlash/Mini-Modelle sind schneller und günstiger für einfache Aufgaben.",

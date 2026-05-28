@@ -343,6 +343,13 @@ class PreviewPanel(QWidget):
         self._pdf_btn_open_external.setToolTip(tr("tooltip.preview_open_external"))
         self._pdf_btn_open_external.clicked.connect(self._pdf_open_external)
 
+        self._pdf_btn_sync = QToolButton()
+        self._pdf_btn_sync.setText("⇄")
+        self._pdf_btn_sync.setCheckable(True)
+        self._pdf_btn_sync.setChecked(self._sync_cursor)
+        self._pdf_btn_sync.setToolTip(tr("tooltip.preview_sync_toggle"))
+        self._pdf_btn_sync.toggled.connect(self._toggle_sync)
+
         self._pdf_btn_links = QToolButton()
         self._pdf_btn_links.setText("🔗")
         self._pdf_btn_links.setCheckable(True)
@@ -355,7 +362,7 @@ class PreviewPanel(QWidget):
                    self._pdf_zoom_out, self._pdf_zoom_in,
                    self._pdf_btn_zoom_reset, self._pdf_btn_fit_width,
                    self._pdf_btn_fit_page, self._pdf_btn_crop,
-                   self._pdf_btn_links,
+                   self._pdf_btn_links, self._pdf_btn_sync,
                    self._pdf_btn_open_external, self._pdf_lbl_synctex]:
             pdf_nav.addWidget(w2)
         
@@ -570,6 +577,25 @@ class PreviewPanel(QWidget):
         if self._needs_refresh:
             self._needs_refresh = False
             self._timer.start(self._delay_ms)
+
+    @pyqtSlot(bool)
+    def _toggle_sync(self, enabled: bool) -> None:
+        self._sync_cursor = enabled
+        Settings.instance().set("preview/sync_cursor", enabled)
+        if self._editor is not None:
+            if enabled:
+                try:
+                    self._editor.cursorPositionChanged.connect(
+                        self._on_cursor_changed,
+                        Qt.ConnectionType.UniqueConnection,
+                    )
+                except Exception:
+                    pass
+            else:
+                try:
+                    self._editor.cursorPositionChanged.disconnect(self._on_cursor_changed)
+                except Exception:
+                    pass
 
     @pyqtSlot(int, int)
     def _on_cursor_changed(self, line: int, col: int) -> None:

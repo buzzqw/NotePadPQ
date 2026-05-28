@@ -101,6 +101,15 @@ class LaTeXLexer(QsciLexerCustom):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._bytes_cache: bytes | None = None
+        # Invalida la cache quando il testo cambia.
+        # Per scroll/navigazione (testo invariato) la cache viene riusata
+        # evitando l'encode O(n) ad ogni chiamata styleText.
+        if parent is not None:
+            parent.textChanged.connect(self._on_text_changed)
+
+    def _on_text_changed(self) -> None:
+        self._bytes_cache = None
 
     def language(self) -> str:
         return "LaTeX"
@@ -112,9 +121,12 @@ class LaTeXLexer(QsciLexerCustom):
 
     def styleText(self, start: int, end: int) -> None:
         # QScintilla passa start/end come byte offset nel testo UTF-8 interno.
-        # Codifichiamo il testo in UTF-8 e lavoriamo esclusivamente in bytes
-        # per mantenere i conteggi allineati con quelli di QScintilla.
-        text_b: bytes = self.parent().text().encode('utf-8')
+        # Lavoriamo in bytes per mantenere i conteggi allineati.
+        # La cache evita di re-encodare l'intero documento ad ogni chiamata
+        # (critico su file grandi: ~1ms per MB, molte chiamate durante lo scroll).
+        if self._bytes_cache is None:
+            self._bytes_cache = self.parent().text().encode('utf-8')
+        text_b: bytes = self._bytes_cache
         tlen = len(text_b)
         if tlen == 0 or start >= tlen:
             return

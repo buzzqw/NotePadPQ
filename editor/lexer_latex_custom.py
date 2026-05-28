@@ -11,6 +11,9 @@ Stili:
   S_BRACE     { }                         → "operator"
   S_OPTION    contenuto [...]             → "string2"
   S_REF_ARG   {contenuto} dopo ref-cmd   → "identifier" (evidenziato)
+
+NOTA: styleText lavora interamente su bytes UTF-8 perché QScintilla passa
+start/end come byte offset, non come char offset della stringa Python.
 """
 from __future__ import annotations
 
@@ -78,8 +81,19 @@ _REFERENCE_CMDS = frozenset([
     'footnote', 'footnotemark', 'footnotetext',
 ])
 
-# Regex per trovare il prossimo carattere speciale (corre a velocità C)
-_RE_SPECIAL = re.compile(r'[%\\${}[\]]')
+# Byte values dei caratteri speciali LaTeX (tutti ASCII → safe in UTF-8)
+_B_PERCENT   = ord('%')
+_B_BACKSLASH = ord('\\')
+_B_DOLLAR    = ord('$')
+_B_LBRACE    = ord('{')
+_B_RBRACE    = ord('}')
+_B_LBRACKET  = ord('[')
+_B_RBRACKET  = ord(']')
+_B_NEWLINE   = ord('\n')
+
+# Tutti i caratteri speciali sono ASCII (< 128), quindi nei byte UTF-8 non
+# compaiono mai come parte di sequenze multi-byte (che usano byte 0x80-0xFF).
+_RE_SPECIAL_BYTES = re.compile(rb'[%\\${}[\]]')
 
 
 class LaTeXLexer(QsciLexerCustom):
@@ -97,15 +111,18 @@ class LaTeXLexer(QsciLexerCustom):
     # ── Motore di highlighting ────────────────────────────────────────────────
 
     def styleText(self, start: int, end: int) -> None:
-        text: str = self.parent().text()
-        tlen = len(text)
+        # QScintilla passa start/end come byte offset nel testo UTF-8 interno.
+        # Codifichiamo il testo in UTF-8 e lavoriamo esclusivamente in bytes
+        # per mantenere i conteggi allineati con quelli di QScintilla.
+        text_b: bytes = self.parent().text().encode('utf-8')
+        tlen = len(text_b)
         if tlen == 0 or start >= tlen:
             return
 
-        # Ripartenza sicura: inizio della riga che contiene start.
+        # Ripartenza sicura: inizio della riga che contiene start (in byte).
         # Commenti (%) e math inline ($) sono sempre su riga singola,
         # quindi ripartire dall'inizio riga è sempre corretto.
-        nl = text.rfind('\n', 0, start)
+        nl = text_b.rfind(b'\n', 0, start)
         safe = 0 if nl == -1 else nl + 1
 
         self.startStyling(safe)
@@ -113,23 +130,26 @@ class LaTeXLexer(QsciLexerCustom):
         last_cmd = ""  # ultimo comando visto (per colorare l'argomento dopo \ref_cmd{)
 
         while pos < end:
-            c = text[pos]
+            b = text_b[pos]
 
             # ── % commento ────────────────────────────────────────────────────
-            if c == '%':
-                eol = text.find('\n', pos)
+            if b == _B_PERCENT:
+                eol = text_b.find(b'\n', pos)
                 n = (eol - pos) if eol != -1 else (tlen - pos)
                 self.setStyling(n, S_COMMENT)
                 pos += n
                 last_cmd = ""
 
             # ── \ comando ─────────────────────────────────────────────────────
-            elif c == '\\':
+            elif b == _B_BACKSLASH:
                 i = pos + 1
-                if i < tlen and (text[i].isalpha() or text[i] == '@'):
-                    while i < tlen and (text[i].isalpha() or text[i] in ('@', '*')):
+                # I nomi dei comandi LaTeX sono solo ASCII (a-zA-Z @).
+                # Il controllo < 128 evita che byte UTF-8 multi-byte (≥ 0x80)
+                # vengano erroneamente interpretati come lettere di comando.
+                if i < tlen and text_b[i] < 128 and (chr(text_b[i]).isalpha() or chr(text_b[i]) == '@'):
+                    while i < tlen and text_b[i] < 128 and (chr(text_b[i]).isalpha() or chr(text_b[i]) in ('@', '*')):
                         i += 1
-                    cmd = text[pos + 1:i]
+                    cmd = text_b[pos + 1:i].decode('ascii')
                     last_cmd = cmd
                     if cmd in _STRUCTURE_CMDS:
                         style = S_STRUCTURE
@@ -147,33 +167,33 @@ class LaTeXLexer(QsciLexerCustom):
                     last_cmd = ""
 
             # ── $ math ────────────────────────────────────────────────────────
-            elif c == '$':
-                if pos + 1 < tlen and text[pos + 1] == '$':
-                    end_m = text.find('$$', pos + 2)
+            elif b == _B_DOLLAR:
+                if pos + 1 < tlen and text_b[pos + 1] == _B_DOLLAR:
+                    end_m = text_b.find(b'$$', pos + 2)
                     n = (end_m + 2 - pos) if end_m != -1 else (tlen - pos)
                 else:
                     i = pos + 1
-                    while i < tlen and text[i] != '$' and text[i] != '\n':
-                        if text[i] == '\\':
+                    while i < tlen and text_b[i] != _B_DOLLAR and text_b[i] != _B_NEWLINE:
+                        if text_b[i] == _B_BACKSLASH:
                             i += 1
                         i += 1
-                    n = (i + 1 - pos) if (i < tlen and text[i] == '$') else 1
+                    n = (i + 1 - pos) if (i < tlen and text_b[i] == _B_DOLLAR) else 1
                 self.setStyling(n, S_MATH)
                 pos += n
                 last_cmd = ""
 
             # ── { graffa aperta ───────────────────────────────────────────────
-            elif c == '{':
+            elif b == _B_LBRACE:
                 self.setStyling(1, S_BRACE)
                 pos += 1
                 # Colora il contenuto in giallo dopo \label \cite \ref ecc.
                 if last_cmd in _REFERENCE_CMDS:
                     i, depth = pos, 1
                     while i < tlen and depth > 0:
-                        bc = text[i]
-                        if   bc == '{': depth += 1
-                        elif bc == '}': depth -= 1
-                        elif bc == '\\' and i + 1 < tlen: i += 1
+                        bc = text_b[i]
+                        if   bc == _B_LBRACE:    depth += 1
+                        elif bc == _B_RBRACE:    depth -= 1
+                        elif bc == _B_BACKSLASH and i + 1 < tlen: i += 1
                         i += 1
                     content = (i - pos - 1) if depth == 0 else (i - pos)
                     if content > 0:
@@ -183,18 +203,18 @@ class LaTeXLexer(QsciLexerCustom):
                 last_cmd = ""
 
             # ── } graffa chiusa ───────────────────────────────────────────────
-            elif c == '}':
+            elif b == _B_RBRACE:
                 self.setStyling(1, S_BRACE)
                 pos += 1
 
             # ── [ opzione ─────────────────────────────────────────────────────
-            elif c == '[':
+            elif b == _B_LBRACKET:
                 self.setStyling(1, S_BRACE)
                 pos += 1
                 # Cerca il ] di chiusura sulla stessa riga (opzioni LaTeX non span)
-                eol = text.find('\n', pos)
+                eol = text_b.find(b'\n', pos)
                 line_end = eol if eol != -1 else tlen
-                bracket_end = text.find(']', pos, line_end)
+                bracket_end = text_b.find(b']', pos, line_end)
                 if bracket_end != -1:
                     content = bracket_end - pos
                     if content > 0:
@@ -203,15 +223,18 @@ class LaTeXLexer(QsciLexerCustom):
                     # ] viene gestito al giro successivo
 
             # ── ] chiude opzione ──────────────────────────────────────────────
-            elif c == ']':
+            elif b == _B_RBRACKET:
                 self.setStyling(1, S_BRACE)
                 pos += 1
 
-            # ── testo normale ─────────────────────────────────────────────────
+            # ── testo normale (incluse sequenze UTF-8 multi-byte) ─────────────
             else:
-                # Salta velocemente al prossimo carattere speciale (regex C-speed)
-                m = _RE_SPECIAL.search(text, pos, end)
+                # I caratteri speciali sono tutti ASCII (< 128), quindi la
+                # ricerca sui byte è equivalente a quella sul testo Unicode.
+                m = _RE_SPECIAL_BYTES.search(text_b, pos, end)
                 next_pos = m.start() if m else end
+                if next_pos <= pos:
+                    next_pos = pos + 1  # sicurezza: avanza almeno 1 byte
                 self.setStyling(next_pos - pos, S_DEFAULT)
                 pos = next_pos
 
@@ -222,7 +245,6 @@ class LaTeXLexer(QsciLexerCustom):
         """Applica i colori dal dizionario tema ai propri stili."""
         from PyQt6.QtGui import QColor, QFont
         bg_name = editor_bg.name() if hasattr(editor_bg, 'name') else str(editor_bg)
-        fg_name = editor_fg.name() if hasattr(editor_fg, 'name') else str(editor_fg)
 
         base = QFont(font_family, font_size)
         base.setFixedPitch(True)

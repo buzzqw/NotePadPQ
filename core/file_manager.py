@@ -130,7 +130,9 @@ class FileManager:
         """Usa chardet per rilevare l'encoding. Restituisce None se non disponibile."""
         if _chardet is None:
             return None
-        result = _chardet.detect(raw[:4096])  # campione iniziale
+        # Use a larger sample: LaTeX/source files often have a long ASCII preamble
+        # that misleads chardet with a tiny sample (e.g. MacRoman instead of UTF-8).
+        result = _chardet.detect(raw[:65536])
         if result and result.get("confidence", 0) > 0.7:
             enc = result.get("encoding", "")
             return enc if enc else None

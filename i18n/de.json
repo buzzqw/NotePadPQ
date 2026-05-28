@@ -368,7 +368,12 @@
     "col_line": "Zeile",
     "col_text": "Text",
     "col_file_line": "Datei / Zeile",
-    "col_doc_line": "Dokument / Zeile"
+    "col_doc_line": "Dokument / Zeile",
+    "pdf_pages": "{n} Seiten",
+    "pdf_link_page": "Gehe zu Seite {n}",
+    "pdf_fit_width": "Seitenbreite",
+    "pdf_fit_page": "Ganze Seite",
+    "pdf_auto": "Auto"
   },
   "button": {
     "ok": "OK",
@@ -971,7 +976,15 @@
     "latex_wrap_menu": "In Umgebung einbetten",
     "build_profile_move_up": "Nach oben",
     "build_profile_move_down": "Nach unten",
-    "build_error_regex": "Regulärer Ausdruck zum Erfassen von Compiler-Fehlern. Gruppen: erste Gruppe () = Dateipfad, zweite = Zeilennummer. Bsp.: File \"([^\"]+)\", line (\\d+)"
+    "build_error_regex": "Regulärer Ausdruck zum Erfassen von Compiler-Fehlern. Gruppen: erste Gruppe () = Dateipfad, zweite = Zeilennummer. Bsp.: File \"([^\"]+)\", line (\\d+)",
+    "pdf_toggle_links": "Hyperlinks im Dokument anzeigen/ausblenden",
+    "pdf_zoom_out": "Verkleinern (−25%)",
+    "pdf_zoom_in": "Vergrößern (+25%)",
+    "pdf_open_external": "PDF mit dem Standard-Viewer öffnen",
+    "pdf_open_web": "PDF im eingebetteten Qt-Web-Panel öffnen (Browser-Modus)",
+    "pdf_toggle_thumbs": "Miniaturen- und Lesezeichen-Panel anzeigen/ausblenden",
+    "pdf_print": "PDF-Dokument drucken",
+    "pdf_find": "Im Dokument suchen (Strg+F)"
   },
   "websearch": {
     "submenu_title": "Websuche",

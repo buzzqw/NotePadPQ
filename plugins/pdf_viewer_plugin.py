@@ -48,14 +48,14 @@ class PdfViewerPlugin(BasePlugin):
 
     def open_document(self, path: Path) -> None:
         """Apre un PDF in un nuovo tab. Chiamato da main_window.open_files."""
-        from ui.pdf_viewer_widget import PdfViewerWidget, WEBENGINE_OK
+        from ui.pdf_viewer_widget import PdfViewerWidget, FITZ_OK, WEBENGINE_OK
 
-        if not WEBENGINE_OK:
+        if not FITZ_OK and not WEBENGINE_OK:
             QMessageBox.warning(
                 self._mw, "NotePadPQ",
                 tr("plugin.pdf.no_webengine",
-                   default="PyQt6-WebEngine non è installato.\n"
-                           "pip install PyQt6-WebEngine")
+                   default="PyMuPDF e PyQt6-WebEngine non sono installati.\n"
+                           "pip install pymupdf  oppure  pip install PyQt6-WebEngine")
             )
             return
 
@@ -64,7 +64,7 @@ class PdfViewerPlugin(BasePlugin):
             self._mw._tab_manager.set_current_index(existing)
             return
 
-        widget = PdfViewerWidget(path, parent=self._mw)
+        widget = PdfViewerWidget(path, parent=self._mw, main_window=self._mw)
         self._mw._tab_manager.add_spreadsheet_tab(widget, path.name, path)
 
     def _action_open(self) -> None:

@@ -368,7 +368,12 @@
     "col_line": "Wiersz",
     "col_text": "Tekst",
     "col_file_line": "Plik / Wiersz",
-    "col_doc_line": "Dokument / Wiersz"
+    "col_doc_line": "Dokument / Wiersz",
+    "pdf_pages": "{n} stron",
+    "pdf_link_page": "Przejdź do strony {n}",
+    "pdf_fit_width": "Szerokość strony",
+    "pdf_fit_page": "Cała strona",
+    "pdf_auto": "Auto"
   },
   "button": {
     "ok": "OK",
@@ -971,7 +976,15 @@
     "latex_wrap_menu": "Owiń w środowisko",
     "build_profile_move_up": "Przesuń w górę",
     "build_profile_move_down": "Przesuń w dół",
-    "build_error_regex": "Wyrażenie regularne do przechwytywania błędów kompilatora. Grupy: pierwsza () = ścieżka pliku, druga = numer linii. Np.: File \"([^\"]+)\", line (\\d+)"
+    "build_error_regex": "Wyrażenie regularne do przechwytywania błędów kompilatora. Grupy: pierwsza () = ścieżka pliku, druga = numer linii. Np.: File \"([^\"]+)\", line (\\d+)",
+    "pdf_toggle_links": "Pokaż/ukryj hiperłącza w dokumencie",
+    "pdf_zoom_out": "Zmniejsz zoom (−25%)",
+    "pdf_zoom_in": "Zwiększ zoom (+25%)",
+    "pdf_open_external": "Otwórz PDF w domyślnej zewnętrznej przeglądarce",
+    "pdf_open_web": "Otwórz PDF we wbudowanym panelu Qt Web (tryb przeglądarki)",
+    "pdf_toggle_thumbs": "Pokaż/ukryj panel miniatur i zakładek",
+    "pdf_print": "Drukuj dokument PDF",
+    "pdf_find": "Szukaj w dokumencie (Ctrl+F)"
   },
   "websearch": {
     "submenu_title": "Wyszukiwanie w sieci",

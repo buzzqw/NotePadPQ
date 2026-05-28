@@ -368,7 +368,12 @@
     "col_line": "Ligne",
     "col_text": "Texte",
     "col_file_line": "Fichier / Ligne",
-    "col_doc_line": "Document / Ligne"
+    "col_doc_line": "Document / Ligne",
+    "pdf_pages": "{n} pages",
+    "pdf_link_page": "Aller à la page {n}",
+    "pdf_fit_width": "Largeur de page",
+    "pdf_fit_page": "Page entière",
+    "pdf_auto": "Auto"
   },
   "button": {
     "ok": "OK",
@@ -971,7 +976,15 @@
     "latex_wrap_menu": "Encadrer dans un environnement",
     "build_profile_move_up": "Monter",
     "build_profile_move_down": "Descendre",
-    "build_error_regex": "Expression régulière pour capturer les erreurs du compilateur. Groupes de capture: premier groupe () = chemin fichier, second = numéro de ligne. Ex.: File \"([^\"]+)\", line (\\d+)"
+    "build_error_regex": "Expression régulière pour capturer les erreurs du compilateur. Groupes de capture: premier groupe () = chemin fichier, second = numéro de ligne. Ex.: File \"([^\"]+)\", line (\\d+)",
+    "pdf_toggle_links": "Afficher/masquer les hyperliens dans le document",
+    "pdf_zoom_out": "Réduire le zoom (−25%)",
+    "pdf_zoom_in": "Augmenter le zoom (+25%)",
+    "pdf_open_external": "Ouvrir le PDF avec le lecteur externe par défaut",
+    "pdf_open_web": "Ouvrir le PDF dans le panneau web Qt intégré (mode navigateur)",
+    "pdf_toggle_thumbs": "Afficher/masquer le panneau miniatures et signets",
+    "pdf_print": "Imprimer le document PDF",
+    "pdf_find": "Rechercher dans le document (Ctrl+F)"
   },
   "websearch": {
     "submenu_title": "Recherche Web",

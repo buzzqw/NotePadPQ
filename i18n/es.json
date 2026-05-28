@@ -368,7 +368,12 @@
     "col_line": "Línea",
     "col_text": "Texto",
     "col_file_line": "Archivo / Línea",
-    "col_doc_line": "Documento / Línea"
+    "col_doc_line": "Documento / Línea",
+    "pdf_pages": "{n} páginas",
+    "pdf_link_page": "Ir a la página {n}",
+    "pdf_fit_width": "Ancho de página",
+    "pdf_fit_page": "Página completa",
+    "pdf_auto": "Auto"
   },
   "button": {
     "ok": "Aceptar",
@@ -971,7 +976,15 @@
     "latex_wrap_menu": "Envolver en entorno",
     "build_profile_move_up": "Subir",
     "build_profile_move_down": "Bajar",
-    "build_error_regex": "Expresión regular para capturar errores del compilador. Grupos de captura: primer grupo () = ruta del archivo, segundo = número de línea. Ej.: File \"([^\"]+)\", line (\\d+)"
+    "build_error_regex": "Expresión regular para capturar errores del compilador. Grupos de captura: primer grupo () = ruta del archivo, segundo = número de línea. Ej.: File \"([^\"]+)\", line (\\d+)",
+    "pdf_toggle_links": "Mostrar/ocultar hipervínculos en el documento",
+    "pdf_zoom_out": "Reducir zoom (−25%)",
+    "pdf_zoom_in": "Aumentar zoom (+25%)",
+    "pdf_open_external": "Abrir PDF con el visor externo predeterminado",
+    "pdf_open_web": "Abrir PDF en el panel web Qt integrado (modo navegador)",
+    "pdf_toggle_thumbs": "Mostrar/ocultar panel de miniaturas y marcadores",
+    "pdf_print": "Imprimir el documento PDF",
+    "pdf_find": "Buscar en el documento (Ctrl+F)"
   },
   "websearch": {
     "submenu_title": "Búsqueda Web",

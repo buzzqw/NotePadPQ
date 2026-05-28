@@ -368,7 +368,12 @@
     "col_line": "Riga",
     "col_text": "Testo",
     "col_file_line": "File / Riga",
-    "col_doc_line": "Documento / Riga"
+    "col_doc_line": "Documento / Riga",
+    "pdf_pages": "{n} pagine",
+    "pdf_link_page": "Vai a pagina {n}",
+    "pdf_fit_width": "Larghezza pagina",
+    "pdf_fit_page": "Intera pagina",
+    "pdf_auto": "Auto"
   },
   "button": {
     "ok": "OK",
@@ -971,7 +976,15 @@
     "latex_wrap_menu": "Avvolgi in ambiente",
     "build_profile_move_up": "Sposta su",
     "build_profile_move_down": "Sposta giù",
-    "build_error_regex": "Espressione regolare per catturare errori dall'output del compilatore. Usa gruppi di cattura: il primo gruppo () deve essere il percorso del file, il secondo il numero di riga. Es: File \"([^\"]+)\", line (\\d+)"
+    "build_error_regex": "Espressione regolare per catturare errori dall'output del compilatore. Usa gruppi di cattura: il primo gruppo () deve essere il percorso del file, il secondo il numero di riga. Es: File \"([^\"]+)\", line (\\d+)",
+    "pdf_toggle_links": "Mostra/nascondi hyperlink nel documento",
+    "pdf_zoom_out": "Riduci zoom (−25%)",
+    "pdf_zoom_in": "Aumenta zoom (+25%)",
+    "pdf_open_external": "Apri il PDF con il visualizzatore esterno predefinito",
+    "pdf_open_web": "Apri il PDF nel pannello web Qt integrato (modalità browser)",
+    "pdf_toggle_thumbs": "Mostra/nascondi pannello miniature e segnalibri",
+    "pdf_print": "Stampa il documento PDF",
+    "pdf_find": "Cerca nel documento (Ctrl+F)"
   },
   "websearch": {
     "submenu_title": "Ricerca Web",

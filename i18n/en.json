@@ -368,7 +368,12 @@
     "col_line": "Line",
     "col_text": "Text",
     "col_file_line": "File / Line",
-    "col_doc_line": "Document / Line"
+    "col_doc_line": "Document / Line",
+    "pdf_pages": "{n} pages",
+    "pdf_link_page": "Go to page {n}",
+    "pdf_fit_width": "Page width",
+    "pdf_fit_page": "Full page",
+    "pdf_auto": "Auto"
   },
   "button": {
     "ok": "OK",
@@ -971,7 +976,15 @@
     "latex_wrap_menu": "Wrap in environment",
     "build_profile_move_up": "Move up",
     "build_profile_move_down": "Move down",
-    "build_error_regex": "Regular expression to capture errors from compiler output. Use capture groups: first group () must be the file path, second the line number. E.g.: File \"([^\"]+)\", line (\\d+)"
+    "build_error_regex": "Regular expression to capture errors from compiler output. Use capture groups: first group () must be the file path, second the line number. E.g.: File \"([^\"]+)\", line (\\d+)",
+    "pdf_toggle_links": "Show/hide hyperlinks in document",
+    "pdf_zoom_out": "Zoom out (−25%)",
+    "pdf_zoom_in": "Zoom in (+25%)",
+    "pdf_open_external": "Open PDF with the default external viewer",
+    "pdf_open_web": "Open PDF in the built-in Qt web panel (browser mode)",
+    "pdf_toggle_thumbs": "Show/hide thumbnails and bookmarks panel",
+    "pdf_print": "Print the PDF document",
+    "pdf_find": "Find in document (Ctrl+F)"
   },
   "websearch": {
     "submenu_title": "Web Search",

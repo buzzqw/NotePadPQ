@@ -68,6 +68,8 @@ class Settings(QObject):
         # Controllo ortografico
         "spellcheck/enabled":      False,
         "spellcheck/language":     "it",
+        # Function List
+        "function_list/latex_hidden_kinds": "",  # CSV: "subsubsection,command" ecc.
     }
 
     def __init__(self):

@@ -499,7 +499,18 @@
       "autocomplete": "Saisie semi-automatique",
       "preview": "Aperçu",
       "build": "Génération",
-      "language": "Langue"
+      "language": "Langue",
+      "function_list": "Liste des fonctions"
+    },
+    "fl": {
+      "latex_group": "LaTeX — éléments visibles",
+      "latex_part": "Partie",
+      "latex_chapter": "Chapitre",
+      "latex_section": "Section",
+      "latex_subsection": "Sous-section",
+      "latex_subsubsection": "Sous-sous-section (avec * inclus)",
+      "latex_command": "\\newcommand",
+      "latex_environment": "\\newenvironment"
     },
     "editor": {
       "font": "Police",

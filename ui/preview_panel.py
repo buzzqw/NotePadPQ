@@ -239,6 +239,15 @@ class PreviewPanel(QWidget):
         self._cursor_sync_timer.setInterval(200)
         self._cursor_sync_timer.timeout.connect(self._do_cursor_sync)
         self._cursor_sync_line: int = 0
+
+        # Debounce selection sync: evidenzia nel PDF il testo selezionato nel .tex
+        self._selection_sync_timer = QTimer(self)
+        self._selection_sync_timer.setSingleShot(True)
+        self._selection_sync_timer.setInterval(300)
+        self._selection_sync_timer.timeout.connect(self._do_selection_sync)
+        # (page_0based, y0_pt, y1_pt) in PDF points, o None
+        self._pdf_selection_highlight: Optional[tuple] = None
+
         self._md_worker = None             # thread markdown corrente
         self._md_old_workers: list = []    # worker superati: tenuti vivi fino al termine
         self._needs_refresh: bool = False  # aggiornamento pendente mentre nascosto
@@ -456,6 +465,10 @@ class PreviewPanel(QWidget):
                 self._editor.cursorPositionChanged.disconnect(self._on_cursor_changed)
             except Exception:
                 pass
+            try:
+                self._editor.selectionChanged.disconnect(self._on_selection_changed)
+            except Exception:
+                pass
 
         self._editor = editor
         
@@ -502,6 +515,13 @@ class PreviewPanel(QWidget):
             try:
                 editor.cursorPositionChanged.connect(
                     self._on_cursor_changed,
+                    Qt.ConnectionType.UniqueConnection,
+                )
+            except Exception:
+                pass
+            try:
+                editor.selectionChanged.connect(
+                    self._on_selection_changed,
                     Qt.ConnectionType.UniqueConnection,
                 )
             except Exception:
@@ -560,6 +580,8 @@ class PreviewPanel(QWidget):
     # ── Modalità ─────────────────────────────────────────────────────────────
 
     def _set_mode(self, mode: str) -> None:
+        if mode != "pdf":
+            self._pdf_selection_highlight = None
         self._mode = mode if mode in _SUPPORTED_MODES else "text"
         labels = {
             "markdown": "Markdown",
@@ -599,11 +621,25 @@ class PreviewPanel(QWidget):
                     )
                 except Exception:
                     pass
+                try:
+                    self._editor.selectionChanged.connect(
+                        self._on_selection_changed,
+                        Qt.ConnectionType.UniqueConnection,
+                    )
+                except Exception:
+                    pass
             else:
                 try:
                     self._editor.cursorPositionChanged.disconnect(self._on_cursor_changed)
                 except Exception:
                     pass
+                try:
+                    self._editor.selectionChanged.disconnect(self._on_selection_changed)
+                except Exception:
+                    pass
+                # Rimuovi l'eventuale highlight residuo
+                self._pdf_selection_highlight = None
+                self._pdf_show_page()
 
     @pyqtSlot(int, int)
     def _on_cursor_changed(self, line: int, col: int) -> None:
@@ -623,6 +659,79 @@ class PreviewPanel(QWidget):
             self.go_to_pdf_page_for_line(line + 1)
         elif self._mode == "markdown":
             self._scroll_preview_to_line(line + 1)
+
+    @pyqtSlot()
+    def _on_selection_changed(self) -> None:
+        if self._mode == "pdf" and self._sync_cursor:
+            self._selection_sync_timer.start()
+
+    def _do_selection_sync(self) -> None:
+        """Evidenzia nel PDF la regione corrispondente al testo selezionato nel .tex."""
+        if not self._editor or not self._pdf_path:
+            return
+        try:
+            line_from, _idx_from, line_to, _idx_to = self._editor.getSelection()
+        except Exception:
+            return
+
+        if line_from < 0:
+            # Nessuna selezione: rimuovi l'highlight
+            if self._pdf_selection_highlight is not None:
+                self._pdf_selection_highlight = None
+                self._pdf_show_page()
+            return
+
+        try:
+            from editor.synctex import SyncTeX
+            from pathlib import Path as _Path
+            pdf_p = _Path(self._pdf_path)
+            tex_p = self._editor.file_path
+            if not tex_p:
+                return
+            sx = SyncTeX(tex_p, pdf_p)
+
+            r_start = sx.tex_to_pdf(line_from + 1, col=1)
+            if not r_start:
+                self._pdf_selection_highlight = None
+                self._pdf_show_page()
+                return
+
+            page = r_start["page"] - 1  # 0-based
+            y_start = r_start["y"]
+
+            # Prendi la coordinata y della riga finale solo se è sulla stessa pagina
+            r_end = sx.tex_to_pdf(line_to + 1, col=1) if line_to != line_from else None
+            if r_end and r_end.get("page") == r_start["page"]:
+                y_end = r_end["y"]
+            else:
+                y_end = y_start
+
+            y0 = min(y_start, y_end) - 12.0   # spazio sopra la prima riga
+            y1 = max(y_start, y_end) + 5.0    # spazio sotto l'ultima riga
+
+            # Calcola x da h/W di SyncTeX per rispettare la colonna in layout multi-colonna.
+            # h = bordo sinistro del nodo; W = larghezza del nodo (tipicamente = larghezza riga).
+            # Se W è piccolo (nodo parola, non riga), estendiamo a un minimo di 180pt.
+            h = r_start.get("h")
+            W = r_start.get("W")
+            if h is not None:
+                x0_pt = max(0.0, h - 8.0)
+                if W is not None and W > 10.0:
+                    x1_pt = h + W + 8.0
+                else:
+                    x1_pt = h + 250.0   # larghezza minima se W non disponibile
+            else:
+                x0_pt = None   # segnale: usa larghezza pagina intera
+                x1_pt = None
+
+            self._pdf_selection_highlight = (page, y0, y1, x0_pt, x1_pt)
+
+            if page != self._pdf_page_num:
+                self._pdf_page_num = page
+
+            self._pdf_show_page()
+        except Exception:
+            pass
 
     # ── Aggiornamento contenuto ───────────────────────────────────────────────
 
@@ -1035,12 +1144,35 @@ class PreviewPanel(QWidget):
                          pix.stride, QImage.Format.Format_RGB888)
             pm  = QPixmap.fromImage(img)
 
+            ox = clip_rect.x0
+            oy = clip_rect.y0
+            z  = self._pdf_zoom
+
+            # ── Selezione tex→pdf highlight ───────────────────────────────
+            if self._pdf_selection_highlight is not None:
+                h_page, h_y0, h_y1, h_x0_pt, h_x1_pt = self._pdf_selection_highlight
+                if h_page == self._pdf_page_num:
+                    ry0 = int((h_y0 - oy) * z)
+                    ry1 = int((h_y1 - oy) * z)
+                    band_h = max(4, ry1 - ry0)
+                    if h_x0_pt is not None and h_x1_pt is not None:
+                        rx0 = int((h_x0_pt - ox) * z)
+                        rx1 = int((h_x1_pt - ox) * z)
+                        band_w = max(4, rx1 - rx0)
+                    else:
+                        rx0 = 0
+                        band_w = pm.width()
+                    sel_painter = QPainter(pm)
+                    sel_painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    sel_painter.setPen(QPen(QColor(255, 200, 0, 200), 1))
+                    sel_painter.setBrush(QBrush(QColor(255, 220, 0, 70)))
+                    sel_painter.drawRect(rx0, ry0, band_w, band_h)
+                    sel_painter.end()
+            # ─────────────────────────────────────────────────────────────
+
             # ── Link overlay ──────────────────────────────────────────────
             self._pdf_links = page.get_links()
             if self._pdf_show_links and self._pdf_links:
-                ox = clip_rect.x0
-                oy = clip_rect.y0
-                z  = self._pdf_zoom
                 painter = QPainter(pm)
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
                 for lnk in self._pdf_links:

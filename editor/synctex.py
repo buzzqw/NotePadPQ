@@ -86,20 +86,26 @@ class SyncTeX:
         result = {}
         for line in output.splitlines():
             if line.startswith("Page:"):
-                try:
-                    result["page"] = int(line.split(":")[1].strip())
-                except ValueError:
-                    pass
+                try: result["page"] = int(line.split(":")[1].strip())
+                except ValueError: pass
             elif line.startswith("x:"):
-                try:
-                    result["x"] = float(line.split(":")[1].strip())
-                except ValueError:
-                    pass
+                try: result["x"] = float(line.split(":")[1].strip())
+                except ValueError: pass
             elif line.startswith("y:"):
-                try:
-                    result["y"] = float(line.split(":")[1].strip())
-                except ValueError:
-                    pass
+                try: result["y"] = float(line.split(":")[1].strip())
+                except ValueError: pass
+            elif line.startswith("h:"):
+                try: result["h"] = float(line.split(":")[1].strip())
+                except ValueError: pass
+            elif line.startswith("v:"):
+                try: result["v"] = float(line.split(":")[1].strip())
+                except ValueError: pass
+            elif line.startswith("W:"):
+                try: result["W"] = float(line.split(":")[1].strip())
+                except ValueError: pass
+            elif line.startswith("H:"):
+                try: result["H"] = float(line.split(":")[1].strip())
+                except ValueError: pass
         return result if "page" in result else None
 
     # ── pdf -> tex ────────────────────────────────────────────────────────────

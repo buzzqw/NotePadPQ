@@ -290,43 +290,44 @@ class LaTeXLexer(QsciLexerCustom):
     def set_colors(self, tokens: dict, font_family: str, font_size: int,
                    editor_bg, editor_fg) -> None:
         """Applica i colori dal dizionario tema ai propri stili."""
-        from PyQt6.QtGui import QColor, QFont
+        p = self.parent()
+        if not p:
+            return
+        from PyQt6.QtGui import QColor
 
         bg_name = editor_bg.name() if hasattr(editor_bg, 'name') else str(editor_bg)
+        font_b  = font_family.encode()
 
-        base = QFont(font_family, font_size)
-        base.setFixedPitch(True)
+        # Scrive i colori DIRETTAMENTE nelle tabelle Scintilla via SendScintilla,
+        # bypassando il meccanismo segnali di QsciLexer.
+        #
+        # Il percorso normale: setColor() → colorChanged → handleStyleColorChange
+        # → SCI_STYLESETFORE + recolourize(). Con blockSignals=True usato prima,
+        # SCI_STYLESETFORE non veniva mai inviato → Scintilla usava la tabella
+        # colori stale → nessun colore visibile.
+        #
+        # Qui inviamo SCI_STYLESETFORE/BACK/FONT/SIZE/BOLD/ITALIC per ogni stile
+        # direttamente, poi un solo SCI_COLOURISE alla fine.
 
-        # Blocca i segnali per evitare che ogni setColor/setPaper/setFont
-        # triggeri una recolourize() completa (~75 chiamate SCI_COLOURISE
-        # altrimenti). Un singolo SCI_COLOURISE esplicito alla fine basta.
-        self.blockSignals(True)
-        try:
-            for sn in range(16):
-                self.setColor(editor_fg, sn)
-                self.setPaper(editor_bg, sn)
-                self.setFont(base, sn)
+        for sn in range(16):
+            p.SendScintilla(p.SCI_STYLESETFORE,   sn, editor_fg)
+            p.SendScintilla(p.SCI_STYLESETBACK,   sn, editor_bg)
+            p.SendScintilla(p.SCI_STYLESETFONT,   sn, font_b)
+            p.SendScintilla(p.SCI_STYLESETSIZE,   sn, font_size)
+            p.SendScintilla(p.SCI_STYLESETBOLD,   sn, 0)
+            p.SendScintilla(p.SCI_STYLESETITALIC, sn, 0)
 
-            for style_num, tok_key in STYLE_TOKEN.items():
-                tok = tokens.get(tok_key, {})
-                if not tok:
-                    continue
-                fg = QColor(tok["fg"]) if "fg" in tok else editor_fg
-                bg = QColor(tok.get("bg", bg_name))
-                f = QFont(font_family, font_size)
-                f.setFixedPitch(True)
-                f.setBold(tok.get("bold", False))
-                f.setItalic(tok.get("italic", False))
-                self.setColor(fg, style_num)
-                self.setPaper(bg, style_num)
-                self.setFont(f, style_num)
-        finally:
-            self.blockSignals(False)
+        for style_num, tok_key in STYLE_TOKEN.items():
+            tok = tokens.get(tok_key, {})
+            if not tok:
+                continue
+            fg = QColor(tok["fg"]) if "fg" in tok else editor_fg
+            bg = QColor(tok.get("bg", bg_name))
+            p.SendScintilla(p.SCI_STYLESETFORE,   style_num, fg)
+            p.SendScintilla(p.SCI_STYLESETBACK,   style_num, bg)
+            p.SendScintilla(p.SCI_STYLESETFONT,   style_num, font_b)
+            p.SendScintilla(p.SCI_STYLESETSIZE,   style_num, font_size)
+            p.SendScintilla(p.SCI_STYLESETBOLD,   style_num, 1 if tok.get("bold")   else 0)
+            p.SendScintilla(p.SCI_STYLESETITALIC, style_num, 1 if tok.get("italic") else 0)
 
-        # Una sola ricolorazione dopo aver impostato tutti i colori.
-        # update() NON basta: Scintilla ha una cache interna delle righe
-        # renderizzate che rimane stale se non si triggera SCI_COLOURISE.
-        # blockSignals ha soppresso i 75 segnali colorChanged → SCI_COLOURISE
-        # dei singoli setColor; qui ne triggeriamo esattamente uno.
-        if self.parent():
-            self.parent().SendScintilla(self.parent().SCI_COLOURISE, 0, -1)
+        p.SendScintilla(p.SCI_COLOURISE, 0, -1)

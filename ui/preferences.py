@@ -66,6 +66,7 @@ class PreferencesDialog(QDialog):
         self._tabs.addTab(self._tab_autocomplete(), tr("pref.tab.autocomplete", default="Autocompletamento"))
         self._tabs.addTab(self._tab_preview(), tr("pref.tab.preview", default="Anteprima"))
         self._tabs.addTab(self._tab_build(),   tr("pref.tab.build",   default="Build"))
+        self._tabs.addTab(self._tab_function_list(), tr("pref.tab.function_list", default="Function List"))
         self._tabs.addTab(self._tab_i18n(),    tr("pref.tab.language",default="Lingua"))
 
         # Pulsanti OK / Annulla / Applica
@@ -384,6 +385,35 @@ class PreferencesDialog(QDialog):
         vl.addStretch()
         return w
 
+    # ── Scheda Function List ──────────────────────────────────────────────────
+
+    def _tab_function_list(self) -> QWidget:
+        w = QWidget()
+        vl = QVBoxLayout(w)
+        vl.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        grp_latex = QGroupBox(tr("pref.fl.latex_group", default="LaTeX — elementi visibili"))
+        fl = QVBoxLayout(grp_latex)
+
+        self._fl_latex_checks: dict[str, QCheckBox] = {}
+        latex_kinds = [
+            ("part",          tr("pref.fl.latex_part",          default="Part")),
+            ("chapter",       tr("pref.fl.latex_chapter",       default="Chapter")),
+            ("section",       tr("pref.fl.latex_section",       default="Section")),
+            ("subsection",    tr("pref.fl.latex_subsection",    default="Subsection")),
+            ("subsubsection", tr("pref.fl.latex_subsubsection", default="Subsubsection (anche con *)")),
+            ("command",       tr("pref.fl.latex_command",       default="\\newcommand")),
+            ("environment",   tr("pref.fl.latex_environment",   default="\\newenvironment")),
+        ]
+        for kind, label in latex_kinds:
+            cb = QCheckBox(label)
+            fl.addWidget(cb)
+            self._fl_latex_checks[kind] = cb
+
+        vl.addWidget(grp_latex)
+        vl.addStretch()
+        return w
+
     # ── Scheda Lingua ─────────────────────────────────────────────────────────
 
     def _tab_i18n(self) -> QWidget:
@@ -499,6 +529,15 @@ class PreferencesDialog(QDialog):
             self._terminal_custom.setText(saved_term_cmd)
         else:
             self._terminal_custom.setText("")
+        # Function List
+        hidden = set(
+            k.strip() for k in
+            (s.get("function_list/latex_hidden_kinds") or "").split(",")
+            if k.strip()
+        )
+        for kind, cb in self._fl_latex_checks.items():
+            cb.setChecked(kind not in hidden)
+
         # Lingua
         lang = s.get("i18n/language", "it")
         for i in range(self._lang_combo.count()):
@@ -613,6 +652,22 @@ class PreferencesDialog(QDialog):
         if hasattr(mw_panels, "_build_dock"):
             if self._build_panel_always.isChecked():
                 mw_panels._build_dock.show()
+
+        # Function List
+        hidden_kinds = ",".join(
+            kind for kind, cb in self._fl_latex_checks.items()
+            if not cb.isChecked()
+        )
+        s.set("function_list/latex_hidden_kinds", hidden_kinds)
+        # Forza refresh del pannello function list se aperto
+        mw_fl = self.parent()
+        while mw_fl and not hasattr(mw_fl, "_function_list_panel"):
+            mw_fl = mw_fl.parent()
+        if mw_fl and hasattr(mw_fl, "_function_list_panel"):
+            try:
+                mw_fl._function_list_panel._refresh()
+            except Exception:
+                pass
 
         # Lingua
         lang_code = self._lang_combo.currentData()

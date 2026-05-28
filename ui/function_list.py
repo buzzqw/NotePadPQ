@@ -218,9 +218,17 @@ class _LaTeXParser(_Parser):
     ]
 
     def parse(self, text: str) -> List[FuncSymbol]:
+        from config.settings import Settings as _S
+        hidden = set(
+            k.strip() for k in
+            (_S.instance().get("function_list/latex_hidden_kinds") or "").split(",")
+            if k.strip()
+        )
         results = []
         for lineno, line in enumerate(text.splitlines(), 1):
             for pattern, kind, icon, lv in self._CMDS:
+                if kind in hidden:
+                    continue
                 m = re.search(pattern, line)
                 if m:
                     results.append(FuncSymbol(

@@ -499,7 +499,18 @@
       "autocomplete": "Autocomplete",
       "preview": "Preview",
       "build": "Build",
-      "language": "Language"
+      "language": "Language",
+      "function_list": "Function List"
+    },
+    "fl": {
+      "latex_group": "LaTeX — visible items",
+      "latex_part": "Part",
+      "latex_chapter": "Chapter",
+      "latex_section": "Section",
+      "latex_subsection": "Subsection",
+      "latex_subsubsection": "Subsubsection (including *)",
+      "latex_command": "\\newcommand",
+      "latex_environment": "\\newenvironment"
     },
     "editor": {
       "font": "Font",

@@ -89,6 +89,47 @@ def main():
 
     qInstallMessageHandler(_qt_msg_handler)
 
+    # Emoji fallback for QScintilla: Qt's automatic font merging doesn't
+    # trigger for SMP characters (U+1F000+) without explicit fontconfig rules
+    # because QScintilla reconstructs QFont from raw family-name strings.
+    # Writing a fontconfig rule before QApplication() makes Qt pick up
+    # Symbola as fallback when any monospace font lacks an emoji glyph.
+    import platform as _platform
+    if _platform.system() == "Linux":
+        try:
+            import os as _os
+            _fc_dir = _os.path.expanduser("~/.config/fontconfig/conf.d")
+            _os.makedirs(_fc_dir, exist_ok=True)
+            _fc_path = _os.path.join(_fc_dir, "99-notepadpq-emoji.conf")
+            _families = [
+                "Hack", "DejaVu Sans Mono", "Noto Mono", "Noto Sans Mono",
+                "Liberation Mono", "FreeMono", "Courier New",
+                "JetBrains Mono", "Fira Code", "Cascadia Code", "Source Code Pro",
+            ]
+            _rules = "\n".join(
+                f'  <match target="pattern">\n'
+                f'    <test qual="any" name="family"><string>{f}</string></test>\n'
+                f'    <edit name="family" mode="append" binding="weak"><string>Symbola</string></edit>\n'
+                f'  </match>'
+                for f in _families
+            )
+            _conf = (
+                '<?xml version="1.0"?>\n'
+                '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n'
+                '<fontconfig>\n'
+                + _rules + '\n'
+                '</fontconfig>\n'
+            )
+            _existing = ""
+            if _os.path.exists(_fc_path):
+                with open(_fc_path) as _fh:
+                    _existing = _fh.read()
+            if _existing != _conf:
+                with open(_fc_path, "w") as _fh:
+                    _fh.write(_conf)
+        except Exception:
+            pass
+
     app = QApplication(sys.argv)
     app.setApplicationName("NotePadPQ")
     app.setOrganizationName("NotePadPQ")

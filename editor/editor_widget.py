@@ -753,7 +753,6 @@ class EditorWidget(QsciScintilla):
         """
         font = QFont(family, size)
         font.setFixedPitch(True)
-
         self.setFont(font)
         self.setMarginsFont(font)
 

@@ -505,10 +505,15 @@
     "fl": {
       "latex_group": "LaTeX — elementos visibles",
       "latex_part": "Parte",
+      "latex_part_star": "Parte *",
       "latex_chapter": "Capítulo",
+      "latex_chapter_star": "Capítulo *",
       "latex_section": "Sección",
+      "latex_section_star": "Sección *",
       "latex_subsection": "Subsección",
-      "latex_subsubsection": "Sub-subsección (incluyendo *)",
+      "latex_subsection_star": "Subsección *",
+      "latex_subsubsection": "Sub-subsección",
+      "latex_subsubsection_star": "Sub-subsección *",
       "latex_command": "\\newcommand",
       "latex_environment": "\\newenvironment"
     },

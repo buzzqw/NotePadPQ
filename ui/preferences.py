@@ -396,18 +396,33 @@ class PreferencesDialog(QDialog):
         fl = QVBoxLayout(grp_latex)
 
         self._fl_latex_checks: dict[str, QCheckBox] = {}
+
+        # (kind, label, indented)
+        # Le voci indentate sono le varianti starred della voce precedente
         latex_kinds = [
-            ("part",          tr("pref.fl.latex_part",          default="Part")),
-            ("chapter",       tr("pref.fl.latex_chapter",       default="Chapter")),
-            ("section",       tr("pref.fl.latex_section",       default="Section")),
-            ("subsection",    tr("pref.fl.latex_subsection",    default="Subsection")),
-            ("subsubsection", tr("pref.fl.latex_subsubsection", default="Subsubsection (anche con *)")),
-            ("command",       tr("pref.fl.latex_command",       default="\\newcommand")),
-            ("environment",   tr("pref.fl.latex_environment",   default="\\newenvironment")),
+            ("part",           tr("pref.fl.latex_part",              default="Part"),              False),
+            ("part*",          tr("pref.fl.latex_part_star",         default="Part *"),            True),
+            ("chapter",        tr("pref.fl.latex_chapter",           default="Chapter"),           False),
+            ("chapter*",       tr("pref.fl.latex_chapter_star",      default="Chapter *"),         True),
+            ("section",        tr("pref.fl.latex_section",           default="Section"),           False),
+            ("section*",       tr("pref.fl.latex_section_star",      default="Section *"),         True),
+            ("subsection",     tr("pref.fl.latex_subsection",        default="Subsection"),        False),
+            ("subsection*",    tr("pref.fl.latex_subsection_star",   default="Subsection *"),      True),
+            ("subsubsection",  tr("pref.fl.latex_subsubsection",     default="Subsubsection"),     False),
+            ("subsubsection*", tr("pref.fl.latex_subsubsection_star",default="Subsubsection *"),   True),
+            ("command",        tr("pref.fl.latex_command",           default="\\newcommand"),      False),
+            ("environment",    tr("pref.fl.latex_environment",       default="\\newenvironment"),  False),
         ]
-        for kind, label in latex_kinds:
+        for kind, label, indented in latex_kinds:
             cb = QCheckBox(label)
-            fl.addWidget(cb)
+            if indented:
+                row = QHBoxLayout()
+                row.setContentsMargins(0, 0, 0, 0)
+                row.addSpacing(22)
+                row.addWidget(cb)
+                fl.addLayout(row)
+            else:
+                fl.addWidget(cb)
             self._fl_latex_checks[kind] = cb
 
         vl.addWidget(grp_latex)

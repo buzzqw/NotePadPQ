@@ -207,14 +207,21 @@ class _BashParser(_Parser):
 
 class _LaTeXParser(_Parser):
     # (pattern, kind, icon, level)  level=0 → mostrato flat in gruppo separato
+    # Le varianti starred e non-starred sono pattern mutuamente esclusivi:
+    # \\section\s*\{ non matcha \\section*{ perché * non è whitespace.
     _CMDS = [
-        (r"\\part\*?\{([^}]+)\}",             "part",          "📚", 1),
-        (r"\\chapter\*?\{([^}]+)\}",          "chapter",       "📖", 2),
-        (r"\\section\*?\{([^}]+)\}",          "section",       "§",  3),
-        (r"\\subsection\*?\{([^}]+)\}",       "subsection",    "§",  4),
-        (r"\\subsubsection\*?\{([^}]+)\}",    "subsubsection", "§",  5),
-        (r"\\newcommand\{\\(\w+)\}",           "command",       "⌘",  0),
-        (r"\\newenvironment\{(\w+)\}",         "environment",   "⬜", 0),
+        (r"\\part\s*\{([^}]+)\}",              "part",           "📚", 1),
+        (r"\\part\*\s*\{([^}]+)\}",            "part*",          "📚", 1),
+        (r"\\chapter\s*\{([^}]+)\}",           "chapter",        "📖", 2),
+        (r"\\chapter\*\s*\{([^}]+)\}",         "chapter*",       "📖", 2),
+        (r"\\section\s*\{([^}]+)\}",           "section",        "§",  3),
+        (r"\\section\*\s*\{([^}]+)\}",         "section*",       "§",  3),
+        (r"\\subsection\s*\{([^}]+)\}",        "subsection",     "§",  4),
+        (r"\\subsection\*\s*\{([^}]+)\}",      "subsection*",    "§",  4),
+        (r"\\subsubsection\s*\{([^}]+)\}",     "subsubsection",  "§",  5),
+        (r"\\subsubsection\*\s*\{([^}]+)\}",   "subsubsection*", "§",  5),
+        (r"\\newcommand\{\\(\w+)\}",            "command",        "⌘",  0),
+        (r"\\newenvironment\{(\w+)\}",          "environment",    "⬜", 0),
     ]
 
     def parse(self, text: str) -> List[FuncSymbol]:

@@ -271,14 +271,19 @@ class LaTeXLexer(QsciLexerCustom):
                     next_pos = pos + 1
                 pos = next_pos
 
-        # Applica tutti gli stili con UNA SOLA chiamata Qt bridge
-        # invece di ~181K chiamate setStyling() separate.
+        # Applica gli stili con run-length encoding: una chiamata setStyling()
+        # per run di stile identico invece di una per byte.
+        # SCI_SETSTYLINGEX via SendScintilla non funziona in PyQt6: SIP sceglie
+        # l'overload const char* null-terminated e si ferma al primo \x00 (S_DEFAULT).
         self.startStyling(safe)
-        self.parent().SendScintilla(
-            self.parent().SCI_SETSTYLINGEX,
-            region_len,
-            bytes(styles),
-        )
+        i = 0
+        while i < region_len:
+            s = styles[i]
+            j = i + 1
+            while j < region_len and styles[j] == s:
+                j += 1
+            self.setStyling(j - i, s)
+            i = j
 
     # ── Applicazione tema ─────────────────────────────────────────────────────
 
@@ -293,9 +298,8 @@ class LaTeXLexer(QsciLexerCustom):
         base.setFixedPitch(True)
 
         # Blocca i segnali per evitare che ogni setColor/setPaper/setFont
-        # triggeri una recolourize() completa del documento (~75 chiamate
-        # SCI_COLOURISE(0,-1) altrimenti). Un singolo update() alla fine
-        # è sufficiente per ridisegnare con i nuovi colori.
+        # triggeri una recolourize() completa (~75 chiamate SCI_COLOURISE
+        # altrimenti). Un singolo SCI_COLOURISE esplicito alla fine basta.
         self.blockSignals(True)
         try:
             for sn in range(16):
@@ -319,6 +323,10 @@ class LaTeXLexer(QsciLexerCustom):
         finally:
             self.blockSignals(False)
 
-        # Un solo repaint per applicare i nuovi colori
+        # Una sola ricolorazione dopo aver impostato tutti i colori.
+        # update() NON basta: Scintilla ha una cache interna delle righe
+        # renderizzate che rimane stale se non si triggera SCI_COLOURISE.
+        # blockSignals ha soppresso i 75 segnali colorChanged → SCI_COLOURISE
+        # dei singoli setColor; qui ne triggeriamo esattamente uno.
         if self.parent():
-            self.parent().update()
+            self.parent().SendScintilla(self.parent().SCI_COLOURISE, 0, -1)

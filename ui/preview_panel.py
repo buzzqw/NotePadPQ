@@ -231,6 +231,14 @@ class PreviewPanel(QWidget):
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._update_preview)
         self._last_hash: int = 0   # evita re-render se il testo non è cambiato
+
+        # Debounce cursor sync: evita un SyncTeX subprocess o tree-walk
+        # per ogni singolo tasto freccia. Aggiorna solo dopo 200ms di quiete.
+        self._cursor_sync_timer = QTimer(self)
+        self._cursor_sync_timer.setSingleShot(True)
+        self._cursor_sync_timer.setInterval(200)
+        self._cursor_sync_timer.timeout.connect(self._do_cursor_sync)
+        self._cursor_sync_line: int = 0
         self._md_worker = None             # thread markdown corrente
         self._md_old_workers: list = []    # worker superati: tenuti vivi fino al termine
         self._needs_refresh: bool = False  # aggiornamento pendente mentre nascosto
@@ -601,6 +609,14 @@ class PreviewPanel(QWidget):
     def _on_cursor_changed(self, line: int, col: int) -> None:
         if not self._sync_cursor:
             return
+        # Debounce: accumulate rapid movements (arrow key held down) and
+        # only sync after 200ms of inactivity. Avoids a SyncTeX subprocess
+        # (or tree walk) on every single keystroke.
+        self._cursor_sync_line = line
+        self._cursor_sync_timer.start()
+
+    def _do_cursor_sync(self) -> None:
+        line = self._cursor_sync_line
         if self._mode == "latex":
             self._highlight_tree_item(line)
         elif self._mode == "pdf":

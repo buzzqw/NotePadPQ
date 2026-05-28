@@ -541,10 +541,17 @@ class PreferencesDialog(QDialog):
         s.set("editor/auto_indent",  self._auto_indent.isChecked())
         s.set("editor/edge_column", self._edge_column.value())
 
-        # Aspetto — applica tema a caldo
+        # Aspetto — applica tema a caldo e ri-applica a tutti gli editor
+        # (include le nuove impostazioni font che apply_to_editor legge da QSettings)
         theme_name = self._theme_combo.currentText()
         s.set("theme/active", theme_name)
         self._theme_mgr.set_active(theme_name)
+        mw_apply = self.parent()
+        while mw_apply is not None and not hasattr(mw_apply, "_tab_manager"):
+            mw_apply = mw_apply.parent()
+        if mw_apply is not None:
+            for ed in mw_apply._tab_manager.all_editors():
+                self._theme_mgr.apply_to_editor(ed, theme_name)
         
         # --- LOGICA ICONE E DOWNLOAD ---
         old_icon_set = getattr(self, "_original_icon_set", s.get("ui/icon_set", "lucide"))

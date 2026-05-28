@@ -1082,9 +1082,15 @@ class ThemeManager(QObject):
         font_d = theme.get("font", {})
 
         # ── Font ──
+        # User prefs (editor/font_family, editor/font_size) override the theme's
+        # built-in font. Theme font is the fallback when prefs are not set.
         from core.platform import get_preferred_monospace_font
-        family = font_d.get("family") or get_preferred_monospace_font()
-        size   = font_d.get("size", 11)
+        from config.settings import Settings as _Settings
+        _s = _Settings.instance()
+        user_family = _s.get("editor/font_family")   # None if not set
+        user_size   = _s.get("editor/font_size", 0)  # 0 = not explicitly set
+        family = user_family or font_d.get("family") or get_preferred_monospace_font()
+        size   = user_size   or font_d.get("size", 11)
         editor.set_font_family(family, size)
 
         # ── Colori UI ──

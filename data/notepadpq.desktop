@@ -1,0 +1,24 @@
+[Desktop Entry]
+Type=Application
+Name=NotePadPQ
+GenericName=Text Editor
+GenericName[it]=Editor di testo
+GenericName[de]=Texteditor
+GenericName[fr]=Éditeur de texte
+GenericName[es]=Editor de texto
+GenericName[pl]=Edytor tekstu
+Comment=Advanced text editor with syntax highlighting, LaTeX support and plugins
+Comment[it]=Editor di testo avanzato con sintassi, supporto LaTeX e plugin
+Comment[de]=Erweiterter Texteditor mit Syntaxhervorhebung, LaTeX-Unterstützung und Plugins
+Comment[fr]=Éditeur de texte avancé avec coloration syntaxique, support LaTeX et plugins
+Comment[es]=Editor de texto avanzado con resaltado de sintaxis, soporte LaTeX y plugins
+Comment[pl]=Zaawansowany edytor tekstu z podświetlaniem składni, obsługą LaTeX i wtyczkami
+Exec=notepadpq %F
+Icon=notepadpq
+Terminal=false
+StartupNotify=true
+StartupWMClass=NotePadPQ
+Categories=TextEditor;Utility;Development;
+MimeType=text/plain;text/x-python;text/x-python3;text/x-c;text/x-c++;text/x-csrc;text/x-chdr;text/x-c++src;text/x-c++hdr;text/x-java;text/x-javascript;text/x-typescript;text/x-shellscript;text/x-bash;text/x-latex;text/markdown;text/x-rst;text/x-lua;text/x-perl;text/x-ruby;text/x-tcl;text/x-sql;text/html;text/css;text/xml;application/json;application/xml;application/x-yaml;application/x-shellscript;application/x-desktop;
+Keywords=editor;text;code;programming;notepad;latex;markdown;syntax;
+Keywords[it]=editor;testo;codice;programmazione;blocco note;latex;markdown;sintassi;

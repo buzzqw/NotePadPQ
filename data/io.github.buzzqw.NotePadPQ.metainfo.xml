@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.buzzqw.NotePadPQ</id>
+
+  <name>NotePadPQ</name>
+  <summary>Advanced text editor with syntax highlighting, LaTeX support and plugins</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>EUPL-1.2</project_license>
+
+  <description>
+    <p>
+      NotePadPQ is a modern, cross-platform text editor built with Python 3, PyQt6
+      and QScintilla. Inspired by Notepad++ but runs natively on Linux, Windows and
+      FreeBSD without Wine or emulation layers.
+    </p>
+    <p>Key features:</p>
+    <ul>
+      <li>Syntax highlighting for 40+ languages with auto-detection</li>
+      <li>Full LaTeX editing suite: autocomplete, real-time checker, SyncTeX, PDF preview</li>
+      <li>Language Server Protocol (LSP) client for code intelligence</li>
+      <li>Split view, multi-cursor, macros, bookmarks, code folding</li>
+      <li>Integrated build system with configurable profiles</li>
+      <li>Command palette and Goto Anything (Sublime-style)</li>
+      <li>Markdown, reStructuredText and HTML live preview</li>
+      <li>Spell checker for Italian, English, German, French, Spanish</li>
+      <li>Plugin architecture with built-in AI assistant, PDF viewer, hex viewer,
+          spreadsheet, rich text editor, Git integration and more</li>
+      <li>40+ built-in colour themes, fully customisable</li>
+      <li>Interface available in Italian, English, German, French, Spanish, Polish</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.buzzqw.NotePadPQ.desktop</launchable>
+
+  <url type="homepage">https://github.com/buzzqw/NotePadPQ</url>
+  <url type="bugtracker">https://github.com/buzzqw/NotePadPQ/issues</url>
+  <url type="vcs-browser">https://github.com/buzzqw/NotePadPQ</url>
+
+  <developer id="io.github.buzzqw">
+    <name>buzzqw</name>
+  </developer>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="1.1.7" date="2025-05-01">
+      <description>
+        <p>Startup performance: plugins now load one per event-loop tick so the
+        window appears immediately. Language auto-detection from system locale.
+        Simplified build profiles list.</p>
+      </description>
+    </release>
+    <release version="1.1.6" date="2025-04-01">
+      <description>
+        <p>QScrollBar theming, PDF viewer refactor.</p>
+      </description>
+    </release>
+  </releases>
+
+  <categories>
+    <category>Development</category>
+    <category>TextEditor</category>
+    <category>Utility</category>
+  </categories>
+
+  <keywords>
+    <keyword>editor</keyword>
+    <keyword>text</keyword>
+    <keyword>code</keyword>
+    <keyword>latex</keyword>
+    <keyword>markdown</keyword>
+    <keyword>syntax</keyword>
+    <keyword>notepad</keyword>
+    <keyword>programming</keyword>
+    <keyword>lsp</keyword>
+  </keywords>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <requires>
+    <display_length compare="ge">800</display_length>
+  </requires>
+</component>

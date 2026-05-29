@@ -329,15 +329,13 @@ class PdfViewerWidget(QWidget):
 
             bar.addSeparator()
 
-        # apri nel pannello Qt Web (solo se GL disponibile a runtime)
+        # apri nel pannello Qt Web
         if WEBENGINE_OK:
-            from core.webengine import gl_available
-            if gl_available():
-                btn_web = QToolButton(bar)
-                btn_web.setText("🌐")
-                btn_web.setToolTip(tr("tooltip.pdf_open_web"))
-                btn_web.clicked.connect(self._open_in_web_viewer)
-                bar.addWidget(btn_web)
+            btn_web = QToolButton(bar)
+            btn_web.setText("🌐")
+            btn_web.setToolTip(tr("tooltip.pdf_open_web"))
+            btn_web.clicked.connect(self._open_in_web_viewer)
+            bar.addWidget(btn_web)
 
         # apri con visualizzatore esterno
         btn_ext = QToolButton(bar)
@@ -620,8 +618,7 @@ class PdfViewerWidget(QWidget):
             _open_url(QUrl.fromLocalFile(str(self.file_path.resolve())))
 
     def _open_in_web_viewer(self) -> None:
-        from core.webengine import gl_available
-        if not self.file_path or not WEBENGINE_OK or not gl_available() or self._main_window is None:
+        if not self.file_path or not WEBENGINE_OK or self._main_window is None:
             return
         tab_name = f"[Web] {self.file_path.name}"
         widget = PdfWebTabWidget(self.file_path)

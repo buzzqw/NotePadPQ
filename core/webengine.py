@@ -115,19 +115,30 @@ def _probe_glx() -> bool:
 
 
 def gl_available() -> bool:
-    """True se QWebEngineView può essere creato (GL funzionante)."""
+    """
+    True se QWebEngineView può essere creato.
+    Se il probe hardware fallisce, attiva automaticamente LIBGL_ALWAYS_SOFTWARE=1
+    (Mesa llvmpipe) prima che QtWebEngineProcess venga avviato come sottoprocesso.
+    """
     global _gl_available
     if _gl_available is None:
-        _gl_available = _probe_glx()
+        if _probe_glx():
+            _gl_available = True
+        else:
+            # Nessuna FBConfig hardware: attiva software GL (Mesa llvmpipe).
+            # QtWebEngineProcess è un sottoprocesso e eredita l'env allo spawn,
+            # quindi LIBGL_ALWAYS_SOFTWARE=1 impostato qui viene recepito.
+            if 'LIBGL_ALWAYS_SOFTWARE' not in os.environ:
+                os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'
+            _gl_available = True  # software GL disponibile su qualsiasi Linux con Mesa
     return _gl_available
 
 
 def safe_webview(parent: "Optional[QWidget]" = None) -> "Optional[QWebEngineView]":
     """
-    Crea QWebEngineView solo se GL è disponibile (verificato via probe ctypes).
-    Restituisce None se GL non è utilizzabile, senza crashare.
+    Crea QWebEngineView, attivando il software GL se necessario.
+    Restituisce None solo se WEBENGINE_OK è False (modulo non installato).
     """
-    if not gl_available():
-        return None
+    gl_available()  # assicura che LIBGL_ALWAYS_SOFTWARE sia impostato se serve
     from PyQt6.QtWebEngineWidgets import QWebEngineView
     return QWebEngineView(parent) if parent is not None else QWebEngineView()

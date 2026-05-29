@@ -13,7 +13,15 @@ class ArcadeDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        self.webview = QWebEngineView()
+        from ui._webengine import safe_webview
+        self.webview = safe_webview(self)
+        if self.webview is None:
+            from PyQt6.QtWidgets import QLabel
+            from PyQt6.QtCore import Qt
+            lbl = QLabel("Arcade non disponibile: OpenGL non inizializzabile.")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(lbl)
+            return
         layout.addWidget(self.webview)
         
         # 1. Legge il tuo file games.js

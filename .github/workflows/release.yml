@@ -63,7 +63,8 @@ jobs:
           pip install \
             mammoth htmldocx \
             openpyxl xlrd odfpy \
-            PyGithub python-gitlab || true
+            PyGithub python-gitlab \
+            paramiko pymupdf sympy matplotlib || true
           # PyInstaller
           pip install "pyinstaller>=6.3" pyinstaller-hooks-contrib
 

@@ -446,10 +446,11 @@ class PreviewPanel(QWidget):
         Stack fisso: 0=TextBrowser, 1=LaTeX tree, 2=testo grezzo, 3=PDF, 4+=WebEngine
         """
         if self._web is None and _HAS_WEBENGINE:
-            from PyQt6.QtWebEngineWidgets import QWebEngineView
-            self._web = QWebEngineView()
-            self._web.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-            self._stack.addWidget(self._web)   # aggiunto in fondo, indice >= 4
+            from ui._webengine import safe_webview
+            self._web = safe_webview()
+            if self._web is not None:
+                self._web.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+                self._stack.addWidget(self._web)   # aggiunto in fondo, indice >= 4
         return self._web
 
     # ── Collegamento editor ───────────────────────────────────────────────────

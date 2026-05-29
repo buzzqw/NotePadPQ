@@ -380,15 +380,27 @@ class PdfViewerWidget(QWidget):
             self._view = None
 
         elif WEBENGINE_OK:
-            self._view = QWebEngineView(self)
-            self._view.settings().setAttribute(
-                QWebEngineSettings.WebAttribute.PluginsEnabled, True)
-            self._view.settings().setAttribute(
-                QWebEngineSettings.WebAttribute.PdfViewerEnabled, True)
-            self._view.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            layout.addWidget(self._view)
-            self._scroll = None
+            from ui._webengine import safe_webview
+            self._view = safe_webview(self)
+            if self._view is not None:
+                self._view.settings().setAttribute(
+                    QWebEngineSettings.WebAttribute.PluginsEnabled, True)
+                self._view.settings().setAttribute(
+                    QWebEngineSettings.WebAttribute.PdfViewerEnabled, True)
+                self._view.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+                layout.addWidget(self._view)
+                self._scroll = None
+            else:
+                self._scroll = None
+                lbl = QLabel(
+                    "⚠ OpenGL non disponibile su questo sistema.\n"
+                    "Il visualizzatore PDF WebEngine richiede GLX/EGL.\n"
+                    "Installa PyMuPDF per usare il renderer alternativo:\n"
+                    "pip install pymupdf", self)
+                lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                lbl.setWordWrap(True)
+                layout.addWidget(lbl)
         else:
             self._view   = None
             self._scroll = None

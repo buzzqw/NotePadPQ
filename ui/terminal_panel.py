@@ -227,26 +227,8 @@ class TerminalPanel(QWidget):
 
     @staticmethod
     def _try_create_webview():
-        """
-        Crea QWebEngineView intercettando il SIGABRT che Qt lancia se GL non è disponibile.
-        Restituisce None se l'inizializzazione GL fallisce, senza crashare il processo.
-        """
-        import signal
-
-        caught = []
-
-        def _abort_to_exc(signum, frame):
-            caught.append(True)
-            raise RuntimeError("Qt GL init failed (SIGABRT intercepted)")
-
-        old = signal.signal(signal.SIGABRT, _abort_to_exc)
-        try:
-            view = QWebEngineView()
-            return view
-        except RuntimeError:
-            return None
-        finally:
-            signal.signal(signal.SIGABRT, old)
+        from ui._webengine import safe_webview
+        return safe_webview()
 
     # ── Logica terminale ──────────────────────────────────────────────────────
 

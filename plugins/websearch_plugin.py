@@ -117,16 +117,27 @@ class _WikiPanel(QWidget):
         lay.addWidget(self._progress)
 
         # view Wikipedia mobile
-        self._view = QWebEngineView()
-        self._view.loadStarted.connect(self._on_load_started)
-        self._view.loadProgress.connect(self._progress.setValue)
-        self._view.loadFinished.connect(self._on_load_finished)
-        lay.addWidget(self._view)
+        from ui._webengine import safe_webview
+        self._view = safe_webview()
+        if self._view is not None:
+            self._view.loadStarted.connect(self._on_load_started)
+            self._view.loadProgress.connect(self._progress.setValue)
+            self._view.loadFinished.connect(self._on_load_finished)
+            lay.addWidget(self._view)
+        else:
+            from PyQt6.QtWidgets import QLabel
+            from PyQt6.QtCore import Qt
+            lbl = QLabel(tr("plugin.terminal.no_gl"))
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setWordWrap(True)
+            lay.addWidget(lbl)
 
     # ------------------------------------------------------------------
 
     def search(self, query: str, lang: str) -> None:
         """Cerca su Wikipedia (versione mobile) con CSS cleanup."""
+        if self._view is None:
+            return
         self._search.setText(query)
         self._open_btn.setEnabled(False)
         encoded = urllib.parse.quote(query.replace(" ", "_"))
@@ -135,6 +146,8 @@ class _WikiPanel(QWidget):
 
     def load_url(self, url: str) -> None:
         """Carica un URL generico nel pannello (Google, Reddit, SO, ecc.)."""
+        if self._view is None:
+            return
         self._search.clear()
         self._open_btn.setEnabled(False)
         self._desktop_url = url
@@ -151,7 +164,7 @@ class _WikiPanel(QWidget):
 
     def _on_load_finished(self, ok: bool) -> None:
         self._progress.hide()
-        if ok:
+        if ok and self._view is not None:
             self._open_btn.setEnabled(True)
             # CSS cleanup solo sulle pagine Wikipedia
             if ".wikipedia.org" in self._view.url().toString():

@@ -612,7 +612,15 @@ class RichTextWidget(QWidget):
             return
 
         # WebEngineView
-        self._view = QWebEngineView(self)
+        from ui._webengine import safe_webview
+        self._view = safe_webview(self)
+        if self._view is None:
+            from i18n.i18n import tr as _tr
+            lbl = QLabel(_tr("plugin.terminal.no_gl"), self)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setWordWrap(True)
+            layout.addWidget(lbl)
+            return
         self._view.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -935,7 +943,10 @@ class RichTextWidget(QWidget):
         clean_html = RichTextIO._full_html(html)
 
         _path = path
-        _view = QWebEngineView()
+        from ui._webengine import safe_webview
+        _view = safe_webview()
+        if _view is None:
+            return False
         loop = QEventLoop()
         _ok = [False]
 

@@ -83,8 +83,12 @@ hidden_imports = [
     'htmldocx',
     'github',
     'gitlab',
+    'paramiko',
+    'paramiko.transport',
+    'paramiko.sftp_client',
     # Optional LaTeX/PDF — guarded by try/except at call site
     'fitz',
+    'fitz.utils',
     'matplotlib',
     'matplotlib.pyplot',
     'matplotlib.backends.backend_agg',

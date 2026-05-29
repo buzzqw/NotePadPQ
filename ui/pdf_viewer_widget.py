@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, List
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QPoint, QRect, QSize
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QPoint, QRect, QSize, QTimer
 from PyQt6.QtGui import (
     QPixmap, QImage, QPainter, QPen, QBrush, QColor,
     QCursor, QDesktopServices, QIcon, QShortcut, QKeySequence
@@ -180,13 +180,21 @@ class _SidePanel(QWidget):
         layout.addWidget(self._tabs)
 
     def populate(self, doc) -> None:
-        self._populate_thumbs(doc)
+        self._populate_thumbs_lazy(doc)
         self._populate_bookmarks(doc)
 
-    def _populate_thumbs(self, doc) -> None:
+    def _populate_thumbs_lazy(self, doc) -> None:
+        """Carica le miniature una alla volta con QTimer.singleShot per
+        non bloccare il thread UI durante l'apertura del documento."""
         self._thumb_list.clear()
-        zoom = _THUMB_W / max(doc[0].rect.width, 1) if len(doc) > 0 else 1.0
-        for i in range(len(doc)):
+        n = len(doc)
+        if n == 0:
+            return
+        zoom = _THUMB_W / max(doc[0].rect.width, 1)
+
+        def _add_thumb(i: int) -> None:
+            if i >= n:
+                return
             pg  = doc.load_page(i)
             mat = _fitz.Matrix(zoom, zoom)
             pix = pg.get_pixmap(matrix=mat, colorspace=_fitz.csRGB)
@@ -197,6 +205,10 @@ class _SidePanel(QWidget):
             item.setData(Qt.ItemDataRole.UserRole, i)
             item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom)
             self._thumb_list.addItem(item)
+            # Schedula la miniatura successiva senza bloccare la UI
+            QTimer.singleShot(0, lambda idx=i + 1: _add_thumb(idx))
+
+        QTimer.singleShot(0, lambda: _add_thumb(0))
 
     def _populate_bookmarks(self, doc) -> None:
         self._bm_list.clear()
@@ -246,8 +258,10 @@ class PdfViewerWidget(QWidget):
         self._zoom        = self._DEFAULT_ZOOM
         self._show_links  = True
         self._page_labels: List[_PdfPageLabel] = []
+        # Contatore di generazione: incrementato ad ogni rebuild per invalidare
+        # eventuali QTimer.singleShot pendenti da rebuild precedenti.
+        self._page_gen    = 0
 
-        from PyQt6.QtCore import QTimer
         self._zoom_timer = QTimer(self)
         self._zoom_timer.setSingleShot(True)
         self._zoom_timer.setInterval(300)
@@ -482,7 +496,24 @@ class PdfViewerWidget(QWidget):
                 w.setParent(None)
         self._page_labels.clear()
 
-        for i in range(len(self._doc)):
+        n = len(self._doc)
+        if n == 0:
+            return
+
+        # Incrementa la generazione: i closure dei timer precedenti si fermano
+        self._page_gen += 1
+        gen = self._page_gen
+
+        def _add_page(i: int) -> None:
+            # Se è partito un nuovo rebuild, questo timer è obsoleto: fermati
+            if gen != self._page_gen:
+                return
+            if i >= n:
+                # Tutte le pagine aggiunte: imposta la larghezza minima
+                if self._page_labels:
+                    self._pages_container.setMinimumWidth(
+                        max(lbl.width() for lbl in self._page_labels) + 24)
+                return
             pg  = self._doc.load_page(i)
             lbl = _PdfPageLabel(pg, self._zoom, self._show_links, self._pages_container)
             lbl.link_activated.connect(self._on_link_activated)
@@ -493,11 +524,17 @@ class PdfViewerWidget(QWidget):
                 self._pages_layout.addWidget(sep)
             self._pages_layout.addWidget(lbl)
             self._page_labels.append(lbl)
-        # Imposta il minimum width sul contenuto più largo così setWidgetResizable(True)
-        # espande il container fino a quella dimensione e mostra la scrollbar orizzontale
-        if self._page_labels:
-            self._pages_container.setMinimumWidth(
-                max(lbl.width() for lbl in self._page_labels) + 24)
+            # Schedula la pagina successiva senza bloccare la UI
+            QTimer.singleShot(0, lambda idx=i + 1: _add_page(idx))
+
+        # Prima pagina subito (sincrona) così il documento appare istantaneamente
+        pg0  = self._doc.load_page(0)
+        lbl0 = _PdfPageLabel(pg0, self._zoom, self._show_links, self._pages_container)
+        lbl0.link_activated.connect(self._on_link_activated)
+        self._pages_layout.addWidget(lbl0)
+        self._page_labels.append(lbl0)
+        # Pagine successive in background
+        QTimer.singleShot(0, lambda: _add_page(1))
 
     # ── Zoom ──────────────────────────────────────────────────────────────────
 

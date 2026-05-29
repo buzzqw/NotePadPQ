@@ -60,6 +60,13 @@ export APPIMAGE_ORIG_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
 # per non mascherare libGL/libEGL di sistema con eventuali versioni bundled.
 export LD_LIBRARY_PATH="${INT}/PyQt6/Qt6/lib:${LD_LIBRARY_PATH:-}"
 
+# Impedisce a GIO di caricare moduli di sistema (es. libgvfsdbus.so) che
+# potrebbero dipendere da simboli GLib non presenti nella versione di sistema
+# (es. g_task_set_static_name richiede GLib >= 2.76).
+# Usiamo una directory vuota dentro l'AppDir così GIO non trova nessun modulo.
+export GIO_MODULE_DIR="${HERE}/gio-modules"
+mkdir -p "${GIO_MODULE_DIR}"
+
 # Qt platform plugins
 export QT_QPA_PLATFORM_PLUGIN_PATH="${INT}/PyQt6/Qt6/plugins/platforms"
 export QT_PLUGIN_PATH="${INT}/PyQt6/Qt6/plugins"
@@ -72,7 +79,7 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/notepadpq-rt-${UID}}"
 mkdir -p "${XDG_RUNTIME_DIR}"
 
 # --no-sandbox: necessario in AppImage dove il namespace sandbox di Chromium
-# non è disponibile. GPU acceleration rimane attiva.
+# non è disponibile. GPU acceleration rimane attiva se la GPU funziona.
 export QTWEBENGINE_CHROMIUM_FLAGS="${QTWEBENGINE_CHROMIUM_FLAGS:-} --no-sandbox"
 
 # Auto-detect: se GLX non ha FBConfig hardware disponibili, attiva il renderer
@@ -107,6 +114,14 @@ PYGLX
     if [[ "${_glx_ok}" = "0" ]]; then
         export LIBGL_ALWAYS_SOFTWARE=1
     fi
+fi
+
+# Quando non c'è GPU hardware, Chromium (WebEngine) deve usare il suo renderer
+# software interno (SwiftShader) altrimenti la pagina rimane nera.
+# --disable-gpu: disabilita il renderer OpenGL hardware di Chromium
+# --use-gl=swiftshader: forza SwiftShader (software GL) per il compositing
+if [[ "${LIBGL_ALWAYS_SOFTWARE:-0}" = "1" ]]; then
+    export QTWEBENGINE_CHROMIUM_FLAGS="${QTWEBENGINE_CHROMIUM_FLAGS} --disable-gpu --use-gl=swiftshader"
 fi
 
 exec "${HERE}/notepadpq" "$@"

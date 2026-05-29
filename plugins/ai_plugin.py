@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import ssl
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -47,6 +48,18 @@ from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
+
+
+def _make_ssl_ctx() -> ssl.SSLContext:
+    """Restituisce un SSLContext che non verifica i certificati server.
+    Necessario su sistemi in cui i certificati CA di sistema non sono
+    aggiornati o accessibili (es. bundle PyInstaller/AppImage).
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
 
 # ─── Configurazione provider ──────────────────────────────────────────────────
 
@@ -341,7 +354,7 @@ class _JetBrainsOAuth(QObject):
                 headers={'Content-Type': 'application/x-www-form-urlencoded'}
             )
             
-            with urllib.request.urlopen(req, timeout=30) as response:
+            with urllib.request.urlopen(req, timeout=30, context=_make_ssl_ctx()) as response:
                 token_response = json.loads(response.read().decode())
             
             if 'access_token' in token_response:
@@ -376,7 +389,7 @@ class _JetBrainsOAuth(QObject):
                 license_url,
                 headers={'Authorization': f'Bearer {access_token}'}
             )
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req, timeout=10, context=_make_ssl_ctx()) as response:
                 license_data = json.loads(response.read().decode())
             has_ai_license = license_data.get('ai_license_active', False)
             if not has_ai_license:
@@ -520,7 +533,7 @@ class _AIWorker(QThread):
         out_tokens    = 0
         in_thinking   = False
 
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with urllib.request.urlopen(req, timeout=120, context=_make_ssl_ctx()) as resp:
             for raw_line in resp:
                 if self._stop_event.is_set():
                     break
@@ -580,7 +593,7 @@ class _AIWorker(QThread):
             "Content-Type":  "application/json",
             "Authorization": f"Bearer {self._key}",
         })
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60, context=_make_ssl_ctx()) as resp:
             data = json.loads(resp.read())
         usage = data.get("usage", {})
         self.usage_ready.emit(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
@@ -603,7 +616,7 @@ class _AIWorker(QThread):
             "generationConfig": {"maxOutputTokens": self._max_tokens},
         }).encode()
         req = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60, context=_make_ssl_ctx()) as resp:
             data = json.loads(resp.read())
         usage = data.get("usageMetadata", {})
         self.usage_ready.emit(usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0))
@@ -633,7 +646,7 @@ class _AIWorker(QThread):
                 self.stream_chunk.emit(text)
 
         try:
-            with urllib.request.urlopen(req, timeout=600) as resp:
+            with urllib.request.urlopen(req, timeout=600, context=_make_ssl_ctx()) as resp:
                 self._current_resp = resp
                 for raw_line in resp:
                     if self._stop_event.is_set():
@@ -721,7 +734,7 @@ class _AIWorker(QThread):
                 self.stream_chunk.emit(text)
 
         try:
-            with urllib.request.urlopen(req, timeout=600) as resp:
+            with urllib.request.urlopen(req, timeout=600, context=_make_ssl_ctx()) as resp:
                 self._current_resp = resp
                 for raw_line in resp:
                     if self._stop_event.is_set():
@@ -800,7 +813,7 @@ class _AIWorker(QThread):
                 data=data,
                 headers={'Content-Type': 'application/x-www-form-urlencoded'}
             )
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=30, context=_make_ssl_ctx()) as resp:
                 r = json.loads(resp.read().decode())
             access_token  = r.get('access_token', '')
             new_refresh   = r.get('refresh_token', refresh_token)
@@ -860,7 +873,7 @@ class _AIWorker(QThread):
         req = urllib.request.Request(url, data=body, method="POST", headers=headers)
         
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=60, context=_make_ssl_ctx()) as resp:
                 data = json.loads(resp.read())
             
             # Estrae la risposta e i token usage se disponibili
@@ -1451,7 +1464,7 @@ class _AIPanel(QWidget):
             try:
                 url = f"{ollama_url.rstrip('/')}/api/tags"
                 req = urllib.request.Request(url, method="GET")
-                with urllib.request.urlopen(req, timeout=3) as resp:
+                with urllib.request.urlopen(req, timeout=3, context=_make_ssl_ctx()) as resp:
                     data = json.loads(resp.read())
                 models = [m["name"] for m in data.get("models", [])]
                 self._ollama_ready.emit(models or [])
@@ -1498,7 +1511,7 @@ class _AIPanel(QWidget):
                         "anthropic-version": "2023-06-01",
                     }
                 )
-                with urllib.request.urlopen(req, timeout=8) as resp:
+                with urllib.request.urlopen(req, timeout=8, context=_make_ssl_ctx()) as resp:
                     data = json.loads(resp.read())
                 model_ids = [
                     m["id"] for m in data.get("data", [])
@@ -1549,7 +1562,7 @@ class _AIPanel(QWidget):
                     method="GET",
                     headers={"Authorization": f"Bearer {api_key}"}
                 )
-                with urllib.request.urlopen(req, timeout=8) as resp:
+                with urllib.request.urlopen(req, timeout=8, context=_make_ssl_ctx()) as resp:
                     data = json.loads(resp.read())
                 _EXCL = ("embedding", "dall-e", "whisper", "tts", "text-", "babbage",
                          "davinci", "curie", "ada-", "realtime", "audio", "transcribe")
@@ -1602,7 +1615,7 @@ class _AIPanel(QWidget):
                     f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}",
                     method="GET",
                 )
-                with urllib.request.urlopen(req, timeout=8) as resp:
+                with urllib.request.urlopen(req, timeout=8, context=_make_ssl_ctx()) as resp:
                     data = json.loads(resp.read())
                 models = [
                     m["name"].split("/")[-1]
@@ -1645,7 +1658,7 @@ class _AIPanel(QWidget):
             try:
                 url = f"{llamacpp_url.rstrip('/')}/v1/models"
                 req = urllib.request.Request(url, method="GET")
-                with urllib.request.urlopen(req, timeout=3) as resp:
+                with urllib.request.urlopen(req, timeout=3, context=_make_ssl_ctx()) as resp:
                     data = json.loads(resp.read())
                 models = [m["id"] for m in data.get("data", [])]
                 self._llamacpp_ready.emit(models or [])

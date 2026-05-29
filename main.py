@@ -68,6 +68,26 @@ def _fix_ssl() -> None:
 _fix_ssl()
 
 
+def _fix_webengine_gpu() -> None:
+    """
+    Quando LIBGL_ALWAYS_SOFTWARE=1 (GPU hardware assente o rotta), anche
+    il renderer interno di Chromium (QtWebEngine) può restare nero perché
+    usa un percorso di rendering GPU separato da libGL.
+    Aggiunge --disable-gpu e --use-gl=swiftshader a QTWEBENGINE_CHROMIUM_FLAGS
+    per forzare SwiftShader (software renderer interno a Chromium).
+    Deve essere chiamato PRIMA di QApplication().
+    """
+    if os.environ.get('LIBGL_ALWAYS_SOFTWARE', '0') != '1':
+        return
+    flags = os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '')
+    if '--disable-gpu' not in flags:
+        flags = flags + ' --disable-gpu --use-gl=swiftshader'
+        os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = flags.strip()
+
+
+_fix_webengine_gpu()
+
+
 def check_dependencies() -> bool:
     """Verifica le dipendenze obbligatorie prima di avviare."""
     missing = []

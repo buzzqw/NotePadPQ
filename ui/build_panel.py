@@ -1178,18 +1178,8 @@ class BuildProfilesDialog(QDialog):
                 font.setBold(True)
                 item.setFont(font)
                 item.setForeground(QColor("#9cdcfe"))
-                item.setToolTip(tr("tooltip.build_profile_active"))
                 item.setBackground(QColor("#1e3a5f"))
                 active_row = i
-            elif name in DEFAULT_PROFILES:
-                item.setForeground(self._profile_list.palette().color(
-                    self._profile_list.palette().ColorRole.PlaceholderText))
-                item.setToolTip(tr("tooltip.build_profile_builtin"))
-            else:
-                font = item.font()
-                font.setBold(True)
-                item.setFont(font)
-                item.setToolTip(tr("tooltip.build_profile_user"))
             self._profile_list.addItem(item)
 
         if self._profile_list.count() > 0:
@@ -1279,10 +1269,8 @@ class BuildProfilesDialog(QDialog):
             else:
                 item.setText(f"    {iname}")
                 item.setBackground(QColor(0, 0, 0, 0))
-                if iname in DEFAULT_PROFILES:
-                    item.setForeground(QColor("#858585"))
-                else:
-                    item.setForeground(QColor("#9cdcfe"))
+                item.setForeground(self._profile_list.palette().color(
+                    self._profile_list.palette().ColorRole.WindowText))
 
         # Notifica nel pannello build se aperto
         if hasattr(self._mw, '_build_panel') and self._mw._build_panel:
@@ -1326,13 +1314,12 @@ class BuildProfilesDialog(QDialog):
             label = f"▶  {name}" if name == self._active_profile_name else f"    {name}"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, name)
-            item.setForeground(QColor("#9cdcfe"))
             item.setToolTip(tr("tooltip.build_profile_user"))
             self._profile_list.addItem(item)
             self._profile_list.setCurrentItem(item)
         else:
-            # Aggiorna colore (poteva essere built-in e ora è override utente)
-            existing.setForeground(QColor("#9cdcfe"))
+            existing.setForeground(self._profile_list.palette().color(
+                self._profile_list.palette().ColorRole.WindowText))
 
         self._dirty = False
         from core.build_manager import DEFAULT_PROFILES
@@ -1368,7 +1355,6 @@ class BuildProfilesDialog(QDialog):
         self._bm.add_profile(name, empty)
         item = QListWidgetItem(f"    {name}")
         item.setData(Qt.ItemDataRole.UserRole, name)
-        item.setForeground(QColor("#9cdcfe"))
         item.setToolTip(tr("tooltip.build_profile_user"))
         self._profile_list.addItem(item)
         self._profile_list.setCurrentItem(item)

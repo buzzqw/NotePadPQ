@@ -745,7 +745,8 @@
     "terminal": {
       "menu": "Terminal",
       "dock_title": "Terminal",
-      "description": "Panel dokowany ze zintegrowanym terminalem (xterm.js + powłoka)."
+      "description": "Panel dokowany ze zintegrowanym terminalem (xterm.js + powłoka).",
+      "no_gl": "Terminal niedostępny: inicjalizacja OpenGL nie powiodła się (GLX/EGL).\nUstaw LIBGL_ALWAYS_SOFTWARE=1 przed uruchomieniem, jeśli brakuje sterowników GPU."
     },
     "clipboard_history": {
       "menu": "Historia schowka",

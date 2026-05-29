@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDockWidget
+from PyQt6.QtWidgets import QDockWidget, QLabel, QWidget
 
 from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
@@ -36,14 +36,14 @@ class TerminalPlugin(BasePlugin):
     def on_load(self, main_window: "MainWindow") -> None:
         super().on_load(main_window)
 
-        # Istanzia il pannello terminale
-        from ui.terminal_panel import TerminalPanel
-        self._panel = TerminalPanel(main_window)
+        self._panel = None
+        self._panel_ready = False
 
-        # Crea il dock
+        # Dock con placeholder — il TerminalPanel viene creato solo alla prima apertura
+        # per evitare che l'inizializzazione di QWebEngineView/GL blocchi lo startup.
         self._dock = QDockWidget(tr("plugin.terminal.dock_title"), main_window)
         self._dock.setObjectName("TerminalPluginDock")
-        self._dock.setWidget(self._panel)
+        self._dock.setWidget(QWidget())
         self._dock.setMinimumWidth(350)
         self._dock.setMinimumHeight(200)
         self._dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
@@ -55,10 +55,8 @@ class TerminalPlugin(BasePlugin):
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._dock)
         self._dock.hide()
 
-        # Aggiorna la directory del terminale quando il dock diventa visibile
         self._dock.visibilityChanged.connect(self._on_dock_visibility)
 
-        # Voce nel menu Plugin
         self.add_menu_action(
             main_window,
             "plugins",
@@ -69,26 +67,48 @@ class TerminalPlugin(BasePlugin):
         )
         main_window._menus["plugins"].menuAction().setVisible(True)
 
+    def _ensure_panel(self) -> None:
+        """Crea TerminalPanel al primo accesso; mostra errore se WebEngine/GL non è disponibile."""
+        if self._panel_ready:
+            return
+        self._panel_ready = True
+        try:
+            from ui.terminal_panel import TerminalPanel
+            panel = TerminalPanel(self._mw)
+            if panel.is_available():
+                self._panel = panel
+                self._dock.setWidget(panel)
+            else:
+                panel.deleteLater()
+                self._dock.setWidget(self._no_gl_label())
+        except Exception as e:
+            print(f"[TerminalPlugin] init error: {e}")
+            self._dock.setWidget(self._no_gl_label())
+
+    def _no_gl_label(self) -> QLabel:
+        lbl = QLabel(tr("plugin.terminal.no_gl"))
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setWordWrap(True)
+        return lbl
+
     def _on_dock_visibility(self, visible: bool) -> None:
-        """Quando il dock diventa visibile sincronizza la directory con il file aperto."""
         if not visible:
             return
-        if not hasattr(self, "_panel") or not hasattr(self, "_mw"):
+        self._ensure_panel()
+        if self._panel is None or not hasattr(self, "_mw"):
             return
         editor = self._mw._tab_manager.current_editor()
         if editor and getattr(editor, "file_path", None):
             self._panel.set_cwd_from_file(editor.file_path)
 
     def on_editor_changed(self, editor) -> None:
-        """Aggiorna la label della directory corrente quando si cambia tab (solo se visibile)."""
-        if not hasattr(self, "_dock") or not hasattr(self, "_panel"):
+        if not hasattr(self, "_dock") or self._panel is None:
             return
         if self._dock.isVisible() and editor and getattr(editor, "file_path", None):
             self._panel.set_cwd_from_file(editor.file_path)
 
     def on_file_opened(self, path) -> None:
-        """Aggiorna la directory del terminale al file appena aperto (solo se visibile)."""
-        if not hasattr(self, "_dock") or not hasattr(self, "_panel"):
+        if not hasattr(self, "_dock") or self._panel is None:
             return
         if self._dock.isVisible():
             from pathlib import Path

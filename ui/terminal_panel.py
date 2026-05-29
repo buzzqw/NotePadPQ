@@ -151,8 +151,13 @@ class TerminalPanel(QWidget):
         super().__init__(parent)
         self._cwd: Path = Path.home()
         self._process: Optional[QProcess] = None
+        self._webview = None
         self._setup_ui()
         self._start_shell()
+
+    def is_available(self) -> bool:
+        """True se QWebEngineView è stato creato con successo."""
+        return self._webview is not None
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -198,7 +203,11 @@ class TerminalPanel(QWidget):
         layout.addWidget(bar_widget)
 
         # ── Creazione e setup della WebEngineView ──
-        self._webview = QWebEngineView()
+        # _try_create_webview converte SIGABRT di Qt in eccezione Python in modo
+        # che il fallimento GL non faccia crashare l'intera applicazione.
+        self._webview = self._try_create_webview()
+        if self._webview is None:
+            return  # is_available() → False; il plugin mostra un messaggio di errore
         self._webview.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         
         # Setup QWebChannel
@@ -216,9 +225,34 @@ class TerminalPanel(QWidget):
         self._webview.setHtml(XTERM_HTML, base_url)
         layout.addWidget(self._webview, stretch=1)
 
+    @staticmethod
+    def _try_create_webview():
+        """
+        Crea QWebEngineView intercettando il SIGABRT che Qt lancia se GL non è disponibile.
+        Restituisce None se l'inizializzazione GL fallisce, senza crashare il processo.
+        """
+        import signal
+
+        caught = []
+
+        def _abort_to_exc(signum, frame):
+            caught.append(True)
+            raise RuntimeError("Qt GL init failed (SIGABRT intercepted)")
+
+        old = signal.signal(signal.SIGABRT, _abort_to_exc)
+        try:
+            view = QWebEngineView()
+            return view
+        except RuntimeError:
+            return None
+        finally:
+            signal.signal(signal.SIGABRT, old)
+
     # ── Logica terminale ──────────────────────────────────────────────────────
 
     def _start_shell(self) -> None:
+        if self._webview is None:
+            return
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             return
 
@@ -278,13 +312,15 @@ class TerminalPanel(QWidget):
 
     def _write_to_js(self, data: str) -> None:
         """Invia l'output del processo alla console xterm.js"""
-        # Siccome stiamo inviando stringhe raw a JS, dobbiamo farne l'escape corretto
-        # json.dumps è il modo più sicuro per passare una stringa complessa a eval() JS
+        if self._webview is None:
+            return
         js_code = f"if (window.writeOutput) window.writeOutput({json.dumps(data)});"
         self._webview.page().runJavaScript(js_code)
 
     def clear_output(self) -> None:
         """Svuota la console xterm.js"""
+        if self._webview is None:
+            return
         self._webview.page().runJavaScript("if (window.clearTerminal) window.clearTerminal();")
 
     def _set_cwd(self, path: Path) -> None:

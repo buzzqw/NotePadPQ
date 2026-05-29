@@ -51,8 +51,9 @@ else
     INT="${HERE}"
 fi
 
-# Librerie bundled
-export LD_LIBRARY_PATH="${INT}:${INT}/PyQt6/Qt6/lib:${LD_LIBRARY_PATH:-}"
+# Solo le librerie Qt vanno aggiunte esplicitamente; non preporre INT stesso
+# per non mascherare libGL/libEGL di sistema con eventuali versioni bundled.
+export LD_LIBRARY_PATH="${INT}/PyQt6/Qt6/lib:${LD_LIBRARY_PATH:-}"
 
 # Qt platform plugins
 export QT_QPA_PLATFORM_PLUGIN_PATH="${INT}/PyQt6/Qt6/plugins/platforms"
@@ -65,13 +66,10 @@ export QTWEBENGINEPROCESS_PATH="${INT}/PyQt6/Qt6/libexec/QtWebEngineProcess"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/notepadpq-rt-${UID}}"
 mkdir -p "${XDG_RUNTIME_DIR}"
 
-# Disabilita GPU rendering in Chromium/WebEngine: evita crash GLX/EGL
-# su sistemi senza driver OpenGL adeguati (VM, Wayland+XWayland, driver legacy).
-# Il rendering software è sufficiente per terminal, markdown, rich text e PDF.
-export QTWEBENGINE_CHROMIUM_FLAGS="${QTWEBENGINE_CHROMIUM_FLAGS:-} --disable-gpu --no-sandbox"
-
-# Preferisci EGL (più portabile di GLX su sistemi moderni/Wayland)
-export QT_XCB_GL_INTEGRATION="${QT_XCB_GL_INTEGRATION:-xcb_egl}"
+# --no-sandbox: necessario in AppImage dove il namespace sandbox di Chromium
+# non è disponibile. GPU acceleration rimane attiva.
+# Per sistemi senza driver GL (VM, driver legacy): LIBGL_ALWAYS_SOFTWARE=1 ./NotePadPQ.AppImage
+export QTWEBENGINE_CHROMIUM_FLAGS="${QTWEBENGINE_CHROMIUM_FLAGS:-} --no-sandbox"
 
 exec "${HERE}/notepadpq" "$@"
 APPRUN

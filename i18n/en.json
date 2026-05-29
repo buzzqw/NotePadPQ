@@ -745,7 +745,8 @@
     "terminal": {
       "menu": "Terminal",
       "dock_title": "Terminal",
-      "description": "Dock panel with integrated terminal (xterm.js + shell)."
+      "description": "Dock panel with integrated terminal (xterm.js + shell).",
+      "no_gl": "Terminal not available: OpenGL initialization failed (GLX/EGL).\nSet LIBGL_ALWAYS_SOFTWARE=1 before launching if your system lacks GPU drivers."
     },
     "clipboard_history": {
       "menu": "Clipboard History",

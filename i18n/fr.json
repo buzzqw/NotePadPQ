@@ -745,7 +745,8 @@
     "terminal": {
       "menu": "Terminal",
       "dock_title": "Terminal",
-      "description": "Panneau ancrable avec terminal intégré (xterm.js + shell)."
+      "description": "Panneau ancrable avec terminal intégré (xterm.js + shell).",
+      "no_gl": "Terminal indisponible : échec d'initialisation OpenGL (GLX/EGL).\nDéfinir LIBGL_ALWAYS_SOFTWARE=1 avant le lancement si les pilotes GPU manquent."
     },
     "clipboard_history": {
       "menu": "Historique du presse-papier",

@@ -745,7 +745,8 @@
     "terminal": {
       "menu": "Terminal",
       "dock_title": "Terminal",
-      "description": "Panel acoplable con terminal integrado (xterm.js + shell)."
+      "description": "Panel acoplable con terminal integrado (xterm.js + shell).",
+      "no_gl": "Terminal no disponible: error al inicializar OpenGL (GLX/EGL).\nEstablece LIBGL_ALWAYS_SOFTWARE=1 antes del inicio si faltan los drivers GPU."
     },
     "clipboard_history": {
       "menu": "Historial del portapapeles",

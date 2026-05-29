@@ -156,6 +156,19 @@ Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) d
 
 ## 🚀 Installation
 
+### 📦 AppImage (Linux — no installation required)
+
+The easiest way to run NotePadPQ on Linux is to download the ready-to-run **AppImage** from the [latest release](https://github.com/buzzqw/NotePadPQ/releases/latest):
+
+```bash
+# Download (replace x.y.z with the actual version)
+wget https://github.com/buzzqw/NotePadPQ/releases/latest/download/NotePadPQ-x.y.z-x86_64.AppImage
+chmod +x NotePadPQ-x.y.z-x86_64.AppImage
+./NotePadPQ-x.y.z-x86_64.AppImage
+```
+
+No Python, no pip, no dependencies — everything is bundled inside the AppImage.
+
 ### Automated Setup (recommended)
 
 ```bash
@@ -375,6 +388,19 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 ---
 
 ## 🚀 Installazione
+
+### 📦 AppImage (Linux — nessuna installazione richiesta)
+
+Il modo più semplice per usare NotePadPQ su Linux è scaricare l'**AppImage** già pronta dall'[ultima release](https://github.com/buzzqw/NotePadPQ/releases/latest):
+
+```bash
+# Scarica (sostituisci x.y.z con la versione attuale)
+wget https://github.com/buzzqw/NotePadPQ/releases/latest/download/NotePadPQ-x.y.z-x86_64.AppImage
+chmod +x NotePadPQ-x.y.z-x86_64.AppImage
+./NotePadPQ-x.y.z-x86_64.AppImage
+```
+
+Nessun Python, nessun pip, nessuna dipendenza — tutto è incluso nell'AppImage.
 
 ### Setup automatico (consigliato)
 

@@ -51,14 +51,13 @@ class I18n(QObject):
 
     def __init__(self):
         super().__init__()
-        self._language: str = "it"          # lingua corrente
+        self._language: str = "en"          # lingua corrente (default: inglese)
         self._data: dict = {}               # traduzioni lingua corrente
         self._fallback: dict = {}           # traduzioni inglese (fallback)
         self._available: dict[str, str] = {}  # codice → nome nativo
 
         self._scan_available()
-        self._load("en")                    # carica sempre l'inglese come base
-        self._load("it")                    # poi la lingua di default
+        self._load("en")                    # inglese come base e default
 
     # ── Singleton ────────────────────────────────────────────────────────────
 

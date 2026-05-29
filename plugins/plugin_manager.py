@@ -79,6 +79,31 @@ class PluginManager:
                 continue
             self._load_plugin_file(plugin_file, main_window)
 
+    def load_all_deferred(self, main_window: "MainWindow",
+                          on_done=None) -> None:
+        """Carica i plugin uno per tick dell'event loop.
+
+        La finestra rimane responsiva durante il caricamento. `on_done` viene
+        chiamata senza argomenti quando tutti i plugin sono stati caricati.
+        """
+        from PyQt6.QtCore import QTimer
+        self._main_window = main_window
+        files = [
+            f for f in sorted(self._plugins_dir().glob("*.py"))
+            if not f.name.startswith("_")
+        ]
+        _iter = iter(files)
+
+        def _load_next():
+            try:
+                self._load_plugin_file(next(_iter), main_window)
+                QTimer.singleShot(0, _load_next)
+            except StopIteration:
+                if on_done:
+                    on_done()
+
+        QTimer.singleShot(0, _load_next)
+
     def _load_plugin_file(self, path: Path,
                           main_window: "MainWindow") -> bool:
         """Carica un singolo file plugin."""

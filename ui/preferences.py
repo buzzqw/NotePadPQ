@@ -553,8 +553,9 @@ class PreferencesDialog(QDialog):
         for kind, cb in self._fl_latex_checks.items():
             cb.setChecked(kind not in hidden)
 
-        # Lingua
-        lang = s.get("i18n/language", "it")
+        # Lingua — usa la lingua attualmente in uso (non il default hardcoded)
+        from i18n.i18n import I18n
+        lang = s.get("i18n/language", I18n.instance().current_language())
         for i in range(self._lang_combo.count()):
             if self._lang_combo.itemData(i) == lang:
                 self._lang_combo.setCurrentIndex(i)
@@ -686,7 +687,8 @@ class PreferencesDialog(QDialog):
 
         # Lingua
         lang_code = self._lang_combo.currentData()
-        old_lang  = s.get("i18n/language", "it")
+        from i18n.i18n import I18n
+        old_lang  = s.get("i18n/language", I18n.instance().current_language())
         s.set("i18n/language", lang_code)
         if lang_code != old_lang:
             from i18n.i18n import I18n

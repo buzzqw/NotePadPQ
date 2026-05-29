@@ -68,10 +68,10 @@ def extract_numbers(text: str) -> List[float]:
 
 # ─── Calcolo statistiche ──────────────────────────────────────────────────────
 
-def compute_stats(numbers: List[float]) -> List[tuple]:
-    """Restituisce una lista di (chiave_i18n, valore) per le statistiche."""
+def compute_stats(numbers: List[float]) -> dict:
+    """Restituisce un dict {label_tradotta: valore} per le statistiche."""
     if not numbers:
-        return []
+        return {}
 
     n      = len(numbers)
     total  = sum(numbers)
@@ -100,18 +100,18 @@ def compute_stats(numbers: List[float]) -> List[tuple]:
     if len(modes) > 3:
         mode_str += "…"
 
-    return [
-        ("column_stats.stat_count",   n),
-        ("column_stats.stat_sum",     total),
-        ("column_stats.stat_mean",    mean),
-        ("column_stats.stat_median",  median),
-        ("column_stats.stat_mode",    mode_str),
-        ("column_stats.stat_min",     mn),
-        ("column_stats.stat_max",     mx),
-        ("column_stats.stat_range",   rng),
-        ("column_stats.stat_std",     std_dev),
-        ("column_stats.stat_var",     variance),
-    ]
+    return {
+        tr("column_stats.stat_count"):  n,
+        tr("column_stats.stat_sum"):    total,
+        tr("column_stats.stat_mean"):   mean,
+        tr("column_stats.stat_median"): median,
+        tr("column_stats.stat_mode"):   mode_str,
+        tr("column_stats.stat_min"):    mn,
+        tr("column_stats.stat_max"):    mx,
+        tr("column_stats.stat_range"):  rng,
+        tr("column_stats.stat_std"):    std_dev,
+        tr("column_stats.stat_var"):    variance,
+    }
 
 
 def _fmt(v) -> str:
@@ -204,16 +204,16 @@ class ColumnStatsDialog(QDialog):
             return
 
         _HIGHLIGHT_KEYS = {
-            "column_stats.stat_mean",
-            "column_stats.stat_sum",
-            "column_stats.stat_count",
+            tr("column_stats.stat_mean"),
+            tr("column_stats.stat_sum"),
+            tr("column_stats.stat_count"),
         }
 
-        for key, value in stats:
+        for key, value in stats.items():
             row = self._table.rowCount()
             self._table.insertRow(row)
 
-            lbl_item = QTableWidgetItem(tr(key))
+            lbl_item = QTableWidgetItem(key)
             val_item = QTableWidgetItem(_fmt(value))
             val_item.setTextAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter

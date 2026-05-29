@@ -177,61 +177,86 @@ def main():
     # Inizializza settings
     settings = Settings.instance()
 
-    # Inizializza i18n
+    # Inizializza i18n — usa la lingua salvata, altrimenti rileva dalla locale
     i18n = I18n.instance()
-    lang = settings.get("i18n/language", "it")
-    if lang != "it":
+    lang = settings.get("i18n/language", None)
+    if lang is None:
+        from PyQt6.QtCore import QLocale
+        system_name = QLocale.system().name()        # es. "it_IT", "de_DE", "C"
+        base = system_name.split("_")[0].lower()     # "it", "de", "c"
+        lang = base if base in i18n.available_languages() else "en"
+    if lang != "en":
         i18n.set_language(lang)
 
     # Crea finestra principale
     win = MainWindow()
     win.show()
 
+    # ── Post-startup deferred ─────────────────────────────────────────────────
+    # Eseguito dopo che tutti i plugin sono stati caricati (uno per tick).
+    # La finestra è già visibile e responsiva durante questo processo.
+    def _finish_startup():
+        from PyQt6.QtCore import QTimer as _QT
+
+        win._rebuild_toolbar()
+
+        try:
+            from ui.smart_highlight import SmartHighlighter, MultiMarkManager
+            win._smart_highlighter = SmartHighlighter.install_into_main_window(win)
+            win._mark_manager = MultiMarkManager.install_into_main_window(win)
+        except Exception as e:
+            print(f"[main] SmartHighlight: {e}")
+
+        try:
+            from ui.incremental_search import IncrementalSearchBar
+            win._inc_search = IncrementalSearchBar.install(win)
+        except Exception as e:
+            print(f"[main] IncrementalSearch: {e}")
+
+        try:
+            from ui.function_list import install as install_function_list
+            install_function_list(win)
+        except Exception as e:
+            print(f"[main] FunctionList: {e}")
+
+        try:
+            from ui.json_xml_panel import install as install_json_xml
+            install_json_xml(win)
+        except Exception as e:
+            print(f"[main] JsonXmlPanel: {e}")
+
+        try:
+            from ui.git_blame_inline import install as install_git_blame
+            install_git_blame(win)
+        except Exception as e:
+            print(f"[main] GitBlameInline: {e}")
+
+        # Ripristina layout dock/toolbar dopo che tutti i dock sono stati
+        # aggiunti dai plugin (200 ms lasciano a Qt il tempo di completare
+        # l'aggiunta dei widget prima di restoreState).
+        try:
+            from core.session import Session
+
+            def _restore_layout():
+                try:
+                    Session.instance().restore_ui_state(win)
+                except Exception as e:
+                    print(f"[main] restore_ui_state: {e}")
+
+            _QT.singleShot(200, _restore_layout)
+        except Exception:
+            pass
+
     # ── Carica plugin ────────────────────────────────────────────────────────
-    # Fatto DOPO win.show() perché i plugin possono aggiungere dock widget
-    # che richiedono la finestra già inizializzata.
+    # Fatto DOPO win.show(): i plugin aggiungono dock widget che richiedono
+    # la finestra già inizializzata. Il caricamento è scaglionato (un plugin
+    # per tick) per non bloccare la UI.
     try:
         from plugins.plugin_manager import PluginManager
-        PluginManager.instance().load_all(win)
-        win._rebuild_toolbar()   # re-applica le icone ai menu dei plugin
+        PluginManager.instance().load_all_deferred(win, on_done=_finish_startup)
     except Exception as e:
         print(f"[main] Errore caricamento plugin: {e}")
-
-    # ── Smart Highlight + Mark colori (Ctrl+1..5) ─────────────────────────────
-    try:
-        from ui.smart_highlight import SmartHighlighter, MultiMarkManager
-        win._smart_highlighter = SmartHighlighter.install_into_main_window(win)
-        win._mark_manager = MultiMarkManager.install_into_main_window(win)
-    except Exception as e:
-        print(f"[main] SmartHighlight: {e}")
-
-    # ── Ricerca incrementale inline (Ctrl+F2) ─────────────────────────────────
-    try:
-        from ui.incremental_search import IncrementalSearchBar
-        win._inc_search = IncrementalSearchBar.install(win)
-    except Exception as e:
-        print(f"[main] IncrementalSearch: {e}")
-
-    # ── Function List (Ctrl+Shift+F) ──────────────────────────────────────────
-    try:
-        from ui.function_list import install as install_function_list
-        install_function_list(win)
-    except Exception as e:
-        print(f"[main] FunctionList: {e}")
-
-    # ── Pannello JSON/XML (Ctrl+Shift+J) ──────────────────────────────────────
-    try:
-        from ui.json_xml_panel import install as install_json_xml
-        install_json_xml(win)
-    except Exception as e:
-        print(f"[main] JsonXmlPanel: {e}")
-
-    # ── Git Blame Inline ───────────────────────────────────────────────────────
-    try:
-        from ui.git_blame_inline import install as install_git_blame
-        install_git_blame(win)
-    except Exception as e:
-        print(f"[main] GitBlameInline: {e}")
+        _finish_startup()
 
     # ── Avvia server single-instance ────────────────────────────────────────
     # Fatto dopo win.show() così open_files funziona subito
@@ -261,22 +286,6 @@ def main():
     # allora (e solo allora) apri un foglio bianco pulito.
     if not restored and not files_from_cli:
         win._tab_manager.new_tab()
-
-    # Ripristina layout dock/toolbar DOPO show() e dopo che i file sono stati aperti.
-    # Il QTimer garantisce che Qt abbia completato il rendering iniziale
-    # prima di applicare restoreState() (che richiede tutti i dock inizializzati).
-    try:
-        from core.session import Session
-        from PyQt6.QtCore import QTimer
-        def _restore_layout():
-            try:
-                Session.instance().restore_ui_state(win)
-
-            except Exception as e:
-                print(f"[main] restore_ui_state: {e}")
-        QTimer.singleShot(200, _restore_layout)
-    except Exception:
-        pass
 
     sys.exit(app.exec())
 

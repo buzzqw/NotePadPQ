@@ -647,7 +647,7 @@ class RichTextWidget(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self._js_ready and hasattr(self, "_view"):
+        if self._js_ready and getattr(self, "_view", None) is not None:
             self._view.page().runJavaScript(
                 "if(typeof joditForceSize==='function') joditForceSize();"
             )
@@ -732,7 +732,7 @@ class RichTextWidget(QWidget):
     # ── Caricamento pagina Jodit ──────────────────────────────────────────────
 
     def _load_jodit_page(self) -> None:
-        if not WEBENGINE_OK:
+        if not WEBENGINE_OK or self._view is None:
             return
 
         # Crea tmpdir con gli asset di Jodit
@@ -975,6 +975,8 @@ class RichTextWidget(QWidget):
     # ── Helpers interni ───────────────────────────────────────────────────────
 
     def _js_set_content(self, html: str) -> None:
+        if self._view is None:
+            return
         escaped = json.dumps(html)
         self._view.page().runJavaScript(f"window.setContent({escaped})")
 

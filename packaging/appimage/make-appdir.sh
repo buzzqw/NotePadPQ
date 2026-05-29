@@ -44,15 +44,22 @@ cat > "${APPDIR}/AppRun" << 'APPRUN'
 #!/bin/bash
 HERE="$(dirname "$(readlink -f "${0}")")"
 
+# PyInstaller 6+ puts internal files in _internal/; older builds use root.
+if [[ -d "${HERE}/_internal" ]]; then
+    INT="${HERE}/_internal"
+else
+    INT="${HERE}"
+fi
+
 # Librerie bundled
-export LD_LIBRARY_PATH="${HERE}:${HERE}/PyQt6/Qt6/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="${INT}:${INT}/PyQt6/Qt6/lib:${LD_LIBRARY_PATH:-}"
 
 # Qt platform plugins
-export QT_QPA_PLATFORM_PLUGIN_PATH="${HERE}/PyQt6/Qt6/plugins/platforms"
-export QT_PLUGIN_PATH="${HERE}/PyQt6/Qt6/plugins"
+export QT_QPA_PLATFORM_PLUGIN_PATH="${INT}/PyQt6/Qt6/plugins/platforms"
+export QT_PLUGIN_PATH="${INT}/PyQt6/Qt6/plugins"
 
-# WebEngine: directory dove risiede QtWebEngineProcess (stesso bundle)
-export QTWEBENGINEPROCESS_PATH="${HERE}/PyQt6/Qt6/libexec/QtWebEngineProcess"
+# WebEngine: percorso esatto dell'eseguibile QtWebEngineProcess
+export QTWEBENGINEPROCESS_PATH="${INT}/PyQt6/Qt6/libexec/QtWebEngineProcess"
 
 # Runtime dir scrivibile per WebEngine (usa /tmp se XDG non è impostato)
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/notepadpq-rt-${UID}}"

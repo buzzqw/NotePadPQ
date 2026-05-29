@@ -7,24 +7,31 @@ Build:
 Output:
     dist/notepadpq/   (--onedir bundle, then wrapped by make-appdir.sh)
 """
+import os
 
 block_cipher = None
+
+# SPECPATH è la directory dello spec (packaging/appimage/).
+# La root del progetto è due livelli sopra.
+ROOT = os.path.abspath(os.path.join(SPECPATH, '..', '..'))
+
+def R(*parts):
+    """Percorso assoluto relativo alla root del progetto."""
+    return os.path.join(ROOT, *parts)
 
 # ── Data files bundled into the application ───────────────────────────────────
 # Plugins are included as source so plugin_manager can load them dynamically.
 # Web assets (Jodit WYSIWYG, xterm.js terminal) are served from a temp dir.
 added_datas = [
-    ('i18n/*.json',             'i18n'),
-    ('icons/*.png',             'icons'),
-    ('icons/*.ico',             'icons'),
-    ('ui/assets/jodit',         'ui/assets/jodit'),
-    ('ui/assets/xterm',         'ui/assets/xterm'),
-    ('plugins/*.py',            'plugins'),
-    ('plugins/__init__.py',     'plugins'),
-    ('MANUAL_EN.md',            '.'),
-    ('MANUAL_IT.md',            '.'),
-    ('data/notepadpq.desktop',  'data'),
-    ('data/io.github.buzzqw.NotePadPQ.metainfo.xml', 'data'),
+    (R('i18n'),                          'i18n'),
+    (R('icons'),                         'icons'),
+    (R('ui', 'assets', 'jodit'),         'ui/assets/jodit'),
+    (R('ui', 'assets', 'xterm'),         'ui/assets/xterm'),
+    (R('plugins'),                       'plugins'),
+    (R('MANUAL_EN.md'),                  '.'),
+    (R('MANUAL_IT.md'),                  '.'),
+    (R('data', 'notepadpq.desktop'),     'data'),
+    (R('data', 'io.github.buzzqw.NotePadPQ.metainfo.xml'), 'data'),
 ]
 
 # ── Hidden imports (loaded via importlib or lazy import) ──────────────────────
@@ -85,8 +92,8 @@ hidden_imports = [
 ]
 
 a = Analysis(
-    ['main.py'],
-    pathex=['.'],
+    [R('main.py')],
+    pathex=[ROOT],
     binaries=[],
     datas=added_datas,
     hiddenimports=hidden_imports,

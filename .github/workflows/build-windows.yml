@@ -50,7 +50,7 @@ jobs:
         run: |
           import re, os
           content = open('main.py').read()
-          m = re.search(r"setApplicationVersion\('(.+?)'\)", content)
+          m = re.search(r"""setApplicationVersion\(['"](.+?)['"]\)""", content)
           ver = m.group(1) if m else '0.0.0'
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'version={ver}\n')
@@ -163,7 +163,7 @@ jobs:
         run: |
           import re, os
           content = open('main.py').read()
-          m = re.search(r"setApplicationVersion\('(.+?)'\)", content)
+          m = re.search(r"""setApplicationVersion\(['"](.+?)['"]\)""", content)
           ver = m.group(1) if m else '0.0.0'
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f'version={ver}\n')

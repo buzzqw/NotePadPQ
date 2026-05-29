@@ -36,6 +36,8 @@ added_datas = [
 
 # ── Hidden imports (loaded via importlib or lazy import) ──────────────────────
 hidden_imports = [
+    # Core utilities importate lazy inside functions
+    'ui._webengine',
     # Plugins — discovered at runtime by plugin_manager via importlib
     'plugins.ai_plugin',
     'plugins.base_plugin',

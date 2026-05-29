@@ -34,6 +34,8 @@ hiddenimports = (
     collect_submodules('pygments.styles') +
     collect_submodules('PyQt6') +
     [
+        # Core utilities importate lazy
+        'ui._webengine',
         # Core Qt
         'PyQt6.QtWebEngineWidgets',
         'PyQt6.QtWebEngineCore',

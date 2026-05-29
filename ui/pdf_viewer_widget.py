@@ -719,13 +719,20 @@ class PdfWebTabWidget(QWidget):
         layout.addWidget(bar)
 
         if WEBENGINE_OK:
-            self._view = QWebEngineView(self)
-            self._view.settings().setAttribute(
-                QWebEngineSettings.WebAttribute.PluginsEnabled, True)
-            self._view.settings().setAttribute(
-                QWebEngineSettings.WebAttribute.PdfViewerEnabled, True)
-            self._view.setUrl(QUrl.fromLocalFile(str(self.file_path.resolve())))
-            layout.addWidget(self._view)
+            from ui._webengine import safe_webview
+            self._view = safe_webview(self)
+            if self._view is not None:
+                self._view.settings().setAttribute(
+                    QWebEngineSettings.WebAttribute.PluginsEnabled, True)
+                self._view.settings().setAttribute(
+                    QWebEngineSettings.WebAttribute.PdfViewerEnabled, True)
+                self._view.setUrl(QUrl.fromLocalFile(str(self.file_path.resolve())))
+                layout.addWidget(self._view)
+            else:
+                lbl = QLabel("⚠ OpenGL non disponibile: visualizzatore web PDF non utilizzabile.", self)
+                lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                lbl.setWordWrap(True)
+                layout.addWidget(lbl)
         else:
             lbl = QLabel("⚠ PyQt6-WebEngine non installato.", self)
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)

@@ -104,6 +104,7 @@ class RichTextPlugin(BasePlugin):
     def open_document(self, path: Path) -> None:
         """Carica il file e apre un tab rich text. Chiamato da main_window.open_files."""
         from ui.richtext_widget import RichTextWidget, WEBENGINE_OK, ensure_jodit
+        from core.webengine import gl_available
 
         if not WEBENGINE_OK:
             QMessageBox.warning(
@@ -111,6 +112,14 @@ class RichTextPlugin(BasePlugin):
                 tr("plugin.richtext.no_webengine",
                    default="PyQt6-WebEngine non è installato.\n"
                            "pip install PyQt6-WebEngine")
+            )
+            return
+
+        if not gl_available():
+            QMessageBox.warning(
+                self._mw, "NotePadPQ",
+                tr("plugin.terminal.no_gl",
+                   default="OpenGL non disponibile: il rich text editor richiede GLX/EGL.")
             )
             return
 
@@ -140,6 +149,7 @@ class RichTextPlugin(BasePlugin):
     def new_document(self) -> None:
         """Apre un documento richtext vuoto."""
         from ui.richtext_widget import RichTextWidget, WEBENGINE_OK, ensure_jodit
+        from core.webengine import gl_available
 
         if not WEBENGINE_OK:
             QMessageBox.warning(
@@ -147,6 +157,14 @@ class RichTextPlugin(BasePlugin):
                 tr("plugin.richtext.no_webengine",
                    default="PyQt6-WebEngine non è installato.\n"
                            "pip install PyQt6-WebEngine")
+            )
+            return
+
+        if not gl_available():
+            QMessageBox.warning(
+                self._mw, "NotePadPQ",
+                tr("plugin.terminal.no_gl",
+                   default="OpenGL non disponibile: il rich text editor richiede GLX/EGL.")
             )
             return
 

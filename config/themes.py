@@ -48,6 +48,7 @@ UI_KEYS = [
     "whitespace_fg",    # colore spazi visibili
     "fold_fg",          # colore simboli folding
     "fold_bg",
+    "scrollbar_handle", # colore maniglia scrollbar
 ]
 
 # ─── Temi built-in ────────────────────────────────────────────────────────────
@@ -78,6 +79,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "whitespace_fg":  "#666666",
             "fold_fg":        "#c5c5c5",
             "fold_bg":        "#37373d",
+            "scrollbar_handle": "#5a6070",
         },
         "font": {
             "family": None,   # None = usa il font preferito dalla piattaforma
@@ -145,6 +147,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "whitespace_fg":  "#888888",
             "fold_fg":        "#808080",
             "fold_bg":        "#e8e8e8",
+            "scrollbar_handle": "#aaaaaa",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -201,6 +204,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "whitespace_fg":  "#767360",
             "fold_fg":        "#75715e",
             "fold_bg":        "#272822",
+            "scrollbar_handle": "#908c84",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -257,6 +261,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "whitespace_fg":  "#606d80",
             "fold_fg":        "#4c566a",
             "fold_bg":        "#2e3440",
+            "scrollbar_handle": "#88c0d0",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -313,6 +318,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "whitespace_fg":  "#7585b8",
             "fold_fg":        "#6272a4",
             "fold_bg":        "#282a36",
+            "scrollbar_handle": "#7c87b9",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -369,6 +375,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "whitespace_fg":  "#4a8a9c",
             "fold_fg":        "#586e75",
             "fold_bg":        "#002b36",
+            "scrollbar_handle": "#7b9aa0",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -425,6 +432,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "whitespace_fg":  "#6e7685",
             "fold_fg":        "#495162",
             "fold_bg":        "#282c34",
+            "scrollbar_handle": "#6c7280",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -481,6 +489,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "whitespace_fg":  "#00aa00",
             "fold_fg":        "#00cc33",
             "fold_bg":        "#001100",
+            "scrollbar_handle": "#00aa30",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -531,6 +540,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "find_indicator": "#f9e2af",
             "whitespace_fg":  "#6c6f85",
             "fold_fg":        "#6c7086", "fold_bg": "#1e1e2e",
+            "scrollbar_handle": "#7f849c",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -580,6 +590,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "find_indicator": "#fabd2f",
             "whitespace_fg":  "#7c7068",
             "fold_fg":        "#928374", "fold_bg": "#282828",
+            "scrollbar_handle": "#928374",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -629,6 +640,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "find_indicator": "#fefe62",
             "whitespace_fg":  "#7265a8",
             "fold_fg":        "#848bbd", "fold_bg": "#1f1d2b",
+            "scrollbar_handle": "#848bbd",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -678,6 +690,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "find_indicator": "#b58900",
             "whitespace_fg":  "#a09880",
             "fold_fg":        "#93a1a1", "fold_bg": "#fdf6e3",
+            "scrollbar_handle": "#93a1a1",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -727,6 +740,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "find_indicator": "#e0af68",
             "whitespace_fg":  "#5a6490",
             "fold_fg":        "#3b3d57", "fold_bg": "#1a1b26",
+            "scrollbar_handle": "#565f89",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -776,6 +790,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "find_indicator": "#fb8500",
             "whitespace_fg":  "#8898aa",
             "fold_fg":        "#8c959f", "fold_bg": "#f6f8fa",
+            "scrollbar_handle": "#8c959f",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -825,6 +840,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "find_indicator": "#ffb454",
             "whitespace_fg":  "#4a5e7c",
             "fold_fg":        "#3d4354", "fold_bg": "#0d1017",
+            "scrollbar_handle": "#5c6773",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -888,6 +904,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "whitespace_fg":  "#666666",
             "fold_fg":        "#555555",
             "fold_bg":        "#1e1e1e",
+            "scrollbar_handle": "#5a5a5a",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -950,6 +967,7 @@ BUILTIN_THEMES: dict[str, dict] = {
             "whitespace_fg":  "#888888",
             "fold_fg":        "#aaaaaa",
             "fold_bg":        "#f5f5f5",
+            "scrollbar_handle": "#a0a0a0",
         },
         "font": {"family": None, "size": 11},
         "tokens": {
@@ -1131,6 +1149,45 @@ class ThemeManager(QObject):
         col_fold_fg = c("fold_fg")
         if col_fold_fg:
             editor.setFoldMarginColors(c("fold_bg") or bg, col_fold_fg)
+
+        # ── Scrollbar handle ──
+        sb_handle = ui.get("scrollbar_handle")
+        is_dark = theme.get("meta", {}).get("dark", True)
+        if not sb_handle:
+            sb_handle = "#5a6070" if is_dark else "#aaaaaa"
+        bg_hex = bg.name() if bg else ("#1e1e1e" if is_dark else "#f0f0f0")
+        editor.setStyleSheet(f"""
+QScrollBar:vertical {{
+    background: {bg_hex};
+    width: 10px;
+    margin: 0;
+}}
+QScrollBar::handle:vertical {{
+    background: {sb_handle};
+    min-height: 24px;
+    border-radius: 5px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {sb_handle};
+    opacity: 0.85;
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0px;
+}}
+QScrollBar:horizontal {{
+    background: {bg_hex};
+    height: 10px;
+    margin: 0;
+}}
+QScrollBar::handle:horizontal {{
+    background: {sb_handle};
+    min-width: 24px;
+    border-radius: 5px;
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0px;
+}}
+""")
 
         # ── Lexer tokens ──
         lexer = editor.lexer()

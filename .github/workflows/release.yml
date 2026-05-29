@@ -1,6 +1,8 @@
 name: Build AppImage
 
-# Parte ad ogni tag versione creato da versiona.sh (formato: v1.2.3)
+# DISABILITATO: la build AppImage viene ora eseguita localmente da versiona.sh
+# tramite packaging/appimage/build-appimage.sh e caricata con gh CLI.
+# Per riabilitare, rimuovere la riga "if: false" dal job appimage qui sotto.
 on:
   push:
     tags:
@@ -12,6 +14,7 @@ permissions:
 jobs:
   appimage:
     name: Build AppImage (x86_64)
+    if: false   # disabilitato: build eseguita localmente da versiona.sh
     runs-on: ubuntu-22.04   # glibc 2.35 — compatibile con distro 2022+
 
     steps:

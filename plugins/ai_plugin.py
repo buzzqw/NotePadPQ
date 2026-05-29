@@ -629,9 +629,12 @@ class _AIWorker(QThread):
         if self._system:
             msgs = [{"role": "system", "content": self._system}] + list(msgs)
         url  = f"{self._ollama_url}/api/chat"
-        body = json.dumps({
-            "model": self._model, "messages": msgs, "stream": True, "think": True,
-        }).encode()
+        payload: dict = {"model": self._model, "messages": msgs, "stream": True}
+        # Il campo "think" è supportato solo da alcuni modelli (DeepSeek, Qwen…).
+        # Lo inviamo solo quando l'utente ha esplicitamente attivato il "thinking".
+        if self._thinking:
+            payload["think"] = True
+        body = json.dumps(payload).encode()
         req  = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
         full_text = ""
         in_think  = False
@@ -697,6 +700,14 @@ class _AIWorker(QThread):
                         if buf and not in_think:
                             _flush_normal(buf)
                         break
+        except urllib.error.HTTPError as e:
+            # Errore HTTP (es. 400 Bad Request se il modello non accetta "think")
+            body_err = ""
+            try:
+                body_err = e.read().decode("utf-8", errors="replace")[:300]
+            except Exception:
+                pass
+            raise RuntimeError(f"Ollama HTTP {e.code}: {body_err or e.reason}") from e
         except OSError:
             # resp.close() chiamato da stop() — uscita pulita
             pass
@@ -1477,13 +1488,14 @@ class _AIPanel(QWidget):
         """Popola il combo modelli con i modelli Ollama installati (chiamato nel thread principale)."""
         if PROVIDERS.get(self._provider_combo.currentText(), {}).get("id") != "ollama":
             return
+        # Salva la selezione corrente PRIMA di svuotare il combo
+        current = self._model_combo.currentText()
         self._model_combo.clear()
         if models is None:
             self._model_combo.addItem("⚠ ollama non raggiungibile")
             self._model_combo.setEnabled(False)
             return
         self._model_combo.setEnabled(True)
-        current = self._model_combo.currentText()
         for m in models:
             self._model_combo.addItem(m)
         idx = self._model_combo.findText(current)

@@ -6,6 +6,7 @@ Uso:
     python main.py [file1 file2 ...]
 """
 
+import os
 import sys
 import faulthandler
 from pathlib import Path
@@ -13,6 +14,58 @@ from core.single_instance import SingleInstance
 
 # Abilita faulthandler subito: stampa lo stack trace C++ su segfault/SIGABRT
 faulthandler.enable()
+
+
+def _ensure_gl() -> None:
+    """
+    Se il probe GLX hardware fallisce e LIBGL_ALWAYS_SOFTWARE non è ancora
+    impostato, lo imposta e ri-esegue il processo via os.execve().
+    Il secondo avvio usa Mesa llvmpipe (software GL) caricato fin dall'inizio,
+    rendendo disponibile WebEngine (terminale, rich text, web PDF).
+    Senza re-exec, impostare la variabile da Python non avrebbe effetto perché
+    libGL è già caricato dalla libreria Qt prima che il codice Python giri.
+    """
+    if 'LIBGL_ALWAYS_SOFTWARE' in os.environ:
+        return  # già impostato (da AppRun o da un re-exec precedente)
+    if sys.platform != 'linux' or not os.environ.get('DISPLAY'):
+        return  # solo Linux/X11
+    try:
+        from core.webengine import _probe_glx
+        if not _probe_glx():
+            os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'
+            os.execve(sys.executable, sys.argv, os.environ)
+    except Exception:
+        pass  # se il probe fallisce, procediamo normalmente
+
+
+_ensure_gl()
+
+
+def _fix_ssl() -> None:
+    """
+    In bundle PyInstaller il modulo ssl è incluso ma non trova i certificati CA
+    di sistema, causando SSLCertVerificationError su qualsiasi richiesta HTTPS
+    (plugin AI, controllo aggiornamenti, ecc.).
+    Imposta SSL_CERT_FILE sul bundle di sistema se non già definito.
+    """
+    if os.environ.get('SSL_CERT_FILE') or os.environ.get('SSL_CERT_DIR'):
+        return
+    if not getattr(sys, 'frozen', False):
+        return  # fuori da PyInstaller, Python usa i cert nativi
+    _candidates = [
+        '/etc/ssl/certs/ca-certificates.crt',   # Debian/Ubuntu/Arch
+        '/etc/pki/tls/certs/ca-bundle.crt',      # RHEL/Fedora/CentOS
+        '/etc/ssl/ca-bundle.pem',                 # OpenSUSE
+        '/etc/ssl/cert.pem',                      # macOS/FreeBSD
+        '/usr/share/ca-certificates/ca-bundle.crt',
+    ]
+    for p in _candidates:
+        if os.path.isfile(p):
+            os.environ['SSL_CERT_FILE'] = p
+            break
+
+
+_fix_ssl()
 
 
 def check_dependencies() -> bool:

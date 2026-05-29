@@ -65,6 +65,14 @@ export QTWEBENGINEPROCESS_PATH="${INT}/PyQt6/Qt6/libexec/QtWebEngineProcess"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/notepadpq-rt-${UID}}"
 mkdir -p "${XDG_RUNTIME_DIR}"
 
+# Disabilita GPU rendering in Chromium/WebEngine: evita crash GLX/EGL
+# su sistemi senza driver OpenGL adeguati (VM, Wayland+XWayland, driver legacy).
+# Il rendering software è sufficiente per terminal, markdown, rich text e PDF.
+export QTWEBENGINE_CHROMIUM_FLAGS="${QTWEBENGINE_CHROMIUM_FLAGS:-} --disable-gpu --no-sandbox"
+
+# Preferisci EGL (più portabile di GLX su sistemi moderni/Wayland)
+export QT_XCB_GL_INTEGRATION="${QT_XCB_GL_INTEGRATION:-xcb_egl}"
+
 exec "${HERE}/notepadpq" "$@"
 APPRUN
 chmod +x "${APPDIR}/AppRun"

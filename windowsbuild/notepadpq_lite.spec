@@ -34,7 +34,8 @@ hiddenimports = (
     collect_submodules('pygments.styles') +
     collect_submodules('PyQt6') +
     [
-        'ui._webengine',
+        'core.webengine',
+        'core.external_open',
         'PyQt6.QtWebEngineWidgets',
         'PyQt6.QtWebEngineCore',
         'PyQt6.Qsci',

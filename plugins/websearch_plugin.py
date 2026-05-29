@@ -12,6 +12,7 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
+from core.external_open import open_url as _open_url
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -117,7 +118,7 @@ class _WikiPanel(QWidget):
         lay.addWidget(self._progress)
 
         # view Wikipedia mobile
-        from ui._webengine import safe_webview
+        from core.webengine import safe_webview
         self._view = safe_webview()
         if self._view is not None:
             self._view.loadStarted.connect(self._on_load_started)
@@ -172,7 +173,7 @@ class _WikiPanel(QWidget):
 
     def _open_in_browser(self) -> None:
         if self._desktop_url:
-            QDesktopServices.openUrl(QUrl(self._desktop_url))
+            _open_url(QUrl(self._desktop_url))
 
 
 # ---------------------------------------------------------------------------

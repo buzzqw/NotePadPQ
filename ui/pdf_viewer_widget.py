@@ -15,6 +15,7 @@ from PyQt6.QtGui import (
     QPixmap, QImage, QPainter, QPen, QBrush, QColor,
     QCursor, QDesktopServices, QIcon, QShortcut, QKeySequence
 )
+from core.external_open import open_url as _open_url
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QToolBar, QToolButton,
     QLabel, QSizePolicy, QScrollArea, QFrame, QComboBox, QLineEdit,
@@ -380,7 +381,7 @@ class PdfViewerWidget(QWidget):
             self._view = None
 
         elif WEBENGINE_OK:
-            from ui._webengine import safe_webview
+            from core.webengine import safe_webview
             self._view = safe_webview(self)
             if self._view is not None:
                 self._view.settings().setAttribute(
@@ -606,7 +607,7 @@ class PdfViewerWidget(QWidget):
     def _on_link_activated(self, lnk: dict) -> None:
         uri = lnk.get("uri", "")
         if uri:
-            QDesktopServices.openUrl(QUrl(uri))
+            _open_url(QUrl(uri))
             return
         page = lnk.get("page", -1)
         if page >= 0:
@@ -614,7 +615,7 @@ class PdfViewerWidget(QWidget):
 
     def _open_external(self) -> None:
         if self.file_path and self.file_path.exists():
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.file_path.resolve())))
+            _open_url(QUrl.fromLocalFile(str(self.file_path.resolve())))
 
     def _open_in_web_viewer(self) -> None:
         if not self.file_path or not WEBENGINE_OK or self._main_window is None:
@@ -719,7 +720,7 @@ class PdfWebTabWidget(QWidget):
         layout.addWidget(bar)
 
         if WEBENGINE_OK:
-            from ui._webengine import safe_webview
+            from core.webengine import safe_webview
             self._view = safe_webview(self)
             if self._view is not None:
                 self._view.settings().setAttribute(
@@ -793,7 +794,7 @@ class PdfWebTabWidget(QWidget):
 
     def _open_external(self) -> None:
         if self.file_path and self.file_path.exists():
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.file_path.resolve())))
+            _open_url(QUrl.fromLocalFile(str(self.file_path.resolve())))
 
     # ── Interface stubs for tab system ────────────────────────────────────────
 

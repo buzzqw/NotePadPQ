@@ -51,6 +51,11 @@ else
     INT="${HERE}"
 fi
 
+# Salviamo il LD_LIBRARY_PATH originale PRIMA di modificarlo.
+# Python lo usa (via core.external_open) per ripristinare l'ambiente pulito
+# nei sottoprocessi di sistema (xelatex, evince, browser, file manager…).
+export APPIMAGE_ORIG_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+
 # Solo le librerie Qt vanno aggiunte esplicitamente; non preporre INT stesso
 # per non mascherare libGL/libEGL di sistema con eventuali versioni bundled.
 export LD_LIBRARY_PATH="${INT}/PyQt6/Qt6/lib:${LD_LIBRARY_PATH:-}"

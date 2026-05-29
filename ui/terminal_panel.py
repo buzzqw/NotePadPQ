@@ -227,7 +227,7 @@ class TerminalPanel(QWidget):
 
     @staticmethod
     def _try_create_webview():
-        from ui._webengine import safe_webview
+        from core.webengine import safe_webview
         return safe_webview()
 
     # ── Logica terminale ──────────────────────────────────────────────────────

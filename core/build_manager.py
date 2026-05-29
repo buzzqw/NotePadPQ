@@ -389,8 +389,11 @@ class BuildManager(QObject):
         # Espansione variabili
         command = self._expand_vars(command, file_path, editor)
 
-        # Ambiente
-        env = os.environ.copy()
+        # Ambiente: ripristina LD_LIBRARY_PATH originale pre-AppImage per i tool
+        # di sistema (xelatex, pdflatex, gcc, …) che altrimenti trovano
+        # libstdc++/libglib bundled invece delle versioni native.
+        from core.external_open import clean_subprocess_env
+        env = clean_subprocess_env()
         env["NOTEPADPQ_FILE"]     = str(file_path)
         env["NOTEPADPQ_DIR"]      = str(file_path.parent)
         env["NOTEPADPQ_BASENAME"] = file_path.stem

@@ -35,7 +35,8 @@ hiddenimports = (
     collect_submodules('PyQt6') +
     [
         # Core utilities importate lazy
-        'ui._webengine',
+        'core.webengine',
+        'core.external_open',
         # Core Qt
         'PyQt6.QtWebEngineWidgets',
         'PyQt6.QtWebEngineCore',

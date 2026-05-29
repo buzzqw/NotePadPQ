@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from i18n.i18n import tr
+from core.external_open import open_url as _open_url
 from PyQt6.QtCore import Qt, QDir, pyqtSignal
 from PyQt6.QtGui import QFileSystemModel, QAction
 from PyQt6.QtWidgets import (
@@ -234,7 +235,6 @@ class FileBrowser(QWidget):
             QMessageBox.critical(self, "Errore eliminazione", str(e))
 
     def _reveal(self, path: Path) -> None:
-        from PyQt6.QtGui import QDesktopServices
         from PyQt6.QtCore import QUrl
         target = path if path.is_dir() else path.parent
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
+        _open_url(QUrl.fromLocalFile(str(target)))

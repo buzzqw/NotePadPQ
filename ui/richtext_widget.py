@@ -612,7 +612,7 @@ class RichTextWidget(QWidget):
             return
 
         # WebEngineView
-        from ui._webengine import safe_webview
+        from core.webengine import safe_webview
         self._view = safe_webview(self)
         if self._view is None:
             from i18n.i18n import tr as _tr
@@ -943,7 +943,7 @@ class RichTextWidget(QWidget):
         clean_html = RichTextIO._full_html(html)
 
         _path = path
-        from ui._webengine import safe_webview
+        from core.webengine import safe_webview
         _view = safe_webview()
         if _view is None:
             return False

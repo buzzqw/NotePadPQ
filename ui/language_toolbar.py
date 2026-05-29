@@ -1490,7 +1490,7 @@ class _LanguageToolbarWidget(QWidget):
             from PyQt6.QtWebEngineWidgets import QWebEngineView
             from PyQt6.QtCore import QUrl, QEventLoop
             _we_ok = [False]
-            from ui._webengine import safe_webview as _swv
+            from core.webengine import safe_webview as _swv
             view = _swv()
             if view is None:
                 raise RuntimeError("GL not available")

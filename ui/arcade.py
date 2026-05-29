@@ -13,7 +13,7 @@ class ArcadeDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        from ui._webengine import safe_webview
+        from core.webengine import safe_webview
         self.webview = safe_webview(self)
         if self.webview is None:
             from PyQt6.QtWidgets import QLabel

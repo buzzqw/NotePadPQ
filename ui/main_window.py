@@ -33,6 +33,7 @@ from PyQt6.QtPrintSupport import QPrinter, QPrintPreviewDialog, QPageSetupDialog
 from editor.editor_widget import EditorWidget, LineEnding
 from i18n.i18n import tr, I18n
 from core.platform import IS_WINDOWS, get_config_dir
+from core.external_open import open_url as _open_url
 
 # ─── Mappa icone ──────────────────────────────────────────────────────────────
 # Mapping azione → nome file SVG per ogni set. Utilizzato da _rebuild_toolbar()
@@ -3570,7 +3571,6 @@ class MainWindow(QMainWindow):
     def action_check_updates(self) -> None:
             import urllib.request
             import json
-            from PyQt6.QtGui import QDesktopServices
             from PyQt6.QtCore import QUrl
     
             # URL delle API di GitHub per l'ultima release del tuo progetto
@@ -3596,7 +3596,7 @@ class MainWindow(QMainWindow):
                             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                         )
                         if reply == QMessageBox.StandardButton.Yes:
-                            QDesktopServices.openUrl(QUrl(release_url))
+                            _open_url(QUrl(release_url))
                     else:
                         # Recupera il messaggio di software aggiornato dal JSON
                         testo = tr("msg.update_ok", current=current_version)
@@ -3611,11 +3611,10 @@ class MainWindow(QMainWindow):
 
     def action_donate(self) -> None:
         """Apre la pagina di donazione PayPal nel browser."""
-        from PyQt6.QtGui import QDesktopServices
         from PyQt6.QtCore import QUrl
         url = QUrl("https://www.paypal.com/cgi-bin/webscr?cmd=_donations"
                    "&business=azanzani@gmail.com&item_name=Support+NotePadPQ+Project")
-        QDesktopServices.openUrl(url)
+        _open_url(url)
 
     # ── Azioni Bookmark ───────────────────────────────────────────────────────
 

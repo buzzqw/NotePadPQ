@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QIcon, QAction
 
+from core.external_open import open_url as _open_url
 from i18n.i18n import tr
 from config.settings import Settings
 
@@ -446,7 +447,7 @@ class PreviewPanel(QWidget):
         Stack fisso: 0=TextBrowser, 1=LaTeX tree, 2=testo grezzo, 3=PDF, 4+=WebEngine
         """
         if self._web is None and _HAS_WEBENGINE:
-            from ui._webengine import safe_webview
+            from core.webengine import safe_webview
             self._web = safe_webview()
             if self._web is not None:
                 self._web.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
@@ -1258,8 +1259,7 @@ class PreviewPanel(QWidget):
         if not self._pdf_path:
             return
         from PyQt6.QtCore import QUrl
-        from PyQt6.QtGui import QDesktopServices
-        QDesktopServices.openUrl(QUrl.fromLocalFile(self._pdf_path))
+        _open_url(QUrl.fromLocalFile(self._pdf_path))
 
     def _pdf_toggle_links(self, checked: bool) -> None:
         self._pdf_show_links = checked
@@ -1313,9 +1313,8 @@ class PreviewPanel(QWidget):
                 if pt in lnk["from"]:
                     uri = lnk.get("uri", "")
                     if uri:
-                        from PyQt6.QtGui import QDesktopServices
                         from PyQt6.QtCore import QUrl
-                        QDesktopServices.openUrl(QUrl(uri))
+                        _open_url(QUrl(uri))
                         return
                     page_num = lnk.get("page", -1)
                     if page_num >= 0:

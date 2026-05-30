@@ -51,7 +51,7 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         # File
         "save_as": "file-check.svg", "reload": "rotate-cw.svg",
         "open_selected": "external-link.svg", "print": "printer.svg",
-        "print_preview": "eye.svg", "export_pdf": "file-text.svg",
+        "print_preview": "layout-template.svg", "export_pdf": "file-text.svg",
         "close_others": "x-circle.svg", "close_all": "layers.svg",
         "quit": "log-out.svg", "file_properties": "file-search.svg",
         "diff_vs_saved": "git-compare.svg",
@@ -169,7 +169,7 @@ _ICON_MAPS: dict[str, dict[str, str]] = {
         # File
         "save_as": "save_as.svg", "reload": "refresh.svg",
         "open_selected": "open_in_new.svg", "print": "print.svg",
-        "print_preview": "visibility.svg", "export_pdf": "picture_as_pdf.svg",
+        "print_preview": "pageview.svg", "export_pdf": "picture_as_pdf.svg",
         "close_others": "clear_all.svg", "close_all": "close.svg",
         "quit": "exit_to_app.svg", "file_properties": "description.svg",
         "diff_vs_saved": "find_replace.svg",
@@ -2227,19 +2227,23 @@ class MainWindow(QMainWindow):
             # 3. Esegui il salvataggio sul disco
             FileManager.write(path, editor.get_content(), editor.encoding)
             old_lang = getattr(editor, "_current_language", "")
+            old_ext = editor.file_path.suffix.lower() if editor.file_path else ""
+            new_ext = path.suffix.lower()
             editor.file_path = path
 
-            # Se l'estensione è cambiata (es. Save As con .md su file nuovo),
-            # aggiorna il lexer e la statusbar. language_changed viene emesso
-            # dentro set_lexer_by_path → la language toolbar si aggiorna da sola.
-            try:
-                from editor.lexers import set_lexer_by_path
-                set_lexer_by_path(editor, path)
-            except Exception:
-                pass
-            if getattr(editor, "_current_language", "") != old_lang:
-                if hasattr(self, "_statusbar"):
-                    self._statusbar._update_lang(editor)
+            # Aggiorna lexer e statusbar solo se l'estensione è cambiata
+            # (es. Save As su file con estensione diversa o primo salvataggio
+            # di un file senza nome). Evita setLexer+SCI_COLOURISE ad ogni
+            # Ctrl+S, che causa un salto dello scroll.
+            if new_ext != old_ext:
+                try:
+                    from editor.lexers import set_lexer_by_path
+                    set_lexer_by_path(editor, path)
+                except Exception:
+                    pass
+                if getattr(editor, "_current_language", "") != old_lang:
+                    if hasattr(self, "_statusbar"):
+                        self._statusbar._update_lang(editor)
 
             # 4. Aggiorna lo stato dell'editor
             editor.mark_saved()

@@ -77,18 +77,18 @@ echo ""
 # Prompt variante (solo se non passata da CLI)
 if [[ -z "$BUILD_MODE" ]]; then
     echo -e " Quale variante vuoi compilare?"
-    echo -e "   ${CYAN}1${NC}) both     — Full + Lite (default)"
-    echo -e "   ${CYAN}2${NC}) full     — Solo versione Full"
+    echo -e "   ${CYAN}1${NC}) full     — Solo versione Full (default)"
+    echo -e "   ${CYAN}2${NC}) both     — Full + Lite"
     echo -e "   ${CYAN}3${NC}) lite     — Solo versione Lite"
     echo -e "   ${CYAN}4${NC}) installer— Full + Lite + Inno Setup"
     echo ""
     read -rp "   Scelta [1]: " _choice
     case "${_choice:-1}" in
-        1|"both")      BUILD_MODE="both" ;;
-        2|"full")      BUILD_MODE="full" ;;
+        1|"full")      BUILD_MODE="full" ;;
+        2|"both")      BUILD_MODE="both" ;;
         3|"lite")      BUILD_MODE="lite" ;;
         4|"installer") BUILD_MODE="installer" ;;
-        *)             BUILD_MODE="both" ;;
+        *)             BUILD_MODE="full" ;;
     esac
     echo ""
 fi

@@ -62,8 +62,9 @@ _MD_ICON_FILES: dict[str, str] = {
     "latex_footnote": "type.svg",
     "latex_label":    "bookmark.svg",
     "latex_ref":      "link.svg",
-    "latex_math":     "sigma.svg",
-    "latex_table":    "table.svg",
+    "latex_math":          "sigma.svg",
+    "latex_table":         "table.svg",
+    "latex_chevron_down":  "chevron-down.svg",
 }
 
 _ICON_SIZE = QSize(20, 20)
@@ -286,7 +287,14 @@ class _LanguageToolbarWidget(QWidget):
         self._layout.setContentsMargins(4, 2, 4, 2)
         self._layout.setSpacing(2)
 
-        self.setStyleSheet(
+        self.setStyleSheet(self._make_stylesheet())
+
+        self._layout.addStretch(1)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setVisible(False)
+
+    def _make_stylesheet(self) -> str:
+        return (
             "QWidget#LanguageToolbar {"
             "  background: palette(window);"
             "  border-bottom: 1px solid palette(mid);"
@@ -307,11 +315,12 @@ class _LanguageToolbarWidget(QWidget):
             "  border-radius: 3px;"
             "  font-weight: bold;"
             "}"
+            "QToolButton::menu-button {"
+            "  border-left: 1px solid rgba(128, 128, 128, 80);"
+            "  width: 16px;"
+            "}"
+            "QToolButton::menu-indicator { image: none; }"
         )
-
-        self._layout.addStretch(1)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setVisible(False)
 
     # ── setVisible ────────────────────────────────────────────────────────────
 
@@ -614,30 +623,60 @@ class _LanguageToolbarWidget(QWidget):
 
     def _add_latex_menu_btn(self, items: list[tuple[str, str]], default_idx: int,
                              tooltip: str, handler) -> QToolButton:
-        """MenuButtonPopup: click principale = inserisce l'elemento corrente, freccia = scegli."""
-        btn = QToolButton(self)
-        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        btn.setToolTip(tooltip)
+        """Split-button: bottone testo (azione corrente) + freccia separata (apre menu)."""
+        container = QWidget(self)
+        container.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        hbox = QHBoxLayout(container)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(0)
 
         idx = default_idx if 0 <= default_idx < len(items) else 0
         _current = [items[idx][1]] if items else [""]
-        btn.setText(items[idx][0] if items else "")
 
-        btn.clicked.connect(lambda: handler(_current[0]))
+        # Bottone principale: mostra il nome dell'elemento corrente
+        main_btn = QToolButton(container)
+        main_btn.setToolTip(tooltip)
+        main_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        main_btn.setText(items[idx][0] if items else "")
+        main_btn.clicked.connect(lambda: handler(_current[0]))
+
+        # Separatore visibile tra testo e freccia
+        sep = QFrame(container)
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setFrameShadow(QFrame.Shadow.Plain)
+        sep.setFixedWidth(1)
+        sep.setStyleSheet("QFrame { background: palette(mid); margin: 3px 0; }")
+
+        # Bottone freccia: apre il menu di selezione
+        arrow_btn = QToolButton(container)
+        arrow_btn.setToolTip(tooltip)
+        arrow_btn.setFixedWidth(16)
+        arrow_icon = _load_icon("latex_chevron_down", self._mw)
+        if not arrow_icon.isNull():
+            arrow_btn.setIcon(arrow_icon)
+            arrow_btn.setIconSize(QSize(10, 10))
+            arrow_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        else:
+            arrow_btn.setText("▾")
+            arrow_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        arrow_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         def _on_select(lbl: str, cmd: str) -> None:
-            btn.setText(lbl)
+            main_btn.setText(lbl)
             _current[0] = cmd
             handler(cmd)
 
-        menu = QMenu(btn)
+        menu = QMenu(arrow_btn)
         for label, cmd in items:
             action = menu.addAction(label)
             action.triggered.connect(lambda checked=False, _l=label, _c=cmd: _on_select(_l, _c))
-        btn.setMenu(menu)
-        self._layout.insertWidget(self._layout.count() - 1, btn)
-        return btn
+        arrow_btn.setMenu(menu)
+
+        hbox.addWidget(main_btn)
+        hbox.addWidget(sep)
+        hbox.addWidget(arrow_btn)
+        self._layout.insertWidget(self._layout.count() - 1, container)
+        return main_btn
 
     def _add_latex_cite_btn(self) -> QToolButton:
         """MenuButtonPopup: click principale = \\cite{}, freccia = varianti e bibliography."""

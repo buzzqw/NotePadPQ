@@ -54,22 +54,22 @@ echo.
 REM ── Prompt interattivo variante (solo se non passata da CLI) ──
 if not "%BUILD_MODE%"=="" goto :skip_prompt_variant
 echo  Quale variante vuoi compilare?
-echo    1) both      - Full + Lite (default)
-echo    2) full      - Solo versione Full
+echo    1) full      - Solo versione Full (default)
+echo    2) both      - Full + Lite
 echo    3) lite      - Solo versione Lite
 echo    4) installer - Full + Lite + Inno Setup
 echo.
 set /p _choice="  Scelta [1]: "
-if "%_choice%"==""  set BUILD_MODE=both
-if "%_choice%"=="1" set BUILD_MODE=both
-if "%_choice%"=="2" set BUILD_MODE=full
+if "%_choice%"==""  set BUILD_MODE=full
+if "%_choice%"=="1" set BUILD_MODE=full
+if "%_choice%"=="2" set BUILD_MODE=both
 if "%_choice%"=="3" set BUILD_MODE=lite
 if "%_choice%"=="4" set BUILD_MODE=installer
 if /i "%_choice%"=="both"      set BUILD_MODE=both
 if /i "%_choice%"=="full"      set BUILD_MODE=full
 if /i "%_choice%"=="lite"      set BUILD_MODE=lite
 if /i "%_choice%"=="installer" set BUILD_MODE=installer
-if "%BUILD_MODE%"=="" set BUILD_MODE=both
+if "%BUILD_MODE%"=="" set BUILD_MODE=full
 echo.
 :skip_prompt_variant
 

@@ -1157,11 +1157,17 @@ class PreviewPanel(QWidget):
                 c_page, c_y, c_h, c_W = self._pdf_cursor_highlight
                 if c_page == self._pdf_page_num and c_y is not None:
                     cy = int((c_y - oy) * z)
+                    if c_h is not None and c_W is not None and c_W > 2:
+                        cx0 = max(0, int((c_h - ox) * z))
+                        cw  = max(4, int(c_W * z))
+                    else:
+                        cx0 = 0
+                        cw  = pm.width()
                     cind = QPainter(pm)
                     cind.setRenderHint(QPainter.RenderHint.Antialiasing)
                     cind.setPen(QPen(QColor(255, 80, 0, 180), 2))
                     cind.setBrush(QBrush(QColor(255, 120, 0, 30)))
-                    cind.drawRect(0, max(0, cy - 9), pm.width(), 18)
+                    cind.drawRect(cx0, max(0, cy - 9), cw, 18)
                     cind.end()
             # ─────────────────────────────────────────────────────────────
 

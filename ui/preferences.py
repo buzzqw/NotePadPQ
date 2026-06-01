@@ -392,7 +392,7 @@ class PreferencesDialog(QDialog):
         from ui.function_list import _JSON_PRESET_DEFS
         w = QWidget()
         vl = QVBoxLayout(w)
-        vl.setAlignment(Qt.AlignmentFlag.AlignTop)
+        # Niente AlignTop: vogliamo che il secondo widget si espanda
 
         # ── Preset disponibili ─────────────────────────────────────────────────
         grp_presets = QGroupBox(tr("pref.fl.presets_group", default="Preset disponibili"))
@@ -427,20 +427,22 @@ class PreferencesDialog(QDialog):
         # ── Pattern visibili (dinamico: si aggiorna con la selezione) ──────────
         self._fl_kinds_group = QGroupBox("—")
         self._fl_kinds_group.setEnabled(False)
+        self._fl_kinds_group.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         kinds_outer = QVBoxLayout(self._fl_kinds_group)
         kinds_outer.setContentsMargins(6, 6, 6, 6)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setFixedHeight(150)
         self._fl_kinds_container = QWidget()
         self._fl_kinds_layout = QVBoxLayout(self._fl_kinds_container)
         self._fl_kinds_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._fl_kinds_layout.setSpacing(2)
         scroll.setWidget(self._fl_kinds_container)
         kinds_outer.addWidget(scroll)
-        vl.addWidget(self._fl_kinds_group)
+        vl.addWidget(self._fl_kinds_group, stretch=1)
 
         # Stato interno
         self._fl_kind_checks: dict[str, QCheckBox] = {}
@@ -451,7 +453,6 @@ class PreferencesDialog(QDialog):
 
         self._fl_preset_list.currentItemChanged.connect(self._fl_on_preset_selected)
 
-        vl.addStretch()
         return w
 
     def _fl_on_preset_selected(self, current, previous) -> None:

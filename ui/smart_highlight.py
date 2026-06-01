@@ -209,15 +209,13 @@ class SmartHighlighter:
         if not word:
             return ""
 
-        # Doppio controllo: se il cursore è sul bordo destro della parola
-        # (carattere a destra di col non è parola ma quello a sinistra sì),
-        # l'API potrebbe comunque restituire la parola — in quel caso non evidenziare.
+        # Non evidenziare se il cursore è sul bordo destro o sinistro della parola.
         text = editor.text(line)
         char_right = text[col] if col < len(text) else ""
         char_left  = text[col - 1] if col > 0 else ""
         right_is_word = char_right.isalnum() or char_right == "_"
         left_is_word  = char_left.isalnum()  or char_left  == "_"
-        if left_is_word and not right_is_word:
+        if (left_is_word and not right_is_word) or (right_is_word and not left_is_word):
             return ""
 
         return word

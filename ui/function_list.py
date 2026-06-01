@@ -343,6 +343,7 @@ class _FunctionListPanel(QWidget):
         self._mw     = main_window
         self._editor: Optional["EditorWidget"] = None
         self._symbols: List[FuncSymbol] = []
+        self._needs_refresh = True
 
         self._build_ui()
 
@@ -646,4 +647,12 @@ def install(main_window: "MainWindow") -> _FunctionListPanel:
 
     main_window._function_list_dock  = dock
     main_window._function_list_panel = panel
+
+    # Il pannello viene installato dopo che i file di sessione sono già aperti,
+    # quindi current_editor_changed non verrà emesso per i tab già presenti.
+    # Forziamo un _on_editor_changed iniziale così _editor è impostato e il
+    # refresh partirà non appena il dock diventa visibile (via showEvent).
+    current = main_window._tab_manager.current_editor()
+    panel._on_editor_changed(current)
+
     return panel

@@ -862,6 +862,8 @@
     "preview_synctex": "SyncTeX aktiv: auf PDF klicken, um zur Quellzeile zu springen",
     "preview_open_external": "PDF mit dem Standard-Betrachter öffnen",
     "preview_sync_toggle": "PDF ↔ TeX-Navigationssynchronisierung ein-/ausschalten",
+    "preview_continuous": "Endlos-Scroll / Einzelseite — ⚠ Im Endlos-Scroll-Modus ist Forward/Backward-SyncTeX nicht verfügbar",
+    "preview_synctex_continuous": "⚠ Endlos-Scroll: SyncTeX funktioniert in diesem Modus nicht",
     "ai_show_key": "Schlüssel anzeigen/verbergen",
     "ai_provider": "KI-Dienst auswählen.\nJeder Anbieter benötigt einen eigenen API-Schlüssel (außer Ollama, das lokal läuft).",
     "ai_model": "Modell für die Antwort.\nGrößere Modelle (Opus, GPT-4o) sind leistungsfähiger, aber langsamer und teurer.\nFlash/Mini-Modelle sind schneller und günstiger für einfache Aufgaben.",
@@ -988,7 +990,10 @@
     "pdf_open_web": "PDF im eingebetteten Qt-Web-Panel öffnen (Browser-Modus)",
     "pdf_toggle_thumbs": "Miniaturen- und Lesezeichen-Panel anzeigen/ausblenden",
     "pdf_print": "PDF-Dokument drucken",
-    "pdf_find": "Im Dokument suchen (Strg+F)"
+    "pdf_find": "Im Dokument suchen (Strg+F)",
+    "pdf_continuous": "Endlos-Scroll / Einzelseite — im Einzelseitenmodus wechselt das Mausrad die Seiten",
+    "pdf_page_prev": "Vorherige Seite",
+    "pdf_page_next": "Nächste Seite"
   },
   "websearch": {
     "submenu_title": "Websuche",

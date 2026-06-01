@@ -257,6 +257,8 @@ class PdfViewerWidget(QWidget):
         self._doc         = None
         self._zoom        = self._DEFAULT_ZOOM
         self._show_links  = True
+        self._continuous  = True   # True = scroll continuo; False = pagina singola
+        self._cur_page    = 0      # usato in modalità pagina singola
         self._page_labels: List[_PdfPageLabel] = []
         # Contatore di generazione: incrementato ad ogni rebuild per invalidare
         # eventuali QTimer.singleShot pendenti da rebuild precedenti.
@@ -266,6 +268,11 @@ class PdfViewerWidget(QWidget):
         self._zoom_timer.setSingleShot(True)
         self._zoom_timer.setInterval(300)
         self._zoom_timer.timeout.connect(self._rebuild_pages)
+
+        self._scroll_timer = QTimer(self)
+        self._scroll_timer.setSingleShot(True)
+        self._scroll_timer.setInterval(120)
+        self._scroll_timer.timeout.connect(self._update_current_page)
 
         self._build_ui()
         if path:
@@ -300,6 +307,32 @@ class PdfViewerWidget(QWidget):
             self._btn_side.setToolTip(tr("tooltip.pdf_toggle_thumbs"))
             self._btn_side.toggled.connect(self._on_toggle_side)
             bar.addWidget(self._btn_side)
+
+            bar.addSeparator()
+
+            # toggle scroll continuo / pagina singola
+            self._btn_continuous = QToolButton(bar)
+            self._btn_continuous.setText("↕")
+            self._btn_continuous.setCheckable(True)
+            self._btn_continuous.setChecked(True)
+            self._btn_continuous.setToolTip(tr("tooltip.pdf_continuous"))
+            self._btn_continuous.toggled.connect(self._on_toggle_continuous)
+            bar.addWidget(self._btn_continuous)
+
+            # navigazione pagina singola (nascoste in modalità continua)
+            self._btn_prev = QToolButton(bar)
+            self._btn_prev.setText("◀")
+            self._btn_prev.setToolTip(tr("tooltip.pdf_page_prev"))
+            self._btn_prev.clicked.connect(self._page_prev)
+            self._btn_prev.setVisible(False)
+            bar.addWidget(self._btn_prev)
+
+            self._btn_next = QToolButton(bar)
+            self._btn_next.setText("▶")
+            self._btn_next.setToolTip(tr("tooltip.pdf_page_next"))
+            self._btn_next.clicked.connect(self._page_next)
+            self._btn_next.setVisible(False)
+            bar.addWidget(self._btn_next)
 
             bar.addSeparator()
 
@@ -366,6 +399,10 @@ class PdfViewerWidget(QWidget):
         self._pages_lbl.setStyleSheet("padding: 0 8px; color: gray;")
         bar.addWidget(self._pages_lbl)
 
+        self._page_cur_lbl = QLabel("", bar)
+        self._page_cur_lbl.setStyleSheet("padding: 0 8px; color: gray;")
+        bar.addWidget(self._page_cur_lbl)
+
         layout.addWidget(bar)
 
         if FITZ_OK:
@@ -379,10 +416,11 @@ class PdfViewerWidget(QWidget):
             self._scroll.setWidgetResizable(True)
             self._scroll.setAlignment(
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+            self._scroll.verticalScrollBar().valueChanged.connect(
+                self._on_scroll_changed)
 
             self._pages_container = QWidget()
             self._pages_layout = QVBoxLayout(self._pages_container)
-            self._pages_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             self._pages_layout.setContentsMargins(12, 12, 12, 12)
             self._pages_layout.setSpacing(10)
 
@@ -445,6 +483,7 @@ class PdfViewerWidget(QWidget):
             return
         n = len(self._doc)
         self._pages_lbl.setText(tr("label.pdf_pages", n=n))
+        self._page_cur_lbl.setText(f"1 / {n}")
         self._side_panel.populate(self._doc)
         # primo caricamento: aspetta che il widget sia visibile per calcolare
         # correttamente la larghezza del viewport
@@ -465,12 +504,24 @@ class PdfViewerWidget(QWidget):
 
     def eventFilter(self, obj, event) -> bool:
         from PyQt6.QtCore import QEvent
-        if (obj is self._scroll.viewport() and
-                event.type() == QEvent.Type.Wheel and
-                event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-            delta = event.angleDelta().y()
-            self._zoom_step(+0.1 if delta > 0 else -0.1)
-            return True   # consuma l'evento: non fa scorrere la pagina
+        if obj is self._scroll.viewport() and event.type() == QEvent.Type.Wheel:
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                delta = event.angleDelta().y()
+                self._zoom_step(+0.1 if delta > 0 else -0.1)
+                return True
+            if not self._continuous and self._doc:
+                v_bar = self._scroll.verticalScrollBar()
+                delta = event.angleDelta().y()
+                if delta > 0 and v_bar.value() == v_bar.minimum():
+                    if self._cur_page > 0:
+                        self._page_prev()
+                        QTimer.singleShot(10, lambda: v_bar.setValue(v_bar.maximum()))
+                        return True
+                elif delta < 0 and v_bar.value() == v_bar.maximum():
+                    if self._cur_page < len(self._doc) - 1:
+                        self._page_next()
+                        QTimer.singleShot(10, lambda: v_bar.setValue(v_bar.minimum()))
+                        return True
         return super().eventFilter(obj, event)
 
     def _zoom_step(self, step: float) -> None:
@@ -513,6 +564,8 @@ class PdfViewerWidget(QWidget):
                 if self._page_labels:
                     self._pages_container.setMinimumWidth(
                         max(lbl.width() for lbl in self._page_labels) + 24)
+                # Aggiorna l'indicatore di pagina corrente dopo il caricamento
+                QTimer.singleShot(50, self._update_current_page)
                 return
             pg  = self._doc.load_page(i)
             lbl = _PdfPageLabel(pg, self._zoom, self._show_links, self._pages_container)
@@ -631,6 +684,94 @@ class PdfViewerWidget(QWidget):
 
     # ── Interazione ───────────────────────────────────────────────────────────
 
+    def _on_scroll_changed(self, _value: int = 0) -> None:
+        """Debounce: aggiorna la pagina corrente 120ms dopo la fine dello scroll."""
+        self._scroll_timer.start()
+
+    def _update_current_page(self) -> None:
+        """Determina quale pagina è maggiormente visibile nel viewport e
+        aggiorna l'etichetta della pagina corrente e la selezione del pannello.
+        Attivo solo in modalità scroll continuo."""
+        if not self._page_labels or not self._continuous:
+            return
+        viewport = self._scroll.viewport()
+        vp_top    = self._scroll.verticalScrollBar().value()
+        vp_bottom = vp_top + viewport.height()
+
+        best_idx    = 0
+        best_overlap = -1
+        for i, lbl in enumerate(self._page_labels):
+            # posizione assoluta del label nel contenuto scrollabile
+            lbl_top    = lbl.mapTo(self._pages_container, QPoint(0, 0)).y()
+            lbl_bottom = lbl_top + lbl.height()
+            overlap = max(0, min(lbl_bottom, vp_bottom) - max(lbl_top, vp_top))
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_idx = i
+
+        self._cur_page = best_idx
+        n = len(self._page_labels)
+        self._page_cur_lbl.setText(f"{best_idx + 1} / {n}")
+        self._side_panel.highlight_page(best_idx)
+
+    def _on_toggle_continuous(self, checked: bool) -> None:
+        """Alterna tra scroll continuo e modalità pagina singola."""
+        self._continuous = checked
+        self._btn_continuous.setText("↕" if checked else "□")
+        self._btn_prev.setVisible(not checked)
+        self._btn_next.setVisible(not checked)
+        if not self._doc:
+            return
+        if checked:
+            # torna a scroll continuo: ricostruisce tutte le pagine
+            self._rebuild_pages()
+        else:
+            # passa a pagina singola: mostra solo la pagina corrente
+            self._cur_page = max(0, min(self._cur_page, len(self._doc) - 1))
+            self._show_single_page(self._cur_page)
+
+    def _show_single_page(self, page_idx: int) -> None:
+        """In modalità pagina singola, rimuove tutte le pagine dal layout e
+        mostra solo quella richiesta."""
+        if not self._doc or not FITZ_OK:
+            return
+        if not (0 <= page_idx < len(self._doc)):
+            return
+        # svuota il layout
+        while self._pages_layout.count():
+            item = self._pages_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.setParent(None)
+        self._page_labels.clear()
+        self._page_gen += 1
+
+        pg  = self._doc.load_page(page_idx)
+        lbl = _PdfPageLabel(pg, self._zoom, self._show_links, self._pages_container)
+        lbl.link_activated.connect(self._on_link_activated)
+        self._pages_layout.addWidget(lbl)
+        self._page_labels.append(lbl)
+        self._pages_container.setMinimumWidth(lbl.width() + 24)
+        self._scroll.verticalScrollBar().setValue(0)
+
+        n = len(self._doc)
+        self._page_cur_lbl.setText(f"{page_idx + 1} / {n}")
+        self._side_panel.highlight_page(page_idx)
+
+    def _page_prev(self) -> None:
+        if not self._doc:
+            return
+        idx = max(0, self._cur_page - 1)
+        self._cur_page = idx
+        self._show_single_page(idx)
+
+    def _page_next(self) -> None:
+        if not self._doc:
+            return
+        idx = min(len(self._doc) - 1, self._cur_page + 1)
+        self._cur_page = idx
+        self._show_single_page(idx)
+
     def _on_toggle_side(self, checked: bool) -> None:
         self._side_panel.setVisible(checked)
 
@@ -640,8 +781,26 @@ class PdfViewerWidget(QWidget):
             lbl.update_show_links(checked)
 
     def _scroll_to_page(self, page_idx: int) -> None:
-        if 0 <= page_idx < len(self._page_labels):
-            self._scroll.ensureWidgetVisible(self._page_labels[page_idx])
+        if not self._doc or not (0 <= page_idx < len(self._doc)):
+            return
+        if not self._continuous:
+            # modalità pagina singola: mostra solo la pagina richiesta
+            self._cur_page = page_idx
+            self._show_single_page(page_idx)
+        else:
+            # modalità continua: scrolla all'inizio della pagina se già nel layout,
+            # altrimenti stima la posizione proporzionale nel documento
+            if page_idx < len(self._page_labels):
+                lbl = self._page_labels[page_idx]
+                y = lbl.pos().y()
+                self._scroll.verticalScrollBar().setValue(max(0, y - 12))
+            else:
+                # pagina non ancora caricata: stima proporzionale
+                total_h = self._scroll.verticalScrollBar().maximum()
+                n = len(self._doc)
+                if n > 1:
+                    y = int(total_h * page_idx / (n - 1))
+                    self._scroll.verticalScrollBar().setValue(max(0, y))
 
     def _on_link_activated(self, lnk: dict) -> None:
         uri = lnk.get("uri", "")

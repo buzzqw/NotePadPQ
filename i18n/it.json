@@ -862,6 +862,8 @@
     "preview_synctex": "SyncTeX attivo: clicca sul PDF per andare alla riga nel sorgente",
     "preview_open_external": "Apri il PDF con il visualizzatore esterno predefinito",
     "preview_sync_toggle": "Attiva/disattiva la sincronizzazione navigazione PDF ↔ TeX",
+    "preview_continuous": "Scroll continuo / Pagina singola — ⚠ in modalità scroll continuo il forward/backward SyncTeX non è disponibile",
+    "preview_synctex_continuous": "⚠ Scroll continuo: SyncTeX non funziona in questa modalità",
     "ai_show_key": "Mostra/nascondi chiave",
     "ai_provider": "Scegli il servizio AI da usare.\nOgni provider richiede una propria chiave API (tranne Ollama, che è locale).",
     "ai_model": "Modello da usare per la risposta.\nI modelli più grandi (Opus, GPT-4o) sono più capaci ma più lenti e costosi.\nI modelli flash/mini sono più veloci ed economici per compiti semplici.",
@@ -988,7 +990,10 @@
     "pdf_open_web": "Apri il PDF nel pannello web Qt integrato (modalità browser)",
     "pdf_toggle_thumbs": "Mostra/nascondi pannello miniature e segnalibri",
     "pdf_print": "Stampa il documento PDF",
-    "pdf_find": "Cerca nel documento (Ctrl+F)"
+    "pdf_find": "Cerca nel documento (Ctrl+F)",
+    "pdf_continuous": "Scroll continuo / Pagina singola — in modalità pagina singola la rotella del mouse cambia pagina",
+    "pdf_page_prev": "Pagina precedente",
+    "pdf_page_next": "Pagina successiva"
   },
   "websearch": {
     "submenu_title": "Ricerca Web",

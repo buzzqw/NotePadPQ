@@ -862,6 +862,8 @@
     "preview_synctex": "SyncTeX aktywny: kliknij PDF, aby przejść do wiersza źródłowego",
     "preview_open_external": "Otwórz PDF w domyślnej zewnętrznej przeglądarce",
     "preview_sync_toggle": "Włącz/wyłącz synchronizację nawigacji PDF ↔ TeX",
+    "preview_continuous": "Ciągłe przewijanie / Pojedyncza strona — ⚠ w trybie ciągłego przewijania forward/backward SyncTeX nie jest dostępny",
+    "preview_synctex_continuous": "⚠ Ciągłe przewijanie: SyncTeX nie działa w tym trybie",
     "ai_show_key": "Pokaż/ukryj klucz",
     "ai_provider": "Wybierz usługę AI do użycia.\nKażdy dostawca wymaga własnego klucza API (oprócz Ollama, który działa lokalnie).",
     "ai_model": "Model do użycia do odpowiedzi.\nWiększe modele (Opus, GPT-4o) są bardziej zaawansowane, ale wolniejsze i droższe.\nModele Flash/mini są szybsze i tańsze do prostych zadań.",
@@ -988,7 +990,10 @@
     "pdf_open_web": "Otwórz PDF we wbudowanym panelu Qt Web (tryb przeglądarki)",
     "pdf_toggle_thumbs": "Pokaż/ukryj panel miniatur i zakładek",
     "pdf_print": "Drukuj dokument PDF",
-    "pdf_find": "Szukaj w dokumencie (Ctrl+F)"
+    "pdf_find": "Szukaj w dokumencie (Ctrl+F)",
+    "pdf_continuous": "Ciągłe przewijanie / Pojedyncza strona — w trybie pojedynczej strony kółko myszy zmienia strony",
+    "pdf_page_prev": "Poprzednia strona",
+    "pdf_page_next": "Następna strona"
   },
   "websearch": {
     "submenu_title": "Wyszukiwanie w sieci",

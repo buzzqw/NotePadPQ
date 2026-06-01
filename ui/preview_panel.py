@@ -376,7 +376,16 @@ class PreviewPanel(QWidget):
                                          default="Mostra/nascondi hyperlink nel PDF"))
         self._pdf_btn_links.toggled.connect(self._pdf_toggle_links)
 
-        for w2 in [self._pdf_btn_prev, self._pdf_lbl_page, self._pdf_btn_next,
+        # toggle scroll continuo / pagina singola
+        self._pdf_btn_continuous = QToolButton()
+        self._pdf_btn_continuous.setText("□")
+        self._pdf_btn_continuous.setCheckable(True)
+        self._pdf_btn_continuous.setChecked(False)  # default: pagina singola
+        self._pdf_btn_continuous.setToolTip(tr("tooltip.preview_continuous"))
+        self._pdf_btn_continuous.toggled.connect(self._pdf_toggle_continuous)
+
+        for w2 in [self._pdf_btn_continuous,
+                   self._pdf_btn_prev, self._pdf_lbl_page, self._pdf_btn_next,
                    self._pdf_zoom_out, self._pdf_zoom_in,
                    self._pdf_btn_zoom_reset, self._pdf_btn_fit_width,
                    self._pdf_btn_fit_page, self._pdf_btn_crop,
@@ -417,7 +426,7 @@ class PreviewPanel(QWidget):
         pdf_vl.addWidget(self._crop_widget)
         # --- FINE AGGIUNTA CONTATORI TAGLIO ---
 
-        from PyQt6.QtWidgets import QScrollArea
+        from PyQt6.QtWidgets import QScrollArea, QVBoxLayout as _QVBoxLayout2
         self._pdf_scroll = QScrollArea()
         self._pdf_scroll.setWidgetResizable(True)
         self._pdf_scroll.setStyleSheet("background: #404040; border: none;")
@@ -427,6 +436,23 @@ class PreviewPanel(QWidget):
         self._pdf_lbl_img.clicked.connect(self._on_pdf_clicked)
         self._pdf_scroll.setWidget(self._pdf_lbl_img)
         pdf_vl.addWidget(self._pdf_scroll, 1)
+
+        # Scroll area per la modalità continua (tutte le pagine impilate)
+        self._pdf_scroll_cont = QScrollArea()
+        self._pdf_scroll_cont.setWidgetResizable(True)
+        self._pdf_scroll_cont.setStyleSheet("background: #404040; border: none;")
+        self._pdf_scroll_cont.setAlignment(
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        self._pdf_cont_container = QWidget()
+        self._pdf_cont_layout = _QVBoxLayout2(self._pdf_cont_container)
+        self._pdf_cont_layout.setContentsMargins(8, 8, 8, 8)
+        self._pdf_cont_layout.setSpacing(8)
+        self._pdf_scroll_cont.setWidget(self._pdf_cont_container)
+        self._pdf_scroll_cont.verticalScrollBar().valueChanged.connect(
+            self._pdf_on_cont_scroll)
+        pdf_vl.addWidget(self._pdf_scroll_cont, 1)
+        self._pdf_scroll_cont.setVisible(False)
+
         self._stack.addWidget(self._pdf_widget)
 
         # Stato PDF
@@ -438,6 +464,7 @@ class PreviewPanel(QWidget):
         self._pdf_show_links = True
         self._pdf_links: list = []
         self._pdf_cursor_highlight: Optional[tuple] = None  # (page_0based, y_pt, h_pt, W_pt)
+        self._pdf_continuous  = False   # True = scroll continuo
 
         vl.addWidget(self._stack)
 
@@ -1285,6 +1312,114 @@ class PreviewPanel(QWidget):
     def _pdf_toggle_links(self, checked: bool) -> None:
         self._pdf_show_links = checked
         self._pdf_show_page()
+
+    def _pdf_toggle_continuous(self, checked: bool) -> None:
+        """Alterna tra scroll continuo e modalità pagina singola nell'anteprima TeX."""
+        self._pdf_continuous = checked
+        self._pdf_btn_continuous.setText("↕" if checked else "□")
+        self._pdf_scroll.setVisible(not checked)
+        self._pdf_scroll_cont.setVisible(checked)
+        self._pdf_btn_prev.setVisible(not checked)
+        self._pdf_btn_next.setVisible(not checked)
+        self._pdf_lbl_page.setVisible(not checked)
+        if checked:
+            # Avviso SyncTeX: in modalità continua forward/backward sync non funziona
+            if hasattr(self, "_pdf_lbl_synctex"):
+                self._pdf_lbl_synctex.setText(tr("tooltip.preview_synctex_continuous"))
+                self._pdf_lbl_synctex.setStyleSheet(
+                    "color: #ff9800; font-size: 10px; padding: 0 4px;")
+                self._pdf_lbl_synctex.setToolTip(
+                    tr("tooltip.preview_continuous"))
+            self._pdf_show_all_pages()
+        else:
+            # Ripristina la label SyncTeX originale
+            self._update_synctex_label(
+                self._pdf_path if self._pdf_path else None)
+            self._pdf_show_page()
+
+    def _pdf_show_all_pages(self) -> None:
+        """Renderizza tutte le pagine PDF e le impila verticalmente nel contenitore continuo."""
+        if self._pdf_doc is None or not _get_fitz():
+            return
+        # svuota il layout
+        while self._pdf_cont_layout.count():
+            item = self._pdf_cont_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.setParent(None)
+        from PyQt6.QtWidgets import QLabel as _QL, QFrame as _QF
+        from PyQt6.QtGui import QImage, QPixmap
+        total = len(self._pdf_doc)
+        for i in range(total):
+            try:
+                page = self._pdf_doc[i]
+                clip_rect = page.rect
+                if getattr(self, "_pdf_crop_margins", False):
+                    c_t = self._crop_t.value(); c_b = self._crop_b.value()
+                    c_l = self._crop_l.value(); c_r = self._crop_r.value()
+                    if c_t == 0 and c_b == 0 and c_l == 0 and c_r == 0:
+                        blocks = page.get_text("blocks")
+                        if blocks:
+                            x0 = min(b[0] for b in blocks); y0 = min(b[1] for b in blocks)
+                            x1 = max(b[2] for b in blocks); y1 = max(b[3] for b in blocks)
+                            clip_rect = _fitz.Rect(
+                                max(0, x0 - 15), max(0, y0 - 15),
+                                min(page.rect.width, x1 + 15), min(page.rect.height, y1 + 15))
+                    else:
+                        clip_rect = _fitz.Rect(
+                            page.rect.x0 + c_l, page.rect.y0 + c_t,
+                            page.rect.x1 - c_r, page.rect.y1 - c_b)
+                mat = _fitz.Matrix(self._pdf_zoom, self._pdf_zoom)
+                pix = page.get_pixmap(matrix=mat, alpha=False, clip=clip_rect)
+                img = QImage(pix.samples, pix.width, pix.height,
+                             pix.stride, QImage.Format.Format_RGB888)
+                pm = QPixmap.fromImage(img)
+                lbl = _QL()
+                lbl.setPixmap(pm)
+                lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+                lbl.setStyleSheet("background: white; margin: 0;")
+                if i > 0:
+                    sep = _QF()
+                    sep.setFrameShape(_QF.Shape.HLine)
+                    sep.setStyleSheet("color: #555; margin: 0 8px;")
+                    self._pdf_cont_layout.addWidget(sep)
+                self._pdf_cont_layout.addWidget(lbl)
+            except Exception:
+                pass
+        self._stack.setCurrentIndex(3)
+
+    def _pdf_on_cont_scroll(self, _value: int = 0) -> None:
+        """Aggiorna l'indicatore di pagina corrente durante lo scroll continuo."""
+        if not self._pdf_doc or not self._pdf_continuous:
+            return
+        # calcola quale pagina ha la maggiore sovrapposizione col viewport
+        vp_h = self._pdf_scroll_cont.viewport().height()
+        vp_top = self._pdf_scroll_cont.verticalScrollBar().value()
+        vp_bot = vp_top + vp_h
+        best_idx = 0
+        best_overlap = -1
+        # le label delle pagine sono nei widget del layout (a indici pari: 0,2,4,...
+        # perché i separatori occupano gli indici dispari)
+        page_idx = 0
+        for j in range(self._pdf_cont_layout.count()):
+            item = self._pdf_cont_layout.itemAt(j)
+            w = item.widget() if item else None
+            if w is None:
+                continue
+            # i separatori QFrame non sono pagine
+            from PyQt6.QtWidgets import QFrame as _QF2
+            if isinstance(w, _QF2):
+                continue
+            lbl_top = w.pos().y()
+            lbl_bot = lbl_top + w.height()
+            overlap = max(0, min(lbl_bot, vp_bot) - max(lbl_top, vp_top))
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_idx = page_idx
+            page_idx += 1
+        total = len(self._pdf_doc)
+        self._pdf_lbl_page.setText(f"  {best_idx + 1} / {total}  ")
+        self._pdf_page_num = best_idx
 
     # ── SyncTeX ───────────────────────────────────────────────────────────────
 

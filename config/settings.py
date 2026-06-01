@@ -42,6 +42,7 @@ class Settings(QObject):
         "file/trim_trailing":      False,
         "file/add_newline_eof":    True,
         "file/restore_session":    True,
+        "file/restore_unsaved":    True,
         "file/recent_max":         20,
         # Autocompletamento
         "autocomplete/enabled":    True,

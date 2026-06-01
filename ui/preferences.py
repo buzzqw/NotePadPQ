@@ -220,9 +220,11 @@ class PreferencesDialog(QDialog):
         self._trim_trailing    = QCheckBox(tr("pref.file.trim",     default="Rimuovi spazi in coda al salvataggio"))
         self._add_newline_eof  = QCheckBox(tr("pref.file.newline_eof", default="Aggiungi nuova riga a fine file"))
         self._restore_session  = QCheckBox(tr("pref.file.restore_session", default="Ripristina sessione all'avvio"))
+        self._restore_unsaved  = QCheckBox(tr("pref.file.restore_unsaved", default="Ripristina documenti non salvati all'avvio"))
 
         for cb in (self._backup_on_save, self._trim_trailing,
-                   self._add_newline_eof, self._restore_session):
+                   self._add_newline_eof, self._restore_session,
+                   self._restore_unsaved):
             sl.addWidget(cb)
 
         vl.addWidget(grp_save)
@@ -581,6 +583,7 @@ class PreferencesDialog(QDialog):
         self._trim_trailing.setChecked(s.get("file/trim_trailing", False))
         self._add_newline_eof.setChecked(s.get("file/add_newline_eof", True))
         self._restore_session.setChecked(s.get("file/restore_session", True))
+        self._restore_unsaved.setChecked(s.get("file/restore_unsaved", True))
         self._recent_max.setValue(s.get("file/recent_max", 20))
         self._autobackup_enabled.setChecked(s.get("file/autobackup_enabled", False))
         self._autosave_to_backup.setChecked(s.get("file/autosave_to_backup", False))
@@ -728,6 +731,7 @@ class PreferencesDialog(QDialog):
         s.set("file/trim_trailing",      self._trim_trailing.isChecked())
         s.set("file/add_newline_eof",    self._add_newline_eof.isChecked())
         s.set("file/restore_session",    self._restore_session.isChecked())
+        s.set("file/restore_unsaved",    self._restore_unsaved.isChecked())
         s.set("file/recent_max",         self._recent_max.value())
         s.set("file/autobackup_enabled",     self._autobackup_enabled.isChecked())
         s.set("file/autosave_to_backup",     self._autosave_to_backup.isChecked())

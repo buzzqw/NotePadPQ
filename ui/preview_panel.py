@@ -378,7 +378,7 @@ class PreviewPanel(QWidget):
 
         # toggle scroll continuo / pagina singola
         self._pdf_btn_continuous = QToolButton()
-        self._pdf_btn_continuous.setText("□")
+        self._pdf_btn_continuous.setText("↕")
         self._pdf_btn_continuous.setCheckable(True)
         self._pdf_btn_continuous.setChecked(False)  # default: pagina singola
         self._pdf_btn_continuous.setToolTip(tr("tooltip.preview_continuous"))
@@ -417,7 +417,7 @@ class PreviewPanel(QWidget):
             sp.setValue(0)
             sp.setFixedWidth(50)
             # Quando cambi il numero, aggiorna il PDF in tempo reale!
-            sp.valueChanged.connect(lambda: self._pdf_show_page()) 
+            sp.valueChanged.connect(lambda: self._pdf_refresh())
             crop_layout.addWidget(QLabel(label))
             crop_layout.addWidget(sp)
         crop_layout.addStretch()
@@ -465,6 +465,8 @@ class PreviewPanel(QWidget):
         self._pdf_links: list = []
         self._pdf_cursor_highlight: Optional[tuple] = None  # (page_0based, y_pt, h_pt, W_pt)
         self._pdf_continuous  = False   # True = scroll continuo
+        self._pdf_cont_page_labels: list = []   # _ClickableLabel per ogni pagina in modo continuo
+        self._pdf_cont_clip_rects: list = []    # fitz.Rect clip per ogni pagina (coordinate conversion)
 
         vl.addWidget(self._stack)
 
@@ -603,7 +605,7 @@ class PreviewPanel(QWidget):
             return
 
         # Il documento è aperto e valido — mostra la pagina
-        self._pdf_show_page()
+        self._pdf_refresh()
 
     def detach_editor(self) -> None:
         self.set_editor(None)
@@ -670,7 +672,7 @@ class PreviewPanel(QWidget):
                     pass
                 # Rimuovi l'eventuale highlight residuo
                 self._pdf_selection_highlight = None
-                self._pdf_show_page()
+                self._pdf_refresh()
 
     @pyqtSlot(int, int)
     def _on_cursor_changed(self, line: int, col: int) -> None:
@@ -706,10 +708,13 @@ class PreviewPanel(QWidget):
             return
 
         if line_from < 0:
-            # Nessuna selezione: rimuovi l'highlight
             if self._pdf_selection_highlight is not None:
+                old_sel_page = self._pdf_selection_highlight[0]
                 self._pdf_selection_highlight = None
-                self._pdf_show_page()
+                if self._pdf_continuous:
+                    self._pdf_update_cont_highlight(None, old_sel_page)
+                else:
+                    self._pdf_show_page()
             return
 
         try:
@@ -724,7 +729,7 @@ class PreviewPanel(QWidget):
             r_start = sx.tex_to_pdf(line_from + 1, col=1)
             if not r_start:
                 self._pdf_selection_highlight = None
-                self._pdf_show_page()
+                self._pdf_refresh()
                 return
 
             page = r_start["page"] - 1  # 0-based
@@ -757,10 +762,14 @@ class PreviewPanel(QWidget):
 
             self._pdf_selection_highlight = (page, y0, y1, x0_pt, x1_pt)
 
+            old_page = self._pdf_page_num
             if page != self._pdf_page_num:
                 self._pdf_page_num = page
-
-            self._pdf_show_page()
+            if self._pdf_continuous:
+                self._pdf_update_cont_highlight(page, old_page if old_page != page else None)
+                QTimer.singleShot(0, lambda p=page: self._scroll_cont_to_page(p))
+            else:
+                self._pdf_show_page()
         except Exception:
             pass
 
@@ -1093,14 +1102,104 @@ class PreviewPanel(QWidget):
                 self._stack.setCurrentIndex(2)
                 self._text_fallback.setPlainText("Errore apertura PDF: " + str(e))
                 return
-        self._pdf_show_page()
-        
+        self._pdf_refresh()
+
     def _pdf_toggle_crop(self, checked: bool) -> None:
         """Attiva o disattiva il taglio dei margini e aggiorna la vista."""
         self._pdf_crop_margins = checked
         if hasattr(self, "_crop_widget"):
             self._crop_widget.setVisible(checked)
-        self._pdf_show_page()
+        self._pdf_refresh()
+
+    def _render_page_pixmap(self, page_idx: int):
+        """Rasterizza la pagina page_idx con crop, highlight cursore, selezione e link overlay.
+        Ritorna (QPixmap, clip_rect) oppure (None, None) in caso di errore."""
+        if self._pdf_doc is None or not _get_fitz():
+            return None, None
+        if not (0 <= page_idx < len(self._pdf_doc)):
+            return None, None
+        try:
+            page = self._pdf_doc[page_idx]
+            clip_rect = page.rect
+            if getattr(self, "_pdf_crop_margins", False):
+                c_t = self._crop_t.value(); c_b = self._crop_b.value()
+                c_l = self._crop_l.value(); c_r = self._crop_r.value()
+                if c_t == 0 and c_b == 0 and c_l == 0 and c_r == 0:
+                    blocks = page.get_text("blocks")
+                    if blocks:
+                        x0 = min(b[0] for b in blocks); y0 = min(b[1] for b in blocks)
+                        x1 = max(b[2] for b in blocks); y1 = max(b[3] for b in blocks)
+                        clip_rect = _fitz.Rect(
+                            max(0, x0-15), max(0, y0-15),
+                            min(page.rect.width, x1+15), min(page.rect.height, y1+15))
+                else:
+                    clip_rect = _fitz.Rect(
+                        page.rect.x0+c_l, page.rect.y0+c_t,
+                        page.rect.x1-c_r, page.rect.y1-c_b)
+
+            mat = _fitz.Matrix(self._pdf_zoom, self._pdf_zoom)
+            pix = page.get_pixmap(matrix=mat, alpha=False, clip=clip_rect)
+            from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QBrush, QColor
+            img = QImage(pix.samples, pix.width, pix.height,
+                         pix.stride, QImage.Format.Format_RGB888)
+            pm = QPixmap.fromImage(img)
+            ox, oy, z = clip_rect.x0, clip_rect.y0, self._pdf_zoom
+
+            # Cursor indicator (forward SyncTeX)
+            if self._pdf_cursor_highlight is not None:
+                c_page, c_y, c_h, c_W = self._pdf_cursor_highlight
+                if c_page == page_idx and c_y is not None:
+                    cy = int((c_y - oy) * z)
+                    if c_h is not None and c_W is not None and c_W > 2:
+                        cx0 = max(0, int((c_h - ox) * z))
+                        cw  = max(4, int(c_W * z))
+                    else:
+                        cx0, cw = 0, pm.width()
+                    p = QPainter(pm)
+                    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    p.setPen(QPen(QColor(255, 80, 0, 180), 2))
+                    p.setBrush(QBrush(QColor(255, 120, 0, 30)))
+                    p.drawRect(cx0, max(0, cy-9), cw, 18)
+                    p.end()
+
+            # Selection highlight
+            if self._pdf_selection_highlight is not None:
+                h_page, h_y0, h_y1, h_x0_pt, h_x1_pt = self._pdf_selection_highlight
+                if h_page == page_idx:
+                    ry0 = int((h_y0 - oy) * z)
+                    ry1 = int((h_y1 - oy) * z)
+                    band_h = max(4, ry1 - ry0)
+                    if h_x0_pt is not None and h_x1_pt is not None:
+                        rx0   = int((h_x0_pt - ox) * z)
+                        band_w = max(4, int((h_x1_pt - ox) * z) - rx0)
+                    else:
+                        rx0, band_w = 0, pm.width()
+                    p = QPainter(pm)
+                    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    p.setPen(QPen(QColor(255, 200, 0, 200), 1))
+                    p.setBrush(QBrush(QColor(255, 220, 0, 70)))
+                    p.drawRect(rx0, ry0, band_w, band_h)
+                    p.end()
+
+            # Links overlay
+            pdf_links = page.get_links()
+            if self._pdf_show_links and pdf_links:
+                p = QPainter(pm)
+                p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                for lnk in pdf_links:
+                    r = lnk["from"]
+                    px0 = (r.x0 - ox) * z; py0 = (r.y0 - oy) * z
+                    pw2 = (r.x1 - r.x0) * z; ph2 = (r.y1 - r.y0) * z
+                    if pw2 < 2 or ph2 < 2:
+                        continue
+                    p.setPen(QPen(QColor(30, 120, 255, 210), 1))
+                    p.setBrush(QBrush(QColor(30, 120, 255, 40)))
+                    p.drawRoundedRect(int(px0), int(py0), int(pw2), int(ph2), 2, 2)
+                p.end()
+
+            return pm, clip_rect
+        except Exception:
+            return None, None
 
     def _pdf_show_page(self) -> None:
         """Rasterizza e mostra la pagina corrente, applicando eventuali ritagli."""
@@ -1120,130 +1219,24 @@ class PreviewPanel(QWidget):
             else:
                 self._pdf_doc = None
                 return
-                
+
         total = len(self._pdf_doc)
         self._pdf_page_num = max(0, min(self._pdf_page_num, total - 1))
         self._pdf_lbl_page.setText(f"  {self._pdf_page_num + 1} / {total}  ")
         self._pdf_btn_prev.setEnabled(self._pdf_page_num > 0)
         self._pdf_btn_next.setEnabled(self._pdf_page_num < total - 1)
-        
-        try:
-            page = self._pdf_doc[self._pdf_page_num]
 
-            # --- LOGICA INTELLIGENTE DI RITAGLIO MARGINI ---
-            clip_rect = page.rect
-            if getattr(self, "_pdf_crop_margins", False):
-                # Leggiamo i valori dei 4 contatori
-                c_t = self._crop_t.value()
-                c_b = self._crop_b.value()
-                c_l = self._crop_l.value()
-                c_r = self._crop_r.value()
-
-                # Se tutti i contatori sono a zero, usa il taglio automatico
-                if c_t == 0 and c_b == 0 and c_l == 0 and c_r == 0:
-                    blocks = page.get_text("blocks")
-                    if blocks:
-                        x0 = min(b[0] for b in blocks)
-                        y0 = min(b[1] for b in blocks)
-                        x1 = max(b[2] for b in blocks)
-                        y1 = max(b[3] for b in blocks)
-                        clip_rect = _fitz.Rect(
-                            max(0, x0 - 15), max(0, y0 - 15),
-                            min(page.rect.width, x1 + 15), min(page.rect.height, y1 + 15)
-                        )
-                else:
-                    # Taglio manuale: rimpicciolisce la pagina in base ai valori inseriti
-                    clip_rect = _fitz.Rect(
-                        page.rect.x0 + c_l,
-                        page.rect.y0 + c_t,
-                        page.rect.x1 - c_r,
-                        page.rect.y1 - c_b
-                    )
-            # ------------------------------------------------
-            
-            # Salviamo le dimensioni e le coordinate del ritaglio per SyncTeX
-            self._pdf_page_size = (clip_rect.width, clip_rect.height)
-            self._pdf_current_clip = clip_rect
-            
-            mat = _fitz.Matrix(self._pdf_zoom, self._pdf_zoom)
-
-            # Passiamo "clip=clip_rect" alla libreria per farle disegnare solo l'area utile
-            pix = page.get_pixmap(matrix=mat, alpha=False, clip=clip_rect)
-
-            from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QBrush, QColor
-            img = QImage(pix.samples, pix.width, pix.height,
-                         pix.stride, QImage.Format.Format_RGB888)
-            pm  = QPixmap.fromImage(img)
-
-            ox = clip_rect.x0
-            oy = clip_rect.y0
-            z  = self._pdf_zoom
-
-            # ── Cursor indicator (tex→pdf forward sync) ───────────────────
-            if self._pdf_cursor_highlight is not None:
-                c_page, c_y, c_h, c_W = self._pdf_cursor_highlight
-                if c_page == self._pdf_page_num and c_y is not None:
-                    cy = int((c_y - oy) * z)
-                    if c_h is not None and c_W is not None and c_W > 2:
-                        cx0 = max(0, int((c_h - ox) * z))
-                        cw  = max(4, int(c_W * z))
-                    else:
-                        cx0 = 0
-                        cw  = pm.width()
-                    cind = QPainter(pm)
-                    cind.setRenderHint(QPainter.RenderHint.Antialiasing)
-                    cind.setPen(QPen(QColor(255, 80, 0, 180), 2))
-                    cind.setBrush(QBrush(QColor(255, 120, 0, 30)))
-                    cind.drawRect(cx0, max(0, cy - 9), cw, 18)
-                    cind.end()
-            # ─────────────────────────────────────────────────────────────
-
-            # ── Selezione tex→pdf highlight ───────────────────────────────
-            if self._pdf_selection_highlight is not None:
-                h_page, h_y0, h_y1, h_x0_pt, h_x1_pt = self._pdf_selection_highlight
-                if h_page == self._pdf_page_num:
-                    ry0 = int((h_y0 - oy) * z)
-                    ry1 = int((h_y1 - oy) * z)
-                    band_h = max(4, ry1 - ry0)
-                    if h_x0_pt is not None and h_x1_pt is not None:
-                        rx0 = int((h_x0_pt - ox) * z)
-                        rx1 = int((h_x1_pt - ox) * z)
-                        band_w = max(4, rx1 - rx0)
-                    else:
-                        rx0 = 0
-                        band_w = pm.width()
-                    sel_painter = QPainter(pm)
-                    sel_painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                    sel_painter.setPen(QPen(QColor(255, 200, 0, 200), 1))
-                    sel_painter.setBrush(QBrush(QColor(255, 220, 0, 70)))
-                    sel_painter.drawRect(rx0, ry0, band_w, band_h)
-                    sel_painter.end()
-            # ─────────────────────────────────────────────────────────────
-
-            # ── Link overlay ──────────────────────────────────────────────
-            self._pdf_links = page.get_links()
-            if self._pdf_show_links and self._pdf_links:
-                painter = QPainter(pm)
-                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                for lnk in self._pdf_links:
-                    r = lnk["from"]
-                    px0 = (r.x0 - ox) * z
-                    py0 = (r.y0 - oy) * z
-                    pw2 = (r.x1 - r.x0) * z
-                    ph2 = (r.y1 - r.y0) * z
-                    if pw2 < 2 or ph2 < 2:
-                        continue
-                    painter.setPen(QPen(QColor(30, 120, 255, 210), 1))
-                    painter.setBrush(QBrush(QColor(30, 120, 255, 40)))
-                    painter.drawRoundedRect(int(px0), int(py0), int(pw2), int(ph2), 2, 2)
-                painter.end()
-            # ─────────────────────────────────────────────────────────────
-
-            self._pdf_lbl_img.setPixmap(pm)
-            self._stack.setCurrentIndex(3)
-        except Exception as e:
+        pm, clip_rect = self._render_page_pixmap(self._pdf_page_num)
+        if pm is None:
             self._stack.setCurrentIndex(2)
-            self._text_fallback.setPlainText("Errore rendering: " + str(e))    
+            self._text_fallback.setPlainText("Errore rendering pagina")
+            return
+
+        self._pdf_page_size    = (clip_rect.width, clip_rect.height)
+        self._pdf_current_clip = clip_rect
+        self._pdf_links        = self._pdf_doc[self._pdf_page_num].get_links()
+        self._pdf_lbl_img.setPixmap(pm)
+        self._stack.setCurrentIndex(3)
 
     
 
@@ -1259,16 +1252,16 @@ class PreviewPanel(QWidget):
 
     def _pdf_zoom_in_action(self) -> None:
         self._pdf_zoom = min(4.0, self._pdf_zoom + 0.25)
-        self._pdf_show_page()
+        self._pdf_refresh()
 
     def _pdf_zoom_out_action(self) -> None:
         self._pdf_zoom = max(0.5, self._pdf_zoom - 0.25)
-        self._pdf_show_page()
+        self._pdf_refresh()
 
     def _pdf_zoom_reset(self) -> None:
         """Zoom 100% (1 punto PDF = 1 pixel × devicePixelRatio)."""
         self._pdf_zoom = 1.0
-        self._pdf_show_page()
+        self._pdf_refresh()
 
     def _pdf_fit_width(self) -> None:
         """Adatta lo zoom alla larghezza del pannello."""
@@ -1279,11 +1272,11 @@ class PreviewPanel(QWidget):
         pw, ph = self._pdf_page_size
         if pw <= 0:
             return
-        
+
         # In PyMuPDF, 1 punto con zoom 1.0 genera 1 pixel.
         # Quindi lo zoom esatto è: (pixel desiderati) / (punti della pagina)
         self._pdf_zoom = max(0.25, min(4.0, panel_w / pw))
-        self._pdf_show_page()
+        self._pdf_refresh()
 
     def _pdf_fit_page(self) -> None:
         """Adatta lo zoom per mostrare l'intera pagina nel pannello."""
@@ -1296,11 +1289,11 @@ class PreviewPanel(QWidget):
         pw, ph = self._pdf_page_size
         if pw <= 0 or ph <= 0:
             return
-        
+
         zoom_w = panel_w / pw
         zoom_h = panel_h / ph
         self._pdf_zoom = max(0.25, min(4.0, min(zoom_w, zoom_h)))
-        self._pdf_show_page()
+        self._pdf_refresh()
 
     def _pdf_open_external(self) -> None:
         """Apre il PDF corrente con il visualizzatore esterno predefinito."""
@@ -1311,82 +1304,153 @@ class PreviewPanel(QWidget):
 
     def _pdf_toggle_links(self, checked: bool) -> None:
         self._pdf_show_links = checked
-        self._pdf_show_page()
+        self._pdf_refresh()
 
     def _pdf_toggle_continuous(self, checked: bool) -> None:
         """Alterna tra scroll continuo e modalità pagina singola nell'anteprima TeX."""
         self._pdf_continuous = checked
-        self._pdf_btn_continuous.setText("↕" if checked else "□")
         self._pdf_scroll.setVisible(not checked)
         self._pdf_scroll_cont.setVisible(checked)
         self._pdf_btn_prev.setVisible(not checked)
         self._pdf_btn_next.setVisible(not checked)
         self._pdf_lbl_page.setVisible(not checked)
         if checked:
-            # Avviso SyncTeX: in modalità continua forward/backward sync non funziona
-            if hasattr(self, "_pdf_lbl_synctex"):
-                self._pdf_lbl_synctex.setText(tr("tooltip.preview_synctex_continuous"))
-                self._pdf_lbl_synctex.setStyleSheet(
-                    "color: #ff9800; font-size: 10px; padding: 0 4px;")
-                self._pdf_lbl_synctex.setToolTip(
-                    tr("tooltip.preview_continuous"))
             self._pdf_show_all_pages()
         else:
-            # Ripristina la label SyncTeX originale
-            self._update_synctex_label(
-                self._pdf_path if self._pdf_path else None)
+            self._update_synctex_label(self._pdf_path if self._pdf_path else None)
             self._pdf_show_page()
 
     def _pdf_show_all_pages(self) -> None:
         """Renderizza tutte le pagine PDF e le impila verticalmente nel contenitore continuo."""
         if self._pdf_doc is None or not _get_fitz():
             return
-        # svuota il layout
         while self._pdf_cont_layout.count():
             item = self._pdf_cont_layout.takeAt(0)
             w = item.widget()
             if w:
                 w.setParent(None)
-        from PyQt6.QtWidgets import QLabel as _QL, QFrame as _QF
-        from PyQt6.QtGui import QImage, QPixmap
+        self._pdf_cont_page_labels = []
+        self._pdf_cont_clip_rects  = []
+
+        from PyQt6.QtWidgets import QFrame as _QF
         total = len(self._pdf_doc)
         for i in range(total):
+            pm, clip_rect = self._render_page_pixmap(i)
+            if pm is None:
+                continue
+            lbl = _ClickableLabel()
+            lbl.setPixmap(pm)
+            lbl.setFixedSize(pm.size())
+            lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            lbl.setStyleSheet("background: white; margin: 0;")
+            lbl.clicked.connect(lambda x, y, idx=i: self._pdf_cont_clicked(idx, x, y))
+            if i > 0:
+                sep = _QF()
+                sep.setFrameShape(_QF.Shape.HLine)
+                sep.setStyleSheet("color: #555; margin: 0 8px;")
+                self._pdf_cont_layout.addWidget(sep)
+            self._pdf_cont_layout.addWidget(lbl)
+            self._pdf_cont_page_labels.append(lbl)
+            self._pdf_cont_clip_rects.append(clip_rect)
+        self._stack.setCurrentIndex(3)
+
+    def _pdf_refresh(self) -> None:
+        """Aggiorna la vista PDF nella modalità corrente."""
+        if self._pdf_continuous:
+            self._pdf_show_all_pages()
+        else:
+            self._pdf_show_page()
+
+    def _pdf_update_cont_highlight(self, new_page, old_page) -> None:
+        """Re-renderizza le pagine interessate dall'aggiornamento dell'highlight nel modo continuo."""
+        if not _get_fitz() or not self._pdf_cont_page_labels:
+            return
+        pages = set()
+        if old_page is not None and old_page != new_page:
+            pages.add(old_page)
+        if new_page is not None:
+            pages.add(new_page)
+        for idx in pages:
+            if idx < len(self._pdf_cont_page_labels):
+                pm, clip_rect = self._render_page_pixmap(idx)
+                if pm is not None:
+                    self._pdf_cont_page_labels[idx].setPixmap(pm)
+                    if idx < len(self._pdf_cont_clip_rects):
+                        self._pdf_cont_clip_rects[idx] = clip_rect
+
+    def _scroll_cont_to_page(self, page_idx: int) -> None:
+        """In modalità continua, scrolla alla pagina indicata."""
+        if page_idx >= len(self._pdf_cont_page_labels):
+            return
+        lbl = self._pdf_cont_page_labels[page_idx]
+        y = lbl.pos().y()
+        self._pdf_scroll_cont.verticalScrollBar().setValue(max(0, y - 8))
+
+    def _scroll_cont_to_page_y(self, page_idx: int, y_pt: float) -> None:
+        """In modalità continua, scrolla alla posizione y_pt (punti PDF) sulla pagina page_idx."""
+        if page_idx >= len(self._pdf_cont_page_labels):
+            return
+        lbl      = self._pdf_cont_page_labels[page_idx]
+        clip_rect = (self._pdf_cont_clip_rects[page_idx]
+                     if page_idx < len(self._pdf_cont_clip_rects) else None)
+        oy        = clip_rect.y0 if clip_rect else 0.0
+        page_top  = lbl.pos().y()
+        cy        = int((y_pt - oy) * self._pdf_zoom)
+        target    = page_top + cy
+        vbar      = self._pdf_scroll_cont.verticalScrollBar()
+        vbar.setValue(max(0, target - self._pdf_scroll_cont.viewport().height() // 2))
+
+    def _pdf_cont_clicked(self, page_idx: int, x: int, y: int) -> None:
+        """Click su una pagina in modalità scroll continuo: gestisce link e backward SyncTeX."""
+        if self._pdf_doc is None or not self._pdf_path:
+            return
+        if page_idx >= len(self._pdf_cont_page_labels):
+            return
+        lbl       = self._pdf_cont_page_labels[page_idx]
+        clip_rect = (self._pdf_cont_clip_rects[page_idx]
+                     if page_idx < len(self._pdf_cont_clip_rects) else None)
+        pm        = lbl.pixmap()
+        pix_w     = pm.width()  if pm else 1
+        pix_h     = pm.height() if pm else 1
+        ox        = clip_rect.x0     if clip_rect else 0.0
+        oy        = clip_rect.y0     if clip_rect else 0.0
+        pw        = clip_rect.width  if clip_rect else pix_w / self._pdf_zoom
+        ph        = clip_rect.height if clip_rect else pix_h / self._pdf_zoom
+        pdf_x     = ox + (x / pix_w) * pw
+        pdf_y     = oy + (y / pix_h) * ph
+
+        # Link click
+        if self._pdf_show_links and _get_fitz():
             try:
-                page = self._pdf_doc[i]
-                clip_rect = page.rect
-                if getattr(self, "_pdf_crop_margins", False):
-                    c_t = self._crop_t.value(); c_b = self._crop_b.value()
-                    c_l = self._crop_l.value(); c_r = self._crop_r.value()
-                    if c_t == 0 and c_b == 0 and c_l == 0 and c_r == 0:
-                        blocks = page.get_text("blocks")
-                        if blocks:
-                            x0 = min(b[0] for b in blocks); y0 = min(b[1] for b in blocks)
-                            x1 = max(b[2] for b in blocks); y1 = max(b[3] for b in blocks)
-                            clip_rect = _fitz.Rect(
-                                max(0, x0 - 15), max(0, y0 - 15),
-                                min(page.rect.width, x1 + 15), min(page.rect.height, y1 + 15))
-                    else:
-                        clip_rect = _fitz.Rect(
-                            page.rect.x0 + c_l, page.rect.y0 + c_t,
-                            page.rect.x1 - c_r, page.rect.y1 - c_b)
-                mat = _fitz.Matrix(self._pdf_zoom, self._pdf_zoom)
-                pix = page.get_pixmap(matrix=mat, alpha=False, clip=clip_rect)
-                img = QImage(pix.samples, pix.width, pix.height,
-                             pix.stride, QImage.Format.Format_RGB888)
-                pm = QPixmap.fromImage(img)
-                lbl = _QL()
-                lbl.setPixmap(pm)
-                lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-                lbl.setStyleSheet("background: white; margin: 0;")
-                if i > 0:
-                    sep = _QF()
-                    sep.setFrameShape(_QF.Shape.HLine)
-                    sep.setStyleSheet("color: #555; margin: 0 8px;")
-                    self._pdf_cont_layout.addWidget(sep)
-                self._pdf_cont_layout.addWidget(lbl)
+                page = self._pdf_doc[page_idx]
+                pt   = _fitz.Point(pdf_x, pdf_y)
+                for lnk in page.get_links():
+                    if pt in lnk["from"]:
+                        uri = lnk.get("uri", "")
+                        if uri:
+                            from PyQt6.QtCore import QUrl
+                            _open_url(QUrl(uri))
+                            return
+                        link_page = lnk.get("page", -1)
+                        if link_page >= 0:
+                            QTimer.singleShot(0, lambda p=link_page: self._scroll_cont_to_page(p))
+                            return
             except Exception:
                 pass
-        self._stack.setCurrentIndex(3)
+
+        # Backward SyncTeX
+        if not self._sync_cursor:
+            return
+        try:
+            from editor.synctex import SyncTeX
+            from pathlib import Path as _Path
+            pdf_p  = _Path(self._pdf_path)
+            sx     = SyncTeX(pdf_p.with_suffix(".tex"), pdf_p)
+            result = sx.pdf_to_tex(page_idx + 1, pdf_x, pdf_y)
+            if result and "line" in result:
+                self._goto_tex_line(result.get("file"), result["line"])
+        except Exception:
+            pass
 
     def _pdf_on_cont_scroll(self, _value: int = 0) -> None:
         """Aggiorna l'indicatore di pagina corrente durante lo scroll continuo."""
@@ -1526,29 +1590,39 @@ class PreviewPanel(QWidget):
         try:
             from editor.synctex import SyncTeX
             from pathlib import Path as _Path
-            pdf_p = _Path(self._pdf_path)
-            tex_p = editor.file_path
-            sx = SyncTeX(tex_p, pdf_p)
+            pdf_p  = _Path(self._pdf_path)
+            tex_p  = editor.file_path
+            sx     = SyncTeX(tex_p, pdf_p)
             result = sx.tex_to_pdf(line, col=1)
             if result and "page" in result:
-                new_page = result["page"] - 1  # 0-based
-                y_pt = result.get("y") or result.get("v")
-                h_pt = result.get("h")
-                W_pt = result.get("W")
+                new_page = result["page"] - 1
+                y_pt     = result.get("y") or result.get("v")
+                h_pt     = result.get("h")
+                W_pt     = result.get("W")
+                old_page = self._pdf_cursor_highlight[0] if self._pdf_cursor_highlight else None
                 self._pdf_cursor_highlight = (new_page, y_pt, h_pt, W_pt)
                 self._pdf_page_num = new_page
-                self._pdf_show_page()
-                if y_pt is not None:
-                    def _scroll():
-                        oy_val = self._pdf_current_clip.y0 if hasattr(self, "_pdf_current_clip") else 0.0
-                        cy = int((y_pt - oy_val) * self._pdf_zoom)
-                        vbar = self._pdf_scroll.verticalScrollBar()
-                        vbar.setValue(max(0, cy - self._pdf_scroll.viewport().height() // 2))
-                    QTimer.singleShot(0, _scroll)
+                if self._pdf_continuous:
+                    self._pdf_update_cont_highlight(new_page, old_page)
+                    if y_pt is not None:
+                        QTimer.singleShot(0, lambda: self._scroll_cont_to_page_y(new_page, y_pt))
+                else:
+                    self._pdf_show_page()
+                    if y_pt is not None:
+                        def _scroll():
+                            oy_val = self._pdf_current_clip.y0 if hasattr(self, "_pdf_current_clip") else 0.0
+                            cy   = int((y_pt - oy_val) * self._pdf_zoom)
+                            vbar = self._pdf_scroll.verticalScrollBar()
+                            vbar.setValue(max(0, cy - self._pdf_scroll.viewport().height() // 2))
+                        QTimer.singleShot(0, _scroll)
             else:
                 if self._pdf_cursor_highlight is not None:
+                    old_page = self._pdf_cursor_highlight[0]
                     self._pdf_cursor_highlight = None
-                    self._pdf_show_page()
+                    if self._pdf_continuous:
+                        self._pdf_update_cont_highlight(None, old_page)
+                    else:
+                        self._pdf_show_page()
         except Exception:
             pass
             

@@ -40,7 +40,21 @@ class Session:
             "current_index": tab_manager.currentIndex(),
             "tabs": [],
             "spreadsheets": [],
+            "unsaved_buffers": [],
         }
+
+        # Cartella per i buffer non salvati — indipendente dal backup folder
+        buffers_dir = self._path.parent / "unsaved_buffers"
+
+        # Pulisce i buffer temporanei precedenti prima di riscriverli
+        try:
+            if buffers_dir.exists():
+                for old in buffers_dir.glob("buffer_*.txt"):
+                    old.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+        unsaved_index = 0
         for editor in tab_manager.all_editors():
             if editor.file_path and editor.file_path.exists():
                 line, col = editor.get_cursor_position_1based()
@@ -50,6 +64,25 @@ class Session:
                     "col":     col,
                     "encoding": editor.encoding,
                 })
+            elif not editor.file_path:
+                # Buffer non salvato: salva il contenuto in un file temporaneo
+                content = editor.text()
+                if not content:
+                    continue
+                try:
+                    buffers_dir.mkdir(parents=True, exist_ok=True)
+                    buf_path = buffers_dir / f"buffer_{unsaved_index}.txt"
+                    buf_path.write_text(content, encoding="utf-8")
+                    line, col = editor.get_cursor_position_1based()
+                    data["unsaved_buffers"].append({
+                        "buffer_file": buf_path.name,
+                        "line":        line,
+                        "col":         col,
+                        "encoding":    editor.encoding,
+                    })
+                    unsaved_index += 1
+                except Exception as e:
+                    print(f"[session] Buffer non salvato non persistito: {e}")
         if hasattr(tab_manager, "all_custom_tabs"):
             for widget, path in tab_manager.all_custom_tabs():
                 if path and path.exists():
@@ -116,6 +149,41 @@ class Session:
                         opened += 1
                     except Exception as e:
                         print(f"[session] Foglio non ripristinato {p}: {e}")
+
+        # Ripristina buffer non salvati (documenti senza path su disco)
+        try:
+            from config.settings import Settings as _Settings
+            restore_unsaved = _Settings.instance().get("file/restore_unsaved", True)
+        except Exception:
+            restore_unsaved = True
+
+        if restore_unsaved:
+            buffers_dir = self._path.parent / "unsaved_buffers"
+            for entry in data.get("unsaved_buffers", []):
+                buf_file = entry.get("buffer_file", "")
+                if not buf_file:
+                    continue
+                buf_path = buffers_dir / buf_file
+                if not buf_path.exists():
+                    continue
+                try:
+                    content = buf_path.read_text(encoding="utf-8")
+                    if not content:
+                        continue
+                    editor = main_window._tab_manager.new_tab()
+                    # Carica il contenuto senza resettare il flag modified
+                    editor.blockSignals(True)
+                    editor.setText(content)
+                    editor.setModified(True)
+                    editor.blockSignals(False)
+                    editor.modified_changed.emit(True)
+                    # Ripristina posizione cursore
+                    line = entry.get("line", 1)
+                    col  = entry.get("col", 1)
+                    editor.setCursorPosition(max(0, line - 1), max(0, col - 1))
+                    opened += 1
+                except Exception as e:
+                    print(f"[session] Buffer non salvato non ripristinato ({buf_file}): {e}")
 
         # Ripristina tab attivo
         idx = data.get("current_index", 0)

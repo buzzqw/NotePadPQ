@@ -70,6 +70,8 @@ class Settings(QObject):
         "spellcheck/language":     "it",
         # Function List
         "function_list/latex_hidden_kinds": "",  # CSV: "subsubsection,command" ecc.
+        "function_list/disabled_presets":   "",  # CSV: preset JSON disabilitati
+        "function_list/hidden_kinds":       "{}",  # JSON: {lang: [hidden kinds]}
     }
 
     def __init__(self):

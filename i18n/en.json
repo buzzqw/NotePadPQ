@@ -520,7 +520,10 @@
       "latex_subsubsection": "Subsubsection",
       "latex_subsubsection_star": "Subsubsection *",
       "latex_command": "\\newcommand",
-      "latex_environment": "\\newenvironment"
+      "latex_environment": "\\newenvironment",
+      "presets_group": "Available presets",
+      "presets_note": "Select the presets to use in the function list. Enabled presets replace the built-in parsers for that language.",
+      "kinds_group": "Visible patterns"
     },
     "editor": {
       "font": "Font",
@@ -1188,7 +1191,8 @@
     "no_editor": "No editor",
     "no_functions": "No functions found",
     "symbols_found": "{count} symbols found  {lang}",
-    "copy_name": "Copy name"
+    "copy_name": "Copy name",
+    "preset_disabled": "(disabled)"
   },
   "lsp_panel": {
     "no_problems": "No problems detected"

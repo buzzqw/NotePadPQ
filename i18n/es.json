@@ -520,7 +520,10 @@
       "latex_subsubsection": "Sub-subsección",
       "latex_subsubsection_star": "Sub-subsección *",
       "latex_command": "\\newcommand",
-      "latex_environment": "\\newenvironment"
+      "latex_environment": "\\newenvironment",
+      "presets_group": "Presets disponibles",
+      "presets_note": "Selecciona los presets a usar en la lista de funciones. Los presets habilitados reemplazan los analizadores integrados para ese lenguaje.",
+      "kinds_group": "Patrones visibles"
     },
     "editor": {
       "font": "Fuente",
@@ -1188,7 +1191,8 @@
     "no_editor": "Sin editor",
     "no_functions": "No se encontraron funciones",
     "symbols_found": "{count} symbols found  {lang}",
-    "copy_name": "Copiar nombre"
+    "copy_name": "Copiar nombre",
+    "preset_disabled": "(deshabilitado)"
   },
   "lsp_panel": {
     "no_problems": "No se detectaron problemas"

@@ -21,8 +21,10 @@ Uso da MainWindow:
 
 from __future__ import annotations
 
+import json
 import re
 from abc import ABC, abstractmethod
+from pathlib import Path as _Path
 from typing import Optional, List, Dict, TYPE_CHECKING
 from dataclasses import dataclass, field
 
@@ -284,6 +286,58 @@ class _MarkdownParser(_Parser):
                 ))
         return results
 
+class _JsonParser(_Parser):
+    """Parser configurabile da file JSON."""
+
+    def __init__(self, definition: dict):
+        self._language: str = definition.get("language", "")
+        self._hierarchical: bool = definition.get("hierarchical", False)
+        self._compiled: list[dict] = []
+        for p in definition.get("patterns", []):
+            try:
+                self._compiled.append({
+                    "regex":      re.compile(p["regex"]),
+                    "kind":       p.get("kind", "symbol"),
+                    "name_group": p.get("name_group", 1),
+                    "icon":       p.get("icon", "·"),
+                    "level":      p.get("level", 0),
+                })
+            except re.error:
+                pass
+
+    def parse(self, text: str) -> List[FuncSymbol]:
+        from config.settings import Settings as _S
+        try:
+            hidden_all = json.loads(
+                _S.instance().get("function_list/hidden_kinds") or "{}"
+            )
+            hidden: set[str] = set(hidden_all.get(self._language, []))
+        except Exception:
+            hidden = set()
+
+        results = []
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for p in self._compiled:
+                if p["kind"] in hidden:
+                    continue
+                m = p["regex"].search(line)
+                if m:
+                    try:
+                        name = m.group(p["name_group"])
+                    except IndexError:
+                        name = m.group(0)
+                    results.append(FuncSymbol(
+                        name=name.strip(),
+                        kind=p["kind"],
+                        line=lineno,
+                        signature=line.strip()[:80],
+                        icon=p["icon"],
+                        level=p["level"],
+                    ))
+                    break
+        return results
+
+
 # Mapping linguaggio → parser
 _PARSERS: Dict[str, _Parser] = {
     "python":     _PythonParser(),
@@ -311,26 +365,79 @@ _LANG_ALIASES = {
 }
 
 
+# Preset JSON caricati da config/function_list/
+_JSON_PRESETS: dict[str, _JsonParser] = {}
+_JSON_PRESET_DEFS: list[dict] = []   # raw definitions per UI Preferenze
+
+
+def _load_json_presets() -> None:
+    global _JSON_PRESETS, _JSON_PRESET_DEFS
+    _JSON_PRESETS.clear()
+    _JSON_PRESET_DEFS.clear()
+    preset_dir = _Path(__file__).parent.parent / "config" / "function_list"
+    if not preset_dir.exists():
+        return
+    for f in sorted(preset_dir.glob("*.json")):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            lang = data.get("language", "").strip()
+            if not lang:
+                continue
+            _JSON_PRESETS[lang] = _JsonParser(data)
+            _JSON_PRESET_DEFS.append(data)
+            # Registra le estensioni negli alias
+            for ext in data.get("extensions", []):
+                ext = ext.lstrip(".").lower()
+                if ext and ext not in _LANG_ALIASES:
+                    _LANG_ALIASES[ext] = lang
+        except Exception:
+            pass
+
+
+_load_json_presets()
+
+
+def reload_presets() -> None:
+    """Ricarica i preset JSON (chiamato da Preferenze dopo modifica)."""
+    _load_json_presets()
+
+
 def _get_parser(editor: "EditorWidget") -> Optional[_Parser]:
     """Individua il parser giusto per l'editor."""
     lang = ""
-    
+
     # 1. Prova a dedurlo dall'estensione del file
     if getattr(editor, "file_path", None):
         ext = editor.file_path.suffix.lstrip(".").lower()
         lang = _LANG_ALIASES.get(ext, ext)
-        
-    # 2. Se l'estensione non basta (es. file nuovo), chiedi al Lexer
-    if not lang or lang not in _PARSERS:
+
+    # 2. Se l'estensione non basta, chiedi al Lexer
+    if not lang or (lang not in _PARSERS and lang not in _JSON_PRESETS):
         try:
             lexer = editor.lexer()
             if lexer:
-                # Scintilla potrebbe chiamarlo 'tex', 'markdown', ecc.
                 lex_name = lexer.language().lower().replace(" ", "")
                 lang = _LANG_ALIASES.get(lex_name, lex_name)
+                # Prova anche i lexer_names dei preset JSON
+                if lang not in _PARSERS and lang not in _JSON_PRESETS:
+                    for data in _JSON_PRESET_DEFS:
+                        if lex_name in [ln.lower() for ln in data.get("lexer_names", [])]:
+                            lang = data["language"]
+                            break
         except Exception:
             pass
-            
+
+    # 3. Controlla se il preset JSON è abilitato
+    from config.settings import Settings as _S
+    disabled = set(
+        k.strip() for k in
+        (_S.instance().get("function_list/disabled_presets") or "").split(",")
+        if k.strip()
+    )
+    if lang in _JSON_PRESETS and lang not in disabled:
+        return _JSON_PRESETS[lang]
+
+    # 4. Fallback al parser built-in
     return _PARSERS.get(lang)
 
 
@@ -515,7 +622,9 @@ class _FunctionListPanel(QWidget):
             self._info.setText(tr("function_list.no_functions"))
             return
 
-        if isinstance(parser, self._HIERARCHICAL_PARSERS):
+        is_hier = (isinstance(parser, _JsonParser) and parser._hierarchical) \
+                  or isinstance(parser, self._HIERARCHICAL_PARSERS)
+        if is_hier:
             self._build_hierarchical(self._symbols)
         else:
             self._build_grouped(self._symbols)

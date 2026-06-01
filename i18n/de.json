@@ -520,7 +520,10 @@
       "latex_subsubsection": "Unterunterabschnitt",
       "latex_subsubsection_star": "Unterunterabschnitt *",
       "latex_command": "\\newcommand",
-      "latex_environment": "\\newenvironment"
+      "latex_environment": "\\newenvironment",
+      "presets_group": "Verfügbare Presets",
+      "presets_note": "Presets für die Funktionsliste auswählen. Aktivierte Presets ersetzen die eingebauten Parser für die jeweilige Sprache.",
+      "kinds_group": "Sichtbare Muster"
     },
     "editor": {
       "font": "Schriftart",
@@ -1188,7 +1191,8 @@
     "no_editor": "Kein Editor",
     "no_functions": "Keine Funktionen gefunden",
     "symbols_found": "{count} symbols found  {lang}",
-    "copy_name": "Name kopieren"
+    "copy_name": "Name kopieren",
+    "preset_disabled": "(deaktiviert)"
   },
   "lsp_panel": {
     "no_problems": "Keine Probleme erkannt"

@@ -520,7 +520,10 @@
       "latex_subsubsection": "Pod-podsekcja",
       "latex_subsubsection_star": "Pod-podsekcja *",
       "latex_command": "\\newcommand",
-      "latex_environment": "\\newenvironment"
+      "latex_environment": "\\newenvironment",
+      "presets_group": "Dostępne presety",
+      "presets_note": "Wybierz presety do użycia na liście funkcji. Włączone presety zastępują wbudowane parsery dla danego języka.",
+      "kinds_group": "Widoczne wzorce"
     },
     "editor": {
       "font": "Czcionka",
@@ -1188,7 +1191,8 @@
     "no_editor": "Brak edytora",
     "no_functions": "Nie znaleziono funkcji",
     "symbols_found": "Znaleziono {count} symboli  {lang}",
-    "copy_name": "Kopiuj nazwę"
+    "copy_name": "Kopiuj nazwę",
+    "preset_disabled": "(wyłączony)"
   },
   "lsp_panel": {
     "no_problems": "Nie wykryto problemów"

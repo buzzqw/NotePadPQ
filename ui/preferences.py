@@ -17,6 +17,7 @@ Emette settings_changed su ogni modifica salvata.
 
 from __future__ import annotations
 
+import json as _json
 from typing import Optional
 
 from PyQt6.QtCore import Qt
@@ -388,46 +389,122 @@ class PreferencesDialog(QDialog):
     # ── Scheda Function List ──────────────────────────────────────────────────
 
     def _tab_function_list(self) -> QWidget:
+        from ui.function_list import _JSON_PRESET_DEFS
         w = QWidget()
         vl = QVBoxLayout(w)
         vl.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        grp_latex = QGroupBox(tr("pref.fl.latex_group", default="LaTeX — elementi visibili"))
-        fl = QVBoxLayout(grp_latex)
+        # ── Preset disponibili ─────────────────────────────────────────────────
+        grp_presets = QGroupBox(tr("pref.fl.presets_group", default="Preset disponibili"))
+        pl = QVBoxLayout(grp_presets)
+        note = QLabel(tr("pref.fl.presets_note",
+                         default="Seleziona i preset da usare nella lista delle funzioni. "
+                                  "I preset abilitati sostituiscono i parser integrati per quel linguaggio. "
+                                  "Clicca su un preset per configurare quali pattern mostrare."))
+        note.setWordWrap(True)
+        note.setStyleSheet("color: gray; font-size: 11px;")
+        pl.addWidget(note)
 
+        self._fl_preset_list = QListWidget()
+        self._fl_preset_list.setFixedHeight(180)
+        self._fl_preset_list.setAlternatingRowColors(True)
+
+        for data in _JSON_PRESET_DEFS:
+            lang = data.get("language", "")
+            name = data.get("display_name", lang)
+            exts = ", ".join(data.get("extensions", []))
+            count = len(data.get("patterns", []))
+            label = f"{name}  ({exts})  —  {count} pattern"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, lang)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            self._fl_preset_list.addItem(item)
+
+        pl.addWidget(self._fl_preset_list)
+        vl.addWidget(grp_presets)
+
+        # ── Pattern visibili (dinamico: si aggiorna con la selezione) ──────────
+        self._fl_kinds_group = QGroupBox("—")
+        self._fl_kinds_group.setEnabled(False)
+        kinds_outer = QVBoxLayout(self._fl_kinds_group)
+        kinds_outer.setContentsMargins(6, 6, 6, 6)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setFixedHeight(150)
+        self._fl_kinds_container = QWidget()
+        self._fl_kinds_layout = QVBoxLayout(self._fl_kinds_container)
+        self._fl_kinds_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._fl_kinds_layout.setSpacing(2)
+        scroll.setWidget(self._fl_kinds_container)
+        kinds_outer.addWidget(scroll)
+        vl.addWidget(self._fl_kinds_group)
+
+        # Stato interno
+        self._fl_kind_checks: dict[str, QCheckBox] = {}
+        self._fl_current_lang: Optional[str] = None
+        self._fl_hidden_kinds_draft: dict[str, list] = {}
+        # compat: mantieni _fl_latex_checks vuoto per non rompere vecchio codice
         self._fl_latex_checks: dict[str, QCheckBox] = {}
 
-        # (kind, label, indented)
-        # Le voci indentate sono le varianti starred della voce precedente
-        latex_kinds = [
-            ("part",           tr("pref.fl.latex_part",              default="Part"),              False),
-            ("part*",          tr("pref.fl.latex_part_star",         default="Part *"),            True),
-            ("chapter",        tr("pref.fl.latex_chapter",           default="Chapter"),           False),
-            ("chapter*",       tr("pref.fl.latex_chapter_star",      default="Chapter *"),         True),
-            ("section",        tr("pref.fl.latex_section",           default="Section"),           False),
-            ("section*",       tr("pref.fl.latex_section_star",      default="Section *"),         True),
-            ("subsection",     tr("pref.fl.latex_subsection",        default="Subsection"),        False),
-            ("subsection*",    tr("pref.fl.latex_subsection_star",   default="Subsection *"),      True),
-            ("subsubsection",  tr("pref.fl.latex_subsubsection",     default="Subsubsection"),     False),
-            ("subsubsection*", tr("pref.fl.latex_subsubsection_star",default="Subsubsection *"),   True),
-            ("command",        tr("pref.fl.latex_command",           default="\\newcommand"),      False),
-            ("environment",    tr("pref.fl.latex_environment",       default="\\newenvironment"),  False),
-        ]
-        for kind, label, indented in latex_kinds:
-            cb = QCheckBox(label)
-            if indented:
-                row = QHBoxLayout()
-                row.setContentsMargins(0, 0, 0, 0)
-                row.addSpacing(22)
-                row.addWidget(cb)
-                fl.addLayout(row)
-            else:
-                fl.addWidget(cb)
-            self._fl_latex_checks[kind] = cb
+        self._fl_preset_list.currentItemChanged.connect(self._fl_on_preset_selected)
 
-        vl.addWidget(grp_latex)
         vl.addStretch()
         return w
+
+    def _fl_on_preset_selected(self, current, previous) -> None:
+        """Salva lo stato del preset precedente e mostra i kind di quello nuovo."""
+        if self._fl_current_lang and self._fl_kind_checks:
+            hidden = [k for k, cb in self._fl_kind_checks.items() if not cb.isChecked()]
+            self._fl_hidden_kinds_draft[self._fl_current_lang] = hidden
+
+        if current is None:
+            self._fl_current_lang = None
+            self._fl_rebuild_kinds(None, set())
+            return
+
+        lang = current.data(Qt.ItemDataRole.UserRole)
+        self._fl_current_lang = lang
+        from ui.function_list import _JSON_PRESET_DEFS
+        preset_def = next((d for d in _JSON_PRESET_DEFS if d.get("language") == lang), None)
+        hidden_for_lang = set(self._fl_hidden_kinds_draft.get(lang, []))
+        self._fl_rebuild_kinds(preset_def, hidden_for_lang)
+
+    def _fl_rebuild_kinds(self, preset_def: Optional[dict], hidden: set) -> None:
+        """Svuota e ricostruisce i checkbox dei kind per il preset selezionato."""
+        while self._fl_kinds_layout.count():
+            item = self._fl_kinds_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.setParent(None)
+
+        self._fl_kind_checks = {}
+
+        if preset_def is None:
+            self._fl_kinds_group.setTitle("—")
+            self._fl_kinds_group.setEnabled(False)
+            return
+
+        self._fl_kinds_group.setEnabled(True)
+        name = preset_def.get("display_name", preset_def.get("language", ""))
+        self._fl_kinds_group.setTitle(
+            tr("pref.fl.kinds_group", default="Pattern visibili") + f"  —  {name}"
+        )
+
+        seen: set[str] = set()
+        for p in preset_def.get("patterns", []):
+            kind = p.get("kind", "")
+            icon = p.get("icon", "")
+            if not kind or kind in seen:
+                continue
+            seen.add(kind)
+            label = f"{icon}  {kind}" if icon else kind
+            cb = QCheckBox(label)
+            cb.setChecked(kind not in hidden)
+            self._fl_kinds_layout.addWidget(cb)
+            self._fl_kind_checks[kind] = cb
 
     # ── Scheda Lingua ─────────────────────────────────────────────────────────
 
@@ -544,14 +621,29 @@ class PreferencesDialog(QDialog):
             self._terminal_custom.setText(saved_term_cmd)
         else:
             self._terminal_custom.setText("")
-        # Function List
-        hidden = set(
+        # Function List — preset abilitati/disabilitati
+        disabled_presets = set(
             k.strip() for k in
-            (s.get("function_list/latex_hidden_kinds") or "").split(",")
+            (s.get("function_list/disabled_presets") or "").split(",")
             if k.strip()
         )
-        for kind, cb in self._fl_latex_checks.items():
-            cb.setChecked(kind not in hidden)
+        for i in range(self._fl_preset_list.count()):
+            item = self._fl_preset_list.item(i)
+            lang = item.data(Qt.ItemDataRole.UserRole)
+            item.setCheckState(
+                Qt.CheckState.Unchecked if lang in disabled_presets
+                else Qt.CheckState.Checked
+            )
+        # Function List — kinds nascosti per preset (carica PRIMA di selezionare)
+        try:
+            self._fl_hidden_kinds_draft = _json.loads(
+                s.get("function_list/hidden_kinds") or "{}"
+            )
+        except Exception:
+            self._fl_hidden_kinds_draft = {}
+        # Seleziona il primo preset: scatena _fl_on_preset_selected → mostra i kind
+        if self._fl_preset_list.count() > 0:
+            self._fl_preset_list.setCurrentRow(0)
 
         # Lingua — usa la lingua attualmente in uso (non il default hardcoded)
         from i18n.i18n import I18n
@@ -669,12 +761,18 @@ class PreferencesDialog(QDialog):
             if self._build_panel_always.isChecked():
                 mw_panels._build_dock.show()
 
-        # Function List
-        hidden_kinds = ",".join(
-            kind for kind, cb in self._fl_latex_checks.items()
-            if not cb.isChecked()
-        )
-        s.set("function_list/latex_hidden_kinds", hidden_kinds)
+        # Function List — preset disabilitati
+        disabled = []
+        for i in range(self._fl_preset_list.count()):
+            item = self._fl_preset_list.item(i)
+            if item.checkState() == Qt.CheckState.Unchecked:
+                disabled.append(item.data(Qt.ItemDataRole.UserRole))
+        s.set("function_list/disabled_presets", ",".join(disabled))
+        # Function List — kinds nascosti: salva prima il preset correntemente mostrato
+        if self._fl_current_lang and self._fl_kind_checks:
+            hidden = [k for k, cb in self._fl_kind_checks.items() if not cb.isChecked()]
+            self._fl_hidden_kinds_draft[self._fl_current_lang] = hidden
+        s.set("function_list/hidden_kinds", _json.dumps(self._fl_hidden_kinds_draft))
         # Forza refresh del pannello function list se aperto
         mw_fl = self.parent()
         while mw_fl and not hasattr(mw_fl, "_function_list_panel"):

@@ -520,7 +520,10 @@
       "latex_subsubsection": "Sous-sous-section",
       "latex_subsubsection_star": "Sous-sous-section *",
       "latex_command": "\\newcommand",
-      "latex_environment": "\\newenvironment"
+      "latex_environment": "\\newenvironment",
+      "presets_group": "Préréglages disponibles",
+      "presets_note": "Sélectionnez les préréglages à utiliser dans la liste des fonctions. Les préréglages activés remplacent les analyseurs intégrés pour ce langage.",
+      "kinds_group": "Motifs visibles"
     },
     "editor": {
       "font": "Police",
@@ -1188,7 +1191,8 @@
     "no_editor": "Aucun éditeur",
     "no_functions": "Aucune fonction trouvée",
     "symbols_found": "{count} symbols found  {lang}",
-    "copy_name": "Copier le nom"
+    "copy_name": "Copier le nom",
+    "preset_disabled": "(désactivé)"
   },
   "lsp_panel": {
     "no_problems": "Aucun problème détecté"

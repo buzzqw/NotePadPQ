@@ -6,7 +6,9 @@
 
 # NotePadPQ
 
-**A modern, cross-platform text editor built with Python and PyQt6, featuring advanced editing tools, AI support, live document previews and many tools.**
+**One editor. Every language. Every workflow.**
+
+*A modern, cross-platform powerhouse built with Python and PyQt6 — advanced editing, AI assistant, live previews, plugin ecosystem, and much more.*
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://python.org)
 [![PyQt6](https://img.shields.io/badge/PyQt6-6.x-green?logo=qt)](https://riverbankcomputing.com/software/pyqt/)
@@ -29,6 +31,24 @@ NotePadPQ is an advanced, free and open source text editor built with **Python 3
 
 Runs natively on Linux, Windows, and FreeBSD.
 
+> 💡 **NotePadPQ is not just a text editor.** It's a complete writing and development environment: from code to LaTeX documents, from Markdown to spreadsheets, from database queries to AI-assisted editing — all in one window.
+
+---
+
+## 🏆 Why NotePadPQ?
+
+| Feature | NotePadPQ | Notepad++ | Sublime Text | VS Code |
+|---|:---:|:---:|:---:|:---:|
+| Truly cross-platform (Linux/Win/BSD) | ✅ | ❌ (Win only) | ✅ | ✅ |
+| Free & open source | ✅ | ✅ | ❌ | ✅ (core) |
+| Native LaTeX support + PDF preview | ✅ | ❌ | ❌ | via ext |
+| Built-in AI assistant (multi-provider) | ✅ | ❌ | ❌ | via ext |
+| Live Markdown/HTML/PDF preview | ✅ | ❌ | via ext | via ext |
+| Spreadsheet & rich text editor | ✅ | ❌ | ❌ | ❌ |
+| Integrated database browser | ✅ | ❌ | ❌ | via ext |
+| Recover unsaved buffers on startup | ✅ | ✅ | ✅ | ✅ |
+| Lightweight (pure Python, no Electron) | ✅ | ✅ | ✅ | ❌ |
+
 ---
 
 ## ✨ Key Features
@@ -44,6 +64,7 @@ Runs natively on Linux, Windows, and FreeBSD.
 - **Auto-close** brackets, quotes, and tags.
 - **Show whitespace/tabs** and end-of-line characters.
 - **Markup shortcuts**: `Ctrl+B` (Bold), `Ctrl+I` (Italic), `Ctrl+Shift+X` (Strikethrough): work natively in Markdown (`**`, `*`, `~~`) and LaTeX (`\textbf`, `\textit`, `\sout`).
+- **Session restore**: unsaved (untitled) editor buffers are automatically recovered at the next startup, so you never lose work in progress.
 
 ### 🗂️ Tab Management & Split View
 - **Multiple tabs** with drag & drop, modification indicator, session restore at startup.
@@ -86,9 +107,12 @@ Runs natively on Linux, Windows, and FreeBSD.
 - **Live preview** for Markdown, HTML, reStructuredText, LaTeX (structure), PDF.
 - **Hover preview**: mouse over `\includegraphics{...}`, `![img](...)`, or `<img src="...">` to see a floating image thumbnail (including vector PDF).
 - **Math equation rendering** on hover in LaTeX/Markdown files (`$...$`, `$$...$$`, `\[...\]`).
-- **SyncTeX**: bidirectional sync between editor cursor and PDF position.
+- **SyncTeX**: bidirectional sync between editor cursor and PDF position — click in the editor, the PDF jumps to the right page and vice versa.
 - **Smart Crop**: auto-trim PDF white margins (`✂`).
-- Zoom with `Ctrl+Wheel`, page navigation with the scroll wheel.
+- Zoom with `Ctrl+Wheel`, page-by-page navigation with the scroll wheel.
+- **Print as PDF** (raw text) and **Export as PDF** (rendered Markdown) — two distinct, clearly labelled actions.
+
+> 💡 The LaTeX workflow in NotePadPQ is unmatched: Function List for document navigation, SyncTeX bidirectional sync, inline equation hover preview, and a full Build Panel — all in one window.
 
 ### 💻 Integrated Terminal (plugin)
 - Full terminal based on **native PTY** as an independent dock panel (`Ctrl+Alt+T` from the Plugin menu).
@@ -262,6 +286,24 @@ NotePadPQ è un editor di testo avanzato, libero e open source, pensato per svil
 
 Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativamente su Linux, Windows e FreeBSD.
 
+> 💡 **NotePadPQ non è solo un editor di testo.** È un ambiente di lavoro completo: dal codice ai documenti LaTeX, dal Markdown ai fogli di calcolo, dalle query ai database fino alla scrittura assistita dall'AI — tutto in un'unica finestra.
+
+---
+
+## 🏆 Perché NotePadPQ?
+
+| Funzionalità | NotePadPQ | Notepad++ | Sublime Text | VS Code |
+|---|:---:|:---:|:---:|:---:|
+| Veramente multipiattaforma (Linux/Win/BSD) | ✅ | ❌ (solo Win) | ✅ | ✅ |
+| Libero e open source | ✅ | ✅ | ❌ | ✅ (core) |
+| Supporto LaTeX nativo + anteprima PDF | ✅ | ❌ | ❌ | via ext |
+| AI assistant integrato (multi-provider) | ✅ | ❌ | ❌ | via ext |
+| Anteprima live Markdown/HTML/PDF | ✅ | ❌ | via ext | via ext |
+| Editor fogli di calcolo e rich text | ✅ | ❌ | ❌ | ❌ |
+| Browser database integrato | ✅ | ❌ | ❌ | via ext |
+| Recupero buffer non salvati all'avvio | ✅ | ✅ | ✅ | ✅ |
+| Leggero (Python puro, niente Electron) | ✅ | ✅ | ✅ | ❌ |
+
 ---
 
 ## ✨ Funzionalità principali
@@ -277,6 +319,7 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Auto-chiusura** di parentesi, virgolette e tag.
 - **Mostra spazi/tab** e caratteri di fine riga.
 - **Scorciatoie Markup**: `Ctrl+B` (Grassetto), `Ctrl+I` (Corsivo), `Ctrl+Shift+X` (Barrato): funzionano in Markdown (`**`, `*`, `~~`) e LaTeX (`\textbf`, `\textit`, `\sout`).
+- **Recupero buffer non salvati**: i tab aperti non ancora salvati vengono ripristinati automaticamente all'avvio successivo, così non perdi mai il lavoro in corso.
 
 ### 🗂️ Gestione tab e split view
 - **Tab multipli** con drag & drop, indicatore di modifica, ripristino sessione all'avvio.
@@ -319,9 +362,12 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Anteprima live** di Markdown, HTML, reStructuredText, LaTeX (struttura), PDF.
 - **Hover preview**: passa il mouse su `\includegraphics{...}`, `![img](...)` o `<img src="...">` per vedere l'anteprima dell'immagine in un popup; supporta anche i PDF vettoriali.
 - **Rendering equazioni** matematiche inline con hover (file LaTeX/Markdown con `$...$`, `$$...$$`, `\[...\]`).
-- **SyncTeX**: sincronizzazione bidirezionale cursore editor ↔ posizione nel PDF.
+- **SyncTeX**: sincronizzazione bidirezionale cursore editor ↔ posizione nel PDF — clicca nell'editor e il PDF salta alla pagina giusta, e viceversa.
 - **Smart Crop**: elimina automaticamente i margini bianchi dei PDF (`✂`).
-- Zoom con `Ctrl+Rotella`, navigazione pagine con la rotella.
+- Zoom con `Ctrl+Rotella`, navigazione pagina per pagina con la rotella del mouse.
+- **Stampa come PDF** (testo grezzo) ed **Esporta come PDF** (Markdown renderizzato) — due azioni distinte e chiaramente etichettate.
+
+> 💡 Il flusso di lavoro LaTeX in NotePadPQ è senza rivali: Function List per navigare il documento, SyncTeX bidirezionale, hover preview delle equazioni, e Build Panel completo — tutto in un'unica finestra.
 
 ### 💻 Terminale integrato (plugin)
 - Terminale completo basato su **PTY nativo** come pannello dock indipendente (`Ctrl+Alt+T` dal menu Plugin).
@@ -470,11 +516,19 @@ python main.py file1.py file2.md  # apre i file specificati
 
 ---
 
-### 📄 Visualizzatore PDF
+### 📄 Visualizzatore PDF & SyncTeX
 
 <img width="1920" alt="PDF viewer" src="immagini/pdf.png" />
 
 *Anteprima PDF integrata con SyncTeX, zoom e navigazione pagine*
+
+---
+
+### 🔬 LaTeX avanzato: Function List + SyncTeX + Build Panel
+
+<img width="1920" alt="LaTeX avanzato con Function List, anteprima PDF e SyncTeX" src="immagini/notepadpq11.png" />
+
+*Un documento LaTeX complesso aperto in NotePadPQ: Function List con la struttura del documento a sinistra (sezioni, sottosezioni, simboli), editor con syntax highlighting al centro, anteprima PDF live con tabelle renderizzate a destra e Build Panel in basso con output di compilazione in tempo reale. SyncTeX sincronizza bidirezionalmente cursore e PDF.*
 
 ---
 
@@ -527,6 +581,7 @@ python main.py file1.py file2.md  # apre i file specificati
 <img width="1920" alt="Search PQ panel" src="immagini/notepadpq10.png" />
 
 *Pannello Search PQ: ricerca multi-modalità (TEXT/REGEXP/LIKE), coda risultati, filtro inline e sostituzione*
+
 ---
 
 ## 🌐 Aggiungere una nuova lingua

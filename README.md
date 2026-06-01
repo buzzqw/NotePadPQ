@@ -234,6 +234,88 @@ pip install pymupdf matplotlib sympy
 
 ---
 
+## 🖥️ Screenshots
+
+### 🔬 LaTeX: editor + Function List + live PDF + Build Panel
+
+<img width="1920" alt="LaTeX with Function List, live PDF and Build Panel" src="immagini/notepadpq11.png" />
+
+*SADE.tex: a 380-page LaTeX document open in NotePadPQ. Function List on the left with 290 navigable symbols (sections, subsections, commands), editor with syntax highlighting in the centre, live PDF preview on the right with rendered tables. The Build Panel at the bottom shows a completed compilation with SyncTeX written. Bidirectional cursor↔PDF synchronisation is active in real time.*
+
+---
+
+### 📝 LaTeX + Search PQ + integrated Terminal
+
+<img width="1920" alt="NotePadPQ LaTeX editor with Search PQ and Terminal" src="immagini/notepadpq2.png" />
+
+*Complete workflow in a single window: LaTeX editor with syntax highlighting and multi-tab, Search PQ panel on the right with 26 matches found across multiple files, result queue and replace. At the bottom the integrated Terminal (native PTY) with an active shell synced to the project directory and LaTeX Build Panel ready to compile.*
+
+---
+
+### 👁️ Markdown: live preview + Function List + Search PQ
+
+<img width="1920" alt="Markdown live preview with Function List and Search PQ" src="immagini/notepadpq10.png" />
+
+*MANUAL_EN.md open: Function List on the left with 133 navigable symbols (Markdown headings by section), editor with Markdown syntax highlighting in the centre, live HTML preview on the right with rendered headings, links and tables. Search PQ panel shows 26 matches; Terminal at the bottom is synced with the project directory.*
+
+---
+
+### 📄 Standalone PDF viewer
+
+<img width="1920" alt="Integrated PDF viewer" src="immagini/pdf.png" />
+
+*PDF opened directly as a file in NotePadPQ: page thumbnails in the left sidebar for quick navigation (1/3 pages visible), main view with high-quality rendering at 100%, control bar with zoom, page navigation, download and integrated printing.*
+
+---
+
+### 🏗️ LaTeX: structured Function List + live PDF + SyncTeX
+
+<img width="1920" alt="LaTeX Build Panel with Function List and PDF viewer" src="immagini/notepadpq01.png" />
+
+*SADE.tex with over 3,500 lines and 900 symbols in Function List: sections, subsections, §-subsections, commands and references navigable in a hierarchical tree on the left. Editor with LaTeX syntax highlighting in the centre, live PDF preview on the right with complex rendered tables. Build Panel at the bottom with active LaTeX xelatex profile.*
+
+> 💡 The Build Panel supports profiles for LaTeX, Python, C/C++, Markdown and many other languages. Variables like `${FILE}`, `${DIR}`, `${BASENAME}` are automatically expanded in build commands.
+
+---
+
+### 📊 Spreadsheet — multi-sheet XLSX file
+
+<img width="1920" alt="Multi-sheet XLS spreadsheet" src="immagini/spreadsheet.png" />
+
+*XLS with 26,000+ records open with multiple tabs (Index, Sources, Notes): sheet navigation, auto-sized columns, pagination. Toolbar with Filter, Export/Save as, Markdown, tabularx and Chart built in.*
+
+<img width="1920" alt="Spreadsheet with active filter and cell selection" src="immagini/spreadsheet2.png" />
+
+*XLSX with active filter: cell selected with editable content in the formula bar, column sorting, add rows/columns, direct export to Markdown or LaTeX tabularx.*
+
+---
+
+### 📝 WYSIWYG Rich Text Editor — DOCX
+
+<img width="1920" alt="Rich text DOCX" src="immagini/docx.png" />
+
+*Italian .docx file with 22,664 words open in WYSIWYG mode with Jodit: bold/italic/strikethrough formatting, lists, headings, tables, links and images. Full toolbar with alignment, text colour, outline, inline code. PDF export and open as source text available.*
+
+<img width="1920" alt="Rich text ODT" src="immagini/odt.png" />
+
+*241,777-word .odt file with rendered tables (Draconic Ancestry), justified text and full formatting. The WYSIWYG editor shows content exactly as it appears when printed.*
+
+---
+
+### 🗄️ Database plugin — SQLite + AI SQL Generation
+
+<img width="1920" alt="Database plugin with AI SQL generation and query editor" src="immagini/query.png" />
+
+*SQLite database open: schema browser on the left with 6 tables and column structure (id, title, magnet, source, added_at). Query editor in the centre with `SELECT * FROM archive;` returning 100+ rows in 0.001s. The AI Query panel (local Ollama provider, qwen3:4b model) generates SQL from natural language without sending data to remote servers. Results displayed in a spreadsheet grid with filter, export and ◀ ▶ navigation.*
+
+---
+
+### 🔍 Search PQ plugin — advanced multi-file search
+
+<img width="1920" alt="Markdown preview with Function List" src="immagini/notepadpq02.png" />
+
+*Search PQ in action on the Markdown user manual: live HTML preview on the right with rendered content (headings, links, formatted tables), Function List on the left with 133 navigable entries, and the Search PQ panel with results organised by file with line number, text and path.*
+
 ---
 
 ## 🌐 Adding a New Language
@@ -500,87 +582,85 @@ python main.py file1.py file2.md  # apre i file specificati
 
 ## 🖥️ Screenshot
 
-### Editor principale
-
-<img width="1920" alt="NotePadPQ editor" src="immagini/notepadpq2.png" />
-
-*Editor con syntax highlighting, pannello Search PQ con risultati e coda di ricerca*
-
----
-
-### 👁️ Anteprima Markdown live
-
-<img width="1920" alt="Markdown live preview" src="immagini/notepadpq02.png" />
-
-*Editor Markdown con anteprima live nel pannello di destra e Function List con navigazione struttura*
-
----
-
-### 📄 Visualizzatore PDF & SyncTeX
-
-<img width="1920" alt="PDF viewer" src="immagini/pdf.png" />
-
-*Anteprima PDF integrata con SyncTeX, zoom e navigazione pagine*
-
----
-
-### 🔬 LaTeX avanzato: Function List + SyncTeX + Build Panel
+### 🔬 LaTeX: editor + Function List + PDF live + Build Panel
 
 <img width="1920" alt="LaTeX avanzato con Function List, anteprima PDF e SyncTeX" src="immagini/notepadpq11.png" />
 
-*Un documento LaTeX complesso aperto in NotePadPQ: Function List con la struttura del documento a sinistra (sezioni, sottosezioni, simboli), editor con syntax highlighting al centro, anteprima PDF live con tabelle renderizzate a destra e Build Panel in basso con output di compilazione in tempo reale. SyncTeX sincronizza bidirezionalmente cursore e PDF.*
+*SADE.tex: un documento LaTeX da 380 pagine aperto in NotePadPQ. Function List a sinistra con 290 simboli navigabili (sezioni, sottosezioni, comandi), editor con syntax highlighting al centro, anteprima PDF live a destra con tabelle renderizzate. In basso il Build Panel mostra la compilazione completata con SyncTeX scritto. La sincronizzazione bidirezionale cursore↔PDF è attiva in tempo reale.*
 
 ---
 
-### 🏗️ Build Panel — LaTeX
+### 📝 LaTeX + Search PQ + Terminal integrato
 
-<img width="1920" alt="Build Panel LaTeX" src="immagini/notepadpq01.png" />
+<img width="1920" alt="NotePadPQ editor LaTeX con Search PQ e Terminal" src="immagini/notepadpq2.png" />
 
-*Editor LaTeX con Function List, anteprima PDF integrata, pannello Build e output di compilazione in tempo reale*
+*Workflow completo in un'unica finestra: editor LaTeX con syntax highlighting e multi-tab, pannello Search PQ a destra con 26 occorrenze trovate su più file, coda risultati e sostituzione. In basso il Terminal integrato (PTY nativo) con shell attiva sincronizzata alla directory del progetto e Build Panel LaTeX pronto alla compilazione.*
+
+---
+
+### 👁️ Markdown: anteprima live + Function List + Search PQ
+
+<img width="1920" alt="Markdown live preview con Function List e Search PQ" src="immagini/notepadpq10.png" />
+
+*Il manuale utente MANUAL_EN.md aperto: a sinistra la Function List con 133 simboli (intestazioni Markdown navigabili per sezione), al centro l'editor con syntax highlighting Markdown, a destra l'anteprima HTML live renderizzata con heading, link e tabelle. Il pannello Search PQ mostra 26 occorrenze con coda risultati; il Terminal in basso è sincronizzato con la directory del progetto.*
+
+---
+
+### 📄 Visualizzatore PDF standalone
+
+<img width="1920" alt="PDF viewer integrato" src="immagini/pdf.png" />
+
+*PDF aperto direttamente come file in NotePadPQ: miniature pagine nella barra laterale sinistra per navigazione rapida (1/3 pagine visibili), vista principale con rendering ad alta qualità a 100%, barra di controllo con zoom, navigazione pagina, download e stampa integrati.*
+
+---
+
+### 🏗️ LaTeX: Function List strutturata + PDF live + SyncTeX
+
+<img width="1920" alt="Build Panel LaTeX con Function List e PDF viewer" src="immagini/notepadpq01.png" />
+
+*SADE.tex con oltre 3.500 righe e 900 simboli in Function List: sezioni, sottosezioni, §-sottosezioni, comandi e riferimenti navigabili in un albero gerarchico a sinistra. Al centro l'editor con syntax highlighting LaTeX, a destra l'anteprima PDF live con tabelle complesse renderizzate; il simbolo selezionato `Consentire` è evidenziato nell'editor. Build Panel in basso con profilo LaTeX xelatex attivo.*
 
 > 💡 Il Build Panel supporta profili per LaTeX, Python, C/C++, Markdown e molti altri linguaggi. Variabili come `${FILE}`, `${DIR}`, `${BASENAME}` sono espanse automaticamente nei comandi di build.
 
 ---
 
-### 📊 Foglio di Calcolo
+### 📊 Foglio di Calcolo — file XLSX multi-foglio
 
-<img width="1920" alt="Spreadsheet" src="immagini/spreadsheet.png" />
+<img width="1920" alt="Spreadsheet XLS multi-foglio" src="immagini/spreadsheet.png" />
 
-*Plugin Foglio di Calcolo: apertura di CSV/XLSX/ODS con ordinamento, filtro e grafici*
+*XLS da 26000+ record aperto con tab multipli (Index, Sources, Notes): navigazione tra fogli, colonne auto-dimensionate, paginazione. Toolbar con Filtro, Esporta/Salva come, Markdown, tabularx e Grafico integrati.*
 
-<img width="1920" alt="Spreadsheet con filtro" src="immagini/spreadsheet2.png" />
+<img width="1920" alt="Spreadsheet con filtro attivo e selezione cella" src="immagini/spreadsheet2.png" />
 
-*Filtro attivo e paginazione risultati (100 righe per pagina)*
+*XLSX con filtro attivo: selezione cella con contenuto editabile nella formula bar, ordinamento per colonna, aggiunta righe/colonne, esportazione diretta in Markdown o tabularx LaTeX.*
 
 ---
 
-### 📝 Editor Rich Text
+### 📝 Editor Rich Text WYSIWYG — DOCX
 
 <img width="1920" alt="Rich text DOCX" src="immagini/docx.png" />
 
-*Editor WYSIWYG Jodit per file .doc, .docx, .odt, .rtf, .html*
+*File .docx italiano da 22.664 parole aperto in modalità WYSIWYG con Jodit: formattazione grassetto/corsivo/barrato, elenchi, intestazioni, tabelle, link e immagini. Toolbar completa con allineamento, colore testo, indice, codice inline. Esportazione PDF e apertura come testo sorgente disponibili.*
 
 <img width="1920" alt="Rich text ODT" src="immagini/odt.png" />
 
-*Apertura file ODT con formattazione completa*
+*File .odt da 241.777 parole con tabelle renderizzate (Draconic Ancestry), testo giustificato e formattazione completa. L'editor WYSIWYG mostra il contenuto esattamente come appare stampato.*
 
 ---
 
-### 🗄️ Plugin Database
+### 🗄️ Plugin Database — SQLite + AI SQL Generation
 
-*Browser database: schema tabelle, connessioni salvate, AI SQL generation*
+<img width="1920" alt="Database plugin con AI SQL generation e query editor" src="immagini/query.png" />
 
-<img width="1920" alt="Database query" src="immagini/query.png" />
-
-*Query editor con risultati paginati, esportazione e navigazione ◀ ▶*
+*Database SQLite aperto: browser schema a sinistra con 6 tabelle e struttura colonne (id, title, magnet, source, added_at). Al centro il query editor con `SELECT * FROM archive;` e 100+ righe restituite in 0.001s. Il pannello AI Query (provider Ollama locale, modello qwen3:4b) genera SQL in linguaggio naturale senza inviare dati a server remoti. Risultati visualizzati in griglia spreadsheet con filtro, esportazione e navigazione ◀ ▶.*
 
 ---
 
-### 🔍 Plugin Search PQ
+### 🔍 Plugin Search PQ — ricerca avanzata multi-file
 
-<img width="1920" alt="Search PQ panel" src="immagini/notepadpq10.png" />
+<img width="1920" alt="Search PQ panel" src="immagini/notepadpq02.png" />
 
-*Pannello Search PQ: ricerca multi-modalità (TEXT/REGEXP/LIKE), coda risultati, filtro inline e sostituzione*
+*Search PQ in azione sul documento Markdown del manuale: anteprima HTML live a destra con il contenuto renderizzato (intestazioni, link, tabelle formattate), Function List a sinistra con 133 voci navigabili, pannello Search PQ con risultati organizzati per file con numero di riga, testo e percorso.*
 
 ---
 

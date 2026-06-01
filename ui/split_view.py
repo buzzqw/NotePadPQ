@@ -31,31 +31,29 @@ from typing import Optional, List
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QSplitter, QVBoxLayout, QHBoxLayout,
-    QLabel, QToolButton, QFrame,
+    QLabel, QToolButton,
 )
 
 from i18n.i18n import tr
 
 
-# ─── _PanelHeader ─────────────────────────────────────────────────────────────
+# ─── _PanelCorner ─────────────────────────────────────────────────────────────
 
-class _PanelHeader(QWidget):
-    """Intestazione compatta per il pannello secondario: etichetta + chiudi."""
+class _PanelCorner(QWidget):
+    """Corner widget del pannello secondario: etichetta + chiudi (stessa riga dei tab)."""
 
     close_requested = pyqtSignal()
 
     def __init__(self, label: str, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(22)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 0, 2, 0)
+        layout.setContentsMargins(4, 0, 2, 0)
         layout.setSpacing(4)
 
         lbl = QLabel(label)
         lbl.setStyleSheet("font-size: 11px; color: #888;")
         layout.addWidget(lbl)
-        layout.addStretch()
 
         btn = QToolButton()
         btn.setText("✕")
@@ -72,7 +70,7 @@ class _PanelHeader(QWidget):
 # ─── _SplitPanel ──────────────────────────────────────────────────────────────
 
 class _SplitPanel(QWidget):
-    """Un pannello dello split: header opzionale + TabManager."""
+    """Un pannello dello split: corner widget opzionale nel TabManager + TabManager."""
 
     def __init__(self, tab_manager, label: str, show_header: bool = False, parent=None):
         super().__init__(parent)
@@ -82,26 +80,20 @@ class _SplitPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._header = _PanelHeader(label)
-        self._header.setVisible(show_header)
-        layout.addWidget(self._header)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setFixedHeight(1)
-        sep.setStyleSheet("background: #3a3a3a;")
-        sep.setVisible(show_header)
-        self._sep = sep
-        layout.addWidget(sep)
-
         layout.addWidget(tab_manager, 1)
 
-    def set_header_visible(self, visible: bool) -> None:
-        self._header.setVisible(visible)
-        self._sep.setVisible(visible)
+        # Il corner widget viene aggiunto al QTabWidget per stare sulla stessa riga dei tab
+        self._corner: Optional[_PanelCorner] = None
+        if show_header:
+            self._corner = _PanelCorner(label)
+            tab_manager.setCornerWidget(self._corner, Qt.Corner.TopRightCorner)
 
-    def header(self) -> _PanelHeader:
-        return self._header
+    def set_header_visible(self, visible: bool) -> None:
+        if self._corner is not None:
+            self._corner.setVisible(visible)
+
+    def header(self) -> Optional[_PanelCorner]:
+        return self._corner
 
 
 # ─── SplitViewManager ─────────────────────────────────────────────────────────

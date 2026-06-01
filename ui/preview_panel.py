@@ -392,6 +392,14 @@ class PreviewPanel(QWidget):
                    self._pdf_btn_links, self._pdf_btn_sync,
                    self._pdf_btn_open_external, self._pdf_lbl_synctex]:
             pdf_nav.addWidget(w2)
+        for btn in [self._pdf_btn_continuous,
+                    self._pdf_btn_prev, self._pdf_btn_next,
+                    self._pdf_zoom_out, self._pdf_zoom_in,
+                    self._pdf_btn_zoom_reset, self._pdf_btn_fit_width,
+                    self._pdf_btn_fit_page, self._pdf_btn_crop,
+                    self._pdf_btn_links, self._pdf_btn_sync,
+                    self._pdf_btn_open_external]:
+            btn.setFixedSize(26, 26)
         
         # (Questa è la riga che abbiamo aggiunto prima)
         pdf_vl.addLayout(pdf_nav)
@@ -1309,14 +1317,33 @@ class PreviewPanel(QWidget):
     def _pdf_toggle_continuous(self, checked: bool) -> None:
         """Alterna tra scroll continuo e modalità pagina singola nell'anteprima TeX."""
         self._pdf_continuous = checked
-        self._pdf_scroll.setVisible(not checked)
-        self._pdf_scroll_cont.setVisible(checked)
         self._pdf_btn_prev.setVisible(not checked)
         self._pdf_btn_next.setVisible(not checked)
         self._pdf_lbl_page.setVisible(not checked)
         if checked:
+            page_to_restore = self._pdf_page_num
+            y_pt_restore = (
+                self._pdf_cursor_highlight[1]
+                if self._pdf_cursor_highlight and
+                   self._pdf_cursor_highlight[0] == page_to_restore
+                else None
+            )
+            # Costruisce le pagine mentre _pdf_scroll_cont è ancora nascosto
             self._pdf_show_all_pages()
+            # Forza il calcolo del layout prima di rendere visibile la scroll area
+            self._pdf_cont_layout.activate()
+            # Rende visibile la scroll continua: Qt aggiorna il range della scrollbar
+            self._pdf_scroll_cont.setVisible(True)
+            # Posiziona subito alla pagina corretta — prima che avvenga qualsiasi repaint
+            if y_pt_restore is not None:
+                self._scroll_cont_to_page_y(page_to_restore, y_pt_restore)
+            else:
+                self._scroll_cont_to_page(page_to_restore)
+            # Nasconde la vista pagina singola solo ora (nessun flash visibile)
+            self._pdf_scroll.setVisible(False)
         else:
+            self._pdf_scroll_cont.setVisible(False)
+            self._pdf_scroll.setVisible(True)
             self._update_synctex_label(self._pdf_path if self._pdf_path else None)
             self._pdf_show_page()
 

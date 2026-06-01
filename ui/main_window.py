@@ -2374,7 +2374,7 @@ class MainWindow(QMainWindow):
         default = str(editor.file_path.with_suffix("")
                       if editor.file_path else Path.home() / "documento")
         path, _ = QFileDialog.getSaveFileName(
-            self, tr("action.export_pdf"), default,
+            self, tr("action.export_pdf", default="Stampa come PDF"), default,
             "PDF (*.pdf)"
         )
         if not path:
@@ -2397,15 +2397,15 @@ class MainWindow(QMainWindow):
             doc.print(printer)
             if _os.path.exists(path) and _os.path.getsize(path) > 0:
                 from PyQt6.QtWidgets import QMessageBox as _QMB
-                _QMB.information(self, tr("action.export_pdf", default="Esporta PDF"),
+                _QMB.information(self, tr("action.export_pdf", default="Stampa come PDF"),
                                  f"PDF esportato:\n{path}")
             else:
                 from PyQt6.QtWidgets import QMessageBox as _QMB
-                _QMB.warning(self, tr("action.export_pdf", default="Esporta PDF"),
+                _QMB.warning(self, tr("action.export_pdf", default="Stampa come PDF"),
                              f"Il PDF sembra vuoto o non creato:\n{path}")
         except Exception as _exc:
             from PyQt6.QtWidgets import QMessageBox as _QMB
-            _QMB.critical(self, tr("action.export_pdf", default="Esporta PDF"), str(_exc))
+            _QMB.critical(self, tr("action.export_pdf", default="Stampa come PDF"), str(_exc))
 
     def action_export_as(self) -> None:
         from PyQt6.QtWidgets import QFileDialog, QMessageBox as _QMB

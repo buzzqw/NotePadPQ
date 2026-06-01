@@ -1,0 +1,16 @@
+{
+  "language": "typescript",
+  "display_name": "TypeScript",
+  "extensions": ["ts", "tsx"],
+  "lexer_names": ["typescript"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^(?:export\\s+)?(?:abstract\\s+)?class\\s+(\\w+)", "kind": "class", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^(?:export\\s+)?interface\\s+(\\w+)", "kind": "interface", "name_group": 1, "icon": "📋", "level": 0},
+    {"regex": "^(?:export\\s+)?type\\s+(\\w+)\\s*=", "kind": "type", "name_group": 1, "icon": "🔹", "level": 0},
+    {"regex": "^(?:export\\s+)?enum\\s+(\\w+)", "kind": "enum", "name_group": 1, "icon": "≡", "level": 0},
+    {"regex": "^(?:export\\s+)?(?:async\\s+)?function\\s+(\\w+)", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^(?:export\\s+)?(?:const|let)\\s+(\\w+)\\s*=\\s*(?:async\\s+)?(?:function|\\()", "kind": "arrow/fn", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^  (?:(?:public|private|protected|static|abstract|async|readonly|get|set)\\s+)*(\\w+)\\s*\\(", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0}
+  ]
+}

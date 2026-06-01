@@ -1,0 +1,16 @@
+{
+  "language": "rust",
+  "display_name": "Rust",
+  "extensions": ["rs"],
+  "lexer_names": ["rust"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^(?:pub(?:\\(\\w+\\))?\\s+)?struct\\s+(\\w+)", "kind": "struct", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^(?:pub(?:\\(\\w+\\))?\\s+)?enum\\s+(\\w+)", "kind": "enum", "name_group": 1, "icon": "≡", "level": 0},
+    {"regex": "^(?:pub(?:\\(\\w+\\))?\\s+)?trait\\s+(\\w+)", "kind": "trait", "name_group": 1, "icon": "📋", "level": 0},
+    {"regex": "^impl(?:<[^>]+>)?\\s+(?:\\w+\\s+for\\s+)?(\\w+)", "kind": "impl", "name_group": 1, "icon": "🔶", "level": 0},
+    {"regex": "^(?:pub(?:\\(\\w+\\))?\\s+)?(?:async\\s+)?fn\\s+(\\w+)\\s*(?:<[^>]*>)?\\s*\\(", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^    (?:pub(?:\\(\\w+\\))?\\s+)?(?:async\\s+)?fn\\s+(\\w+)", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0},
+    {"regex": "^(?:pub(?:\\(\\w+\\))?\\s+)?(?:const|static)\\s+(?:mut\\s+)?(\\w+)", "kind": "const/static", "name_group": 1, "icon": "·", "level": 0}
+  ]
+}

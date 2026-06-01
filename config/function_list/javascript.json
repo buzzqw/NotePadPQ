@@ -1,0 +1,14 @@
+{
+  "language": "javascript",
+  "display_name": "JavaScript",
+  "extensions": ["js", "jsx", "mjs", "cjs"],
+  "lexer_names": ["javascript"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^(?:export\\s+)?(?:default\\s+)?class\\s+(\\w+)", "kind": "class", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^(?:export\\s+)?async function\\s+(\\w+)\\s*\\(", "kind": "async function", "name_group": 1, "icon": "⚡", "level": 0},
+    {"regex": "^(?:export\\s+)?function\\s+(\\w+)\\s*\\(", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^(?:export\\s+)?(?:const|let|var)\\s+(\\w+)\\s*=\\s*(?:async\\s+)?(?:function|\\()", "kind": "arrow/fn", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^  (?:async\\s+)?(?:get |set )?(\\w+)\\s*\\([^)]*\\)\\s*\\{", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0}
+  ]
+}

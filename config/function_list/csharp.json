@@ -1,0 +1,15 @@
+{
+  "language": "csharp",
+  "display_name": "C#",
+  "extensions": ["cs"],
+  "lexer_names": ["csharp", "c#"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^\\s*(?:public|private|protected|internal)?\\s*(?:abstract|sealed|static|partial)?\\s*class\\s+(\\w+)", "kind": "class", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^\\s*(?:public|private|protected|internal)?\\s*interface\\s+(\\w+)", "kind": "interface", "name_group": 1, "icon": "📋", "level": 0},
+    {"regex": "^\\s*(?:public|private|protected|internal)?\\s*(?:static\\s+)?enum\\s+(\\w+)", "kind": "enum", "name_group": 1, "icon": "≡", "level": 0},
+    {"regex": "^\\s*(?:public|private|protected|internal)?\\s*struct\\s+(\\w+)", "kind": "struct", "name_group": 1, "icon": "🔶", "level": 0},
+    {"regex": "^\\s*(?:public|private|protected|internal)?\\s*delegate\\s+\\S+\\s+(\\w+)\\s*\\(", "kind": "delegate", "name_group": 1, "icon": "→", "level": 0},
+    {"regex": "^\\s*(?:public|private|protected|internal)?\\s*(?:static|virtual|override|abstract|async|sealed)?\\s*(?:async\\s+)?(?:[\\w<>\\[\\]?]+)\\s+(\\w+)\\s*\\(", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0}
+  ]
+}

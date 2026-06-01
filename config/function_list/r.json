@@ -1,0 +1,14 @@
+{
+  "language": "r",
+  "display_name": "R",
+  "extensions": ["r", "R", "Rmd"],
+  "lexer_names": ["r", "s"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^(\\w+)\\s*<-\\s*function\\s*\\(", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^(\\w+)\\s*=\\s*function\\s*\\(", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^setClass\\(['\"]([\\w.]+)['\"]", "kind": "S4 class", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^setGeneric\\(['\"]([\\w.]+)['\"]", "kind": "generic", "name_group": 1, "icon": "📋", "level": 0},
+    {"regex": "^setMethod\\(['\"]([\\w.]+)['\"]", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0}
+  ]
+}

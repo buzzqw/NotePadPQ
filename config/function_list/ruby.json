@@ -1,0 +1,14 @@
+{
+  "language": "ruby",
+  "display_name": "Ruby",
+  "extensions": ["rb", "rake", "gemspec"],
+  "lexer_names": ["ruby"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^class\\s+(\\w+(?:::\\w+)*)", "kind": "class", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^module\\s+(\\w+(?:::\\w+)*)", "kind": "module", "name_group": 1, "icon": "📦", "level": 0},
+    {"regex": "^def\\s+(self\\.)?(\\w+[?!]?)", "kind": "method", "name_group": 2, "icon": "⚙", "level": 0},
+    {"regex": "^  def\\s+(self\\.)?(\\w+[?!]?)", "kind": "method", "name_group": 2, "icon": "⚙", "level": 0},
+    {"regex": "^(\\w+)\\s*=\\s*lambda\\s*(?:do|\\{)", "kind": "lambda", "name_group": 1, "icon": "λ", "level": 0}
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "language": "markdown",
+  "display_name": "Markdown",
+  "extensions": ["md", "markdown", "mdown", "mkd"],
+  "lexer_names": ["markdown"],
+  "hierarchical": true,
+  "patterns": [
+    {"regex": "^#{1}\\s+(.*)", "kind": "h1", "name_group": 1, "icon": "📖", "level": 1},
+    {"regex": "^#{2}\\s+(.*)", "kind": "h2", "name_group": 1, "icon": "●", "level": 2},
+    {"regex": "^#{3}\\s+(.*)", "kind": "h3", "name_group": 1, "icon": "○", "level": 3},
+    {"regex": "^#{4}\\s+(.*)", "kind": "h4", "name_group": 1, "icon": "·", "level": 4},
+    {"regex": "^#{5}\\s+(.*)", "kind": "h5", "name_group": 1, "icon": "▸", "level": 5},
+    {"regex": "^#{6}\\s+(.*)", "kind": "h6", "name_group": 1, "icon": "▹", "level": 6}
+  ]
+}

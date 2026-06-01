@@ -1,0 +1,16 @@
+{
+  "language": "kotlin",
+  "display_name": "Kotlin",
+  "extensions": ["kt", "kts"],
+  "lexer_names": ["kotlin"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^(?:data\\s+|sealed\\s+|abstract\\s+|open\\s+)?class\\s+(\\w+)", "kind": "class", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^(?:data\\s+)?object\\s+(\\w+)", "kind": "object", "name_group": 1, "icon": "🔶", "level": 0},
+    {"regex": "^interface\\s+(\\w+)", "kind": "interface", "name_group": 1, "icon": "📋", "level": 0},
+    {"regex": "^enum\\s+class\\s+(\\w+)", "kind": "enum", "name_group": 1, "icon": "≡", "level": 0},
+    {"regex": "^(?:fun|suspend fun)\\s+(\\w+)\\s*(?:<[^>]*>)?\\s*\\(", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^    (?:override\\s+)?(?:fun|suspend fun)\\s+(\\w+)\\s*\\(", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0},
+    {"regex": "^(?:val|var)\\s+(\\w+)\\s*(?::\\s*[\\w<>?,\\s]+)?\\s*(?:=|by\\s)", "kind": "property", "name_group": 1, "icon": "·", "level": 0}
+  ]
+}

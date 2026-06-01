@@ -1,0 +1,15 @@
+{
+  "language": "sql",
+  "display_name": "SQL",
+  "extensions": ["sql"],
+  "lexer_names": ["sql"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "(?i)^CREATE\\s+(?:OR\\s+REPLACE\\s+)?PROCEDURE\\s+(\\w+)", "kind": "procedure", "name_group": 1, "icon": "🗄", "level": 0},
+    {"regex": "(?i)^CREATE\\s+(?:OR\\s+REPLACE\\s+)?FUNCTION\\s+(\\w+)", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "(?i)^CREATE\\s+(?:OR\\s+REPLACE\\s+)?TRIGGER\\s+(\\w+)", "kind": "trigger", "name_group": 1, "icon": "⚡", "level": 0},
+    {"regex": "(?i)^CREATE\\s+(?:OR\\s+REPLACE\\s+)?VIEW\\s+(\\w+)", "kind": "view", "name_group": 1, "icon": "👁", "level": 0},
+    {"regex": "(?i)^CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(\\w+)", "kind": "table", "name_group": 1, "icon": "🗃", "level": 0},
+    {"regex": "(?i)^CREATE\\s+INDEX\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?(\\w+)", "kind": "index", "name_group": 1, "icon": "·", "level": 0}
+  ]
+}

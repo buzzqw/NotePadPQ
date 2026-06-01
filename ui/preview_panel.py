@@ -437,6 +437,7 @@ class PreviewPanel(QWidget):
         self._pdf_page_size  = (595.0, 842.0)  # punti A4 default
         self._pdf_show_links = True
         self._pdf_links: list = []
+        self._pdf_cursor_highlight: Optional[tuple] = None  # (page_0based, y_pt, h_pt, W_pt)
 
         vl.addWidget(self._stack)
 
@@ -473,9 +474,10 @@ class PreviewPanel(QWidget):
                 pass
 
         self._editor = editor
-        
+        self._pdf_cursor_highlight = None
+
         # FIX: Forza il re-render invalidando la memoria dell'ultimo testo
-        self._last_hash = 0 
+        self._last_hash = 0
         
         if editor is None:
             self._set_mode("text")
@@ -1150,6 +1152,19 @@ class PreviewPanel(QWidget):
             oy = clip_rect.y0
             z  = self._pdf_zoom
 
+            # ── Cursor indicator (tex→pdf forward sync) ───────────────────
+            if self._pdf_cursor_highlight is not None:
+                c_page, c_y, c_h, c_W = self._pdf_cursor_highlight
+                if c_page == self._pdf_page_num and c_y is not None:
+                    cy = int((c_y - oy) * z)
+                    cind = QPainter(pm)
+                    cind.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    cind.setPen(QPen(QColor(255, 80, 0, 180), 2))
+                    cind.setBrush(QBrush(QColor(255, 120, 0, 30)))
+                    cind.drawRect(0, max(0, cy - 9), pm.width(), 18)
+                    cind.end()
+            # ─────────────────────────────────────────────────────────────
+
             # ── Selezione tex→pdf highlight ───────────────────────────────
             if self._pdf_selection_highlight is not None:
                 h_page, h_y0, h_y1, h_x0_pt, h_x1_pt = self._pdf_selection_highlight
@@ -1323,6 +1338,8 @@ class PreviewPanel(QWidget):
                         return
 
         # --- SYNCTEX ---
+        if not self._sync_cursor:
+            return
         try:
             from editor.synctex import SyncTeX
             from pathlib import Path as _Path
@@ -1357,7 +1374,7 @@ class PreviewPanel(QWidget):
 
     def go_to_pdf_page_for_line(self, line: int) -> None:
         """
-        Pubblico: dato una riga nel .tex, scrolla il PDF alla pagina corrispondente.
+        Pubblico: dato una riga nel .tex, scrolla il PDF alla pagina e posizione corrispondente.
         Chiamato dall'editor quando il cursore si sposta (integrazione tex->pdf).
         """
         if self._mode != "pdf" or not self._pdf_path:
@@ -1374,8 +1391,22 @@ class PreviewPanel(QWidget):
             result = sx.tex_to_pdf(line, col=1)
             if result and "page" in result:
                 new_page = result["page"] - 1  # 0-based
-                if new_page != self._pdf_page_num:
-                    self._pdf_page_num = new_page
+                y_pt = result.get("y") or result.get("v")
+                h_pt = result.get("h")
+                W_pt = result.get("W")
+                self._pdf_cursor_highlight = (new_page, y_pt, h_pt, W_pt)
+                self._pdf_page_num = new_page
+                self._pdf_show_page()
+                if y_pt is not None:
+                    def _scroll():
+                        oy_val = self._pdf_current_clip.y0 if hasattr(self, "_pdf_current_clip") else 0.0
+                        cy = int((y_pt - oy_val) * self._pdf_zoom)
+                        vbar = self._pdf_scroll.verticalScrollBar()
+                        vbar.setValue(max(0, cy - self._pdf_scroll.viewport().height() // 2))
+                    QTimer.singleShot(0, _scroll)
+            else:
+                if self._pdf_cursor_highlight is not None:
+                    self._pdf_cursor_highlight = None
                     self._pdf_show_page()
         except Exception:
             pass

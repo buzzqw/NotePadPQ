@@ -1,0 +1,21 @@
+{
+  "language": "latex",
+  "display_name": "LaTeX",
+  "extensions": ["tex", "sty", "cls", "ltx"],
+  "lexer_names": ["latex", "tex"],
+  "hierarchical": true,
+  "patterns": [
+    {"regex": "\\\\part\\s*\\{([^}]+)\\}", "kind": "part", "name_group": 1, "icon": "📚", "level": 1},
+    {"regex": "\\\\part\\*\\s*\\{([^}]+)\\}", "kind": "part*", "name_group": 1, "icon": "📚", "level": 1},
+    {"regex": "\\\\chapter\\s*\\{([^}]+)\\}", "kind": "chapter", "name_group": 1, "icon": "📖", "level": 2},
+    {"regex": "\\\\chapter\\*\\s*\\{([^}]+)\\}", "kind": "chapter*", "name_group": 1, "icon": "📖", "level": 2},
+    {"regex": "\\\\section\\s*\\{([^}]+)\\}", "kind": "section", "name_group": 1, "icon": "§", "level": 3},
+    {"regex": "\\\\section\\*\\s*\\{([^}]+)\\}", "kind": "section*", "name_group": 1, "icon": "§", "level": 3},
+    {"regex": "\\\\subsection\\s*\\{([^}]+)\\}", "kind": "subsection", "name_group": 1, "icon": "§", "level": 4},
+    {"regex": "\\\\subsection\\*\\s*\\{([^}]+)\\}", "kind": "subsection*", "name_group": 1, "icon": "§", "level": 4},
+    {"regex": "\\\\subsubsection\\s*\\{([^}]+)\\}", "kind": "subsubsection", "name_group": 1, "icon": "§", "level": 5},
+    {"regex": "\\\\subsubsection\\*\\s*\\{([^}]+)\\}", "kind": "subsubsection*", "name_group": 1, "icon": "§", "level": 5},
+    {"regex": "\\\\newcommand\\{\\\\(\\w+)\\}", "kind": "command", "name_group": 1, "icon": "⌘", "level": 0},
+    {"regex": "\\\\newenvironment\\{(\\w+)\\}", "kind": "environment", "name_group": 1, "icon": "⬜", "level": 0}
+  ]
+}

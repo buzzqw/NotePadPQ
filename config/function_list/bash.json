@@ -1,0 +1,14 @@
+{
+  "language": "bash",
+  "display_name": "Bash / Shell",
+  "extensions": ["sh", "bash", "zsh", "ksh", "fish"],
+  "lexer_names": ["bash"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^function\\s+(\\w+)\\s*(?:\\(\\))?\\s*\\{", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^(\\w+)\\s*\\(\\)\\s*\\{", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^(\\w+)\\s*\\(\\)$", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^readonly\\s+(\\w+)=", "kind": "readonly", "name_group": 1, "icon": "·", "level": 0},
+    {"regex": "^(\\w+)=()", "kind": "variable", "name_group": 1, "icon": "·", "level": 0}
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "language": "css",
+  "display_name": "CSS / SCSS / LESS",
+  "extensions": ["css", "scss", "less", "sass"],
+  "lexer_names": ["css"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^@keyframes\\s+(\\w+)", "kind": "keyframes", "name_group": 1, "icon": "🎞", "level": 0},
+    {"regex": "^@mixin\\s+(\\w+)", "kind": "mixin", "name_group": 1, "icon": "🔶", "level": 0},
+    {"regex": "^@function\\s+(\\w+)", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^(--[\\w-]+)\\s*:", "kind": "variable", "name_group": 1, "icon": "·", "level": 0},
+    {"regex": "^(\\$[\\w-]+)\\s*:", "kind": "variable", "name_group": 1, "icon": "·", "level": 0},
+    {"regex": "^([#\\.][\\w-]+(?:[#\\.][\\w-]+)*)\\s*\\{", "kind": "selector", "name_group": 1, "icon": "🎨", "level": 0}
+  ]
+}

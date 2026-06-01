@@ -1,0 +1,14 @@
+{
+  "language": "java",
+  "display_name": "Java",
+  "extensions": ["java"],
+  "lexer_names": ["java"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^\\s*(?:public|private|protected)?\\s*(?:abstract|final|static)?\\s*class\\s+(\\w+)", "kind": "class", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^\\s*(?:public|private|protected)?\\s*interface\\s+(\\w+)", "kind": "interface", "name_group": 1, "icon": "📋", "level": 0},
+    {"regex": "^\\s*(?:public|private|protected)?\\s*enum\\s+(\\w+)", "kind": "enum", "name_group": 1, "icon": "≡", "level": 0},
+    {"regex": "^\\s*@interface\\s+(\\w+)", "kind": "annotation", "name_group": 1, "icon": "@", "level": 0},
+    {"regex": "^\\s*(?:public|private|protected)\\s+(?:static\\s+)?(?:final\\s+)?(?:abstract\\s+)?(?:synchronized\\s+)?(?:[\\w<>\\[\\]]+)\\s+(\\w+)\\s*\\(", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0}
+  ]
+}

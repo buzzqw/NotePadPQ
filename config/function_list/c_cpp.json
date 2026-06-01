@@ -1,0 +1,14 @@
+{
+  "language": "c/c++",
+  "display_name": "C / C++",
+  "extensions": ["c", "h", "cpp", "cc", "cxx", "hpp", "hxx"],
+  "lexer_names": ["c/c++", "c"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^(?:class|struct)\\s+(\\w+)", "kind": "class/struct", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^namespace\\s+(\\w+)", "kind": "namespace", "name_group": 1, "icon": "📦", "level": 0},
+    {"regex": "^enum\\s+(?:class\\s+)?(\\w+)", "kind": "enum", "name_group": 1, "icon": "≡", "level": 0},
+    {"regex": "^#define\\s+(\\w+)\\(", "kind": "macro", "name_group": 1, "icon": "#", "level": 0},
+    {"regex": "^(?!\\s*(?:if|else|for|while|switch|return|//))(?:[\\w:*&<>~]+\\s+)+([\\w:~]+)\\s*\\([^;]*$", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0}
+  ]
+}

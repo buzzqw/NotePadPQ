@@ -1,0 +1,16 @@
+{
+  "language": "python",
+  "display_name": "Python",
+  "extensions": ["py", "pyw"],
+  "lexer_names": ["python"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^class\\s+(\\w+)", "kind": "class", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^async def\\s+(\\w+)\\s*\\(", "kind": "async def", "name_group": 1, "icon": "⚡", "level": 0},
+    {"regex": "^def\\s+(\\w+)\\s*\\(", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^    async def\\s+(\\w+)\\s*\\(", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0},
+    {"regex": "^    def\\s+(\\w+)\\s*\\(", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0},
+    {"regex": "^        def\\s+(\\w+)\\s*\\(", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0},
+    {"regex": "^        async def\\s+(\\w+)\\s*\\(", "kind": "method", "name_group": 1, "icon": "⚡", "level": 0}
+  ]
+}

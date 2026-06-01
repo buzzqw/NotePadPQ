@@ -1,0 +1,14 @@
+{
+  "language": "php",
+  "display_name": "PHP",
+  "extensions": ["php", "php3", "php4", "php5", "phtml"],
+  "lexer_names": ["php"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^(?:abstract\\s+|final\\s+)?class\\s+(\\w+)", "kind": "class", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^interface\\s+(\\w+)", "kind": "interface", "name_group": 1, "icon": "📋", "level": 0},
+    {"regex": "^trait\\s+(\\w+)", "kind": "trait", "name_group": 1, "icon": "🔶", "level": 0},
+    {"regex": "^function\\s+(\\w+)\\s*\\(", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^    (?:public|private|protected)?\\s*(?:static\\s+)?function\\s+(\\w+)\\s*\\(", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0}
+  ]
+}

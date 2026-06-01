@@ -1,0 +1,13 @@
+{
+  "language": "lua",
+  "display_name": "Lua",
+  "extensions": ["lua"],
+  "lexer_names": ["lua"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^function\\s+([\\w.:]+)\\s*\\(", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^local function\\s+(\\w+)\\s*\\(", "kind": "local function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^([\\w.]+)\\s*=\\s*function\\s*\\(", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^local\\s+(\\w+)\\s*=\\s*function\\s*\\(", "kind": "local function", "name_group": 1, "icon": "𝑓", "level": 0}
+  ]
+}

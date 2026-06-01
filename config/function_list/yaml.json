@@ -1,0 +1,12 @@
+{
+  "language": "yaml",
+  "display_name": "YAML",
+  "extensions": ["yaml", "yml"],
+  "lexer_names": ["yaml"],
+  "hierarchical": true,
+  "patterns": [
+    {"regex": "^(\\w[\\w -]*):\\s*$", "kind": "key", "name_group": 1, "icon": "·", "level": 1},
+    {"regex": "^  (\\w[\\w -]*):\\s*$", "kind": "key", "name_group": 1, "icon": "·", "level": 2},
+    {"regex": "^    (\\w[\\w -]*):\\s*$", "kind": "key", "name_group": 1, "icon": "·", "level": 3}
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "language": "html",
+  "display_name": "HTML",
+  "extensions": ["html", "htm", "xhtml"],
+  "lexer_names": ["html"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "(?i)<h1[^>]*>([^<]+)", "kind": "H1", "name_group": 1, "icon": "📖", "level": 0},
+    {"regex": "(?i)<h2[^>]*>([^<]+)", "kind": "H2", "name_group": 1, "icon": "●", "level": 0},
+    {"regex": "(?i)<h3[^>]*>([^<]+)", "kind": "H3", "name_group": 1, "icon": "○", "level": 0},
+    {"regex": "(?i)<section[^>]*id=[\"']([^\"']+)[\"']", "kind": "section", "name_group": 1, "icon": "§", "level": 0},
+    {"regex": "(?i)<div[^>]*id=[\"']([^\"']+)[\"']", "kind": "div#id", "name_group": 1, "icon": "🔲", "level": 0},
+    {"regex": "(?i)<script[^>]*>\\s*function\\s+(\\w+)", "kind": "js function", "name_group": 1, "icon": "𝑓", "level": 0}
+  ]
+}

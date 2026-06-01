@@ -1,0 +1,16 @@
+{
+  "language": "go",
+  "display_name": "Go",
+  "extensions": ["go"],
+  "lexer_names": ["go", "golang"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^func\\s+\\((\\w+)\\s+\\*?\\w+\\)\\s+(\\w+)\\s*\\(", "kind": "method", "name_group": 2, "icon": "⚙", "level": 0},
+    {"regex": "^func\\s+(\\w+)\\s*\\(", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^type\\s+(\\w+)\\s+struct", "kind": "struct", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^type\\s+(\\w+)\\s+interface", "kind": "interface", "name_group": 1, "icon": "📋", "level": 0},
+    {"regex": "^type\\s+(\\w+)\\s+", "kind": "type", "name_group": 1, "icon": "🔹", "level": 0},
+    {"regex": "^const\\s+(\\w+)\\s*=", "kind": "const", "name_group": 1, "icon": "·", "level": 0},
+    {"regex": "^var\\s+(\\w+)\\s+", "kind": "var", "name_group": 1, "icon": "·", "level": 0}
+  ]
+}

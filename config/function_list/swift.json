@@ -1,0 +1,16 @@
+{
+  "language": "swift",
+  "display_name": "Swift",
+  "extensions": ["swift"],
+  "lexer_names": ["swift"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^(?:open\\s+|public\\s+|internal\\s+|private\\s+|fileprivate\\s+)?(?:final\\s+)?class\\s+(\\w+)", "kind": "class", "name_group": 1, "icon": "🔷", "level": 0},
+    {"regex": "^(?:public\\s+|internal\\s+|private\\s+|fileprivate\\s+)?struct\\s+(\\w+)", "kind": "struct", "name_group": 1, "icon": "🔶", "level": 0},
+    {"regex": "^(?:public\\s+|internal\\s+|private\\s+|fileprivate\\s+)?protocol\\s+(\\w+)", "kind": "protocol", "name_group": 1, "icon": "📋", "level": 0},
+    {"regex": "^(?:public\\s+|internal\\s+|private\\s+|fileprivate\\s+)?enum\\s+(\\w+)", "kind": "enum", "name_group": 1, "icon": "≡", "level": 0},
+    {"regex": "^(?:extension)\\s+(\\w+)", "kind": "extension", "name_group": 1, "icon": "🔗", "level": 0},
+    {"regex": "^    (?:(?:public|private|internal|override|class|static|mutating|final)\\s+)*func\\s+(\\w+)", "kind": "method", "name_group": 1, "icon": "⚙", "level": 0},
+    {"regex": "^func\\s+(\\w+)", "kind": "function", "name_group": 1, "icon": "𝑓", "level": 0}
+  ]
+}

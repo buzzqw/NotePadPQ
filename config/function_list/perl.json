@@ -1,0 +1,12 @@
+{
+  "language": "perl",
+  "display_name": "Perl",
+  "extensions": ["pl", "pm", "t", "perl"],
+  "lexer_names": ["perl"],
+  "hierarchical": false,
+  "patterns": [
+    {"regex": "^package\\s+([\\w:]+)", "kind": "package", "name_group": 1, "icon": "📦", "level": 0},
+    {"regex": "^sub\\s+(\\w+)\\s*(?::|\\{)", "kind": "subroutine", "name_group": 1, "icon": "𝑓", "level": 0},
+    {"regex": "^my\\s+(\\$\\w+)\\s*=\\s*sub\\s*\\{", "kind": "anon sub", "name_group": 1, "icon": "𝑓", "level": 0}
+  ]
+}

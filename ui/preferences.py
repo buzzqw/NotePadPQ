@@ -221,10 +221,18 @@ class PreferencesDialog(QDialog):
         self._add_newline_eof  = QCheckBox(tr("pref.file.newline_eof", default="Aggiungi nuova riga a fine file"))
         self._restore_session  = QCheckBox(tr("pref.file.restore_session", default="Ripristina sessione all'avvio"))
         self._restore_unsaved  = QCheckBox(tr("pref.file.restore_unsaved", default="Ripristina documenti non salvati all'avvio"))
+        self._autosave_on_focus_loss = QCheckBox(tr("pref.file.autosave_focus_loss"))
+
+        self._backup_on_save.setToolTip(tr("tooltip.pref_backup_on_save"))
+        self._trim_trailing.setToolTip(tr("tooltip.pref_trim_trailing"))
+        self._add_newline_eof.setToolTip(tr("tooltip.pref_newline_eof"))
+        self._restore_session.setToolTip(tr("tooltip.pref_restore_session"))
+        self._restore_unsaved.setToolTip(tr("tooltip.pref_restore_unsaved"))
+        self._autosave_on_focus_loss.setToolTip(tr("tooltip.pref_autosave_focus_loss"))
 
         for cb in (self._backup_on_save, self._trim_trailing,
                    self._add_newline_eof, self._restore_session,
-                   self._restore_unsaved):
+                   self._restore_unsaved, self._autosave_on_focus_loss):
             sl.addWidget(cb)
 
         vl.addWidget(grp_save)
@@ -240,6 +248,7 @@ class PreferencesDialog(QDialog):
         al = QFormLayout(grp_autobackup)
 
         self._autobackup_enabled = QCheckBox(tr("pref.file.autobackup_enabled"))
+        self._autobackup_enabled.setToolTip(tr("tooltip.pref_autobackup_enabled"))
         al.addRow("", self._autobackup_enabled)
 
         self._autosave_to_backup = QCheckBox(tr("pref.file.autosave_to_backup"))
@@ -249,6 +258,7 @@ class PreferencesDialog(QDialog):
         self._autobackup_interval = QSpinBox()
         self._autobackup_interval.setRange(1, 120)
         self._autobackup_interval.setSuffix(tr("pref.file.autobackup_interval_suffix"))
+        self._autobackup_interval.setToolTip(tr("tooltip.pref_autobackup_interval"))
         al.addRow(tr("pref.file.autobackup_interval_label"), self._autobackup_interval)
 
         backup_dir_row = QHBoxLayout()
@@ -265,10 +275,9 @@ class PreferencesDialog(QDialog):
 
         grp_autosave = QGroupBox(tr("pref.file.autosave_group"))
         asl = QVBoxLayout(grp_autosave)
-        self._autoreload_on_change   = QCheckBox(tr("pref.file.autoreload"))
+        self._autoreload_on_change = QCheckBox(tr("pref.file.autoreload"))
+        self._autoreload_on_change.setToolTip(tr("tooltip.pref_autoreload"))
         asl.addWidget(self._autoreload_on_change)
-        self._autosave_on_focus_loss = QCheckBox(tr("pref.file.autosave_focus_loss"))
-        asl.addWidget(self._autosave_on_focus_loss)
         vl.addWidget(grp_autosave)
 
         vl.addStretch()

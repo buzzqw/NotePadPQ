@@ -333,6 +333,7 @@ class MainWindow(QMainWindow):
         self._setup_central()
         self._setup_dock_panels()
         self._setup_language_toolbar()
+        self._setup_latex_menu()
         self._setup_connections()
         self._setup_i18n()
         self._setup_autobackup()
@@ -943,6 +944,9 @@ class MainWindow(QMainWindow):
             _a.setIconVisibleInMenu(True)
         if hasattr(self, "_build_panel") and self._build_panel:
             self._build_panel._refresh_button_labels()
+        # Re-aggancia i menu dinamici dopo il mb.clear() di _build_menus
+        if hasattr(self, "_latex_menu_mgr"):
+            self._latex_menu_mgr._attach()
 
     def _act(self, key: str, shortcut: str = "",
                  slot=None, checkable: bool = False,
@@ -1622,6 +1626,14 @@ class MainWindow(QMainWindow):
             LanguageToolbar.install(self)
         except Exception as e:
             print(f"[LanguageToolbar] errore installazione: {e}")
+
+    def _setup_latex_menu(self) -> None:
+        """Installa il menu LaTeX (visibile solo con file .tex attivi)."""
+        try:
+            from ui.latex_menu import LatexMenuManager
+            LatexMenuManager.install(self)
+        except Exception as e:
+            print(f"[LatexMenu] errore installazione: {e}")
 
     def _rebuild_toolbar(self) -> None:
         """Carica le icone dal disco e le applica a toolbar e voci di menu."""

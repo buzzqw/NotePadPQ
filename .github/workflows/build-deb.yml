@@ -116,8 +116,14 @@ jobs:
           cp -r _vendor "${APP}/_vendor"
           find "${APP}" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
-          # ── Launcher (template in packaging/deb/) ─────────────────────
-          install -Dm755 packaging/deb/launcher "${STAGING}/usr/bin/notepadpq"
+          # ── Launcher (generato inline — non dipende da file nel checkout) ──
+          install -d "${STAGING}/usr/bin"
+          {
+            printf '#!/bin/bash\n'
+            printf 'export PYTHONPATH="/opt/notepadpq/_vendor${PYTHONPATH:+:${PYTHONPATH}}"\n'
+            printf 'exec python3 /opt/notepadpq/main.py "$@"\n'
+          } > "${STAGING}/usr/bin/notepadpq"
+          chmod 755 "${STAGING}/usr/bin/notepadpq"
 
           # ── Desktop entry ─────────────────────────────────────────────
           install -Dm644 data/notepadpq.desktop \
@@ -188,9 +194,26 @@ jobs:
             printf ' spreadsheet, rich text editor, Git integration, and more.\n'
           } > "${STAGING}/DEBIAN/control"
 
-          # ── DEBIAN/postinst e postrm (template in packaging/deb/) ─────
-          install -Dm755 packaging/deb/postinst "${STAGING}/DEBIAN/postinst"
-          install -Dm755 packaging/deb/postrm   "${STAGING}/DEBIAN/postrm"
+          # ── DEBIAN/postinst e postrm (inline — non dipendono dal checkout) ──
+          {
+            printf '#!/bin/bash\nset -e\n'
+            printf 'case "$1" in\n'
+            printf '    configure)\n'
+            printf '        gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor 2>/dev/null || true\n'
+            printf '        update-desktop-database -q /usr/share/applications 2>/dev/null || true\n'
+            printf '        ;;\nesac\n'
+          } > "${STAGING}/DEBIAN/postinst"
+          chmod 755 "${STAGING}/DEBIAN/postinst"
+
+          {
+            printf '#!/bin/bash\nset -e\n'
+            printf 'case "$1" in\n'
+            printf '    remove|purge)\n'
+            printf '        gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor 2>/dev/null || true\n'
+            printf '        update-desktop-database -q /usr/share/applications 2>/dev/null || true\n'
+            printf '        ;;\nesac\n'
+          } > "${STAGING}/DEBIAN/postrm"
+          chmod 755 "${STAGING}/DEBIAN/postrm"
 
           echo "Staging pronto — installed size: ${INSTALLED_KB} KiB"
 

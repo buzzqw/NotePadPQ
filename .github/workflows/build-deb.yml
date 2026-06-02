@@ -1,0 +1,225 @@
+name: Build .deb
+
+# Trigger: si attiva quando versiona.sh pubblica la release su GitHub
+# (release:published), oppure manualmente dalla UI Actions.
+#
+# Usiamo release:published invece di push:tags perché versiona.sh crea
+# la release DOPO il push del tag — la release è già pronta quando
+# questo job parte, quindi gh release upload non incontra race condition.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag della release (es. v1.4.2)'
+        required: true
+        type: string
+
+permissions:
+  contents: write   # necessario per caricare asset nella release
+
+jobs:
+  build-deb:
+    name: Build Debian package (amd64)
+    runs-on: ubuntu-22.04   # glibc 2.35 — compatibile con distro 2022+
+
+    steps:
+      # ── Determina il tag (release event oppure input manuale) ─────────────
+      - name: Determina tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Checkout al tag specificato ───────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.value }}
+
+      # ── Calcola variabili di versione ─────────────────────────────────────
+      - name: Versione
+        id: ver
+        run: |
+          TAG="${{ steps.tag.outputs.value }}"
+          VER="${TAG#v}"
+          echo "tag=${TAG}"     >> "$GITHUB_OUTPUT"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+          echo "deb=notepadpq_${VER}_amd64.deb" >> "$GITHUB_OUTPUT"
+          echo "Building notepadpq ${VER} → notepadpq_${VER}_amd64.deb"
+
+      # ── Strumenti di build ────────────────────────────────────────────────
+      - name: Installa strumenti di build
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            python3 python3-pip rsync fakeroot dpkg-dev
+
+      # ── Vendor: pacchetti pip non disponibili nei repo Ubuntu ─────────────
+      # Installati in _vendor/ e copiati in /opt/notepadpq/_vendor/ nel .deb.
+      # PYTHONPATH viene impostato nel launcher così non interferiscono con
+      # il Python di sistema.
+      # NON inclusi qui (disponibili via apt, dichiarati come Recommends/Suggests):
+      #   matplotlib, sympy, openpyxl, xlrd, odf, paramiko, pymupdf.
+      - name: Installa pacchetti vendor (pip-only)
+        run: |
+          mkdir -p _vendor
+          pip3 install --quiet --no-compile --target _vendor \
+            "PyQt6-QScintilla>=2.13" \
+            "pyspellchecker>=0.7"    \
+            "mammoth>=0.11"          \
+            "htmldocx>=0.0.6"        \
+            "PyGithub>=1.55"         \
+            "python-gitlab>=3.0"     \
+            "pypandoc>=1.8"
+          find _vendor \( -type d \( -name "__pycache__" -o -name "*.dist-info" -o -name "*.data" \) \) \
+            -exec rm -rf {} + 2>/dev/null || true
+          find _vendor -name "*.pyc" -delete 2>/dev/null || true
+          echo "Vendor size: $(du -sh _vendor | cut -f1)"
+
+      # ── Assembla la staging directory ─────────────────────────────────────
+      - name: Assembla staging directory
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          STAGING="dist/staging"
+          APP="${STAGING}/opt/notepadpq"
+
+          # ── Sorgenti applicazione ─────────────────────────────────────
+          mkdir -p "${APP}"
+          rsync -a \
+            --exclude='.git'            \
+            --exclude='.github'         \
+            --exclude='packaging'       \
+            --exclude='windowsbuild'    \
+            --exclude='immagini'        \
+            --exclude='tests'           \
+            --exclude='dist'            \
+            --exclude='build'           \
+            --exclude='.venv*'          \
+            --exclude='_vendor'         \
+            --exclude='__pycache__'     \
+            --exclude='*.pyc'           \
+            --exclude='*.spec'          \
+            --exclude='versiona.sh'     \
+            --exclude='setup.sh'        \
+            --exclude='test.sh'         \
+            --exclude='port-to-gtk4.md' \
+            --exclude='CLAUDE.md'       \
+            --exclude='README.md'       \
+            . "${APP}/"
+
+          # ── Vendor ────────────────────────────────────────────────────
+          cp -r _vendor "${APP}/_vendor"
+          find "${APP}" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+
+          # ── Launcher (template in packaging/deb/) ─────────────────────
+          install -Dm755 packaging/deb/launcher "${STAGING}/usr/bin/notepadpq"
+
+          # ── Desktop entry ─────────────────────────────────────────────
+          install -Dm644 data/notepadpq.desktop \
+            "${STAGING}/usr/share/applications/io.github.buzzqw.NotePadPQ.desktop"
+
+          # ── AppStream metadata ────────────────────────────────────────
+          install -Dm644 data/io.github.buzzqw.NotePadPQ.metainfo.xml \
+            "${STAGING}/usr/share/metainfo/io.github.buzzqw.NotePadPQ.metainfo.xml"
+
+          # ── Icone hicolor ─────────────────────────────────────────────
+          for SIZE in 16 32 48 64 128 256; do
+            SRC="icons/NotePadPQ_${SIZE}.png"
+            DST="${STAGING}/usr/share/icons/hicolor/${SIZE}x${SIZE}/apps/notepadpq.png"
+            [ -f "${SRC}" ] && install -Dm644 "${SRC}" "${DST}"
+          done
+          install -Dm644 icons/NotePadPQ_256.png \
+            "${STAGING}/usr/share/pixmaps/notepadpq.png"
+
+          # ── Licenza ───────────────────────────────────────────────────
+          install -Dm644 "EUPL-1.2 EN.txt" \
+            "${STAGING}/usr/share/doc/notepadpq/copyright"
+
+          # ── DEBIAN/control ────────────────────────────────────────────
+          # Installed-Size: dimensione reale dei file installati (KiB),
+          # esclude DEBIAN/ che dpkg non copia nel filesystem.
+          INSTALLED_KB=$(
+            { du -sk "${STAGING}/opt" 2>/dev/null
+              du -sk "${STAGING}/usr" 2>/dev/null; } \
+            | awk '{s+=$1} END{print s}'
+          )
+          install -d "${STAGING}/DEBIAN"
+          # Usa printf per generare il file senza heredoc a colonna 0
+          # (i heredoc a col 0 terminerebbero il blocco YAML).
+          {
+            printf 'Package: notepadpq\n'
+            printf 'Version: %s\n'        "${VER}"
+            printf 'Architecture: amd64\n'
+            printf 'Maintainer: buzzqw <azanzani@gmail.com>\n'
+            printf 'Installed-Size: %s\n' "${INSTALLED_KB}"
+            printf 'Depends: python3 (>= 3.10),\n'
+            printf ' python3-pyqt6 (>= 6.0),\n'
+            printf ' python3-pyqt6.qtwebengine,\n'
+            printf ' python3-chardet,\n'
+            printf ' python3-markdown,\n'
+            printf ' python3-docutils,\n'
+            printf ' python3-keyring,\n'
+            printf ' python3-cryptography,\n'
+            printf ' python3-pygments,\n'
+            printf ' python3-psutil\n'
+            printf 'Recommends: python3-matplotlib,\n'
+            printf ' python3-sympy,\n'
+            printf ' python3-openpyxl,\n'
+            printf ' python3-xlrd,\n'
+            printf ' python3-odf,\n'
+            printf ' python3-paramiko,\n'
+            printf ' pandoc\n'
+            printf 'Suggests: python3-pymupdf\n'
+            printf 'Homepage: https://github.com/buzzqw/NotePadPQ\n'
+            printf 'Description: Advanced text editor with syntax highlighting, LaTeX support and plugins\n'
+            printf ' NotePadPQ is a modern, cross-platform text editor built with Python 3,\n'
+            printf ' PyQt6 and QScintilla. Inspired by Notepad++ but runs natively on Linux,\n'
+            printf ' Windows and macOS without Wine or emulation layers.\n'
+            printf ' .\n'
+            printf ' Features: syntax highlighting for 40+ languages, full LaTeX suite with\n'
+            printf ' autocomplete and SyncTeX, LSP client, split view, command palette,\n'
+            printf ' Markdown and RST live preview, spell checker, integrated build system,\n'
+            printf ' plugin architecture with AI assistant, PDF viewer, hex viewer,\n'
+            printf ' spreadsheet, rich text editor, Git integration, and more.\n'
+          } > "${STAGING}/DEBIAN/control"
+
+          # ── DEBIAN/postinst e postrm (template in packaging/deb/) ─────
+          install -Dm755 packaging/deb/postinst "${STAGING}/DEBIAN/postinst"
+          install -Dm755 packaging/deb/postrm   "${STAGING}/DEBIAN/postrm"
+
+          echo "Staging pronto — installed size: ${INSTALLED_KB} KiB"
+
+      # ── Build .deb ────────────────────────────────────────────────────────
+      - name: Build .deb
+        run: |
+          DEB="${{ steps.ver.outputs.deb }}"
+          mkdir -p dist
+          fakeroot dpkg-deb --build --root-owner-group dist/staging "dist/${DEB}"
+          echo "── Package info ────────────────────────────────────────────"
+          dpkg-deb --info "dist/${DEB}"
+          echo ""
+          echo "── File installati (prime 40 righe) ────────────────────────"
+          dpkg-deb --contents "dist/${DEB}" | awk '{print $NF}' | sort | head -40
+          echo "── Size: $(du -sh "dist/${DEB}" | cut -f1) ─────────────────"
+
+      # ── Linting (non bloccante) ───────────────────────────────────────────
+      - name: Lint .deb (lintian)
+        run: |
+          sudo apt-get install -y --no-install-recommends lintian
+          lintian \
+            --suppress-tags extra-license-file,embedded-library,no-changelog,python-module-in-wrong-location \
+            "dist/${{ steps.ver.outputs.deb }}" || true
+        continue-on-error: true
+
+      # ── Upload alla release GitHub ────────────────────────────────────────
+      - name: Upload alla release
+        run: |
+          gh release upload "${{ steps.ver.outputs.tag }}" \
+            "dist/${{ steps.ver.outputs.deb }}" --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

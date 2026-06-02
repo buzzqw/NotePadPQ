@@ -1021,7 +1021,9 @@
     "toggle_checklist": "Aufgabe in der aktuellen Zeile umschalten.\nFunktioniert bei Zeilen mit - [ ] oder - [x].",
     "smart_typography": "Anführungszeichen automatisch in typografische („“) umwandeln, -- in — und ... in …",
     "sentence_focus": "Text außerhalb des aktuellen Absatzes abdunkeln",
-    "pref_mermaid": "Mermaid-Diagramme in mermaid)"
+    "pref_mermaid": "Mermaid-Diagramme in mermaid)",
+    "pref_smart_typography": "Konvertiert automatisch Anführungszeichen, Bindestriche zu Gedankenstrich und Punkte zu Ellipse",
+    "pref_sentence_focus": "Text außerhalb des aktuellen Absatzes abdunkeln. Im Menü Dokument umschaltbar."
   },
   "websearch": {
     "submenu_title": "Websuche",

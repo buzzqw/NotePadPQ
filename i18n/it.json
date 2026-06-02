@@ -1021,7 +1021,9 @@
     "toggle_checklist": "Segna o deseleziona l'attività sulla riga corrente.\nFunziona su righe con - [ ] o - [x].",
     "smart_typography": "Converti automaticamente virgolette in tipografiche (“”), -- in — e ... in …",
     "sentence_focus": "Attenua il testo fuori dal paragrafo corrente per aiutare la concentrazione",
-    "pref_mermaid": "Abilita il rendering di diagrammi Mermaid nei blocchi mermaid)"
+    "pref_mermaid": "Abilita il rendering di diagrammi Mermaid nei blocchi mermaid)",
+    "pref_smart_typography": "Converti automaticamente virgolette in tipografiche, trattini doppi in em dash e tre punti in ellissi",
+    "pref_sentence_focus": "Attenua il testo fuori dal paragrafo corrente. Attivabile dal menu Documento."
   },
   "websearch": {
     "submenu_title": "Ricerca Web",

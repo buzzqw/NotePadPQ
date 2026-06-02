@@ -1021,7 +1021,9 @@
     "toggle_checklist": "Marcar o desmarcar la tarea en la línea actual.\nFunciona en líneas con - [ ] o - [x].",
     "smart_typography": "Convertir automáticamente las comillas en tipográficas (“”), -- en — y ... en …",
     "sentence_focus": "Atenuar el texto fuera del párrafo actual",
-    "pref_mermaid": "Habilitar el renderizado de diagramas Mermaid en bloques mermaid)"
+    "pref_mermaid": "Habilitar el renderizado de diagramas Mermaid en bloques mermaid)",
+    "pref_smart_typography": "Convierte comillas, guiones dobles en raya y puntos en puntos suspensivos automáticamente",
+    "pref_sentence_focus": "Atenuar el texto fuera del párrafo actual. Activable desde el menú Documento."
   },
   "websearch": {
     "submenu_title": "Búsqueda Web",

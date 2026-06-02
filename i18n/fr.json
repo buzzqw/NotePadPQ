@@ -1021,7 +1021,9 @@
     "toggle_checklist": "Cocher ou décocher la tâche sur la ligne courante.\nFonctionne sur les lignes avec - [ ] ou - [x].",
     "smart_typography": "Convertir automatiquement les guillemets en typographiques («»), -- en — et ... en …",
     "sentence_focus": "Atténuer le texte en dehors du paragraphe courant",
-    "pref_mermaid": "Activer le rendu des diagrammes Mermaid dans les blocs mermaid)"
+    "pref_mermaid": "Activer le rendu des diagrammes Mermaid dans les blocs mermaid)",
+    "pref_smart_typography": "Convertit automatiquement les guillemets, tirets en tiret cadratin et points en points de suspension",
+    "pref_sentence_focus": "Atténuer le texte en dehors du paragraphe courant. Activable depuis le menu Document."
   },
   "websearch": {
     "submenu_title": "Recherche Web",

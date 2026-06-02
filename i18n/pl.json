@@ -1021,7 +1021,9 @@
     "toggle_checklist": "Zaznacz lub odznacz zadanie w bieżącym wierszu.\nDziała na wierszach z - [ ] lub - [x].",
     "smart_typography": "Automatycznie zamów cudzysłowy na typograficzne („”), -- na — i ... na …",
     "sentence_focus": "Przyćmi tekst poza bieżącym akapitem",
-    "pref_mermaid": "Włącz renderowanie diagramów Mermaid w blokach mermaid)"
+    "pref_mermaid": "Włącz renderowanie diagramów Mermaid w blokach mermaid)",
+    "pref_smart_typography": "Automatycznie konwertuje cudzysłowy, podwójne myślniki na myślnik i kropki na wielokropek",
+    "pref_sentence_focus": "Przyćmi tekst poza bieżącym akapitem. Można włączyć z menu Dokument."
   },
   "websearch": {
     "submenu_title": "Wyszukiwanie w sieci",

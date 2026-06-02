@@ -1021,7 +1021,9 @@
     "toggle_checklist": "Toggle the task on the current line.\nWorks on lines with - [ ] or - [x].",
     "smart_typography": "Automatically convert quotes to typographic (“”), -- to — and ... to …",
     "sentence_focus": "Dim text outside the current paragraph to help concentration",
-    "pref_mermaid": "Enable Mermaid diagram rendering in mermaid)"
+    "pref_mermaid": "Enable Mermaid diagram rendering in mermaid)",
+    "pref_smart_typography": "Auto-convert straight quotes to typographic, double hyphens to em dash and three dots to ellipsis",
+    "pref_sentence_focus": "Dim text outside the current paragraph. Can be toggled from the Document menu."
   },
   "websearch": {
     "submenu_title": "Web Search",

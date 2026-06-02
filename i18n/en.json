@@ -47,6 +47,7 @@
     "cut": "Cut",
     "copy": "Copy",
     "paste": "Paste",
+    "paste_clipboard_image_latex": "Paste image as LaTeX…",
     "delete": "Delete",
     "select_all": "Select All",
     "copy_path": "Copy File Path",
@@ -415,6 +416,7 @@
     "file_not_found": "File not found: {path}",
     "file_read_error": "Cannot read file:\n{path}\n\nError: {error}",
     "file_write_error": "Cannot save file:\n{path}\n\nError: {error}",
+    "clipboard_image_save_failed": "Cannot save image to: {path}",
     "ftp_sync_failed": "FTP sync failed — check the FTP panel",
     "file_changed_reload": "File \"{name}\" was modified externally.\nReload?",
     "file_deleted_on_disk": "File \"{name}\" was deleted from disk. What do you want to do?",
@@ -628,7 +630,9 @@
     "preferences": "Preferences",
     "info": "Info",
     "ok": "OK",
-    "error": "Error"
+    "error": "Error",
+    "save_clipboard_image": "Save clipboard image",
+    "image_filter_save": "PNG Images (*.png);;JPEG (*.jpg *.jpeg);;All files (*)"
   },
   "preview": {
     "crop_top": "Top:",

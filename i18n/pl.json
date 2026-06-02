@@ -47,6 +47,7 @@
     "cut": "Wytnij",
     "copy": "Kopiuj",
     "paste": "Wklej",
+    "paste_clipboard_image_latex": "Wklej obraz jako LaTeX…",
     "delete": "Usuń",
     "select_all": "Zaznacz wszystko",
     "copy_path": "Kopiuj ścieżkę pliku",
@@ -415,6 +416,7 @@
     "file_not_found": "Plik nie znaleziony: {path}",
     "file_read_error": "Nie można odczytać pliku:\n{path}\n\nBłąd: {error}",
     "file_write_error": "Nie można zapisać pliku:\n{path}\n\nBłąd: {error}",
+    "clipboard_image_save_failed": "Nie można zapisać obrazu do: {path}",
     "ftp_sync_failed": "Synchronizacja FTP nieudana — sprawdź panel FTP",
     "file_changed_reload": "Plik \"{name}\" został zmodyfikowany zewnętrznie.\nOdświeżyć?",
     "file_deleted_on_disk": "Plik \"{name}\" został usunięty z dysku. Co chcesz zrobić?",
@@ -628,7 +630,9 @@
     "preferences": "Preferencje",
     "info": "Informacja",
     "ok": "OK",
-    "error": "Błąd"
+    "error": "Błąd",
+    "save_clipboard_image": "Zapisz obraz ze schowka",
+    "image_filter_save": "Obrazy PNG (*.png);;JPEG (*.jpg *.jpeg);;Wszystkie pliki (*)"
   },
   "preview": {
     "crop_top": "Góra:",

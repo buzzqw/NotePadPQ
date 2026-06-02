@@ -2043,6 +2043,75 @@ class MainWindow(QMainWindow):
         # LSP — connette il server per il linguaggio corrente (no-op se non disponibile)
         self._lsp_connect_editor(editor)
 
+        # Incolla immagine clipboard come LaTeX
+        try:
+            editor.paste_clipboard_image_requested.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        editor.paste_clipboard_image_requested.connect(
+            lambda ed=editor: self._paste_clipboard_image_as_latex(ed)
+        )
+
+    def _paste_clipboard_image_as_latex(self, editor: "EditorWidget") -> None:
+        """Salva l'immagine dalla clipboard su disco e apre la procedura guidata LaTeX."""
+        from PyQt6.QtWidgets import QFileDialog, QDialog
+        from PyQt6.QtGui import QImage
+
+        img: QImage = QApplication.clipboard().image()
+        if img.isNull():
+            return
+
+        base_dir = editor.file_path.parent if editor.file_path else None
+        start_dir = str(base_dir) if base_dir else ""
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("dialog.save_clipboard_image", default="Salva immagine clipboard"),
+            start_dir + "/image.png" if start_dir else "image.png",
+            tr("dialog.image_filter_save",
+               default="Immagini PNG (*.png);;JPEG (*.jpg *.jpeg);;Tutti i file (*)"),
+        )
+        if not save_path:
+            editor.setFocus()
+            return
+
+        if not img.save(save_path):
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self,
+                tr("msg.error", default="Errore"),
+                tr("msg.clipboard_image_save_failed",
+                   default="Impossibile salvare l'immagine in: {path}",
+                   path=save_path),
+            )
+            editor.setFocus()
+            return
+
+        from ui.latex_insert_image_dialog import LatexInsertImageDialog
+        dlg = LatexInsertImageDialog(parent=self, base_dir=base_dir)
+        dlg.set_image_file(save_path)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            editor.setFocus()
+            return
+        code = dlg.get_latex_code()
+        if not code:
+            editor.setFocus()
+            return
+
+        # Assicura che graphicx sia presente nel preambolo
+        toolbar = getattr(self, "_lang_toolbar", None)
+        if toolbar and hasattr(toolbar, "_ensure_latex_package"):
+            toolbar._ensure_latex_package(editor, "graphicx")
+
+        if editor.hasSelectedText():
+            editor.replaceSelectedText(code)
+        else:
+            line, col = editor.getCursorPosition()
+            editor.insert(code)
+            editor.setCursorPosition(line, col + len(code.split("\n")[0]))
+        editor.setFocus()
+
     @pyqtSlot(object, bool)
     def _on_tab_modified(self, editor: EditorWidget, modified: bool) -> None:
         # Controllo se il file proviene dall'FTP

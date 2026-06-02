@@ -227,6 +227,10 @@ class LatexInsertImageDialog(QDialog):
 
     # ── Azioni UI ─────────────────────────────────────────────────────────────
 
+    def set_image_file(self, path: str) -> None:
+        """Pre-popola il campo file con il percorso dato."""
+        self._file_edit.setText(path)
+
     def _browse_file(self) -> None:
         start = ""
         if self._base_dir:

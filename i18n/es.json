@@ -47,6 +47,7 @@
     "cut": "Cortar",
     "copy": "Copiar",
     "paste": "Pegar",
+    "paste_clipboard_image_latex": "Pegar imagen como LaTeX…",
     "delete": "Eliminar",
     "select_all": "Seleccionar todo",
     "copy_path": "Copiar ruta del archivo",
@@ -415,6 +416,7 @@
     "file_not_found": "Archivo no encontrado: {path}",
     "file_read_error": "No se puede leer el archivo:\n{path}\n\nError: {error}",
     "file_write_error": "No se puede guardar el archivo:\n{path}\n\nError: {error}",
+    "clipboard_image_save_failed": "No se puede guardar la imagen en: {path}",
     "ftp_sync_failed": "Sincronización FTP fallida — revisar el panel FTP",
     "file_changed_reload": "El archivo \"{name}\" fue modificado externamente.\n¿Recargar?",
     "file_deleted_on_disk": "El archivo \"{name}\" fue eliminado del disco. ¿Qué desea hacer?",
@@ -628,7 +630,9 @@
     "preferences": "Preferencias",
     "info": "Información",
     "ok": "Aceptar",
-    "error": "Error"
+    "error": "Error",
+    "save_clipboard_image": "Guardar imagen del portapapeles",
+    "image_filter_save": "Imágenes PNG (*.png);;JPEG (*.jpg *.jpeg);;Todos los archivos (*)"
   },
   "preview": {
     "crop_top": "Arriba:",

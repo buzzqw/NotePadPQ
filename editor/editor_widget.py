@@ -252,6 +252,7 @@ class EditorWidget(QsciScintilla):
     language_changed   = pyqtSignal(str)         # es. "Python", "LaTeX"
     lsp_hover_requested  = pyqtSignal(int, int)  # line, col (0-based) — per hover LSP
     context_menu_requested = pyqtSignal(object)  # QMenu — plugin possono aggiungere voci
+    paste_clipboard_image_requested = pyqtSignal()  # incolla immagine clipboard come LaTeX
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -1025,6 +1026,17 @@ class EditorWidget(QsciScintilla):
         if event.key() == Qt.Key.Key_Insert and not event.modifiers():
             self.toggle_overwrite()
             return
+        # Ctrl+V in file LaTeX con immagine nella clipboard → procedura guidata
+        if (event.key() == Qt.Key.Key_V
+                and event.modifiers() == Qt.KeyboardModifier.ControlModifier):
+            _is_latex = (
+                (self.file_path and self.file_path.suffix.lower() == ".tex") or
+                getattr(self, "_current_language", "").lower() == "latex"
+            )
+            if _is_latex and not QApplication.clipboard().image().isNull():
+                self.paste_clipboard_image_requested.emit()
+                return
+
         # Auto-indent su incolla (Ctrl+V)
         if (self._auto_indent_paste
                 and event.key() == Qt.Key.Key_V
@@ -1126,6 +1138,17 @@ class EditorWidget(QsciScintilla):
 
     def set_auto_indent_paste(self, enabled: bool) -> None:
         self._auto_indent_paste = enabled
+
+    def _smart_paste(self) -> None:
+        """Incolla: in file .tex con immagine nella clipboard apre la procedura guidata."""
+        _is_latex = (
+            (self.file_path and self.file_path.suffix.lower() == ".tex") or
+            getattr(self, "_current_language", "").lower() == "latex"
+        )
+        if _is_latex and not QApplication.clipboard().image().isNull():
+            self.paste_clipboard_image_requested.emit()
+            return
+        self.paste()
 
     def paste(self) -> None:
         """Override paste nativo: sopprime SCN_CHARADDED durante l'operazione."""
@@ -1388,7 +1411,7 @@ class EditorWidget(QsciScintilla):
         copy.triggered.connect(self.copy)
         copy.setEnabled(self.hasSelectedText())
         paste = menu.addAction(tr("action.paste"))
-        paste.triggered.connect(self.paste)
+        paste.triggered.connect(self._smart_paste)
         menu.addSeparator()
         sel   = menu.addAction(tr("action.select_all"))
         sel.triggered.connect(self.selectAll)

@@ -47,6 +47,7 @@
     "cut": "Couper",
     "copy": "Copier",
     "paste": "Coller",
+    "paste_clipboard_image_latex": "Coller l'image en LaTeX…",
     "delete": "Supprimer",
     "select_all": "Sélectionner tout",
     "copy_path": "Copier le chemin du fichier",
@@ -415,6 +416,7 @@
     "file_not_found": "Fichier introuvable : {path}",
     "file_read_error": "Impossible de lire le fichier :\n{path}\n\nErreur : {error}",
     "file_write_error": "Impossible d'enregistrer le fichier :\n{path}\n\nErreur : {error}",
+    "clipboard_image_save_failed": "Impossible d'enregistrer l'image vers : {path}",
     "ftp_sync_failed": "Synchronisation FTP échouée — vérifier le panneau FTP",
     "file_changed_reload": "Le fichier \"{name}\" a été modifié de manière externe.\nLe recharger ?",
     "file_deleted_on_disk": "Le fichier \"{name}\" a été supprimé du disque. Que souhaitez-vous faire ?",
@@ -628,7 +630,9 @@
     "preferences": "Préférences",
     "info": "Info",
     "ok": "OK",
-    "error": "Erreur"
+    "error": "Erreur",
+    "save_clipboard_image": "Enregistrer l'image du presse-papier",
+    "image_filter_save": "Images PNG (*.png);;JPEG (*.jpg *.jpeg);;Tous les fichiers (*)"
   },
   "preview": {
     "crop_top": "Haut:",

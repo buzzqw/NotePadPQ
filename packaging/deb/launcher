@@ -1,0 +1,3 @@
+#!/bin/bash
+export PYTHONPATH="/opt/notepadpq/_vendor${PYTHONPATH:+:${PYTHONPATH}}"
+exec python3 /opt/notepadpq/main.py "$@"

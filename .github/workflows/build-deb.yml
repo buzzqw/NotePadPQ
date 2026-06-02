@@ -59,26 +59,26 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             python3 python3-pip rsync fakeroot dpkg-dev
 
-      # ── Vendor: pacchetti pip non disponibili nei repo Ubuntu ─────────────
-      # Installati in _vendor/ e copiati in /opt/notepadpq/_vendor/ nel .deb.
-      # PYTHONPATH viene impostato nel launcher così non interferiscono con
-      # il Python di sistema.
-      # NON inclusi qui (disponibili via apt, dichiarati come Recommends/Suggests):
-      #   matplotlib, sympy, openpyxl, xlrd, odf, paramiko, pymupdf.
-      - name: Installa pacchetti vendor (pip-only)
+      # ── Vendor: SOLO i 2 pacchetti assenti dai repo Ubuntu ──────────────────
+      # - PyQt6-QScintilla: fornisce il widget editor QsciScintilla, non esiste
+      #   come python3-* in nessuna versione Ubuntu corrente.
+      # - pyspellchecker: controllo ortografico, anch'esso assente dai repo.
+      # --no-deps evita di trascinare dipendenze transitive (lxml, Pillow,
+      # requests, certifi…) che sono già disponibili via apt e verrebbero
+      # installate come Depends/Recommends di sistema.
+      # Tutti gli altri pacchetti opzionali (mammoth, PyGithub, ecc.) vengono
+      # dichiarati come Suggests: l'utente li installa con pip se vuole il plugin.
+      - name: Installa pacchetti vendor (pip-only, solo quelli assenti da apt)
         run: |
           mkdir -p _vendor
-          pip3 install --quiet --no-compile --target _vendor \
+          pip3 install --quiet --no-compile --no-deps --target _vendor \
             "PyQt6-QScintilla>=2.13" \
-            "pyspellchecker>=0.7"    \
-            "mammoth>=0.11"          \
-            "htmldocx>=0.0.6"        \
-            "PyGithub>=1.55"         \
-            "python-gitlab>=3.0"     \
-            "pypandoc>=1.8"
+            "pyspellchecker>=0.7"
           find _vendor \( -type d \( -name "__pycache__" -o -name "*.dist-info" -o -name "*.data" \) \) \
             -exec rm -rf {} + 2>/dev/null || true
-          find _vendor -name "*.pyc" -delete 2>/dev/null || true
+          find _vendor -name "*.pyc"       -delete 2>/dev/null || true
+          find _vendor -name ".gitignore"  -delete 2>/dev/null || true
+          find _vendor -name "*.pyi"       -delete 2>/dev/null || true
           echo "Vendor size: $(du -sh _vendor | cut -f1)"
 
       # ── Assembla la staging directory ─────────────────────────────────────
@@ -180,7 +180,9 @@ jobs:
             printf ' python3-odf,\n'
             printf ' python3-paramiko,\n'
             printf ' pandoc\n'
-            printf 'Suggests: python3-pymupdf\n'
+            printf 'Suggests: python3-pymupdf,\n'
+            printf ' python3-requests,\n'
+            printf ' python3-lxml\n'
             printf 'Homepage: https://github.com/buzzqw/NotePadPQ\n'
             printf 'Description: Advanced text editor with syntax highlighting, LaTeX support and plugins\n'
             printf ' NotePadPQ is a modern, cross-platform text editor built with Python 3,\n'

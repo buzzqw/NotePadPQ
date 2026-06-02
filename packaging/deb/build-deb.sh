@@ -65,18 +65,15 @@ VENDOR_DIR="${ROOT}/_vendor"
 if [[ "${SKIP_VENDOR}" = false ]]; then
     rm -rf "${VENDOR_DIR}"
     mkdir -p "${VENDOR_DIR}"
-    pip3 install --quiet --no-compile --target "${VENDOR_DIR}" \
+    pip3 install --quiet --no-compile --no-deps --target "${VENDOR_DIR}" \
         "PyQt6-QScintilla>=2.13" \
-        "pyspellchecker>=0.7"    \
-        "mammoth>=0.11"          \
-        "htmldocx>=0.0.6"        \
-        "PyGithub>=1.55"         \
-        "python-gitlab>=3.0"     \
-        "pypandoc>=1.8"
+        "pyspellchecker>=0.7"
     find "${VENDOR_DIR}" -type d -name "__pycache__"  -exec rm -rf {} + 2>/dev/null || true
     find "${VENDOR_DIR}" -type d -name "*.dist-info"  -exec rm -rf {} + 2>/dev/null || true
     find "${VENDOR_DIR}" -type d -name "*.data"       -exec rm -rf {} + 2>/dev/null || true
-    find "${VENDOR_DIR}" -name "*.pyc"                -delete 2>/dev/null || true
+    find "${VENDOR_DIR}" -name "*.pyc"       -delete 2>/dev/null || true
+    find "${VENDOR_DIR}" -name ".gitignore"  -delete 2>/dev/null || true
+    find "${VENDOR_DIR}" -name "*.pyi"       -delete 2>/dev/null || true
     ok "Vendor installato: $(du -sh "${VENDOR_DIR}" | cut -f1)"
 else
     [[ -d "${VENDOR_DIR}" ]] \

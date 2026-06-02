@@ -181,7 +181,7 @@ class _MarkdownWorker(QThread):
     Il thread principale non viene mai bloccato, indipendentemente
     dalla dimensione del documento.
     """
-    result_ready = pyqtSignal(str, list)  # (html, anchor_lines)
+    result_ready = pyqtSignal(str, list, bool)  # (html, anchor_lines, needs_js)
 
     def __init__(self, text: str):
         super().__init__()
@@ -189,6 +189,7 @@ class _MarkdownWorker(QThread):
 
     def run(self) -> None:
         try:
+            import re as _re
             preprocessed, anchor_lines = _inject_md_line_anchors(self._text)
             if _HAS_MARKDOWN:
                 body = _markdown_lib.markdown(
@@ -199,17 +200,39 @@ class _MarkdownWorker(QThread):
                 import html as _html
                 body = "<pre>" + _html.escape(self._text) + "</pre>"
                 anchor_lines = []
-            # Abilita MathJax se il documento contiene formule $...$ o $$...$$
+
             has_math = bool(
-                "$" in self._text and
-                __import__("re").search(r'\$[\s\S]+?\$', self._text)
+                "$" in self._text and _re.search(r'\$[\s\S]+?\$', self._text)
             )
-            self.result_ready.emit(_wrap_html(body, math=has_math), anchor_lines)
+
+            # Mermaid: rileva blocchi ```mermaid e converti per il renderer JS
+            from config.settings import Settings as _S
+            mermaid_enabled = _S.instance().get("preview/mermaid", True)
+            has_mermaid = mermaid_enabled and bool(
+                _re.search(r'```\s*mermaid', self._text)
+            )
+            if has_mermaid:
+                # fenced_code produce <pre><code class="language-mermaid">...</code></pre>
+                # mermaid.js si aspetta <div class="mermaid">...</div>
+                body = _re.sub(
+                    r'<pre><code class="language-mermaid">(.*?)</code></pre>',
+                    lambda m: '<div class="mermaid">' + m.group(1) + '</div>',
+                    body,
+                    flags=_re.DOTALL,
+                )
+
+            needs_js = has_math or has_mermaid
+            self.result_ready.emit(
+                _wrap_html(body, math=has_math, mermaid=has_mermaid),
+                anchor_lines,
+                needs_js,
+            )
         except Exception as e:
             import html as _html
             self.result_ready.emit(
                 _wrap_html(f"<pre>Errore rendering: {_html.escape(str(e))}</pre>"),
                 [],
+                False,
             )
 
 
@@ -846,13 +869,9 @@ class PreviewPanel(QWidget):
         self._md_worker.result_ready.connect(self._on_markdown_ready)
         self._md_worker.start()
 
-    def _on_markdown_ready(self, html: str, anchor_lines: list) -> None:
+    def _on_markdown_ready(self, html: str, anchor_lines: list, needs_js: bool = False) -> None:
         """Slot chiamato dal thread MD quando il rendering è pronto."""
         if self.sender() is self._md_worker and self._md_worker is not None:
-            # result_ready è emesso DENTRO run(), prima che il thread termini.
-            # Azzerare _md_worker subito farebbe cadere l'ultimo riferimento
-            # Python mentre il thread è ancora vivo → SIGABRT.
-            # Spostiamo in _md_old_workers; finished() rimuoverà il riferimento.
             old = self._md_worker
             self._md_old_workers.append(old)
             def _cleanup(w=old):
@@ -866,8 +885,10 @@ class PreviewPanel(QWidget):
             self._md_anchor_lines = anchor_lines
             vp_w = self._web_fallback.viewport().width() or 800
             html = _fix_img_percent_dimensions(html, vp_w)
-            self._show_html(html, force_webengine=False)
-            self._build_anchor_pos_map()
+            # MathJax e Mermaid richiedono WebEngine (JS); QTextBrowser non esegue JS
+            self._show_html(html, force_webengine=needs_js)
+            if not needs_js:
+                self._build_anchor_pos_map()
 
    
 
@@ -1776,19 +1797,23 @@ def _detect_mode(editor) -> str:
     return "text"
 
 
-def _wrap_html(body: str, math: bool = False) -> str:
-    # MathJax 3 caricato da CDN solo se richiesto (documenti Markdown/HTML con math)
+def _wrap_html(body: str, math: bool = False, mermaid: bool = False) -> str:
     mathjax_tag = (
         "<script>MathJax={tex:{inlineMath:[['$','$'],['\\\\(','\\\\)']]},"
         "svg:{fontCache:'global'}};</script>"
         "<script src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'"
         " async></script>"
     ) if math else ""
+    mermaid_tag = (
+        "<script src='https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js'></script>"
+        "<script>mermaid.initialize({startOnLoad:true,theme:'neutral'});</script>"
+    ) if mermaid else ""
     return (
         f"<!DOCTYPE html><html><head>"
         f"<meta charset='utf-8'>"
         f"<style>{_CSS_BASE}</style>"
         f"{mathjax_tag}"
+        f"{mermaid_tag}"
         f"</head><body>{body}</body></html>"
     )
 

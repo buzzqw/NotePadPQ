@@ -5,7 +5,10 @@ NotePadPQ
 Fornisce:
 - Auto-chiusura coppie di marcatori: ** → **, * → *, ` → `, ``` → ```
 - Completamento automatico del blocco codice con suggerimento linguaggio
-- Nessuna duplicazione: bold/italic/strike sono già in MainWindow._apply_markup()
+- Toggle checklist: [ ] ↔ [x] (Ctrl+Shift+L)
+- YAML front matter highlight (blocco --- iniziale)
+- Tipografia intelligente (virgolette, em dash, ellissi)
+- Focus paragrafo (attenua il testo fuori dal paragrafo corrente)
 
 Uso:
     MarkdownSupport.activate(editor)   # collega i segnali SCN_CHARADDED
@@ -18,6 +21,10 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
+
+# Indicatori riservati a MarkdownSupport (non collidono con editor_widget.py 0-6 e smart_highlight 13-18)
+INDICATOR_YAML_FM      = 19   # FullBoxIndicator: sfondo sul blocco front matter YAML
+INDICATOR_SENTENCE_DIM = 20   # TextColorIndicator: attenua testo fuori dal paragrafo
 
 
 class MarkdownSupport:
@@ -43,13 +50,60 @@ class MarkdownSupport:
             lambda char: MarkdownSupport._on_char_added(editor, char)
         )
 
+        # YAML front matter: applica subito e ogni volta che il testo cambia
+        try:
+            editor.textChanged.disconnect(MarkdownSupport._yaml_fm_slot(editor))
+        except Exception:
+            pass
+        _slot = lambda: MarkdownSupport._apply_yaml_fm(editor)
+        editor._md_yaml_fm_slot = _slot
+        editor.textChanged.connect(_slot)
+        MarkdownSupport._apply_yaml_fm(editor)
+
+        # Inizializza indicatori se non già fatto
+        MarkdownSupport._init_indicators(editor)
+
+    @staticmethod
+    def _yaml_fm_slot(editor: "EditorWidget"):
+        return getattr(editor, "_md_yaml_fm_slot", None)
+
+    @staticmethod
+    def _init_indicators(editor: "EditorWidget") -> None:
+        """Inizializza gli indicatori usati da MarkdownSupport sull'editor."""
+        from PyQt6.Qsci import QsciScintilla
+        from PyQt6.QtGui import QColor
+        try:
+            editor.indicatorDefine(
+                QsciScintilla.IndicatorStyle.FullBoxIndicator, INDICATOR_YAML_FM
+            )
+            editor.setIndicatorForegroundColor(QColor(255, 200, 60, 35), INDICATOR_YAML_FM)
+            editor.setIndicatorDrawUnder(True, INDICATOR_YAML_FM)
+        except Exception:
+            pass
+        try:
+            editor.indicatorDefine(
+                QsciScintilla.IndicatorStyle.TextColorIndicator, INDICATOR_SENTENCE_DIM
+            )
+            # Il colore viene impostato in apply_paragraph_focus in base al tema
+        except Exception:
+            pass
+
+    # ── SCN_CHARADDED ────────────────────────────────────────────────────────
+
     @staticmethod
     def _on_char_added(editor: "EditorWidget", char_int: int) -> None:
         """Gestisce i caratteri speciali Markdown."""
-        # Ignora durante operazioni di paste/insert programmatico
         if getattr(editor, "_in_paste", False):
             return
         char = chr(char_int)
+
+        # Tipografia intelligente (opzionale, configurabile)
+        try:
+            from config.settings import Settings
+            if Settings.instance().get("editor/smart_typography", False):
+                MarkdownSupport._handle_smart_typo(editor, char)
+        except Exception:
+            pass
 
         if char == "*":
             MarkdownSupport._handle_asterisk(editor)
@@ -58,7 +112,169 @@ class MarkdownSupport:
         elif char == "\n":
             MarkdownSupport._handle_newline(editor)
 
-    # ── Handlers ─────────────────────────────────────────────────────────────
+    # ── Toggle checklist ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def toggle_checklist(editor: "EditorWidget") -> bool:
+        """
+        Alterna [ ] ↔ [x] sulla riga corrente.
+        Ritorna True se ha modificato il testo, False se la riga non è una task list.
+        """
+        line, _ = editor.getCursorPosition()
+        text = editor.text(line)
+        stripped = text.rstrip("\n\r")
+
+        # [ ] → [x]
+        m = re.match(r"^(\s*[-*+]\s\[)( )(\].*)$", stripped)
+        if m:
+            editor.beginUndoAction()
+            editor.setSelection(line, 0, line, len(stripped))
+            editor.replaceSelectedText(m.group(1) + "x" + m.group(3))
+            editor.endUndoAction()
+            return True
+
+        # [x] → [ ]
+        m2 = re.match(r"^(\s*[-*+]\s\[)(x)(\].*)$", stripped)
+        if m2:
+            editor.beginUndoAction()
+            editor.setSelection(line, 0, line, len(stripped))
+            editor.replaceSelectedText(m2.group(1) + " " + m2.group(3))
+            editor.endUndoAction()
+            return True
+
+        return False
+
+    # ── YAML Front Matter highlight ──────────────────────────────────────────
+
+    @staticmethod
+    def _apply_yaml_fm(editor: "EditorWidget") -> None:
+        """
+        Evidenzia il blocco YAML front matter (--- ... ---) all'inizio del documento
+        con uno sfondo tenue tramite INDICATOR_YAML_FM.
+        """
+        total = editor.lines()
+        editor.clearIndicatorRange(0, 0, total, 0, INDICATOR_YAML_FM)
+
+        if total < 2:
+            return
+        if editor.text(0).strip() != "---":
+            return
+
+        end_line = None
+        for i in range(1, min(total, 100)):
+            if editor.text(i).strip() == "---":
+                end_line = i
+                break
+        if end_line is None:
+            return
+
+        last_col = len(editor.text(end_line).rstrip("\n\r"))
+        editor.fillIndicatorRange(0, 0, end_line, last_col, INDICATOR_YAML_FM)
+
+    # ── Paragraph focus (Focus Mode) ─────────────────────────────────────────
+
+    @staticmethod
+    def apply_paragraph_focus(editor: "EditorWidget") -> None:
+        """
+        Attenua il testo fuori dal paragrafo corrente.
+        Il paragrafo è delimitato da righe vuote (o inizio/fine documento).
+        """
+        from PyQt6.QtGui import QColor
+
+        indicator = INDICATOR_SENTENCE_DIM
+        total = editor.lines()
+        line, _ = editor.getCursorPosition()
+
+        # Colore di attenuazione: blend verso lo sfondo
+        paper = editor.paper()
+        lum = (0.299 * paper.red() + 0.587 * paper.green() + 0.114 * paper.blue()) / 255
+        if lum < 0.5:
+            dim_color = QColor(90, 90, 90)    # tema scuro: grigio medio
+        else:
+            dim_color = QColor(185, 185, 185)  # tema chiaro: grigio chiaro
+
+        try:
+            editor.setIndicatorForegroundColor(dim_color, indicator)
+        except Exception:
+            pass
+
+        # Trova inizio paragrafo
+        para_start = line
+        while para_start > 0 and editor.text(para_start - 1).strip():
+            para_start -= 1
+
+        # Trova fine paragrafo
+        para_end = line
+        while para_end < total - 1 and editor.text(para_end).strip():
+            para_end += 1
+
+        # Cancella tutto e poi attenua fuori dal paragrafo
+        editor.clearIndicatorRange(0, 0, total, 0, indicator)
+
+        if para_start > 0:
+            editor.fillIndicatorRange(0, 0, para_start, 0, indicator)
+
+        if para_end < total - 1:
+            last_len = len(editor.text(total - 1).rstrip("\n\r"))
+            editor.fillIndicatorRange(para_end + 1, 0, total - 1, last_len, indicator)
+
+    @staticmethod
+    def clear_paragraph_focus(editor: "EditorWidget") -> None:
+        """Rimuove la modalità focus paragrafo dall'editor."""
+        editor.clearIndicatorRange(0, 0, editor.lines(), 0, INDICATOR_SENTENCE_DIM)
+
+    # ── Tipografia intelligente ───────────────────────────────────────────────
+
+    @staticmethod
+    def _handle_smart_typo(editor: "EditorWidget", char: str) -> None:
+        """
+        Sostituisce caratteri tipografici "grezzi" con quelli corretti:
+        "  →  " o "      '  →  ' o '      --  →  —      ...  →  …
+        Non attiva in blocchi di codice (riga che inizia con ``` o con 4+ spazi).
+        """
+        line, col = editor.getCursorPosition()
+        line_text = editor.text(line)
+        before = line_text[:col]  # include il char appena digitato
+
+        # Non attivare dentro blocchi codice
+        stripped = line_text.lstrip()
+        if stripped.startswith("```") or stripped.startswith("    ") or stripped.startswith("\t"):
+            return
+
+        if char == '"':
+            # Heuristica: se il char precedente è alfanumerico/punteggiatura → chiusura
+            prev = before[-2] if len(before) >= 2 else ""
+            replacement = "”" if (prev.isalnum() or prev in ".!?,;'’") else "“"
+            editor.beginUndoAction()
+            editor.setSelection(line, col - 1, line, col)
+            editor.replaceSelectedText(replacement)
+            editor.endUndoAction()
+
+        elif char == "'":
+            prev = before[-2] if len(before) >= 2 else ""
+            replacement = "’" if (prev.isalnum() or prev in ".!?,;”") else "‘"
+            editor.beginUndoAction()
+            editor.setSelection(line, col - 1, line, col)
+            editor.replaceSelectedText(replacement)
+            editor.endUndoAction()
+
+        elif char == "-":
+            # '--' → '—' (em dash)
+            if len(before) >= 2 and before[-2] == "-":
+                editor.beginUndoAction()
+                editor.setSelection(line, col - 2, line, col)
+                editor.replaceSelectedText("—")
+                editor.endUndoAction()
+
+        elif char == ".":
+            # '...' → '…'
+            if len(before) >= 3 and before[-3:-1] == "..":
+                editor.beginUndoAction()
+                editor.setSelection(line, col - 3, line, col)
+                editor.replaceSelectedText("…")
+                editor.endUndoAction()
+
+    # ── Handlers originali ────────────────────────────────────────────────────
 
     @staticmethod
     def _handle_asterisk(editor: "EditorWidget") -> None:
@@ -71,20 +287,16 @@ class MarkdownSupport:
         line, col = editor.getCursorPosition()
         line_text = editor.text(line)
 
-        # Testo prima del cursore (escludendo l'* appena inserito che è già nella riga)
         before = line_text[:col]
 
         # Caso '**': il penultimo char è anche '*'
         if len(before) >= 2 and before[-2] == "*":
-            # Conta le coppie '**' aperte prima del cursore
-            stripped = before[:-1]  # senza l'ultimo *
+            stripped = before[:-1]
             open_count = stripped.count("**")
-            # Se dispari (cioè aperto senza chiusura), non aggiungere altra chiusura
             after = line_text[col:]
             if after.startswith("**"):
-                return  # già c'è la chiusura
+                return
             if open_count % 2 == 0:
-                # Apriamo una nuova coppia **
                 editor.beginUndoAction()
                 editor.insert("**")
                 editor.setCursorPosition(line, col)
@@ -92,13 +304,10 @@ class MarkdownSupport:
             return
 
         # Caso '*' singolo
-        # Non chiudere se il carattere prima dell'* è un altro * (già gestito sopra)
-        # Non chiudere se siamo dentro una parola (evita false auto-chiusure)
         after = line_text[col:]
         if after.startswith("*"):
-            return  # c'è già
+            return
 
-        # Inserisci solo se il carattere precedente all'* è spazio/inizio o punteggiatura
         prev_char = before[-2] if len(before) >= 2 else ""
         if prev_char in ("", " ", "\t", "(", "[", "{", ">", "~"):
             editor.beginUndoAction()
@@ -117,27 +326,21 @@ class MarkdownSupport:
         line_text = editor.text(line)
         before = line_text[:col]
 
-        # Controlla se abbiamo appena digitato ``` (tre backtick)
         if len(before) >= 3 and before[-3:] == "```":
             after = line_text[col:]
-            # Già completato?
             if after.startswith("\n") or after.strip() == "":
-                # Inserisce il blocco fenced code
                 editor.beginUndoAction()
                 editor.insert("\n\n```")
                 editor.setCursorPosition(line, col)
                 editor.endUndoAction()
             return
 
-        # Backtick singolo: auto-chiude solo se non siamo già dentro un backtick
         after = line_text[col:]
         if after.startswith("`"):
-            return  # c'è già la chiusura
+            return
 
-        # Conta i backtick singoli aperti sulla riga
         single_ticks = before.count("`") - before.count("``") * 2
         if single_ticks % 2 == 0:
-            # Apriamo un nuovo inline code
             editor.beginUndoAction()
             editor.insert("`")
             editor.setCursorPosition(line, col)
@@ -154,13 +357,12 @@ class MarkdownSupport:
             return
         prev_line = editor.text(line - 1)
 
-        # Rilevamento task list: '- [ ] ' o '- [x] ' (con o senza spazio finale)
+        # Rilevamento task list: '- [ ] ' o '- [x] '
         mt = re.match(r'^(\s*)([-*+])\s\[( |x)\]\s?', prev_line)
         if mt:
             indent = mt.group(1)
             marker = mt.group(2)
             task_prefix = f"{indent}{marker} [ ] "
-            # Se la riga precedente è vuota (solo il prefisso task), termina la lista
             if prev_line.rstrip() in (
                 f"{indent}{marker} [ ]",
                 f"{indent}{marker} [ ] ",
@@ -172,7 +374,6 @@ class MarkdownSupport:
                 editor.replaceSelectedText("")
                 editor.endUndoAction()
             else:
-                # Continua la task list con un nuovo item non completato
                 editor.beginUndoAction()
                 current_line_text = editor.text(line)
                 if not current_line_text.strip():
@@ -181,20 +382,17 @@ class MarkdownSupport:
                 editor.endUndoAction()
             return
 
-        # Rilevamento lista non ordinata: '- ', '* ', '+ '
+        # Lista non ordinata
         m = re.match(r'^(\s*)([-*+])\s', prev_line)
         if m:
             indent = m.group(1)
             marker = m.group(2)
-            # Se la riga precedente è vuota (solo marker), rimuovi il marker (finisce la lista)
             if prev_line.rstrip() in (f"{indent}{marker}", f"{indent}{marker} "):
                 editor.beginUndoAction()
-                # Rimuovi la riga precedente del marker
                 editor.setSelection(line - 1, 0, line - 1, len(prev_line.rstrip("\n")))
                 editor.replaceSelectedText("")
                 editor.endUndoAction()
             else:
-                # Continua la lista
                 editor.beginUndoAction()
                 current_line_text = editor.text(line)
                 if not current_line_text.strip():
@@ -203,13 +401,12 @@ class MarkdownSupport:
                 editor.endUndoAction()
             return
 
-        # Rilevamento lista ordinata: '1. ', '2. ', ecc.
+        # Lista ordinata
         m2 = re.match(r'^(\s*)(\d+)\.\s', prev_line)
         if m2:
             indent = m2.group(1)
             num = int(m2.group(2))
             if prev_line.rstrip() == f"{indent}{num}.":
-                # Riga vuota: termina lista
                 editor.beginUndoAction()
                 editor.setSelection(line - 1, 0, line - 1, len(prev_line.rstrip("\n")))
                 editor.replaceSelectedText("")

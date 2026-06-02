@@ -490,7 +490,7 @@ Tutti i pulsanti operano sulla selezione corrente o inseriscono il segnaposto ne
 ### Anteprima (`F12`)
 Apre il pannello Anteprima affiancato all'editor. Supporta:
 
-- **Markdown**: rendering HTML in background, non blocca l'editor durante la digitazione
+- **Markdown**: rendering HTML in background, non blocca l'editor durante la digitazione. Supporta formule matematiche LaTeX (`$...$`, `$$...$$`) tramite MathJax e diagrammi Mermaid (blocchi ` ```mermaid `) tramite Mermaid.js — entrambi richiedono connessione internet e vengono caricati automaticamente se presenti nel documento. Il rendering Mermaid è attivabile/disattivabile da **Preferenze → Anteprima**.
 - **HTML**: preview diretta nel widget web integrato
 - **LaTeX**: albero della struttura navigabile (sezioni, label, figure, tabelle)
 - **reStructuredText**: rendering via docutils
@@ -524,6 +524,9 @@ Tenendo il cursore fermo per mezzo secondo su determinati elementi, NotePadPQ mo
 - **A capo automatico** (`Alt+Z`): manda a capo il testo a schermo senza modificare il file
 - **Controllo Ortografico (`F4`)**: attiva la sottolineatura a zig-zag rossa per le parole errate. La lingua del dizionario è indipendente dalla lingua dell'interfaccia e si seleziona da **Documento → Lingua dizionario** (Italiano, English, Deutsch, Français, Español). Il click destro su una parola sottolineata mostra fino a 8 suggerimenti di correzione, "Aggiungi al dizionario" e "Ignora tutto". Ignora le sigle interamente maiuscole e le parole di meno di 3 lettere.
 - **Lingua dizionario**: sottomenu di Documento che seleziona la lingua dello spell checker indipendentemente dalla lingua dell'interfaccia. La scelta viene salvata tra le sessioni.
+- **Tipografia intelligente**: converte automaticamente i caratteri "grezzi" in varianti tipografiche corrette: `"..."` → `"..."`, `'...'` → `'...'`, `--` → `—`, `...` → `…`. Non si attiva dentro blocchi di codice. Attivabile da **Documento → Tipografia intelligente** o da **Preferenze → Editor → Scrittura**.
+- **Focus paragrafo**: attenua il testo fuori dal paragrafo corrente (delimitato da righe vuote) per favorire la concentrazione. Il colore di attenuazione si adatta automaticamente al tema chiaro/scuro. Attivabile da **Documento → Focus paragrafo**. Si aggiorna in tempo reale mentre si scrive e al cambio tab.
+- **Segna/desegna attività (`Ctrl+Shift+L`)**: su una riga di task list Markdown (`- [ ] testo` o `- [x] testo`), alterna tra completato e non completato. Funziona con i marcatori `-`, `*`, `+`.
 
 ### Tipo di file (syntax highlighting)
 
@@ -822,6 +825,9 @@ Apri con `Ctrl+Alt+P` oppure **Strumenti → Preferenze**. Le modifiche possono 
 - Indentazione automatica
 - La sezione Visualizzazione presenta le opzioni in un layout a 2 colonne. I checkbox includono: Numeri di riga, Margine code folding, Mostra spazi/tab, Mostra fine riga, A capo automatico, Minimap, Minimap: anteprima hover, Modifiche Git a margine, Git Blame inline
 - Pannelli visibili all'avvio (compilazione, struttura documento)
+- **Scrittura**: gruppo con due opzioni per Markdown e testo:
+  - *Tipografia intelligente*: conversione automatica di virgolette, em dash ed ellissi
+  - *Focus paragrafo corrente*: attiva l'attenuazione del testo fuori dal paragrafo
 
 ### Scheda Aspetto
 - **Tema attivo**: selezionabile dal combo; il cambio si applica immediatamente a tutti gli editor aperti
@@ -849,6 +855,7 @@ Apri con `Ctrl+Alt+P` oppure **Strumenti → Preferenze**. Le modifiche possono 
 - Abilita pannello anteprima laterale
 - Sincronizzazione cursore editor ↔ anteprima
 - Ritardo aggiornamento in millisecondi
+- **Rendering diagrammi Mermaid**: abilita/disabilita il rendering automatico dei blocchi ` ```mermaid ` (richiede connessione internet)
 
 ### Scheda Compilazione
 - Salva automaticamente prima di compilare
@@ -1081,6 +1088,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `` Ctrl+` `` | Pannello compilazione e terminale |
 | `Ctrl+Alt+N` | Modalità testo semplice (per tab) |
 | `F4` | Controllo ortografico |
+| `Ctrl+Shift+L` | Segna/desegna attività (task list Markdown `[ ]` ↔ `[x]`) |
 
 ### Multi-cursore
 

@@ -292,7 +292,10 @@
     "latex_math_gather": "\\begin{gather}  (gather)",
     "latex_wrap_custom": "Custom…",
     "lang_toolbar_label_key": "Label key:",
-    "lang_toolbar_ref_key": "Reference key:"
+    "lang_toolbar_ref_key": "Reference key:",
+    "toggle_checklist": "Toggle task",
+    "smart_typography": "Smart typography",
+    "sentence_focus": "Paragraph focus"
   },
   "color": {
     "red": "Red",
@@ -548,7 +551,10 @@
       "edge_group": "Vertical guide line",
       "edge_disabled": "Disabled",
       "edge_col_suffix": " col",
-      "edge_col_label": "Column (0 = disabled):"
+      "edge_col_label": "Column (0 = disabled):",
+      "writing_group": "Writing",
+      "smart_typography": "Smart typography (quotes, em dash, ellipsis)",
+      "sentence_focus": "Paragraph focus (dim the rest)"
     },
     "aspect": {
       "theme": "Theme",
@@ -601,7 +607,8 @@
       "general": "Preview panel",
       "enabled": "Enable side preview panel",
       "sync": "Cursor ↔ preview sync",
-      "delay": "Update delay:"
+      "delay": "Update delay:",
+      "mermaid": "Mermaid diagram rendering (```mermaid)"
     },
     "build": {
       "general": "Build",
@@ -624,7 +631,10 @@
     "theme_imported": "Theme imported: {name}",
     "theme_import_failed": "Could not import theme.",
     "theme_exported": "Theme exported to {path}",
-    "theme_export_failed": "Could not export theme."
+    "theme_export_failed": "Could not export theme.",
+    "editor.writing_group": "Writing",
+    "editor.smart_typography": "Smart typography (quotes, em dash, ellipsis)",
+    "editor.sentence_focus": "Paragraph focus (dim the rest)"
   },
   "dialog": {
     "preferences": "Preferences",
@@ -1007,7 +1017,11 @@
     "pdf_find": "Find in document (Ctrl+F)",
     "pdf_continuous": "Continuous scroll / Single page — in single-page mode the mouse wheel changes pages",
     "pdf_page_prev": "Previous page",
-    "pdf_page_next": "Next page"
+    "pdf_page_next": "Next page",
+    "toggle_checklist": "Toggle the task on the current line.\nWorks on lines with - [ ] or - [x].",
+    "smart_typography": "Automatically convert quotes to typographic (“”), -- to — and ... to …",
+    "sentence_focus": "Dim text outside the current paragraph to help concentration",
+    "pref_mermaid": "Enable Mermaid diagram rendering in mermaid)"
   },
   "websearch": {
     "submenu_title": "Web Search",
@@ -1507,26 +1521,26 @@
     "no_sheet_found": "No sheet found"
   },
   "latex_menu": {
-    "title":          "La&TeX",
-    "ams_packages":   "AMS Packages",
-    "sectioning":     "Sectioning",
-    "environments":   "Environments",
-    "list_envs":      "List Environments",
-    "boxes":          "Boxes",
-    "char_styles":    "Character Styles",
-    "font_sizes":     "Font Size",
-    "table_envs":     "Table Environments",
-    "hspace":         "Horizontal Spacing",
-    "vspace":         "Vertical Spacing",
-    "accents":        "International Accents",
-    "insert_file":    "Insert/Include File",
-    "insert_image":   "Insert Image…",
-    "changes":        "Review Comments (changes)",
-    "cross_ref":      "Cross References",
-    "bibliography":   "Bibliography",
-    "ref_next":       "Insert Reference to Next Label",
-    "ref_prev":       "Insert Reference to Previous Label",
-    "edit_tables":    "Edit Tables",
+    "title": "La&TeX",
+    "ams_packages": "AMS Packages",
+    "sectioning": "Sectioning",
+    "environments": "Environments",
+    "list_envs": "List Environments",
+    "boxes": "Boxes",
+    "char_styles": "Character Styles",
+    "font_sizes": "Font Size",
+    "table_envs": "Table Environments",
+    "hspace": "Horizontal Spacing",
+    "vspace": "Vertical Spacing",
+    "accents": "International Accents",
+    "insert_file": "Insert/Include File",
+    "insert_image": "Insert Image…",
+    "changes": "Review Comments (changes)",
+    "cross_ref": "Cross References",
+    "bibliography": "Bibliography",
+    "ref_next": "Insert Reference to Next Label",
+    "ref_prev": "Insert Reference to Previous Label",
+    "edit_tables": "Edit Tables",
     "magic_comments": "Add Magic Comments…"
   },
   "latex_toolbar": {

@@ -482,7 +482,7 @@ All buttons operate on the current selection or insert a placeholder at the curs
 ### Preview (`F12`)
 Opens the Preview panel alongside the editor. Supports:
 
-- **Markdown**: HTML rendering in background, does not block the editor during typing
+- **Markdown**: HTML rendering in background, does not block the editor during typing. Supports LaTeX math formulas (`$...$`, `$$...$$`) via MathJax and Mermaid diagrams (` ```mermaid ` blocks) via Mermaid.js — both require an internet connection and are loaded automatically when present in the document. Mermaid rendering can be toggled in **Preferences → Preview**.
 - **HTML**: direct preview in the integrated web widget
 - **LaTeX**: navigable structure tree (sections, labels, figures, tables)
 - **reStructuredText**: rendering via docutils
@@ -514,6 +514,9 @@ Holding the cursor still for half a second over certain elements, NotePadPQ show
 - **Word wrap** (`Alt+Z`): wraps text on screen without modifying the file
 - **Spell Check (`F4`)**: activates red squiggle underlines for misspelled words. The dictionary language is independent of the interface language and is selected from **Document → Dictionary Language** (Italian, English, German, French, Spanish). Right-clicking a highlighted word shows up to 8 correction suggestions, "Add to dictionary", and "Ignore all". Ignores all-caps acronyms and words shorter than 3 characters.
 - **Dictionary Language**: Document submenu that selects the spell checker language independently of the interface language. The choice is saved between sessions.
+- **Smart typography**: automatically converts "raw" characters to their proper typographic equivalents: `"..."` → `"..."`, `'...'` → `'...'`, `--` → `—`, `...` → `…`. Does not activate inside code blocks. Toggle from **Document → Smart typography** or from **Preferences → Editor → Writing**.
+- **Paragraph focus**: dims all text outside the current paragraph (delimited by blank lines) to aid concentration. The dim color adapts to light/dark themes automatically. Toggle from **Document → Paragraph focus**. Updates in real time while typing and when switching tabs.
+- **Toggle task (`Ctrl+Shift+L`)**: on a Markdown task list line (`- [ ] text` or `- [x] text`), toggles between completed and not completed. Works with `-`, `*`, `+` markers.
 
 ### File Type (Syntax Highlighting)
 
@@ -842,6 +845,9 @@ Open with `Ctrl+Alt+P` or **Tools → Preferences**. Changes can be applied imme
 - Auto-indent
 - The Display section presents options in a 2-column layout. Checkboxes include: Line numbers, Code folding margin, Show spaces/tabs, Show end of line, Word wrap, Minimap, Minimap: hover preview, Git changes in margin, Git Blame inline
 - Panels visible at startup (build output, document structure)
+- **Writing**: group with two options for Markdown and plain text:
+  - *Smart typography*: auto-converts quotes, em dashes and ellipses
+  - *Paragraph focus*: enables dimming of text outside the current paragraph
 
 ### Appearance Tab
 - **Active theme**: selectable from combo; the change applies immediately to all open editors
@@ -869,6 +875,7 @@ Open with `Ctrl+Alt+P` or **Tools → Preferences**. Changes can be applied imme
 - Enable side preview panel
 - Editor cursor ↔ preview synchronization
 - Update delay in milliseconds
+- **Mermaid diagram rendering**: enable/disable automatic rendering of ` ```mermaid ` blocks (requires internet connection)
 
 ### Build Tab
 - Auto-save before building
@@ -1101,6 +1108,7 @@ Regexes use Python syntax (`re` module). Available wherever the "Regular express
 | `` Ctrl+` `` | Build and Terminal panel |
 | `Ctrl+Alt+N` | Plain text mode (per tab) |
 | `F4` | Spell check |
+| `Ctrl+Shift+L` | Toggle task (Markdown task list `[ ]` ↔ `[x]`) |
 
 ### Multi-Cursor
 

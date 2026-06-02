@@ -292,7 +292,10 @@
     "latex_math_gather": "\\begin{gather}  (gesammelt)",
     "latex_wrap_custom": "Benutzerdefiniert…",
     "lang_toolbar_label_key": "Label-Schlüssel:",
-    "lang_toolbar_ref_key": "Referenzschlüssel:"
+    "lang_toolbar_ref_key": "Referenzschlüssel:",
+    "toggle_checklist": "Aufgabe umschalten",
+    "smart_typography": "Intelligente Typografie",
+    "sentence_focus": "Absatz-Fokus"
   },
   "color": {
     "red": "Rot",
@@ -548,7 +551,10 @@
       "edge_group": "Vertikale Führungslinie",
       "edge_disabled": "Deaktiviert",
       "edge_col_suffix": " Sp.",
-      "edge_col_label": "Spalte (0 = deaktiviert):"
+      "edge_col_label": "Spalte (0 = deaktiviert):",
+      "writing_group": "Schreiben",
+      "smart_typography": "Intelligente Typografie (Anführungszeichen, Gedankenstrich, Ellipse)",
+      "sentence_focus": "Absatz-Fokus (Rest abdunkeln)"
     },
     "aspect": {
       "theme": "Design",
@@ -601,7 +607,8 @@
       "general": "Vorschau-Panel",
       "enabled": "Seitliches Vorschau-Panel aktivieren",
       "sync": "Cursor ↔ Vorschau synchronisieren",
-      "delay": "Aktualisierungsverzögerung:"
+      "delay": "Aktualisierungsverzögerung:",
+      "mermaid": "Mermaid-Diagramme rendern (```mermaid)"
     },
     "build": {
       "general": "Erstellen",
@@ -624,7 +631,10 @@
     "theme_imported": "Design importiert: {name}",
     "theme_import_failed": "Design konnte nicht importiert werden.",
     "theme_exported": "Design exportiert nach {path}",
-    "theme_export_failed": "Design konnte nicht exportiert werden."
+    "theme_export_failed": "Design konnte nicht exportiert werden.",
+    "editor.writing_group": "Schreiben",
+    "editor.smart_typography": "Intelligente Typografie (Anführungszeichen, Gedankenstrich, Ellipse)",
+    "editor.sentence_focus": "Absatz-Fokus (Rest abdunkeln)"
   },
   "dialog": {
     "preferences": "Einstellungen",
@@ -1007,7 +1017,11 @@
     "pdf_find": "Im Dokument suchen (Strg+F)",
     "pdf_continuous": "Endlos-Scroll / Einzelseite — im Einzelseitenmodus wechselt das Mausrad die Seiten",
     "pdf_page_prev": "Vorherige Seite",
-    "pdf_page_next": "Nächste Seite"
+    "pdf_page_next": "Nächste Seite",
+    "toggle_checklist": "Aufgabe in der aktuellen Zeile umschalten.\nFunktioniert bei Zeilen mit - [ ] oder - [x].",
+    "smart_typography": "Anführungszeichen automatisch in typografische („“) umwandeln, -- in — und ... in …",
+    "sentence_focus": "Text außerhalb des aktuellen Absatzes abdunkeln",
+    "pref_mermaid": "Mermaid-Diagramme in mermaid)"
   },
   "websearch": {
     "submenu_title": "Websuche",
@@ -1507,26 +1521,26 @@
     "no_sheet_found": "No sheet found"
   },
   "latex_menu": {
-    "title":          "La&TeX",
-    "ams_packages":   "AMS-Pakete",
-    "sectioning":     "Gliederung",
-    "environments":   "Umgebungen",
-    "list_envs":      "Listenumgebungen",
-    "boxes":          "Boxen",
-    "char_styles":    "Zeichenstile",
-    "font_sizes":     "Schriftgröße",
-    "table_envs":     "Tabellenumgebungen",
-    "hspace":         "Horizontaler Abstand",
-    "vspace":         "Vertikaler Abstand",
-    "accents":        "Internationale Akzente",
-    "insert_file":    "Datei einfügen/einbinden",
-    "insert_image":   "Bild einfügen…",
-    "changes":        "Revisionskommentare (changes)",
-    "cross_ref":      "Querverweise",
-    "bibliography":   "Bibliographie",
-    "ref_next":       "Verweis auf nächste Marke einfügen",
-    "ref_prev":       "Verweis auf vorherige Marke einfügen",
-    "edit_tables":    "Tabellen bearbeiten",
+    "title": "La&TeX",
+    "ams_packages": "AMS-Pakete",
+    "sectioning": "Gliederung",
+    "environments": "Umgebungen",
+    "list_envs": "Listenumgebungen",
+    "boxes": "Boxen",
+    "char_styles": "Zeichenstile",
+    "font_sizes": "Schriftgröße",
+    "table_envs": "Tabellenumgebungen",
+    "hspace": "Horizontaler Abstand",
+    "vspace": "Vertikaler Abstand",
+    "accents": "Internationale Akzente",
+    "insert_file": "Datei einfügen/einbinden",
+    "insert_image": "Bild einfügen…",
+    "changes": "Revisionskommentare (changes)",
+    "cross_ref": "Querverweise",
+    "bibliography": "Bibliographie",
+    "ref_next": "Verweis auf nächste Marke einfügen",
+    "ref_prev": "Verweis auf vorherige Marke einfügen",
+    "edit_tables": "Tabellen bearbeiten",
     "magic_comments": "Magische Kommentare hinzufügen…"
   },
   "latex_toolbar": {

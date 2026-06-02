@@ -1343,6 +1343,20 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("spell_check", "F4", self._toggle_spellcheck,
                               checkable=True, checked=_spell_enabled))
 
+        # Tipografia intelligente (Markdown + testo)
+        _smart_typo = _S.instance().get("editor/smart_typography", False)
+        _act_st = self._act("smart_typography", "", self._toggle_smart_typography,
+                            checkable=True, checked=_smart_typo)
+        _act_st.setToolTip(tr("tooltip.smart_typography"))
+        m.addAction(_act_st)
+
+        # Focus paragrafo
+        _sfocus = _S.instance().get("editor/sentence_focus", False)
+        _act_sf = self._act("sentence_focus", "", self._toggle_sentence_focus,
+                            checkable=True, checked=_sfocus)
+        _act_sf.setToolTip(tr("tooltip.sentence_focus"))
+        m.addAction(_act_sf)
+
         # Submenu lingua dizionario (indipendente dalla lingua dell'interfaccia)
         sub_spell = m.addMenu(tr("action.spell_lang"))
         self._menus["spell_lang"] = sub_spell
@@ -1413,6 +1427,10 @@ class MainWindow(QMainWindow):
         self._sep(m)
         m.addAction(self._act("remove_markers",       "", self.action_remove_markers))
         m.addAction(self._act("remove_error_markers", "", self.action_remove_error_markers))
+        self._sep(m)
+        _act_tc = self._act("toggle_checklist", "Ctrl+Shift+L", self._action_toggle_checklist)
+        _act_tc.setToolTip(tr("tooltip.toggle_checklist"))
+        m.addAction(_act_tc)
         self._sep(m)
         m.addAction(self._act("word_count",     "", self.action_word_count))
         m.addAction(self._act("word_frequency", "", self.action_word_frequency))
@@ -2051,6 +2069,19 @@ class MainWindow(QMainWindow):
                 pass
             editor.textChanged.connect(self._wg_timer.start)
             self._update_writing_goal_display()
+
+        # Focus paragrafo — ricollega cursore al nuovo editor se la modalità è attiva
+        if self._actions.get("sentence_focus") and self._actions["sentence_focus"].isChecked():
+            try:
+                editor.cursorPositionChanged.disconnect(self._on_focus_cursor_moved)
+            except (RuntimeError, TypeError):
+                pass
+            editor.cursorPositionChanged.connect(self._on_focus_cursor_moved)
+            try:
+                from editor.markdown_support import MarkdownSupport
+                MarkdownSupport.apply_paragraph_focus(editor)
+            except Exception:
+                pass
 
         # LSP — connette il server per il linguaggio corrente (no-op se non disponibile)
         self._lsp_connect_editor(editor)
@@ -4666,6 +4697,65 @@ class MainWindow(QMainWindow):
             for ed in self._tab_manager.all_editors():
                 if hasattr(ed, "set_spell_language"):
                     ed.set_spell_language(lang)
+
+    # ── Tipografia intelligente ───────────────────────────────────────────────
+
+    def _toggle_smart_typography(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("editor/smart_typography", checked)
+        # Aggiorna la preferenza nel dialog se aperto (non strettamente necessario)
+
+    # ── Focus paragrafo ───────────────────────────────────────────────────────
+
+    def _toggle_sentence_focus(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("editor/sentence_focus", checked)
+        editor = self._current_editor()
+        if editor is None:
+            return
+        try:
+            from editor.markdown_support import MarkdownSupport
+            if checked:
+                MarkdownSupport.apply_paragraph_focus(editor)
+                # Ricollega cursore per aggiornare il focus in tempo reale
+                try:
+                    editor.cursorPositionChanged.disconnect(self._on_focus_cursor_moved)
+                except Exception:
+                    pass
+                editor.cursorPositionChanged.connect(self._on_focus_cursor_moved)
+            else:
+                MarkdownSupport.clear_paragraph_focus(editor)
+                try:
+                    editor.cursorPositionChanged.disconnect(self._on_focus_cursor_moved)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _on_focus_cursor_moved(self) -> None:
+        """Aggiorna il focus paragrafo quando il cursore si sposta."""
+        if not self._actions.get("sentence_focus", None) or \
+                not self._actions["sentence_focus"].isChecked():
+            return
+        editor = self._current_editor()
+        if editor:
+            try:
+                from editor.markdown_support import MarkdownSupport
+                MarkdownSupport.apply_paragraph_focus(editor)
+            except Exception:
+                pass
+
+    # ── Toggle checklist ─────────────────────────────────────────────────────
+
+    def _action_toggle_checklist(self) -> None:
+        editor = self._current_editor()
+        if editor is None:
+            return
+        try:
+            from editor.markdown_support import MarkdownSupport
+            MarkdownSupport.toggle_checklist(editor)
+        except Exception:
+            pass
                     
     # ── Monitoraggio Risorse (RAM / CPU) ──────────────────────────────────────
 

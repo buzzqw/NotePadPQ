@@ -136,6 +136,19 @@ class PreferencesDialog(QDialog):
         el.addRow(tr("pref.editor.edge_col_label"), self._edge_column)
         vl.addWidget(grp_edge)
 
+        # Scrittura (Markdown / testo)
+        grp_writing = QGroupBox(tr("pref.editor.writing_group", default="Scrittura"))
+        wl = QVBoxLayout(grp_writing)
+        self._smart_typography = QCheckBox(tr("pref.editor.smart_typography",
+                                              default='Tipografia intelligente (virgolette, em dash, ellissi)'))
+        self._smart_typography.setToolTip(tr("tooltip.pref_smart_typography"))
+        wl.addWidget(self._smart_typography)
+        self._sentence_focus_pref = QCheckBox(tr("pref.editor.sentence_focus",
+                                                  default="Focus paragrafo corrente (attenua il resto)"))
+        self._sentence_focus_pref.setToolTip(tr("tooltip.pref_sentence_focus"))
+        wl.addWidget(self._sentence_focus_pref)
+        vl.addWidget(grp_writing)
+
         vl.addStretch()
         return w
 
@@ -335,6 +348,11 @@ class PreferencesDialog(QDialog):
         self._preview_delay.setSuffix(" ms")
         fl.addRow(tr("pref.preview.delay", default="Ritardo aggiornamento:"), self._preview_delay)
         gl.addLayout(fl)
+
+        self._preview_mermaid = QCheckBox(tr("pref.preview.mermaid",
+                                             default="Rendering diagrammi Mermaid (```mermaid)"))
+        self._preview_mermaid.setToolTip(tr("tooltip.pref_mermaid"))
+        gl.addWidget(self._preview_mermaid)
 
         vl.addWidget(grp)
         vl.addStretch()
@@ -611,9 +629,14 @@ class PreferencesDialog(QDialog):
         self._ac_lsp.setChecked(s.get("autocomplete/lsp", False))
         self._ac_threshold.setValue(s.get("autocomplete/threshold", 2))
 
+        # Editor — Scrittura
+        self._smart_typography.setChecked(s.get("editor/smart_typography", False))
+        self._sentence_focus_pref.setChecked(s.get("editor/sentence_focus", False))
+
         # Preview
         self._preview_sync.setChecked(s.get("preview/sync_cursor", True))
         self._preview_delay.setValue(s.get("preview/delay_ms", 500))
+        self._preview_mermaid.setChecked(s.get("preview/mermaid", True))
 
         # Build
         self._build_save_before.setChecked(s.get("build/save_before", True))
@@ -757,9 +780,14 @@ class PreferencesDialog(QDialog):
         s.set("autocomplete/lsp",       self._ac_lsp.isChecked())
         s.set("autocomplete/threshold", self._ac_threshold.value())
 
+        # Editor — Scrittura
+        s.set("editor/smart_typography", self._smart_typography.isChecked())
+        s.set("editor/sentence_focus",   self._sentence_focus_pref.isChecked())
+
         # Preview
-        s.set("preview/sync_cursor",self._preview_sync.isChecked())
-        s.set("preview/delay_ms",   self._preview_delay.value())
+        s.set("preview/sync_cursor", self._preview_sync.isChecked())
+        s.set("preview/delay_ms",    self._preview_delay.value())
+        s.set("preview/mermaid",     self._preview_mermaid.isChecked())
 
         # Build
         s.set("build/save_before",  self._build_save_before.isChecked())

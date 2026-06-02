@@ -292,7 +292,10 @@
     "latex_math_gather": "\\begin{gather}  (zgrupowane)",
     "latex_wrap_custom": "Niestandardowy…",
     "lang_toolbar_label_key": "Klucz etykiety:",
-    "lang_toolbar_ref_key": "Klucz odniesienia:"
+    "lang_toolbar_ref_key": "Klucz odniesienia:",
+    "toggle_checklist": "Przełącz zadanie",
+    "smart_typography": "Inteligentna typografia",
+    "sentence_focus": "Fokus akapitu"
   },
   "color": {
     "red": "Czerwony",
@@ -548,7 +551,10 @@
       "edge_group": "Pionowa linia pomocnicza",
       "edge_disabled": "Wyłączona",
       "edge_col_suffix": " kol",
-      "edge_col_label": "Kolumna (0 = wyłączona):"
+      "edge_col_label": "Kolumna (0 = wyłączona):",
+      "writing_group": "Pisanie",
+      "smart_typography": "Inteligentna typografia (cudzysłowy, myślnik, wielokropek)",
+      "sentence_focus": "Fokus akapitu (przyćmienie reszty)"
     },
     "aspect": {
       "theme": "Motyw",
@@ -601,7 +607,8 @@
       "general": "Panel podglądu",
       "enabled": "Włącz boczny panel podglądu",
       "sync": "Synchronizacja kursora ↔ podglądu",
-      "delay": "Opóźnienie aktualizacji:"
+      "delay": "Opóźnienie aktualizacji:",
+      "mermaid": "Renderowanie diagramów Mermaid (```mermaid)"
     },
     "build": {
       "general": "Kompilacja",
@@ -624,7 +631,10 @@
     "theme_imported": "Motyw zaimportowany: {name}",
     "theme_import_failed": "Nie można zaimportować motywu.",
     "theme_exported": "Motyw wyeksportowany do {path}",
-    "theme_export_failed": "Nie można wyeksportować motywu."
+    "theme_export_failed": "Nie można wyeksportować motywu.",
+    "editor.writing_group": "Pisanie",
+    "editor.smart_typography": "Inteligentna typografia (cudzysłowy, myślnik, wielokropek)",
+    "editor.sentence_focus": "Fokus akapitu (przyćmienie reszty)"
   },
   "dialog": {
     "preferences": "Preferencje",
@@ -1007,7 +1017,11 @@
     "pdf_find": "Szukaj w dokumencie (Ctrl+F)",
     "pdf_continuous": "Ciągłe przewijanie / Pojedyncza strona — w trybie pojedynczej strony kółko myszy zmienia strony",
     "pdf_page_prev": "Poprzednia strona",
-    "pdf_page_next": "Następna strona"
+    "pdf_page_next": "Następna strona",
+    "toggle_checklist": "Zaznacz lub odznacz zadanie w bieżącym wierszu.\nDziała na wierszach z - [ ] lub - [x].",
+    "smart_typography": "Automatycznie zamów cudzysłowy na typograficzne („”), -- na — i ... na …",
+    "sentence_focus": "Przyćmi tekst poza bieżącym akapitem",
+    "pref_mermaid": "Włącz renderowanie diagramów Mermaid w blokach mermaid)"
   },
   "websearch": {
     "submenu_title": "Wyszukiwanie w sieci",
@@ -1507,26 +1521,26 @@
     "no_sheet_found": "Nie znaleziono arkusza"
   },
   "latex_menu": {
-    "title":          "La&TeX",
-    "ams_packages":   "Pakiety AMS",
-    "sectioning":     "Sekcjonowanie",
-    "environments":   "Środowiska",
-    "list_envs":      "Środowiska list",
-    "boxes":          "Ramki",
-    "char_styles":    "Style znaków",
-    "font_sizes":     "Rozmiar czcionki",
-    "table_envs":     "Środowiska tabel",
-    "hspace":         "Odstęp poziomy",
-    "vspace":         "Odstęp pionowy",
-    "accents":        "Akcenty międzynarodowe",
-    "insert_file":    "Wstaw/dołącz plik",
-    "insert_image":   "Wstaw obraz…",
-    "changes":        "Komentarze redakcyjne (changes)",
-    "cross_ref":      "Odwołania wzajemne",
-    "bibliography":   "Bibliografia",
-    "ref_next":       "Wstaw odniesienie do następnej etykiety",
-    "ref_prev":       "Wstaw odniesienie do poprzedniej etykiety",
-    "edit_tables":    "Edytuj tabele",
+    "title": "La&TeX",
+    "ams_packages": "Pakiety AMS",
+    "sectioning": "Sekcjonowanie",
+    "environments": "Środowiska",
+    "list_envs": "Środowiska list",
+    "boxes": "Ramki",
+    "char_styles": "Style znaków",
+    "font_sizes": "Rozmiar czcionki",
+    "table_envs": "Środowiska tabel",
+    "hspace": "Odstęp poziomy",
+    "vspace": "Odstęp pionowy",
+    "accents": "Akcenty międzynarodowe",
+    "insert_file": "Wstaw/dołącz plik",
+    "insert_image": "Wstaw obraz…",
+    "changes": "Komentarze redakcyjne (changes)",
+    "cross_ref": "Odwołania wzajemne",
+    "bibliography": "Bibliografia",
+    "ref_next": "Wstaw odniesienie do następnej etykiety",
+    "ref_prev": "Wstaw odniesienie do poprzedniej etykiety",
+    "edit_tables": "Edytuj tabele",
     "magic_comments": "Dodaj komentarze magiczne…"
   },
   "latex_toolbar": {

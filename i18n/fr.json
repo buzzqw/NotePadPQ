@@ -292,7 +292,10 @@
     "latex_math_gather": "\\begin{gather}  (rassemblement)",
     "latex_wrap_custom": "Personnalisé…",
     "lang_toolbar_label_key": "Clé d'étiquette :",
-    "lang_toolbar_ref_key": "Clé de référence :"
+    "lang_toolbar_ref_key": "Clé de référence :",
+    "toggle_checklist": "Basculer tâche",
+    "smart_typography": "Typographie intelligente",
+    "sentence_focus": "Focus paragraphe"
   },
   "color": {
     "red": "Rouge",
@@ -548,7 +551,10 @@
       "edge_group": "Ligne guide verticale",
       "edge_disabled": "Désactivée",
       "edge_col_suffix": " col",
-      "edge_col_label": "Colonne (0 = désactivée) :"
+      "edge_col_label": "Colonne (0 = désactivée) :",
+      "writing_group": "Écriture",
+      "smart_typography": "Typographie intelligente (guillemets, tiret, points de suspension)",
+      "sentence_focus": "Focus paragraphe (atténuer le reste)"
     },
     "aspect": {
       "theme": "Thème",
@@ -601,7 +607,8 @@
       "general": "Panneau d'aperçu",
       "enabled": "Activer le panneau d'aperçu latéral",
       "sync": "Synchronisation curseur ↔ aperçu",
-      "delay": "Délai de mise à jour :"
+      "delay": "Délai de mise à jour :",
+      "mermaid": "Rendu des diagrammes Mermaid (```mermaid)"
     },
     "build": {
       "general": "Génération",
@@ -624,7 +631,10 @@
     "theme_imported": "Thème importé : {name}",
     "theme_import_failed": "Impossible d'importer le thème.",
     "theme_exported": "Thème exporté vers {path}",
-    "theme_export_failed": "Impossible d'exporter le thème."
+    "theme_export_failed": "Impossible d'exporter le thème.",
+    "editor.writing_group": "Écriture",
+    "editor.smart_typography": "Typographie intelligente (guillemets, tiret, points de suspension)",
+    "editor.sentence_focus": "Focus paragraphe (atténuer le reste)"
   },
   "dialog": {
     "preferences": "Préférences",
@@ -1007,7 +1017,11 @@
     "pdf_find": "Rechercher dans le document (Ctrl+F)",
     "pdf_continuous": "Défilement continu / Page unique — en mode page unique, la molette change les pages",
     "pdf_page_prev": "Page précédente",
-    "pdf_page_next": "Page suivante"
+    "pdf_page_next": "Page suivante",
+    "toggle_checklist": "Cocher ou décocher la tâche sur la ligne courante.\nFonctionne sur les lignes avec - [ ] ou - [x].",
+    "smart_typography": "Convertir automatiquement les guillemets en typographiques («»), -- en — et ... en …",
+    "sentence_focus": "Atténuer le texte en dehors du paragraphe courant",
+    "pref_mermaid": "Activer le rendu des diagrammes Mermaid dans les blocs mermaid)"
   },
   "websearch": {
     "submenu_title": "Recherche Web",
@@ -1507,26 +1521,26 @@
     "no_sheet_found": "No sheet found"
   },
   "latex_menu": {
-    "title":          "La&TeX",
-    "ams_packages":   "Paquets AMS",
-    "sectioning":     "Sectionnement",
-    "environments":   "Environnements",
-    "list_envs":      "Environnements de liste",
-    "boxes":          "Boîtes",
-    "char_styles":    "Styles de caractère",
-    "font_sizes":     "Taille de police",
-    "table_envs":     "Environnements de tableau",
-    "hspace":         "Espace horizontal",
-    "vspace":         "Espace vertical",
-    "accents":        "Accents internationaux",
-    "insert_file":    "Insérer/inclure un fichier",
-    "insert_image":   "Insérer une image…",
-    "changes":        "Commentaires de révision (changes)",
-    "cross_ref":      "Références croisées",
-    "bibliography":   "Bibliographie",
-    "ref_next":       "Insérer référence à l'étiquette suivante",
-    "ref_prev":       "Insérer référence à l'étiquette précédente",
-    "edit_tables":    "Modifier les tableaux",
+    "title": "La&TeX",
+    "ams_packages": "Paquets AMS",
+    "sectioning": "Sectionnement",
+    "environments": "Environnements",
+    "list_envs": "Environnements de liste",
+    "boxes": "Boîtes",
+    "char_styles": "Styles de caractère",
+    "font_sizes": "Taille de police",
+    "table_envs": "Environnements de tableau",
+    "hspace": "Espace horizontal",
+    "vspace": "Espace vertical",
+    "accents": "Accents internationaux",
+    "insert_file": "Insérer/inclure un fichier",
+    "insert_image": "Insérer une image…",
+    "changes": "Commentaires de révision (changes)",
+    "cross_ref": "Références croisées",
+    "bibliography": "Bibliographie",
+    "ref_next": "Insérer référence à l'étiquette suivante",
+    "ref_prev": "Insérer référence à l'étiquette précédente",
+    "edit_tables": "Modifier les tableaux",
     "magic_comments": "Ajouter des commentaires magiques…"
   },
   "latex_toolbar": {

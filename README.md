@@ -106,7 +106,8 @@ Runs natively on Linux, Windows, and FreeBSD.
 ### 👁️ Preview Panel
 - **Live preview** for Markdown, HTML, reStructuredText, LaTeX (structure), PDF.
 - **Hover preview**: mouse over `\includegraphics{...}`, `![img](...)`, or `<img src="...">` to see a floating image thumbnail (including vector PDF).
-- **Math equation rendering** on hover in LaTeX/Markdown files (`$...$`, `$$...$$`, `\[...\]`).
+- **Math equation rendering** on hover in LaTeX/Markdown files (`$...$`, `$$...$$`, `\[...\]`). MathJax 3 also renders formulas inside the live Markdown preview (auto-detected, requires internet).
+- **Mermaid diagrams**: ` ```mermaid ` blocks in Markdown are automatically rendered as diagrams in the preview panel via Mermaid.js (requires internet; toggle in Preferences → Preview).
 - **SyncTeX**: bidirectional sync between editor cursor and PDF position — click in the editor, the PDF jumps to the right page and vice versa.
 - **Smart Crop**: auto-trim PDF white margins (`✂`).
 - Zoom with `Ctrl+Wheel`, page-by-page navigation with the scroll wheel.
@@ -171,6 +172,10 @@ Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) d
 - **Icon sets**: Lucide, Material, System; auto-downloaded on first use.
 - **Live clock** in the menu bar with localized date and time.
 - **Spell checker** (`F4`): real-time spell checking with red squiggles for IT, EN, DE, FR, ES. Dictionary language is selectable independently from the UI language (Document → Dictionary Language). Right-click a highlighted word for suggestions, "Add to dictionary", or "Ignore all".
+- **Smart typography**: auto-converts `"..."` → `"..."`, `'...'` → `'...'`, `--` → `—`, `...` → `…` (toggle in Document menu or Preferences).
+- **Paragraph focus**: dims text outside the current paragraph to aid concentration, adapts to light/dark themes (toggle in Document menu).
+- **Toggle task** (`Ctrl+Shift+L`): flips `- [ ]` ↔ `- [x]` on Markdown task list lines.
+- **YAML front matter highlight**: the `---` block at the top of Markdown files is highlighted with a subtle background tint.
 - **Plain text mode** (`Ctrl+Alt+N`): disable highlighting, brace matching and autocomplete per tab, restorable in one click.
 - **Distraction-free writing mode** (`F11`): fullscreen with toolbar, statusbar, menubar, and panels hidden. Fully restored on exit.
 - **Session restore**: all files, cursor positions, and panel layout restored at startup. Optional auto-save on focus loss.
@@ -443,7 +448,8 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 ### 👁️ Pannello Anteprima
 - **Anteprima live** di Markdown, HTML, reStructuredText, LaTeX (struttura), PDF.
 - **Hover preview**: passa il mouse su `\includegraphics{...}`, `![img](...)` o `<img src="...">` per vedere l'anteprima dell'immagine in un popup; supporta anche i PDF vettoriali.
-- **Rendering equazioni** matematiche inline con hover (file LaTeX/Markdown con `$...$`, `$$...$$`, `\[...\]`).
+- **Rendering equazioni** matematiche inline con hover (file LaTeX/Markdown con `$...$`, `$$...$$`, `\[...\]`). MathJax 3 renderizza anche le formule dentro l'anteprima live Markdown (auto-rilevato, richiede internet).
+- **Diagrammi Mermaid**: i blocchi ` ```mermaid ` nel Markdown vengono renderizzati come diagrammi nell'anteprima tramite Mermaid.js (richiede internet; attivabile/disattivabile in Preferenze → Anteprima).
 - **SyncTeX**: sincronizzazione bidirezionale cursore editor ↔ posizione nel PDF — clicca nell'editor e il PDF salta alla pagina giusta, e viceversa.
 - **Smart Crop**: elimina automaticamente i margini bianchi dei PDF (`✂`).
 - Zoom con `Ctrl+Rotella`, navigazione pagina per pagina con la rotella del mouse.
@@ -508,6 +514,10 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 - **Set icone**: Lucide, Material, Sistema; download automatico al primo utilizzo.
 - **Orologio live** nella barra dei menu con data e ora localizzate.
 - **Controllo ortografico** (`F4`): spell checker in tempo reale con sottolineatura rossa per IT, EN, DE, FR, ES. Lingua del dizionario selezionabile indipendentemente dalla lingua dell'interfaccia (Documento → Lingua dizionario). Click destro su una parola evidenziata per suggerimenti, "Aggiungi al dizionario" o "Ignora tutto".
+- **Tipografia intelligente**: converte automaticamente `"..."` → `"..."`, `'...'` → `'...'`, `--` → `—`, `...` → `…` (attivabile dal menu Documento o Preferenze).
+- **Focus paragrafo**: attenua il testo fuori dal paragrafo corrente per favorire la concentrazione, si adatta ai temi chiari/scuri (attivabile dal menu Documento).
+- **Segna/desegna attività** (`Ctrl+Shift+L`): alterna `- [ ]` ↔ `- [x]` nelle righe task list Markdown.
+- **YAML front matter highlight**: il blocco `---` in cima ai file Markdown viene evidenziato con uno sfondo tenue.
 - **Modalità testo semplice** (`Ctrl+Alt+N`): disabilita highlighting, brace matching e autocomplete per tab, ripristinabile in un click.
 - **Modalità scrittura distraction-free** (`F11`): schermo intero senza toolbar, statusbar, menubar né pannelli. Ripristino completo all'uscita.
 - **Sessioni**: ripristino automatico all'avvio di tutti i file, posizioni cursore e layout pannelli. Auto-save opzionale su perdita del fuoco.

@@ -292,7 +292,10 @@
     "latex_math_gather": "\\begin{gather}  (agrupada)",
     "latex_wrap_custom": "Personalizado…",
     "lang_toolbar_label_key": "Clave de etiqueta:",
-    "lang_toolbar_ref_key": "Clave de referencia:"
+    "lang_toolbar_ref_key": "Clave de referencia:",
+    "toggle_checklist": "Marcar/desmarcar tarea",
+    "smart_typography": "Tipografía inteligente",
+    "sentence_focus": "Enfoque de párrafo"
   },
   "color": {
     "red": "Rojo",
@@ -548,7 +551,10 @@
       "edge_group": "Línea guía vertical",
       "edge_disabled": "Desactivada",
       "edge_col_suffix": " col",
-      "edge_col_label": "Columna (0 = desactivada):"
+      "edge_col_label": "Columna (0 = desactivada):",
+      "writing_group": "Escritura",
+      "smart_typography": "Tipografía inteligente (comillas, raya, puntos suspensivos)",
+      "sentence_focus": "Enfoque de párrafo (atenuar el resto)"
     },
     "aspect": {
       "theme": "Tema",
@@ -601,7 +607,8 @@
       "general": "Panel de vista previa",
       "enabled": "Habilitar panel de vista previa lateral",
       "sync": "Sincronización cursor ↔ vista previa",
-      "delay": "Retraso de actualización:"
+      "delay": "Retraso de actualización:",
+      "mermaid": "Renderizado de diagramas Mermaid (```mermaid)"
     },
     "build": {
       "general": "Construcción",
@@ -624,7 +631,10 @@
     "theme_imported": "Tema importado: {name}",
     "theme_import_failed": "No se pudo importar el tema.",
     "theme_exported": "Tema exportado a {path}",
-    "theme_export_failed": "No se pudo exportar el tema."
+    "theme_export_failed": "No se pudo exportar el tema.",
+    "editor.writing_group": "Escritura",
+    "editor.smart_typography": "Tipografía inteligente (comillas, raya, puntos suspensivos)",
+    "editor.sentence_focus": "Enfoque de párrafo (atenuar el resto)"
   },
   "dialog": {
     "preferences": "Preferencias",
@@ -1007,7 +1017,11 @@
     "pdf_find": "Buscar en el documento (Ctrl+F)",
     "pdf_continuous": "Desplazamiento continuo / Página individual — en modo página individual, la rueda del ratón cambia páginas",
     "pdf_page_prev": "Página anterior",
-    "pdf_page_next": "Página siguiente"
+    "pdf_page_next": "Página siguiente",
+    "toggle_checklist": "Marcar o desmarcar la tarea en la línea actual.\nFunciona en líneas con - [ ] o - [x].",
+    "smart_typography": "Convertir automáticamente las comillas en tipográficas (“”), -- en — y ... en …",
+    "sentence_focus": "Atenuar el texto fuera del párrafo actual",
+    "pref_mermaid": "Habilitar el renderizado de diagramas Mermaid en bloques mermaid)"
   },
   "websearch": {
     "submenu_title": "Búsqueda Web",
@@ -1507,26 +1521,26 @@
     "no_sheet_found": "No sheet found"
   },
   "latex_menu": {
-    "title":          "La&TeX",
-    "ams_packages":   "Paquetes AMS",
-    "sectioning":     "Secciones",
-    "environments":   "Entornos",
-    "list_envs":      "Entornos de lista",
-    "boxes":          "Cajas",
-    "char_styles":    "Estilos de carácter",
-    "font_sizes":     "Tamaño de fuente",
-    "table_envs":     "Entornos de tabla",
-    "hspace":         "Espacio horizontal",
-    "vspace":         "Espacio vertical",
-    "accents":        "Acentos internacionales",
-    "insert_file":    "Insertar/incluir archivo",
-    "insert_image":   "Insertar imagen…",
-    "changes":        "Comentarios de revisión (changes)",
-    "cross_ref":      "Referencias cruzadas",
-    "bibliography":   "Bibliografía",
-    "ref_next":       "Insertar referencia a la siguiente etiqueta",
-    "ref_prev":       "Insertar referencia a la etiqueta anterior",
-    "edit_tables":    "Editar tablas",
+    "title": "La&TeX",
+    "ams_packages": "Paquetes AMS",
+    "sectioning": "Secciones",
+    "environments": "Entornos",
+    "list_envs": "Entornos de lista",
+    "boxes": "Cajas",
+    "char_styles": "Estilos de carácter",
+    "font_sizes": "Tamaño de fuente",
+    "table_envs": "Entornos de tabla",
+    "hspace": "Espacio horizontal",
+    "vspace": "Espacio vertical",
+    "accents": "Acentos internacionales",
+    "insert_file": "Insertar/incluir archivo",
+    "insert_image": "Insertar imagen…",
+    "changes": "Comentarios de revisión (changes)",
+    "cross_ref": "Referencias cruzadas",
+    "bibliography": "Bibliografía",
+    "ref_next": "Insertar referencia a la siguiente etiqueta",
+    "ref_prev": "Insertar referencia a la etiqueta anterior",
+    "edit_tables": "Editar tablas",
     "magic_comments": "Añadir comentarios mágicos…"
   },
   "latex_toolbar": {

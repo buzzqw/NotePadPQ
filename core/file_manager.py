@@ -71,7 +71,18 @@ class FileManager:
             except UnicodeDecodeError:
                 pass
 
-        # chardet
+        # UTF-8 strict: se i byte sono UTF-8 validi, è definitivamente UTF-8.
+        # chardet può sbagliare su file con lunga intestazione ASCII + pochi caratteri
+        # estesi (es. rileva MacRoman invece di UTF-8, causando √® al posto di è).
+        # La decodifica UTF-8 senza errors= è un test infallibile (zero falsi positivi).
+        try:
+            text = raw.decode("utf-8")
+            le = LineEnding.detect(text)
+            return text, "UTF-8", le
+        except UnicodeDecodeError:
+            pass
+
+        # chardet (raggiunto solo se il file non è UTF-8 valido)
         detected_enc = FileManager._chardet_detect(raw)
 
         # Tentativo con encoding rilevato poi fallback

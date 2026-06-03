@@ -1102,9 +1102,8 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("find_prev",       "Shift+F3",     self.action_find_prev))
         m.addAction(self._act("replace",         "Ctrl+H",       self.action_replace))
         self._sep(m)
-        m.addAction(self._act("find_in_files",      "Ctrl+Shift+F", self.action_find_in_files))
-        m.addAction(self._act("find_in_all_docs",   "",             self.action_find_in_all_docs))
-        m.addAction(self._act("replace_in_all_docs","",             self.action_replace_in_all_docs))
+        m.addAction(self._act("find_in_files",    "Ctrl+Shift+F", self.action_find_in_files))
+        m.addAction(self._act("find_in_all_docs", "Ctrl+Shift+H", self.action_find_in_all_docs))
         self._sep(m)
         m.addAction(self._act("go_to_line",      "Ctrl+G",       self.action_go_to_line))
         m.addAction(self._act("go_to_matching",  "Ctrl+]",       self.action_go_to_matching))
@@ -2537,10 +2536,6 @@ class MainWindow(QMainWindow):
     def action_find_in_all_docs(self) -> None:
         from ui.find_replace import FindReplaceDialog
         FindReplaceDialog.show_find_all_docs(self)
-
-    def action_replace_in_all_docs(self) -> None:
-        from ui.find_replace import FindReplaceDialog
-        FindReplaceDialog.show_replace_all_docs(self)
 
     def action_go_to_line(self) -> None:
         editor = self._current_editor()

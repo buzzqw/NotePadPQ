@@ -78,8 +78,8 @@ class FindReplaceDialog(QDialog):
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_find_tab(),           tr("action.find"))
         self._tabs.addTab(self._build_replace_tab(),        tr("action.replace"))
-        self._tabs.addTab(self._build_find_in_files_tab(),  tr("action.tab_find_replace_in_files"))
-        self._tabs.addTab(self._build_all_docs_tab(),       tr("action.tab_find_in_all_open_docs"))
+        self._tabs.addTab(self._build_find_in_files_tab(),  tr("action.find_in_files"))
+        self._tabs.addTab(self._build_all_docs_tab(),       tr("action.find_in_all_docs"))
         layout.addWidget(self._tabs)
 
     def _build_find_tab(self) -> QWidget:
@@ -355,7 +355,7 @@ ESEMPI
         top.addLayout(opts, 4, 0, 1, 2)
 
         btn_row = QHBoxLayout()
-        btn_find = QPushButton("🔍 " + tr("action.find_in_files"))
+        btn_find = QPushButton("🔍 " + tr("action.find"))
         btn_find.setToolTip(tr("tooltip.fif_search"))
         btn_find.clicked.connect(self._do_find_in_files)
         btn_replace_all = QPushButton("↔ " + tr("action.replace_in_files"))
@@ -374,7 +374,7 @@ ESEMPI
         # Risultati integrati nel dialog — 3 colonne: File/Riga | Testo | ↔
         from PyQt6.QtWidgets import QHeaderView
         self._fif_results = QTreeWidget()
-        self._fif_results.setHeaderLabels([tr("label.col_file_line"), tr("label.col_text"), "↔"])
+        self._fif_results.setHeaderLabels([tr("label.col_file_line"), tr("label.col_text"), ""])
         self._fif_results.setRootIsDecorated(True)
         self._fif_results.setAlternatingRowColors(True)
         self._fif_results.setMinimumHeight(200)
@@ -384,7 +384,7 @@ ESEMPI
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self._fif_results.setColumnWidth(2, 36)
+        self._fif_results.setColumnWidth(2, 84)
         layout.addWidget(self._fif_results, 1)
 
         return w
@@ -417,7 +417,7 @@ ESEMPI
         grid.addLayout(opts, 2, 0, 1, 2)
 
         btns = QHBoxLayout()
-        btn_fa = QPushButton("🔍 " + tr("action.find_in_all_docs"))
+        btn_fa = QPushButton("🔍 " + tr("action.find"))
         btn_ra = QPushButton("↔ " + tr("action.replace_in_all_docs"))
         btn_fa.setToolTip(tr("tooltip.all_search"))
         btn_ra.setToolTip(tr("tooltip.all_replace_btn"))
@@ -728,8 +728,8 @@ ESEMPI
                     [f"📄 {rel}  (" + tr("msg.file_matches", matches=len(file_matches)) + ")", "", ""]
                 )
                 file_item.setData(0, _ROLE, {"path": str(fpath)})
-                btn_f = QPushButton("↔")
-                btn_f.setFixedWidth(32)
+                btn_f = QPushButton(tr("button.replace"))
+                btn_f.setFixedSize(80, 22)
                 btn_f.setToolTip(tr("tooltip.fif_replace_in_file"))
                 btn_f.clicked.connect(lambda _checked, fi=file_item: self._replace_fif_file(fi))
                 self._fif_results.setItemWidget(file_item, 2, btn_f)
@@ -742,12 +742,12 @@ ESEMPI
                         "path": str(fpath), "line": line_num,
                         "col_start": col_s, "col_end": col_e,
                     })
-                    btn_m = QPushButton("↔")
-                    btn_m.setFixedWidth(32)
+                    file_item.addChild(child)   # addChild prima di setItemWidget
+                    btn_m = QPushButton(tr("button.replace"))
+                    btn_m.setFixedSize(80, 22)
                     btn_m.setToolTip(tr("tooltip.fif_replace_match"))
                     btn_m.clicked.connect(lambda _checked, ci=child: self._replace_fif_single(ci))
                     self._fif_results.setItemWidget(child, 2, btn_m)
-                    file_item.addChild(child)
                 file_item.setExpanded(True)
 
         if total_matches == 0:
@@ -764,13 +764,20 @@ ESEMPI
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if not isinstance(data, dict):
             return
-        path_str = data.get("path")
-        line_num = data.get("line")
+        path_str  = data.get("path")
+        line_num  = data.get("line")
+        col_start = data.get("col_start")
+        col_end   = data.get("col_end")
         if path_str:
             self._mw.open_files([Path(path_str)])
             editor = self._mw._tab_manager.current_editor()
             if editor and line_num:
-                editor.go_to_line(int(line_num))
+                ln = int(line_num) - 1
+                if col_start is not None and col_end is not None:
+                    editor.setSelection(ln, col_start, ln, col_end)
+                else:
+                    editor.go_to_line(int(line_num))
+                editor.ensureLineVisible(ln)
                 editor.setFocus()
 
     def _do_replace_in_files(self) -> None:

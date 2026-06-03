@@ -332,7 +332,12 @@ In the "Replace with" field you can use `\1`, `\2`, ... to refer to regex captur
 
 #### Tab "Find in Files"
 
-Search all files in a directory, with extension filter and recursive option. Results show files and lines; double-click opens the file at the corresponding line.
+Search (and optionally replace) across all files in a directory, with extension filter and recursive option. Results show files and lines; double-click opens the file at the corresponding line.
+
+The **Replace with** field enables two replacement modes:
+
+- **↔ Replace in Files** — replaces all matches in every matching file (with a confirmation prompt before modifying files on disk). Files already open in the editor are updated automatically.
+- **↻ Replace One by One** — opens each file and highlights every match in the editor; for each one you can choose **Replace**, **Skip**, **Replace All** (remaining without further prompts), or **Cancel**. Modified files are saved automatically when done.
 
 #### Tab "Find in All Documents"
 

@@ -338,7 +338,12 @@ Nel campo "Sostituisci con" puoi usare `\1`, `\2`, ... per riferirsi ai gruppi c
 
 #### Tab "Cerca nei file"
 
-Cerca in tutti i file di una directory, con filtro estensioni e opzione ricorsiva. I risultati mostrano file e righe; doppio clic apre il file alla riga corrispondente.
+Cerca (e opzionalmente sostituisce) in tutti i file di una directory, con filtro estensioni e opzione ricorsiva. I risultati mostrano file e righe; doppio clic apre il file alla riga corrispondente.
+
+Il campo **Sostituisci con** abilita due modalità di sostituzione:
+
+- **↔ Sostituisci nei file** — sostituisce tutte le corrispondenze in tutti i file corrispondenti (con richiesta di conferma prima di modificare i file su disco). I file già aperti nell'editor vengono aggiornati automaticamente.
+- **↻ Sostituisci uno per uno** — apre ogni file e mostra ogni corrispondenza evidenziata nell'editor; per ciascuna si può scegliere **Sostituisci**, **Salta**, **Sostituisci tutti** (rimanenti senza ulteriore conferma) o **Annulla**. Al termine, i file modificati vengono salvati automaticamente.
 
 #### Tab "Cerca in tutti i documenti"
 

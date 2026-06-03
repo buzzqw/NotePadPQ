@@ -419,7 +419,7 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Goto Anything** (`Ctrl+Shift+G`): navigazione rapida stile Sublime: file aperti, `:riga`, `@simbolo`, `>comando`.
 - Trova/Sostituisci con **espressioni regolari** (sintassi Python completa) e sostituzione con gruppi di cattura.
 - **Cerca in tutti i file** aperti nei tab contemporaneamente.
-- **Cerca nei file** su disco con filtro estensione e ricerca ricorsiva.
+- **Cerca e sostituisci nei file** su disco con filtro estensione e ricerca ricorsiva; sostituzione in blocco o una corrispondenza alla volta con conferma interattiva.
 - **Ricerca incrementale** inline (`Ctrl+Shift+F2`).
 - **Vai alla riga** (`Ctrl+G`) e vai alla parentesi corrispondente.
 - **Bookmark** su righe: aggiungi (`Ctrl+F2`), naviga (`F2` / `Shift+F2`), rimuovi.

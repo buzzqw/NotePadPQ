@@ -54,6 +54,61 @@ _RESULTS_STYLE = """
 """
 
 
+class _FifReplaceInteractiveDialog(QDialog):
+    """Modal dialog for interactive replace-in-files (one match at a time)."""
+    REPLACE     = 1
+    SKIP        = 2
+    REPLACE_ALL = 3
+    CANCEL      = 4
+
+    def __init__(self, parent: QDialog) -> None:
+        super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
+        self.setWindowTitle(tr("action.replace_in_files"))
+        self.setMinimumWidth(480)
+        self._choice = self.CANCEL
+
+        layout = QVBoxLayout(self)
+        self._lbl_progress = QLabel("")
+        self._lbl_file     = QLabel("")
+        self._lbl_file.setWordWrap(True)
+        self._lbl_context  = QLabel("")
+        self._lbl_context.setStyleSheet(
+            "font-family: monospace; background: #1e1e1e; color: #d4d4d4;"
+            " padding: 4px; border-radius: 3px;"
+        )
+        self._lbl_context.setWordWrap(True)
+        layout.addWidget(self._lbl_progress)
+        layout.addWidget(self._lbl_file)
+        layout.addWidget(self._lbl_context)
+
+        btns = QHBoxLayout()
+        btn_replace     = QPushButton(tr("button.replace"))
+        btn_skip        = QPushButton(tr("button.skip"))
+        btn_replace_all = QPushButton(tr("button.replace_all"))
+        btn_cancel      = QPushButton(tr("button.cancel"))
+        btn_replace.clicked.connect(lambda: self._done(self.REPLACE))
+        btn_skip.clicked.connect(lambda: self._done(self.SKIP))
+        btn_replace_all.clicked.connect(lambda: self._done(self.REPLACE_ALL))
+        btn_cancel.clicked.connect(lambda: self._done(self.CANCEL))
+        for b in [btn_replace, btn_skip, btn_replace_all, btn_cancel]:
+            btns.addWidget(b)
+        layout.addLayout(btns)
+
+    def _done(self, choice: int) -> None:
+        self._choice = choice
+        self.accept()
+
+    def ask(self, file_name: str, line: int, context: str, current: int, total: int) -> int:
+        self._lbl_progress.setText(
+            tr("label.fif_replace_progress", current=current, total=total)
+        )
+        self._lbl_file.setText(f"{file_name}  :{line}")
+        self._lbl_context.setText(context)
+        self._choice = self.CANCEL
+        self.exec()
+        return self._choice
+
+
 class FindReplaceDialog(QDialog):
     """
     Dialog cerca/sostituisci. Singleton — una sola istanza per finestra.
@@ -320,7 +375,12 @@ ESEMPI
         self._fif_find.setToolTip(tr("tooltip.fif_find"))
         top.addWidget(self._fif_find, 0, 1)
 
-        top.addWidget(QLabel(tr("label.directory")), 1, 0)
+        top.addWidget(QLabel(tr("label.replace_with")), 1, 0)
+        self._fif_replace = QLineEdit()
+        self._fif_replace.setToolTip(tr("tooltip.fif_replace"))
+        top.addWidget(self._fif_replace, 1, 1)
+
+        top.addWidget(QLabel(tr("label.directory")), 2, 0)
         dir_layout = QHBoxLayout()
         self._fif_dir  = QLineEdit(str(Path.home()))
         self._fif_dir.setToolTip(tr("tooltip.fif_dir"))
@@ -329,12 +389,12 @@ ESEMPI
         btn_browse.clicked.connect(self._browse_dir)
         dir_layout.addWidget(self._fif_dir)
         dir_layout.addWidget(btn_browse)
-        top.addLayout(dir_layout, 1, 1)
+        top.addLayout(dir_layout, 2, 1)
 
-        top.addWidget(QLabel(tr("label.file_filter")), 2, 0)
+        top.addWidget(QLabel(tr("label.file_filter")), 3, 0)
         self._fif_filter = QLineEdit("*.py;*.txt;*.md;*.tex")
         self._fif_filter.setToolTip(tr("tooltip.fif_filter"))
-        top.addWidget(self._fif_filter, 2, 1)
+        top.addWidget(self._fif_filter, 3, 1)
 
         self._fif_case   = QCheckBox(tr("label.match_case"))
         self._fif_regex  = QCheckBox(tr("label.regex"))
@@ -347,18 +407,26 @@ ESEMPI
         for w2 in [self._fif_case, self._fif_regex, self._fif_sub]:
             opts.addWidget(w2)
         opts.addStretch()
-        top.addLayout(opts, 3, 0, 1, 2)
+        top.addLayout(opts, 4, 0, 1, 2)
 
         btn_row = QHBoxLayout()
         btn_find = QPushButton("🔍 " + tr("action.find_in_files"))
         btn_find.setToolTip(tr("tooltip.fif_search"))
         btn_find.clicked.connect(self._do_find_in_files)
+        btn_replace_all = QPushButton("↔ " + tr("action.replace_in_files"))
+        btn_replace_all.setToolTip(tr("tooltip.fif_replace_all"))
+        btn_replace_all.clicked.connect(self._do_replace_in_files)
+        btn_replace_one = QPushButton("↻ " + tr("action.replace_in_files_interactive"))
+        btn_replace_one.setToolTip(tr("tooltip.fif_replace_interactive"))
+        btn_replace_one.clicked.connect(self._do_replace_in_files_interactive)
         self._fif_status = QLabel("")
         self._fif_status.setStyleSheet("color: #888; font-size: 11px;")
         btn_row.addWidget(btn_find)
+        btn_row.addWidget(btn_replace_all)
+        btn_row.addWidget(btn_replace_one)
         btn_row.addWidget(self._fif_status)
         btn_row.addStretch()
-        top.addLayout(btn_row, 4, 0, 1, 2)
+        top.addLayout(btn_row, 5, 0, 1, 2)
 
         layout.addLayout(top)
 
@@ -739,6 +807,219 @@ ESEMPI
             if editor and line_num:
                 editor.go_to_line(int(line_num))
                 editor.setFocus()
+
+    def _do_replace_in_files(self) -> None:
+        import os, fnmatch
+        from PyQt6.QtWidgets import QMessageBox
+        query        = self._fif_find.text().strip()
+        replace_text = self._fif_replace.text()
+        base_dir     = Path(self._fif_dir.text())
+        filters      = [f.strip() for f in self._fif_filter.text().split(";") if f.strip()]
+        use_re       = self._fif_regex.isChecked()
+        case_s       = self._fif_case.isChecked()
+        recurse      = self._fif_sub.isChecked()
+
+        if not query:
+            self._fif_status.setText(tr("msg.enter_search_text"))
+            return
+        if not base_dir.is_dir():
+            self._fif_status.setText(tr("msg.invalid_directory"))
+            return
+
+        re_flags = 0 if case_s else re.IGNORECASE
+        try:
+            pattern = re.compile(query if use_re else re.escape(query), re_flags)
+        except re.error as e:
+            self._fif_status.setText(tr("msg.regex_error", error=str(e)))
+            return
+
+        walker = os.walk(str(base_dir)) if recurse \
+            else [(str(base_dir), [], os.listdir(str(base_dir)))]
+
+        files_to_modify = []
+        for root, _, files in walker:
+            for fname in files:
+                if filters and not any(fnmatch.fnmatch(fname, f) for f in filters):
+                    continue
+                fpath = Path(root) / fname
+                try:
+                    text = fpath.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                new_text, count = pattern.subn(replace_text, text)
+                if count > 0:
+                    files_to_modify.append((fpath, new_text, count))
+
+        if not files_to_modify:
+            self._fif_status.setText(tr("msg.replace_no_matches"))
+            return
+
+        total_matches = sum(c for _, _, c in files_to_modify)
+        total_files   = len(files_to_modify)
+
+        reply = QMessageBox.question(
+            self,
+            tr("action.replace_in_files"),
+            tr("msg.confirm_replace_files", count=total_matches, files=total_files),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        errors = []
+        for fpath, new_text, _ in files_to_modify:
+            try:
+                fpath.write_text(new_text, encoding="utf-8")
+                for editor in self._mw._tab_manager.all_editors():
+                    if editor.file_path and editor.file_path.resolve() == fpath.resolve():
+                        cursor = editor.getCursorPosition()
+                        editor.beginUndoAction()
+                        editor.selectAll()
+                        editor.replaceSelectedText(new_text)
+                        editor.endUndoAction()
+                        line = min(cursor[0], max(0, editor.lines() - 1))
+                        editor.setCursorPosition(line, 0)
+                        editor.mark_saved()
+            except Exception as exc:
+                errors.append(tr("msg.replace_file_error", path=str(fpath), error=str(exc)))
+
+        if errors:
+            QMessageBox.warning(self, tr("action.replace_in_files"), "\n".join(errors))
+
+        self._fif_status.setText(
+            tr("msg.replaced_in_files", count=total_matches, files=total_files)
+        )
+        self._do_find_in_files()
+
+    def _do_replace_in_files_interactive(self) -> None:
+        import os, fnmatch
+        query        = self._fif_find.text().strip()
+        replace_text = self._fif_replace.text()
+        base_dir     = Path(self._fif_dir.text())
+        filters      = [f.strip() for f in self._fif_filter.text().split(";") if f.strip()]
+        use_re       = self._fif_regex.isChecked()
+        case_s       = self._fif_case.isChecked()
+        recurse      = self._fif_sub.isChecked()
+
+        if not query:
+            self._fif_status.setText(tr("msg.enter_search_text"))
+            return
+        if not base_dir.is_dir():
+            self._fif_status.setText(tr("msg.invalid_directory"))
+            return
+
+        re_flags = 0 if case_s else re.IGNORECASE
+        try:
+            pattern = re.compile(query if use_re else re.escape(query), re_flags)
+        except re.error as e:
+            self._fif_status.setText(tr("msg.regex_error", error=str(e)))
+            return
+
+        walker = os.walk(str(base_dir)) if recurse \
+            else [(str(base_dir), [], os.listdir(str(base_dir)))]
+        files_with_matches = []
+        total_initial = 0
+        for root, _, files in walker:
+            for fname in sorted(files):
+                if filters and not any(fnmatch.fnmatch(fname, f) for f in filters):
+                    continue
+                fpath = Path(root) / fname
+                try:
+                    text = fpath.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                count = len(pattern.findall(text))
+                if count > 0:
+                    files_with_matches.append(fpath)
+                    total_initial += count
+
+        if not files_with_matches:
+            self._fif_status.setText(tr("msg.replace_no_matches"))
+            return
+
+        dlg = _FifReplaceInteractiveDialog(self)
+        replaced_total   = 0
+        files_modified   = 0
+        stop             = False
+        replace_all_rest = False
+
+        for fpath in files_with_matches:
+            if stop:
+                break
+            self._mw.open_files([fpath])
+            QApplication.processEvents()
+            editor = self._mw._tab_manager.current_editor()
+            if editor is None:
+                continue
+
+            start_line, start_col = 0, 0
+            file_replaced = 0
+
+            while True:
+                text  = editor.text()
+                lines = text.split("\n")
+                abs_start = sum(len(lines[i]) + 1 for i in range(start_line)) + start_col
+                m = pattern.search(text, abs_start)
+                if m is None:
+                    break
+
+                pre    = text[:m.start()]
+                m_line = pre.count("\n")
+                m_col  = m.start() - (pre.rfind("\n") + 1)
+                pre_e  = text[:m.end()]
+                m_eline = pre_e.count("\n")
+                m_ecol  = m.end() - (pre_e.rfind("\n") + 1)
+
+                editor.setSelection(m_line, m_col, m_eline, m_ecol)
+                editor.ensureLineVisible(m_line)
+                editor.setFocus()
+                QApplication.processEvents()
+
+                if not replace_all_rest:
+                    try:
+                        rel = str(fpath.relative_to(base_dir))
+                    except ValueError:
+                        rel = str(fpath)
+                    context = lines[m_line].strip()[:120]
+                    choice  = dlg.ask(
+                        rel, m_line + 1, context,
+                        replaced_total + file_replaced + 1, total_initial
+                    )
+                else:
+                    choice = _FifReplaceInteractiveDialog.REPLACE
+
+                if choice == _FifReplaceInteractiveDialog.CANCEL:
+                    stop = True
+                    break
+                elif choice == _FifReplaceInteractiveDialog.REPLACE_ALL:
+                    replace_all_rest = True
+                    choice = _FifReplaceInteractiveDialog.REPLACE
+
+                if choice == _FifReplaceInteractiveDialog.REPLACE:
+                    repl = m.expand(replace_text) if use_re else replace_text
+                    editor.replaceSelectedText(repl)
+                    file_replaced += 1
+                    new_abs = m.start() + len(repl)
+                    new_pre = editor.text()[:new_abs]
+                    start_line = new_pre.count("\n")
+                    start_col  = new_abs - (new_pre.rfind("\n") + 1)
+                else:  # SKIP
+                    new_pre = text[:m.end()]
+                    start_line = new_pre.count("\n")
+                    start_col  = m.end() - (new_pre.rfind("\n") + 1)
+
+            if file_replaced > 0:
+                replaced_total += file_replaced
+                files_modified += 1
+                self._mw._save_editor(editor, fpath)
+
+        if replaced_total > 0:
+            self._fif_status.setText(
+                tr("msg.replaced_in_files", count=replaced_total, files=files_modified)
+            )
+            self._do_find_in_files()
+        else:
+            self._fif_status.setText(tr("msg.zero_results", query=query))
 
     # ── Find in All Docs ──────────────────────────────────────────────────────
 

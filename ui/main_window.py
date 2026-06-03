@@ -1594,7 +1594,7 @@ class MainWindow(QMainWindow):
         # Ricostruzione fisica toolbar dalla configurazione salvata
         from PyQt6.QtWidgets import QToolButton
         from ui.customize_toolbar_dialog import DEFAULT_TOOLBAR
-        toolbar_items: list[str] = settings.get("toolbar/items", None)
+        toolbar_items: list[str] = Settings.instance().get("toolbar/items", None)
         if not isinstance(toolbar_items, list) or not toolbar_items:
             toolbar_items = list(DEFAULT_TOOLBAR)
         for k in toolbar_items:

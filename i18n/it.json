@@ -172,6 +172,8 @@
     "column_editor": "Column editor…",
     "word_wrap_toggle": "A capo automatico",
     "find_in_all_docs": "Cerca in tutti i documenti",
+    "tab_find_replace_in_files": "Cerca e Sostituisci nella directory...",
+    "tab_find_in_all_open_docs": "Cerca in tutti i documenti aperti",
     "replace_in_all_docs": "Sostituisci in tutti i documenti",
     "toggle_bookmark": "Aggiungi/Rimuovi bookmark",
     "next_bookmark": "Prossimo bookmark",
@@ -1026,7 +1028,9 @@
     "sentence_focus": "Attenua il testo fuori dal paragrafo corrente per aiutare la concentrazione",
     "pref_mermaid": "Abilita il rendering di diagrammi Mermaid nei blocchi mermaid)",
     "pref_smart_typography": "Converti automaticamente virgolette in tipografiche, trattini doppi in em dash e tre punti in ellissi",
-    "pref_sentence_focus": "Attenua il testo fuori dal paragrafo corrente. Attivabile dal menu Documento."
+    "pref_sentence_focus": "Attenua il testo fuori dal paragrafo corrente. Attivabile dal menu Documento.",
+    "fif_replace_in_file": "Sostituisci tutte le corrispondenze in questo file",
+    "fif_replace_match": "Sostituisci questa corrispondenza"
   },
   "websearch": {
     "submenu_title": "Ricerca Web",

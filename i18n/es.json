@@ -172,6 +172,8 @@
     "column_editor": "Editor de columnas…",
     "word_wrap_toggle": "Ajuste de línea",
     "find_in_all_docs": "Buscar en todos los documentos",
+    "tab_find_replace_in_files": "Buscar & Reemplazar en directorio...",
+    "tab_find_in_all_open_docs": "Buscar en todos los documentos abiertos",
     "replace_in_all_docs": "Reemplazar en todos los documentos",
     "toggle_bookmark": "Alternar marcador",
     "next_bookmark": "Siguiente marcador",
@@ -1026,7 +1028,9 @@
     "sentence_focus": "Atenuar el texto fuera del párrafo actual",
     "pref_mermaid": "Habilitar el renderizado de diagramas Mermaid en bloques mermaid)",
     "pref_smart_typography": "Convierte comillas, guiones dobles en raya y puntos en puntos suspensivos automáticamente",
-    "pref_sentence_focus": "Atenuar el texto fuera del párrafo actual. Activable desde el menú Documento."
+    "pref_sentence_focus": "Atenuar el texto fuera del párrafo actual. Activable desde el menú Documento.",
+    "fif_replace_in_file": "Reemplazar todas las coincidencias en este archivo",
+    "fif_replace_match": "Reemplazar esta coincidencia"
   },
   "websearch": {
     "submenu_title": "Búsqueda Web",

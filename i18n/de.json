@@ -172,6 +172,8 @@
     "column_editor": "Spalteneditor…",
     "word_wrap_toggle": "Zeilenumbruch",
     "find_in_all_docs": "In allen Dokumenten suchen",
+    "tab_find_replace_in_files": "Suchen & Ersetzen im Ordner...",
+    "tab_find_in_all_open_docs": "In allen offenen Dokumenten suchen",
     "replace_in_all_docs": "In allen Dokumenten ersetzen",
     "toggle_bookmark": "Lesezeichen umschalten",
     "next_bookmark": "Nächstes Lesezeichen",
@@ -1026,7 +1028,9 @@
     "sentence_focus": "Text außerhalb des aktuellen Absatzes abdunkeln",
     "pref_mermaid": "Mermaid-Diagramme in mermaid)",
     "pref_smart_typography": "Konvertiert automatisch Anführungszeichen, Bindestriche zu Gedankenstrich und Punkte zu Ellipse",
-    "pref_sentence_focus": "Text außerhalb des aktuellen Absatzes abdunkeln. Im Menü Dokument umschaltbar."
+    "pref_sentence_focus": "Text außerhalb des aktuellen Absatzes abdunkeln. Im Menü Dokument umschaltbar.",
+    "fif_replace_in_file": "Alle Treffer in dieser Datei ersetzen",
+    "fif_replace_match": "Diesen Treffer ersetzen"
   },
   "websearch": {
     "submenu_title": "Websuche",

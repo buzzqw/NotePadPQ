@@ -54,61 +54,6 @@ _RESULTS_STYLE = """
 """
 
 
-class _FifReplaceInteractiveDialog(QDialog):
-    """Modal dialog for interactive replace-in-files (one match at a time)."""
-    REPLACE     = 1
-    SKIP        = 2
-    REPLACE_ALL = 3
-    CANCEL      = 4
-
-    def __init__(self, parent: QDialog) -> None:
-        super().__init__(parent, Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
-        self.setWindowTitle(tr("action.replace_in_files"))
-        self.setMinimumWidth(480)
-        self._choice = self.CANCEL
-
-        layout = QVBoxLayout(self)
-        self._lbl_progress = QLabel("")
-        self._lbl_file     = QLabel("")
-        self._lbl_file.setWordWrap(True)
-        self._lbl_context  = QLabel("")
-        self._lbl_context.setStyleSheet(
-            "font-family: monospace; background: #1e1e1e; color: #d4d4d4;"
-            " padding: 4px; border-radius: 3px;"
-        )
-        self._lbl_context.setWordWrap(True)
-        layout.addWidget(self._lbl_progress)
-        layout.addWidget(self._lbl_file)
-        layout.addWidget(self._lbl_context)
-
-        btns = QHBoxLayout()
-        btn_replace     = QPushButton(tr("button.replace"))
-        btn_skip        = QPushButton(tr("button.skip"))
-        btn_replace_all = QPushButton(tr("button.replace_all"))
-        btn_cancel      = QPushButton(tr("button.cancel"))
-        btn_replace.clicked.connect(lambda: self._done(self.REPLACE))
-        btn_skip.clicked.connect(lambda: self._done(self.SKIP))
-        btn_replace_all.clicked.connect(lambda: self._done(self.REPLACE_ALL))
-        btn_cancel.clicked.connect(lambda: self._done(self.CANCEL))
-        for b in [btn_replace, btn_skip, btn_replace_all, btn_cancel]:
-            btns.addWidget(b)
-        layout.addLayout(btns)
-
-    def _done(self, choice: int) -> None:
-        self._choice = choice
-        self.accept()
-
-    def ask(self, file_name: str, line: int, context: str, current: int, total: int) -> int:
-        self._lbl_progress.setText(
-            tr("label.fif_replace_progress", current=current, total=total)
-        )
-        self._lbl_file.setText(f"{file_name}  :{line}")
-        self._lbl_context.setText(context)
-        self._choice = self.CANCEL
-        self.exec()
-        return self._choice
-
-
 class FindReplaceDialog(QDialog):
     """
     Dialog cerca/sostituisci. Singleton — una sola istanza per finestra.
@@ -133,8 +78,8 @@ class FindReplaceDialog(QDialog):
         self._tabs = QTabWidget()
         self._tabs.addTab(self._build_find_tab(),           tr("action.find"))
         self._tabs.addTab(self._build_replace_tab(),        tr("action.replace"))
-        self._tabs.addTab(self._build_find_in_files_tab(),  tr("action.find_in_files"))
-        self._tabs.addTab(self._build_all_docs_tab(),       tr("action.find_in_all_docs"))
+        self._tabs.addTab(self._build_find_in_files_tab(),  tr("action.tab_find_replace_in_files"))
+        self._tabs.addTab(self._build_all_docs_tab(),       tr("action.tab_find_in_all_open_docs"))
         layout.addWidget(self._tabs)
 
     def _build_find_tab(self) -> QWidget:
@@ -416,28 +361,30 @@ ESEMPI
         btn_replace_all = QPushButton("↔ " + tr("action.replace_in_files"))
         btn_replace_all.setToolTip(tr("tooltip.fif_replace_all"))
         btn_replace_all.clicked.connect(self._do_replace_in_files)
-        btn_replace_one = QPushButton("↻ " + tr("action.replace_in_files_interactive"))
-        btn_replace_one.setToolTip(tr("tooltip.fif_replace_interactive"))
-        btn_replace_one.clicked.connect(self._do_replace_in_files_interactive)
         self._fif_status = QLabel("")
         self._fif_status.setStyleSheet("color: #888; font-size: 11px;")
         btn_row.addWidget(btn_find)
         btn_row.addWidget(btn_replace_all)
-        btn_row.addWidget(btn_replace_one)
         btn_row.addWidget(self._fif_status)
         btn_row.addStretch()
         top.addLayout(btn_row, 5, 0, 1, 2)
 
         layout.addLayout(top)
 
-        # Risultati integrati nel dialog
+        # Risultati integrati nel dialog — 3 colonne: File/Riga | Testo | ↔
+        from PyQt6.QtWidgets import QHeaderView
         self._fif_results = QTreeWidget()
-        self._fif_results.setHeaderLabels([tr("label.col_file_line"), tr("label.col_text")])
+        self._fif_results.setHeaderLabels([tr("label.col_file_line"), tr("label.col_text"), "↔"])
         self._fif_results.setRootIsDecorated(True)
         self._fif_results.setAlternatingRowColors(True)
         self._fif_results.setMinimumHeight(200)
         self._fif_results.setStyleSheet(_RESULTS_STYLE)
         self._fif_results.itemDoubleClicked.connect(self._open_fif_result)
+        hdr = self._fif_results.header()
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self._fif_results.setColumnWidth(2, 36)
         layout.addWidget(self._fif_results, 1)
 
         return w
@@ -762,31 +709,49 @@ ESEMPI
                 except Exception:
                     continue
                 lines = text.split("\n")
-                matches = [(i + 1, line) for i, line in enumerate(lines)
-                           if pattern.search(line)]
-                if not matches:
+                # Una voce per corrispondenza (non per riga)
+                file_matches = [
+                    (i + 1, line, m.start(), m.end())
+                    for i, line in enumerate(lines)
+                    for m in pattern.finditer(line)
+                ]
+                if not file_matches:
                     continue
-                total_files += 1
-                total_matches += len(matches)
+                total_files   += 1
+                total_matches += len(file_matches)
                 try:
                     rel = str(fpath.relative_to(base_dir))
                 except ValueError:
                     rel = str(fpath)
                 file_item = QTreeWidgetItem(
                     self._fif_results,
-                    [f"📄 {rel}  (" + tr("msg.file_matches", matches=len(matches)) + ")", ""]
+                    [f"📄 {rel}  (" + tr("msg.file_matches", matches=len(file_matches)) + ")", "", ""]
                 )
-                file_item.setData(0, _ROLE, {"path": str(fpath), "editor": None})
-                for line_num, line_text in matches:
+                file_item.setData(0, _ROLE, {"path": str(fpath)})
+                btn_f = QPushButton("↔")
+                btn_f.setFixedWidth(32)
+                btn_f.setToolTip(tr("tooltip.fif_replace_in_file"))
+                btn_f.clicked.connect(lambda _checked, fi=file_item: self._replace_fif_file(fi))
+                self._fif_results.setItemWidget(file_item, 2, btn_f)
+
+                for line_num, line_text, col_s, col_e in file_matches:
                     child = QTreeWidgetItem([
-                        "  " + tr("msg.row_n", n=line_num), line_text.strip()[:140]
+                        "  " + tr("msg.row_n", n=line_num), line_text.strip()[:140], ""
                     ])
-                    child.setData(0, _ROLE, {"path": str(fpath), "line": line_num, "editor": None})
+                    child.setData(0, _ROLE, {
+                        "path": str(fpath), "line": line_num,
+                        "col_start": col_s, "col_end": col_e,
+                    })
+                    btn_m = QPushButton("↔")
+                    btn_m.setFixedWidth(32)
+                    btn_m.setToolTip(tr("tooltip.fif_replace_match"))
+                    btn_m.clicked.connect(lambda _checked, ci=child: self._replace_fif_single(ci))
+                    self._fif_results.setItemWidget(child, 2, btn_m)
                     file_item.addChild(child)
                 file_item.setExpanded(True)
 
         if total_matches == 0:
-            QTreeWidgetItem(self._fif_results, [tr("msg.no_results_found"), ""])
+            QTreeWidgetItem(self._fif_results, [tr("msg.no_results_found"), "", ""])
             self._fif_status.setText(tr("msg.zero_results", query=query))
         else:
             self._fif_status.setText(
@@ -891,135 +856,106 @@ ESEMPI
         )
         self._do_find_in_files()
 
-    def _do_replace_in_files_interactive(self) -> None:
-        import os, fnmatch
-        query        = self._fif_find.text().strip()
+    def _replace_fif_file(self, file_item: QTreeWidgetItem) -> None:
+        """Sostituisce tutte le corrispondenze in un singolo file (pulsante ↔ del nodo file)."""
         replace_text = self._fif_replace.text()
-        base_dir     = Path(self._fif_dir.text())
-        filters      = [f.strip() for f in self._fif_filter.text().split(";") if f.strip()]
-        use_re       = self._fif_regex.isChecked()
-        case_s       = self._fif_case.isChecked()
-        recurse      = self._fif_sub.isChecked()
-
-        if not query:
-            self._fif_status.setText(tr("msg.enter_search_text"))
+        data = file_item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(data, dict):
             return
-        if not base_dir.is_dir():
-            self._fif_status.setText(tr("msg.invalid_directory"))
-            return
-
+        fpath  = Path(data["path"])
+        query  = self._fif_find.text().strip()
+        use_re = self._fif_regex.isChecked()
+        case_s = self._fif_case.isChecked()
         re_flags = 0 if case_s else re.IGNORECASE
         try:
             pattern = re.compile(query if use_re else re.escape(query), re_flags)
-        except re.error as e:
-            self._fif_status.setText(tr("msg.regex_error", error=str(e)))
+        except re.error:
+            return
+        try:
+            content = fpath.read_text(encoding="utf-8", errors="replace")
+            new_content, count = pattern.subn(replace_text, content)
+            fpath.write_text(new_content, encoding="utf-8")
+            self._update_open_editor(fpath, new_content)
+        except Exception as exc:
+            self._fif_status.setText(tr("msg.replace_file_error", path=str(fpath), error=str(exc)))
+            return
+        self._fif_results.invisibleRootItem().removeChild(file_item)
+        self._fif_status.setText(tr("msg.replaced_in_files", count=count, files=1))
+
+    def _replace_fif_single(self, match_item: QTreeWidgetItem) -> None:
+        """Sostituisce una singola corrispondenza (pulsante ↔ del nodo riga)."""
+        replace_text = self._fif_replace.text()
+        data = match_item.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(data, dict):
+            return
+        fpath     = Path(data["path"])
+        line_num  = data["line"]     # 1-based
+        col_start = data["col_start"]
+        col_end   = data["col_end"]
+
+        try:
+            content = fpath.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            self._fif_status.setText(tr("msg.replace_file_error", path=str(fpath), error=str(exc)))
             return
 
-        walker = os.walk(str(base_dir)) if recurse \
-            else [(str(base_dir), [], os.listdir(str(base_dir)))]
-        files_with_matches = []
-        total_initial = 0
-        for root, _, files in walker:
-            for fname in sorted(files):
-                if filters and not any(fnmatch.fnmatch(fname, f) for f in filters):
-                    continue
-                fpath = Path(root) / fname
-                try:
-                    text = fpath.read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    continue
-                count = len(pattern.findall(text))
-                if count > 0:
-                    files_with_matches.append(fpath)
-                    total_initial += count
-
-        if not files_with_matches:
-            self._fif_status.setText(tr("msg.replace_no_matches"))
+        lines = content.split("\n")
+        if line_num - 1 >= len(lines):
             return
+        line = lines[line_num - 1]
 
-        dlg = _FifReplaceInteractiveDialog(self)
-        replaced_total   = 0
-        files_modified   = 0
-        stop             = False
-        replace_all_rest = False
-
-        for fpath in files_with_matches:
-            if stop:
-                break
-            self._mw.open_files([fpath])
-            QApplication.processEvents()
-            editor = self._mw._tab_manager.current_editor()
-            if editor is None:
-                continue
-
-            start_line, start_col = 0, 0
-            file_replaced = 0
-
-            while True:
-                text  = editor.text()
-                lines = text.split("\n")
-                abs_start = sum(len(lines[i]) + 1 for i in range(start_line)) + start_col
-                m = pattern.search(text, abs_start)
-                if m is None:
-                    break
-
-                pre    = text[:m.start()]
-                m_line = pre.count("\n")
-                m_col  = m.start() - (pre.rfind("\n") + 1)
-                pre_e  = text[:m.end()]
-                m_eline = pre_e.count("\n")
-                m_ecol  = m.end() - (pre_e.rfind("\n") + 1)
-
-                editor.setSelection(m_line, m_col, m_eline, m_ecol)
-                editor.ensureLineVisible(m_line)
-                editor.setFocus()
-                QApplication.processEvents()
-
-                if not replace_all_rest:
-                    try:
-                        rel = str(fpath.relative_to(base_dir))
-                    except ValueError:
-                        rel = str(fpath)
-                    context = lines[m_line].strip()[:120]
-                    choice  = dlg.ask(
-                        rel, m_line + 1, context,
-                        replaced_total + file_replaced + 1, total_initial
-                    )
-                else:
-                    choice = _FifReplaceInteractiveDialog.REPLACE
-
-                if choice == _FifReplaceInteractiveDialog.CANCEL:
-                    stop = True
-                    break
-                elif choice == _FifReplaceInteractiveDialog.REPLACE_ALL:
-                    replace_all_rest = True
-                    choice = _FifReplaceInteractiveDialog.REPLACE
-
-                if choice == _FifReplaceInteractiveDialog.REPLACE:
-                    repl = m.expand(replace_text) if use_re else replace_text
-                    editor.replaceSelectedText(repl)
-                    file_replaced += 1
-                    new_abs = m.start() + len(repl)
-                    new_pre = editor.text()[:new_abs]
-                    start_line = new_pre.count("\n")
-                    start_col  = new_abs - (new_pre.rfind("\n") + 1)
-                else:  # SKIP
-                    new_pre = text[:m.end()]
-                    start_line = new_pre.count("\n")
-                    start_col  = m.end() - (new_pre.rfind("\n") + 1)
-
-            if file_replaced > 0:
-                replaced_total += file_replaced
-                files_modified += 1
-                self._mw._save_editor(editor, fpath)
-
-        if replaced_total > 0:
-            self._fif_status.setText(
-                tr("msg.replaced_in_files", count=replaced_total, files=files_modified)
-            )
-            self._do_find_in_files()
+        if self._fif_regex.isChecked():
+            query    = self._fif_find.text().strip()
+            re_flags = 0 if self._fif_case.isChecked() else re.IGNORECASE
+            try:
+                m = re.compile(query, re_flags).search(line, col_start)
+                repl = m.expand(replace_text) if (m and m.start() == col_start) else replace_text
+            except re.error:
+                repl = replace_text
         else:
-            self._fif_status.setText(tr("msg.zero_results", query=query))
+            repl = replace_text
+
+        lines[line_num - 1] = line[:col_start] + repl + line[col_end:]
+        new_content = "\n".join(lines)
+
+        try:
+            fpath.write_text(new_content, encoding="utf-8")
+            self._update_open_editor(fpath, new_content)
+        except Exception as exc:
+            self._fif_status.setText(tr("msg.replace_file_error", path=str(fpath), error=str(exc)))
+            return
+
+        file_item = match_item.parent()
+        if file_item is None:
+            return
+        file_item.removeChild(match_item)
+        remaining = file_item.childCount()
+        if remaining == 0:
+            self._fif_results.invisibleRootItem().removeChild(file_item)
+        else:
+            fp = Path(file_item.data(0, Qt.ItemDataRole.UserRole)["path"])
+            base_dir = Path(self._fif_dir.text())
+            try:
+                rel = str(fp.relative_to(base_dir))
+            except ValueError:
+                rel = str(fp)
+            file_item.setText(
+                0, f"📄 {rel}  (" + tr("msg.file_matches", matches=remaining) + ")"
+            )
+        self._fif_status.setText(tr("msg.replaced_in_files", count=1, files=1))
+
+    def _update_open_editor(self, fpath: Path, new_content: str) -> None:
+        """Aggiorna l'editor in memoria se il file è già aperto."""
+        for editor in self._mw._tab_manager.all_editors():
+            if editor.file_path and editor.file_path.resolve() == fpath.resolve():
+                cursor = editor.getCursorPosition()
+                editor.beginUndoAction()
+                editor.selectAll()
+                editor.replaceSelectedText(new_content)
+                editor.endUndoAction()
+                line = min(cursor[0], max(0, editor.lines() - 1))
+                editor.setCursorPosition(line, 0)
+                editor.mark_saved()
 
     # ── Find in All Docs ──────────────────────────────────────────────────────
 

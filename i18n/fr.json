@@ -172,6 +172,8 @@
     "column_editor": "Éditeur de colonnes…",
     "word_wrap_toggle": "Retour à la ligne",
     "find_in_all_docs": "Rechercher dans tous les documents",
+    "tab_find_replace_in_files": "Rechercher & Remplacer dans le dossier...",
+    "tab_find_in_all_open_docs": "Rechercher dans tous les documents ouverts",
     "replace_in_all_docs": "Remplacer dans tous les documents",
     "toggle_bookmark": "Ajouter/Supprimer un signet",
     "next_bookmark": "Signet suivant",
@@ -1026,7 +1028,9 @@
     "sentence_focus": "Atténuer le texte en dehors du paragraphe courant",
     "pref_mermaid": "Activer le rendu des diagrammes Mermaid dans les blocs mermaid)",
     "pref_smart_typography": "Convertit automatiquement les guillemets, tirets en tiret cadratin et points en points de suspension",
-    "pref_sentence_focus": "Atténuer le texte en dehors du paragraphe courant. Activable depuis le menu Document."
+    "pref_sentence_focus": "Atténuer le texte en dehors du paragraphe courant. Activable depuis le menu Document.",
+    "fif_replace_in_file": "Remplacer toutes les correspondances dans ce fichier",
+    "fif_replace_match": "Remplacer cette correspondance"
   },
   "websearch": {
     "submenu_title": "Recherche Web",

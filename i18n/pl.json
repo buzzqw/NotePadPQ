@@ -172,6 +172,8 @@
     "column_editor": "Edytor kolumn…",
     "word_wrap_toggle": "Zawijanie wyrazów",
     "find_in_all_docs": "Znajdź we wszystkich dokumentach",
+    "tab_find_replace_in_files": "Znajdź i zastąp w katalogu...",
+    "tab_find_in_all_open_docs": "Znajdź we wszystkich otwartych dokumentach",
     "replace_in_all_docs": "Zastąp we wszystkich dokumentach",
     "toggle_bookmark": "Przełącz zakładkę",
     "next_bookmark": "Następna zakładka",
@@ -1026,7 +1028,9 @@
     "sentence_focus": "Przyćmi tekst poza bieżącym akapitem",
     "pref_mermaid": "Włącz renderowanie diagramów Mermaid w blokach mermaid)",
     "pref_smart_typography": "Automatycznie konwertuje cudzysłowy, podwójne myślniki na myślnik i kropki na wielokropek",
-    "pref_sentence_focus": "Przyćmi tekst poza bieżącym akapitem. Można włączyć z menu Dokument."
+    "pref_sentence_focus": "Przyćmi tekst poza bieżącym akapitem. Można włączyć z menu Dokument.",
+    "fif_replace_in_file": "Zastąp wszystkie dopasowania w tym pliku",
+    "fif_replace_match": "Zastąp to dopasowanie"
   },
   "websearch": {
     "submenu_title": "Wyszukiwanie w sieci",

@@ -172,6 +172,8 @@
     "column_editor": "Column Editor…",
     "word_wrap_toggle": "Word Wrap",
     "find_in_all_docs": "Find in All Documents",
+    "tab_find_replace_in_files": "Find & Replace in Directory...",
+    "tab_find_in_all_open_docs": "Find in All Open Documents",
     "replace_in_all_docs": "Replace in All Documents",
     "toggle_bookmark": "Toggle Bookmark",
     "next_bookmark": "Next Bookmark",
@@ -1026,7 +1028,9 @@
     "sentence_focus": "Dim text outside the current paragraph to help concentration",
     "pref_mermaid": "Enable Mermaid diagram rendering in mermaid)",
     "pref_smart_typography": "Auto-convert straight quotes to typographic, double hyphens to em dash and three dots to ellipsis",
-    "pref_sentence_focus": "Dim text outside the current paragraph. Can be toggled from the Document menu."
+    "pref_sentence_focus": "Dim text outside the current paragraph. Can be toggled from the Document menu.",
+    "fif_replace_in_file": "Replace all matches in this file",
+    "fif_replace_match": "Replace this match"
   },
   "websearch": {
     "submenu_title": "Web Search",

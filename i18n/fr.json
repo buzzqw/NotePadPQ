@@ -410,7 +410,6 @@
     "disable": "Désactiver",
     "install": "Installer",
     "uninstall": "Désinstaller",
-    "download_icons": "Télécharger les icônes",
     "count": "Compter"
   },
   "msg": {
@@ -459,7 +458,6 @@
     "marks_cleared": "🎨 Toutes les marques effacées",
     "update_ok": "Vous utilisez la dernière version disponible ({current}).\nAucune mise à jour nécessaire.",
     "update_error": "Impossible de vérifier les mises à jour pour le moment.\nVeuillez vérifier votre connexion ou réessayer plus tard.\n\nDétails : {error}",
-    "icons_missing": "ℹ  {count} icônes du set «{icon_set}» introuvables.",
     "export_pdf_ok": "PDF exporté avec succès :\n{path}",
     "export_pdf_empty": "Le fichier PDF semble vide ou n'a pas été créé :\n{path}",
     "export_pdf_failed": "Échec de l'exportation PDF.",
@@ -561,13 +559,7 @@
       "active_theme": "Thème actif :",
       "edit_theme": "Modifier le thème...",
       "import_theme": "Importer un thème JSON...",
-      "export_theme": "Exporter le thème en JSON...",
-      "icons": "Icônes de la barre d'outils",
-      "icon_lucide": "Lucide (Linéaire, Moderne)",
-      "icon_material": "Material (Google, Plein)",
-      "icon_system": "System (Standard OS)",
-      "icon_set_label": "Jeu d'icônes :",
-      "icon_note": "Note : Si le jeu n'est pas présent sur le PC, il sera téléchargé automatiquement."
+      "export_theme": "Exporter le thème en JSON..."
     },
     "file": {
       "encoding": "Encodage et fin de ligne",

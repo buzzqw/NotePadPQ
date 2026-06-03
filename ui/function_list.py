@@ -740,9 +740,7 @@ def install(main_window: "MainWindow") -> _FunctionListPanel:
         try:
             from pathlib import Path
             from PyQt6.QtGui import QPalette, QPixmap
-            from config.settings import Settings
-            icon_set = Settings.instance().get("ui/icon_set", "lucide")
-            icon_path = Path(__file__).parent.parent / "icons" / icon_set / "list-tree.svg"
+            icon_path = Path(__file__).parent.parent / "icons" / "lucide" / "list-tree.svg"
             if not icon_path.exists():
                 icon_path = Path(__file__).parent.parent / "icons" / "lucide" / "list-tree.svg"
             if icon_path.exists():

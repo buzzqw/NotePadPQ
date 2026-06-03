@@ -410,7 +410,6 @@
     "disable": "Disable",
     "install": "Install",
     "uninstall": "Uninstall",
-    "download_icons": "Download icons",
     "count": "Count"
   },
   "msg": {
@@ -459,7 +458,6 @@
     "mark_occurrences": "🎨 Color {color_num}: {count} occurrences highlighted",
     "marks_cleared": "🎨 All marks cleared",
     "update_error": "Unable to check for updates at this time.\nPlease check your connection or try again later.\n\nDetails: {error}",
-    "icons_missing": "ℹ  {count} icons from set «{icon_set}» not found on disk.",
     "export_pdf_ok": "PDF exported successfully:\n{path}",
     "export_pdf_empty": "The PDF file appears empty or was not created:\n{path}",
     "export_pdf_failed": "PDF export failed.",
@@ -561,13 +559,7 @@
       "active_theme": "Active theme:",
       "edit_theme": "Edit theme...",
       "import_theme": "Import JSON theme...",
-      "export_theme": "Export JSON theme...",
-      "icons": "Toolbar Icons",
-      "icon_lucide": "Lucide (Linear, Modern)",
-      "icon_material": "Material (Google, Filled)",
-      "icon_system": "System (Standard OS)",
-      "icon_set_label": "Icon set:",
-      "icon_note": "Note: If the set is not present on this PC, it will be downloaded automatically."
+      "export_theme": "Export JSON theme..."
     },
     "file": {
       "encoding": "Encoding and line ending",

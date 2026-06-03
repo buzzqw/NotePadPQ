@@ -183,24 +183,6 @@ class PreferencesDialog(QDialog):
 
         vl.addWidget(grp_theme)
         
-        # --- GRUPPO ICONE ---
-        grp_icons = QGroupBox(tr("pref.aspect.icons"))
-        il = QFormLayout(grp_icons)
-
-        self._icon_set_combo = QComboBox()
-        self._icon_set_combo.addItem(tr("pref.aspect.icon_lucide"),   "lucide")
-        self._icon_set_combo.addItem(tr("pref.aspect.icon_material"), "material")
-        self._icon_set_combo.addItem(tr("pref.aspect.icon_system"),   "system")
-
-        il.addRow(tr("pref.aspect.icon_set_label"), self._icon_set_combo)
-
-        note_icon = QLabel(tr("pref.aspect.icon_note"))
-        note_icon.setWordWrap(True)
-        note_icon.setStyleSheet("color: gray; font-size: 11px;")
-        il.addRow("", note_icon)
-
-        vl.addWidget(grp_icons)
-
         vl.addStretch()
         return w
 
@@ -588,15 +570,6 @@ class PreferencesDialog(QDialog):
         if idx >= 0:
             self._theme_combo.setCurrentIndex(idx)
 
-        # --- INIZIO CARICAMENTO ICONE ---
-        icon_set = s.get("ui/icon_set", "lucide")
-        self._original_icon_set = icon_set   # riferimento per confronto in _apply
-        for i in range(self._icon_set_combo.count()):
-            if self._icon_set_combo.itemData(i) == icon_set:
-                self._icon_set_combo.setCurrentIndex(i)
-                break
-        # --- FINE CARICAMENTO ICONE ---
-
         # File
         enc = s.get("file/default_encoding", "UTF-8")
         idx = self._default_encoding.findText(enc)
@@ -736,26 +709,6 @@ class PreferencesDialog(QDialog):
             for ed in mw_apply._tab_manager.all_editors():
                 self._theme_mgr.apply_to_editor(ed, theme_name)
         
-        # --- LOGICA ICONE E DOWNLOAD ---
-        old_icon_set = getattr(self, "_original_icon_set", s.get("ui/icon_set", "lucide"))
-        new_icon_set = self._icon_set_combo.currentData()
-
-        if old_icon_set != new_icon_set:
-            s.set("ui/icon_set", new_icon_set)
-            self._original_icon_set = new_icon_set  # aggiorna per eventuali Applica successivi
-
-            # Risale la catena dei parent per trovare la MainWindow
-            mw = self.parent()
-            while mw is not None and not hasattr(mw, "download_icon_set"):
-                mw = mw.parent()
-
-            if mw is not None:
-                if new_icon_set != "system":
-                    mw.download_icon_set(new_icon_set)
-                else:
-                    mw._rebuild_toolbar()
-        # --------------------------------
-
         # File
         s.set("file/default_encoding",   self._default_encoding.currentText())
         s.set("file/default_line_ending",self._default_le.currentText())

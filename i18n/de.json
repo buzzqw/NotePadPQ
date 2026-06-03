@@ -410,7 +410,6 @@
     "disable": "Deaktivieren",
     "install": "Installieren",
     "uninstall": "Deinstallieren",
-    "download_icons": "Icons herunterladen",
     "count": "Zählen"
   },
   "msg": {
@@ -459,7 +458,6 @@
     "manual_not_found": "Handbuch nicht gefunden.",
     "help_search_placeholder": "Thema im Handbuch suchen…",
     "help_search_hint": "↵ Enter oder Doppelklick, um den Abschnitt im Handbuch zu öffnen",
-    "icons_missing": "ℹ  {count} Icons des Sets «{icon_set}» nicht gefunden.",
     "export_pdf_ok": "PDF erfolgreich exportiert:\n{path}",
     "export_pdf_empty": "Die PDF-Datei scheint leer zu sein oder wurde nicht erstellt:\n{path}",
     "export_pdf_failed": "PDF-Export fehlgeschlagen.",
@@ -561,13 +559,7 @@
       "active_theme": "Aktives Design:",
       "edit_theme": "Design bearbeiten...",
       "import_theme": "JSON-Design importieren...",
-      "export_theme": "JSON-Design exportieren...",
-      "icons": "Toolbar-Symbole",
-      "icon_lucide": "Lucide (Linear, Modern)",
-      "icon_material": "Material (Google, Gefüllt)",
-      "icon_system": "System (Standard-BS)",
-      "icon_set_label": "Symbolsatz:",
-      "icon_note": "Hinweis: Wenn der Satz nicht auf dem PC vorhanden ist, wird er automatisch heruntergeladen."
+      "export_theme": "JSON-Design exportieren..."
     },
     "file": {
       "encoding": "Codierung und Zeilenende",

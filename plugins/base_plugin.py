@@ -80,40 +80,28 @@ class BasePlugin:
 
     @staticmethod
     def load_plugin_icon(icon_key: str, main_window: "MainWindow") -> "QIcon":
-        """Carica l'icona corrispondente alla chiave logica (es. 'plugin_git').
-        Cerca prima nel set attivo tramite _ICON_MAPS, poi in lucide come fallback.
-        Restituisce QIcon vuota se il file non esiste o il set è 'system'."""
-        from PyQt6.QtGui import QIcon, QPixmap, QPalette
+        """Carica l'icona Lucide corrispondente alla chiave logica (es. 'plugin_git').
+        Restituisce QIcon vuota se il file non esiste."""
+        from PyQt6.QtGui import QIcon, QPalette
         from pathlib import Path
-        from config.settings import Settings
-        from ui.main_window import _ICON_MAPS
+        from ui.main_window import _ICON_MAP
+        from ui.language_toolbar import render_svg_icon
 
         if not icon_key:
             return QIcon()
-        icon_set = Settings.instance().get("ui/icon_set", "lucide")
-        if icon_set == "system":
+        icon_file = _ICON_MAP.get(icon_key)
+        if not icon_file:
             return QIcon()
-        base = Path(__file__).parent.parent / "icons"
+        icon_path = Path(__file__).parent.parent / "icons" / "lucide" / icon_file
+        if not icon_path.exists():
+            return QIcon()
         color = main_window.palette().color(QPalette.ColorRole.WindowText).name()
-
-        set_file    = _ICON_MAPS.get(icon_set, {}).get(icon_key)
-        lucide_file = _ICON_MAPS.get("lucide", {}).get(icon_key)
-        candidates = []
-        if set_file:
-            candidates.append(base / icon_set / set_file)
-        if lucide_file:
-            candidates.append(base / "lucide" / lucide_file)
-
-        for icon_path in candidates:
-            if not icon_path.exists():
-                continue
-            try:
-                svg_data = icon_path.read_bytes().replace(b"currentColor", color.encode())
-                pm = QPixmap()
-                if pm.loadFromData(svg_data, "SVG") and not pm.isNull():
-                    return QIcon(pm)
-            except Exception:
-                pass
+        try:
+            pm = render_svg_icon(icon_path, color)
+            if not pm.isNull():
+                return QIcon(pm)
+        except Exception:
+            pass
         return QIcon()
 
     @staticmethod
@@ -128,7 +116,7 @@ class BasePlugin:
                         menu_name: str, action_text: str,
                         slot, shortcut: str = "",
                         icon_key: str = "") -> None:
-        """Aggiunge un'azione al menu specificato. icon_key: chiave in _ICON_MAPS."""
+        """Aggiunge un'azione al menu specificato. icon_key: chiave in _ICON_MAP."""
         from PyQt6.QtGui import QAction
         menus = main_window._menus
         menu = menus.get(menu_name.lower())

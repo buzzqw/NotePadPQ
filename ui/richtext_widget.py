@@ -55,13 +55,7 @@ def _load_rt_icon(svg_file: str, widget: QWidget, size: int = 18) -> "QIcon":
     from PyQt6.QtGui import QIcon, QPalette, QPixmap
     from config.settings import Settings
 
-    icon_set  = Settings.instance().get("ui/icon_set", "lucide")
-    icons_dir = Path(__file__).parent.parent / "icons" / icon_set
-    icon_path = icons_dir / svg_file
-
-    # Fallback a lucide se non esiste nel set attivo
-    if not icon_path.exists():
-        icon_path = Path(__file__).parent.parent / "icons" / "lucide" / svg_file
+    icon_path = Path(__file__).parent.parent / "icons" / "lucide" / svg_file
 
     if not icon_path.exists():
         return QIcon()
@@ -661,10 +655,7 @@ class RichTextWidget(QWidget):
         _icon_size = QSize(18, 18)
         bar.setIconSize(_icon_size)
 
-        # Determina il file icona per "Salva come" in base al set attivo
-        from config.settings import Settings
-        _icon_set = Settings.instance().get("ui/icon_set", "lucide")
-        _save_as_svg = "save_as.svg" if _icon_set == "material" else "save.svg"
+        _save_as_svg = "save.svg"
 
         def btn(svg_file: str, fallback_text: str, tip: str, slot) -> QToolButton:
             b = QToolButton(bar)

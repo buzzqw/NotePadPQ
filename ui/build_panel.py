@@ -450,9 +450,7 @@ class BuildPanel(QWidget):
     def _set_analyze_ai_icon(self) -> None:
         from pathlib import Path
         from PyQt6.QtGui import QPalette, QPixmap, QIcon
-        from config.settings import Settings
-        icon_set  = Settings.instance().get("ui/icon_set", "lucide")
-        icons_dir = Path(__file__).parent.parent / "icons" / icon_set
+        icons_dir = Path(__file__).parent.parent / "icons" / "lucide"
         icon_path = icons_dir / "sparkles.svg"
         if not icon_path.exists():
             icon_path = Path(__file__).parent.parent / "icons" / "lucide" / "sparkles.svg"

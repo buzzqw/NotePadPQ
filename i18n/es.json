@@ -410,7 +410,6 @@
     "disable": "Deshabilitar",
     "install": "Instalar",
     "uninstall": "Desinstalar",
-    "download_icons": "Descargar iconos",
     "count": "Contar"
   },
   "msg": {
@@ -459,7 +458,6 @@
     "mark_occurrences": "🎨 Color {color_num}: {count} ocurrencias resaltadas",
     "marks_cleared": "🎨 Todas las marcas borradas",
     "update_error": "No se puede buscar actualizaciones en este momento.\nVerifica tu conexión o inténtalo de nuevo más tarde.\n\nDetalles: {error}",
-    "icons_missing": "ℹ  {count} iconos del set «{icon_set}» no encontrados.",
     "export_pdf_ok": "PDF exportado correctamente:\n{path}",
     "export_pdf_empty": "El archivo PDF parece vacío o no se ha creado:\n{path}",
     "export_pdf_failed": "Error al exportar el PDF.",
@@ -561,13 +559,7 @@
       "active_theme": "Tema activo:",
       "edit_theme": "Editar tema...",
       "import_theme": "Importar tema JSON...",
-      "export_theme": "Exportar tema JSON...",
-      "icons": "Iconos de la barra de herramientas",
-      "icon_lucide": "Lucide (Lineal, Moderno)",
-      "icon_material": "Material (Google, Relleno)",
-      "icon_system": "System (Estándar SO)",
-      "icon_set_label": "Conjunto de iconos:",
-      "icon_note": "Nota: Si el conjunto no está en el PC, se descargará automáticamente."
+      "export_theme": "Exportar tema JSON..."
     },
     "file": {
       "encoding": "Codificación y fin de línea",

@@ -36,247 +36,127 @@ from core.platform import IS_WINDOWS, get_config_dir
 from core.external_open import open_url as _open_url
 
 # ─── Mappa icone ──────────────────────────────────────────────────────────────
-# Mapping azione → nome file SVG per ogni set. Utilizzato da _rebuild_toolbar()
-# e download_icon_set(). Aggiungere qui nuove azioni per farle comparire nel menu.
+# Mapping azione → nome file SVG Lucide. Aggiungere qui nuove azioni per farle
+# comparire nella toolbar e nei menu.
 
-_ICON_MAPS: dict[str, dict[str, str]] = {
-    "lucide": {
-        # Toolbar (presenti)
-        "new": "file-plus.svg", "open": "folder-open.svg", "save": "save.svg",
-        "save_all": "database.svg", "close": "x-square.svg", "find": "search.svg",
-        "customize_toolbar": "sliders.svg",
-        "replace": "refresh-cw.svg", "undo": "undo.svg", "redo": "redo.svg",
-        "compile": "play.svg", "run": "fast-forward.svg", "build": "hammer.svg",
-        "stop_build": "square.svg", "preferences": "settings.svg", "about": "info.svg",
-        # File
-        "save_as": "file-check.svg", "reload": "rotate-cw.svg",
-        "open_selected": "external-link.svg", "print": "printer.svg",
-        "print_preview": "layout-template.svg", "export_pdf": "file-text.svg",
-        "close_others": "x-circle.svg", "close_all": "layers.svg",
-        "quit": "log-out.svg", "file_properties": "file-search.svg",
-        "diff_vs_saved": "git-compare.svg",
-        # Modifica
-        "cut": "scissors.svg", "copy": "copy.svg", "paste": "clipboard.svg",
-        "delete": "trash-2.svg", "select_all": "check-square.svg",
-        "copy_path": "link.svg", "copy_filename": "file.svg",
-        "insert_date": "calendar.svg", "word_count": "type.svg",
-        "word_frequency": "bar-chart-2.svg", "sort_lines_menu": "arrow-up-down.svg",
-        # Testo
-        "join_lines": "git-merge.svg", "line_break": "corner-down-left.svg",
-        "wrap_lines": "wrap-text.svg",
-        "uppercase": "type.svg", "lowercase": "pilcrow.svg",
-        "titlecase": "list-ordered.svg", "invert_case": "arrow-left-right.svg",
-        "comment_line": "hash.svg", "uncomment_line": "code-2.svg",
-        "indent_smart": "sparkles.svg",
-        "tabs_to_spaces": "arrow-left-right.svg", "spaces_to_tabs": "outdent.svg",
-        "format_document": "file-check.svg",
-        # Righe
-        "sort_asc": "chevrons-up.svg", "sort_desc": "chevrons-down.svg",
-        "sort_by_length_asc": "arrow-up-down.svg", "sort_by_length_desc": "arrow-up-down.svg",
-        "sort_random": "refresh-cw.svg",
-        "remove_dup_sorted": "copy.svg", "remove_dup_ordered": "layers.svg",
-        "remove_unique": "x-circle.svg", "keep_unique": "check-square.svg",
-        "remove_empty": "eraser.svg", "remove_whitespace": "pilcrow.svg",
-        "remove_every_nth": "list.svg",
-        # Formato
-        "markup_bold": "bold.svg", "markup_italic": "italic.svg",
-        "markup_strike": "strikethrough.svg", "toggle_comment": "hash.svg",
-        "indent": "indent.svg", "unindent": "outdent.svg",
-        "trim_trailing": "eraser.svg", "align_table": "table-2.svg",
-        # Cerca
-        "command_palette": "command.svg", "goto_anything": "navigation.svg",
-        "find_next": "chevron-down.svg", "find_prev": "chevron-up.svg",
-        "find_in_files": "folder-search.svg", "go_to_line": "hash.svg",
-        "go_to_matching": "braces.svg", "toggle_bookmark": "bookmark.svg",
-        "next_bookmark": "bookmark-plus.svg", "prev_bookmark": "bookmark-minus.svg",
-        "clear_bookmarks": "bookmark-x.svg",
-        # Visualizza
-        "view_toolbar": "layout-template.svg", "view_statusbar": "panel-bottom.svg",
-        "view_lang_toolbar": "code-2.svg",
-        "view_line_numbers": "list-ordered.svg", "view_whitespace": "pilcrow.svg",
-        "view_eol": "corner-down-left.svg", "view_fold_margin": "list.svg",
-        "view_minimap": "map.svg", "view_minimap_hover": "eye.svg",
-        "view_build_panel": "terminal.svg", "view_file_browser": "folder-tree.svg",
-        "view_project_manager": "folder-tree.svg",
-        "view_character_panel": "type.svg", "column_editor": "table.svg",
-        "function_list": "list-tree.svg", "view_json_xml_panel": "braces.svg",
-        "preview_toggle": "eye.svg", "view_zoom_in": "zoom-in.svg",
-        "view_zoom_out": "zoom-out.svg", "view_zoom_reset": "maximize-2.svg",
-        "distraction_free": "focus.svg", "view_word_wrap": "wrap-text.svg",
-        "view_typewriter": "type.svg", "view_plain_text_mode": "file.svg",
-        "view_git_gutter": "git-branch.svg", "view_git_blame_inline": "pen.svg",
-        "split_move_tab": "arrow-left-right.svg", "split_sync_cursor": "link.svg",
-        "unsplit": "maximize-2.svg",
-        # Strumenti
-        "build_profiles": "sliders.svg", "record_macro": "circle.svg",
-        "play_macro": "play-circle.svg", "play_macro_n": "play-circle.svg",
-        "stop_macro": "square.svg", "save_macro": "save.svg",
-        "load_macro": "folder-open.svg", "named_sessions": "layers.svg",
-        "compare_files": "git-compare.svg", "color_picker": "palette.svg",
-        "regex_tester": "asterisk.svg", "number_converter": "hash.svg",
-        "column_stats": "bar-chart-2.svg", "lorem_ipsum": "align-left.svg",
-        "text_converter": "arrow-left-right.svg",
-        "keybinding_editor": "keyboard.svg", "open_terminal": "terminal.svg",
-        "lsp_goto_def": "code.svg",
-        "lsp_refs": "git-merge.svg", "lsp_rename": "pen.svg",
-        "lsp_format": "sparkles.svg", "lsp_diag": "alert-triangle.svg",
-        # Documento
-        "clone_document": "copy.svg", "fold_all": "chevrons-up.svg",
-        "unfold_all": "chevrons-down.svg", "remove_markers": "eraser.svg",
-        "remove_error_markers": "x-circle.svg", "spell_check": "spell-check.svg",
-        "auto_indent": "indent.svg", "auto_indent_paste": "indent.svg",
-        "autoclose_toggle": "braces.svg", "indent_width": "sliders.svg",
-        "writing_goal_set": "bookmark.svg",
-        "read_only": "lock.svg", "write_bom": "file-code.svg",
-        "wrap_env": "braces.svg",
-        # Plugin / Aiuto
-        "plugin_manager": "puzzle.svg", "manual": "book-open.svg",
-        "context_help": "help-circle.svg", "about_qt": "info.svg",
-        "check_updates": "refresh-cw.svg", "donate": "heart.svg",
-        # Language toolbar — Markdown (scaricati insieme al set)
-        "md_h1": "heading-1.svg", "md_h2": "heading-2.svg", "md_h3": "heading-3.svg",
-        "md_underline": "underline.svg", "md_code_block": "code-2.svg",
-        "md_quote": "quote.svg", "md_ul": "list.svg", "md_task": "list-checks.svg",
-        "md_hr": "separator-horizontal.svg", "md_image": "image.svg",
-        "md_align_left": "align-left.svg", "md_align_center": "align-center.svg", "md_align_right": "align-right.svg",
-        "md_code": "code.svg", "md_link": "link.svg", "md_ol": "list-ordered.svg", "md_table": "table-2.svg",
-        "md_export_pdf": "file-pdf.svg", "md_export_html": "file-code.svg",
-        "md_structure": "list-tree.svg",
-        "latex_align_l": "align-left.svg", "latex_align_c": "align-center.svg", "latex_align_r": "align-right.svg",
-        "latex_env": "braces.svg", "latex_begin": "chevron-right.svg", "latex_end": "chevron-left.svg",
-        "latex_image": "image.svg",
-        # Split View actions
-        "split_vertical": "columns-2.svg", "split_horizontal": "rows-2.svg",
-        "split_rotate": "rotate-cw.svg",
-        # Plugin icons
-        "plugin_ai": "sparkles.svg", "plugin_clipboard": "clipboard.svg",
-        "plugin_compare": "git-compare.svg", "plugin_db": "database.svg",
-        "plugin_ftp": "server.svg", "plugin_git": "git-branch.svg",
-        "plugin_hex": "file-code.svg", "plugin_pdf": "file-text.svg",
-        "plugin_richtext": "pen.svg", "plugin_spreadsheet": "table.svg",
-        "plugin_encrypt": "lock.svg", "plugin_encrypt_dec": "keyboard.svg",
-        "plugin_terminal": "terminal.svg", "plugin_search": "search.svg",
-        # Split view submenu
-        "menu_split_view": "columns-2.svg",
-    },
-    "material": {
-        # Toolbar (presenti)
-        "new": "note_add.svg", "open": "folder_open.svg", "save": "save.svg",
-        "save_all": "library_add.svg", "close": "close.svg", "find": "search.svg",
-        "replace": "find_replace.svg", "undo": "undo.svg", "redo": "redo.svg",
-        "compile": "play_arrow.svg", "run": "fast_forward.svg", "build": "build.svg",
-        "stop_build": "stop.svg", "preferences": "settings.svg", "about": "help.svg",
-        # File
-        "save_as": "save_as.svg", "reload": "refresh.svg",
-        "open_selected": "open_in_new.svg", "print": "print.svg",
-        "print_preview": "pageview.svg", "export_pdf": "picture_as_pdf.svg",
-        "close_others": "clear_all.svg", "close_all": "close.svg",
-        "quit": "exit_to_app.svg", "file_properties": "description.svg",
-        "diff_vs_saved": "find_replace.svg",
-        # Modifica
-        "cut": "content_cut.svg", "copy": "content_copy.svg",
-        "paste": "content_paste.svg", "delete": "delete.svg",
-        "select_all": "select_all.svg", "copy_path": "link.svg",
-        "copy_filename": "description.svg", "insert_date": "event.svg",
-        "word_count": "format_list_numbered.svg", "word_frequency": "bar_chart.svg",
-        "sort_lines_menu": "sort.svg",
-        # Testo
-        "join_lines": "merge_type.svg", "line_break": "keyboard_return.svg",
-        "wrap_lines": "wrap_text.svg",
-        "uppercase": "subject.svg", "lowercase": "subject.svg",
-        "titlecase": "format_list_numbered.svg", "invert_case": "find_replace.svg",
-        "comment_line": "insert_comment.svg", "uncomment_line": "code-2.svg",
-        "indent_smart": "integration_instructions.svg",
-        "tabs_to_spaces": "find_replace.svg", "spaces_to_tabs": "format_indent_decrease.svg",
-        "format_document": "integration_instructions.svg",
-        # Righe
-        "sort_asc": "unfold_less.svg", "sort_desc": "unfold_more.svg",
-        "sort_by_length_asc": "sort.svg", "sort_by_length_desc": "sort.svg",
-        "sort_random": "refresh.svg",
-        "remove_dup_sorted": "content_copy.svg", "remove_dup_ordered": "list.svg",
-        "remove_unique": "clear_all.svg", "keep_unique": "select_all.svg",
-        "remove_empty": "delete_sweep.svg", "remove_whitespace": "space_bar.svg",
-        "remove_every_nth": "list.svg",
-        # Formato
-        "markup_bold": "format_bold.svg", "markup_italic": "format_italic.svg",
-        "markup_strike": "format_strikethrough.svg", "toggle_comment": "insert_comment.svg",
-        "indent": "format_indent_increase.svg", "unindent": "format_indent_decrease.svg",
-        "trim_trailing": "delete_sweep.svg", "align_table": "table_chart.svg",
-        # Cerca
-        "command_palette": "menu_open.svg", "goto_anything": "navigation.svg",
-        "find_next": "expand_more.svg", "find_prev": "expand_less.svg",
-        "find_in_files": "pageview.svg", "go_to_line": "tag.svg",
-        "go_to_matching": "merge_type.svg", "toggle_bookmark": "bookmark.svg",
-        "next_bookmark": "bookmarks.svg", "prev_bookmark": "bookmark_border.svg",
-        "clear_bookmarks": "clear_all.svg",
-        # Visualizza
-        "view_toolbar": "view_headline.svg", "view_statusbar": "vertical_align_bottom.svg",
-        "view_lang_toolbar": "code.svg",
-        "view_line_numbers": "format_list_numbered.svg", "view_whitespace": "space_bar.svg",
-        "view_eol": "keyboard_return.svg", "view_fold_margin": "list.svg",
-        "view_minimap": "map.svg", "view_minimap_hover": "visibility.svg",
-        "view_build_panel": "code.svg", "view_file_browser": "folder.svg",
-        "view_project_manager": "account_tree.svg",
-        "view_character_panel": "subject.svg", "column_editor": "table_chart.svg",
-        "function_list": "functions.svg", "view_json_xml_panel": "braces.svg",
-        "preview_toggle": "visibility.svg", "view_zoom_in": "zoom_in.svg",
-        "view_zoom_out": "zoom_out.svg", "view_zoom_reset": "fullscreen.svg",
-        "distraction_free": "center_focus_strong.svg", "view_word_wrap": "wrap_text.svg",
-        "view_typewriter": "subject.svg", "view_plain_text_mode": "description.svg",
-        "view_git_gutter": "integration_instructions.svg", "view_git_blame_inline": "edit.svg",
-        "split_move_tab": "call_made.svg", "split_sync_cursor": "link.svg",
-        "unsplit": "fullscreen.svg",
-        # Strumenti
-        "build_profiles": "tune.svg", "record_macro": "fiber_manual_record.svg",
-        "play_macro": "play_circle.svg", "play_macro_n": "play_circle.svg",
-        "stop_macro": "stop.svg", "save_macro": "save.svg",
-        "load_macro": "folder_open.svg", "named_sessions": "bookmarks.svg",
-        "compare_files": "find_replace.svg", "color_picker": "colorize.svg",
-        "regex_tester": "code.svg", "number_converter": "functions.svg",
-        "column_stats": "bar_chart.svg", "lorem_ipsum": "subject.svg",
-        "text_converter": "find_replace.svg",
-        "keybinding_editor": "keyboard.svg", "open_terminal": "code.svg",
-        "customize_toolbar": "tune.svg",
-        "lsp_goto_def": "code.svg",
-        "lsp_refs": "call_made.svg", "lsp_rename": "edit.svg",
-        "lsp_format": "integration_instructions.svg", "lsp_diag": "report_problem.svg",
-        # Documento
-        "clone_document": "file_copy.svg", "fold_all": "unfold_less.svg",
-        "unfold_all": "unfold_more.svg", "remove_markers": "delete_sweep.svg",
-        "remove_error_markers": "clear_all.svg", "spell_check": "spellcheck.svg",
-        "auto_indent": "format_indent_increase.svg", "auto_indent_paste": "format_indent_increase.svg",
-        "autoclose_toggle": "merge_type.svg", "indent_width": "tune.svg",
-        "writing_goal_set": "bookmark.svg",
-        "read_only": "lock.svg", "write_bom": "description.svg",
-        "wrap_env": "integration_instructions.svg",
-        # Plugin / Aiuto
-        "plugin_manager": "extension.svg", "manual": "menu_book.svg",
-        "context_help": "help.svg", "about_qt": "help.svg",
-        "check_updates": "system_update.svg", "donate": "favorite.svg",
-        # Plugin icons — nomi material dove esiste un equivalente, altrimenti lucide
-        "plugin_ai": "integration_instructions.svg", "plugin_clipboard": "assignment.svg",
-        "plugin_compare": "find_replace.svg", "plugin_db": "storage.svg",
-        "plugin_ftp": "dns.svg", "plugin_git": "account_tree.svg",
-        "plugin_hex": "code.svg", "plugin_pdf": "picture_as_pdf.svg",
-        "plugin_richtext": "edit.svg", "plugin_spreadsheet": "table_chart.svg",
-        "plugin_encrypt": "lock.svg", "plugin_encrypt_dec": "keyboard.svg",
-        "plugin_terminal": "terminal.svg", "plugin_search": "pageview.svg",
-        # Split view
-        "split_vertical": "view_column.svg", "split_horizontal": "view_agenda.svg",
-        "split_rotate": "refresh.svg", "menu_split_view": "view_column.svg",
-        # Language toolbar — nessun equivalente material, usa lucide (copiati durante download)
-        "md_h1": "heading-1.svg", "md_h2": "heading-2.svg", "md_h3": "heading-3.svg",
-        "md_underline": "underline.svg", "md_code_block": "code-2.svg",
-        "md_quote": "quote.svg", "md_ul": "list.svg", "md_task": "list-checks.svg",
-        "md_hr": "separator-horizontal.svg", "md_image": "image.svg",
-        "md_align_left": "align-left.svg", "md_align_center": "align-center.svg", "md_align_right": "align-right.svg",
-        "md_code": "code.svg", "md_link": "link.svg", "md_ol": "list-ordered.svg", "md_table": "table-2.svg",
-        "md_export_pdf": "file-pdf.svg", "md_export_html": "file-code.svg",
-        "md_structure": "list-tree.svg",
-        "latex_align_l": "align-left.svg", "latex_align_c": "align-center.svg", "latex_align_r": "align-right.svg",
-        "latex_env": "braces.svg", "latex_begin": "chevron-right.svg", "latex_end": "chevron-left.svg",
-        "latex_image": "image.svg",
-    },
+_ICON_MAP: dict[str, str] = {
+    # Toolbar
+    "new": "file-plus.svg", "open": "folder-open.svg", "save": "save.svg",
+    "save_all": "database.svg", "close": "x-square.svg", "find": "search.svg",
+    "customize_toolbar": "sliders.svg",
+    "replace": "refresh-cw.svg", "undo": "undo.svg", "redo": "redo.svg",
+    "compile": "play.svg", "run": "fast-forward.svg", "build": "hammer.svg",
+    "stop_build": "square.svg", "preferences": "settings.svg", "about": "info.svg",
+    # File
+    "save_as": "file-check.svg", "reload": "rotate-cw.svg",
+    "open_selected": "external-link.svg", "print": "printer.svg",
+    "print_preview": "layout-template.svg", "export_pdf": "file-text.svg",
+    "close_others": "x-circle.svg", "close_all": "layers.svg",
+    "quit": "log-out.svg", "file_properties": "file-search.svg",
+    "diff_vs_saved": "git-compare.svg",
+    # Modifica
+    "cut": "scissors.svg", "copy": "copy.svg", "paste": "clipboard.svg",
+    "delete": "trash-2.svg", "select_all": "check-square.svg",
+    "copy_path": "link.svg", "copy_filename": "file.svg",
+    "insert_date": "calendar.svg", "word_count": "type.svg",
+    "word_frequency": "bar-chart-2.svg", "sort_lines_menu": "arrow-up-down.svg",
+    # Testo
+    "join_lines": "git-merge.svg", "line_break": "corner-down-left.svg",
+    "wrap_lines": "wrap-text.svg",
+    "uppercase": "type.svg", "lowercase": "pilcrow.svg",
+    "titlecase": "list-ordered.svg", "invert_case": "arrow-left-right.svg",
+    "comment_line": "hash.svg", "uncomment_line": "code-2.svg",
+    "indent_smart": "sparkles.svg",
+    "tabs_to_spaces": "arrow-left-right.svg", "spaces_to_tabs": "outdent.svg",
+    "format_document": "file-check.svg",
+    # Righe
+    "sort_asc": "chevrons-up.svg", "sort_desc": "chevrons-down.svg",
+    "sort_by_length_asc": "arrow-up-down.svg", "sort_by_length_desc": "arrow-up-down.svg",
+    "sort_random": "refresh-cw.svg",
+    "remove_dup_sorted": "copy.svg", "remove_dup_ordered": "layers.svg",
+    "remove_unique": "x-circle.svg", "keep_unique": "check-square.svg",
+    "remove_empty": "eraser.svg", "remove_whitespace": "pilcrow.svg",
+    "remove_every_nth": "list.svg",
+    # Formato
+    "markup_bold": "bold.svg", "markup_italic": "italic.svg",
+    "markup_strike": "strikethrough.svg", "toggle_comment": "hash.svg",
+    "indent": "indent.svg", "unindent": "outdent.svg",
+    "trim_trailing": "eraser.svg", "align_table": "table-2.svg",
+    # Cerca
+    "command_palette": "command.svg", "goto_anything": "navigation.svg",
+    "find_next": "chevron-down.svg", "find_prev": "chevron-up.svg",
+    "find_in_files": "folder-search.svg", "go_to_line": "hash.svg",
+    "go_to_matching": "braces.svg", "toggle_bookmark": "bookmark.svg",
+    "next_bookmark": "bookmark-plus.svg", "prev_bookmark": "bookmark-minus.svg",
+    "clear_bookmarks": "bookmark-x.svg",
+    # Visualizza
+    "view_toolbar": "layout-template.svg", "view_statusbar": "panel-bottom.svg",
+    "view_lang_toolbar": "code-2.svg",
+    "view_line_numbers": "list-ordered.svg", "view_whitespace": "pilcrow.svg",
+    "view_eol": "corner-down-left.svg", "view_fold_margin": "list.svg",
+    "view_minimap": "map.svg", "view_minimap_hover": "eye.svg",
+    "view_build_panel": "terminal.svg", "view_file_browser": "folder-tree.svg",
+    "view_project_manager": "folder-tree.svg",
+    "view_character_panel": "type.svg", "column_editor": "table.svg",
+    "function_list": "list-tree.svg", "view_json_xml_panel": "braces.svg",
+    "preview_toggle": "eye.svg", "view_zoom_in": "zoom-in.svg",
+    "view_zoom_out": "zoom-out.svg", "view_zoom_reset": "maximize-2.svg",
+    "distraction_free": "focus.svg", "view_word_wrap": "wrap-text.svg",
+    "view_typewriter": "type.svg", "view_plain_text_mode": "file.svg",
+    "view_git_gutter": "git-branch.svg", "view_git_blame_inline": "pen.svg",
+    "split_move_tab": "arrow-left-right.svg", "split_sync_cursor": "link.svg",
+    "unsplit": "maximize-2.svg",
+    # Strumenti
+    "build_profiles": "sliders.svg", "record_macro": "circle.svg",
+    "play_macro": "play-circle.svg", "play_macro_n": "play-circle.svg",
+    "stop_macro": "square.svg", "save_macro": "save.svg",
+    "load_macro": "folder-open.svg", "named_sessions": "layers.svg",
+    "compare_files": "git-compare.svg", "color_picker": "palette.svg",
+    "regex_tester": "asterisk.svg", "number_converter": "hash.svg",
+    "column_stats": "bar-chart-2.svg", "lorem_ipsum": "align-left.svg",
+    "text_converter": "arrow-left-right.svg",
+    "keybinding_editor": "keyboard.svg", "open_terminal": "terminal.svg",
+    "lsp_goto_def": "code.svg",
+    "lsp_refs": "git-merge.svg", "lsp_rename": "pen.svg",
+    "lsp_format": "sparkles.svg", "lsp_diag": "alert-triangle.svg",
+    # Documento
+    "clone_document": "copy.svg", "fold_all": "chevrons-up.svg",
+    "unfold_all": "chevrons-down.svg", "remove_markers": "eraser.svg",
+    "remove_error_markers": "x-circle.svg", "spell_check": "spell-check.svg",
+    "auto_indent": "indent.svg", "auto_indent_paste": "indent.svg",
+    "autoclose_toggle": "braces.svg", "indent_width": "sliders.svg",
+    "writing_goal_set": "bookmark.svg",
+    "read_only": "lock.svg", "write_bom": "file-code.svg",
+    "wrap_env": "braces.svg",
+    # Plugin / Aiuto
+    "plugin_manager": "puzzle.svg", "manual": "book-open.svg",
+    "context_help": "help-circle.svg", "about_qt": "info.svg",
+    "check_updates": "refresh-cw.svg", "donate": "heart.svg",
+    # Language toolbar — Markdown
+    "md_h1": "heading-1.svg", "md_h2": "heading-2.svg", "md_h3": "heading-3.svg",
+    "md_underline": "underline.svg", "md_code_block": "code-2.svg",
+    "md_quote": "quote.svg", "md_ul": "list.svg", "md_task": "list-checks.svg",
+    "md_hr": "separator-horizontal.svg", "md_image": "image.svg",
+    "md_align_left": "align-left.svg", "md_align_center": "align-center.svg", "md_align_right": "align-right.svg",
+    "md_code": "code.svg", "md_link": "link.svg", "md_ol": "list-ordered.svg", "md_table": "table-2.svg",
+    "md_export_pdf": "file-pdf.svg", "md_export_html": "file-code.svg",
+    "md_structure": "list-tree.svg",
+    "latex_align_l": "align-left.svg", "latex_align_c": "align-center.svg", "latex_align_r": "align-right.svg",
+    "latex_env": "braces.svg", "latex_begin": "chevron-right.svg", "latex_end": "chevron-left.svg",
+    "latex_image": "image.svg",
+    # Split View
+    "split_vertical": "columns-2.svg", "split_horizontal": "rows-2.svg",
+    "split_rotate": "rotate-cw.svg",
+    # Plugin icons
+    "plugin_ai": "sparkles.svg", "plugin_clipboard": "clipboard.svg",
+    "plugin_compare": "git-compare.svg", "plugin_db": "database.svg",
+    "plugin_ftp": "server.svg", "plugin_git": "git-branch.svg",
+    "plugin_hex": "file-code.svg", "plugin_pdf": "file-text.svg",
+    "plugin_richtext": "pen.svg", "plugin_spreadsheet": "table.svg",
+    "plugin_encrypt": "lock.svg", "plugin_encrypt_dec": "keyboard.svg",
+    "plugin_terminal": "terminal.svg", "plugin_search": "search.svg",
+    # Split view submenu
+    "menu_split_view": "columns-2.svg",
 }
 
 # ─── MainWindow ───────────────────────────────────────────────────────────────
@@ -1623,7 +1503,6 @@ class MainWindow(QMainWindow):
         # solo dopo il primo ciclo eventi. Su Debian Qt 6.8 questo è necessario
         # per avere il colore corretto nelle icone SVG e per forzare il ridisegno.
         QTimer.singleShot(300, self._rebuild_toolbar)
-        QTimer.singleShot(600, self._check_missing_icons)
 
     def _toolbar_context_menu(self, pos) -> None:
         from PyQt6.QtWidgets import QMenu
@@ -1664,10 +1543,7 @@ class MainWindow(QMainWindow):
         tb.clear()
         style = self.style()
 
-        settings = Settings.instance()
-        selected_set = settings.get("ui/icon_set", "lucide")
-        current_map = _ICON_MAPS.get(selected_set, {})
-        icons_dir = Path(__file__).parent.parent / "icons" / selected_set
+        icons_dir = Path(__file__).parent.parent / "icons" / "lucide"
 
         # Fallback icone di sistema usati solo per le azioni della toolbar
         toolbar_system_fallbacks = {
@@ -1694,9 +1570,10 @@ class MainWindow(QMainWindow):
         # testo della palette corrente (currentColor), availableSizes() riporta
         # [24x24] e le icone sono visibili su qualsiasi tema (chiaro o scuro).
         from PyQt6.QtGui import QPixmap as _QPixmap, QPalette as _QPalette
+        from ui.language_toolbar import render_svg_icon as _render_svg
         _wtext = self.palette().color(_QPalette.ColorRole.WindowText).name()
         for key, action in self._actions.items():
-            icon_file = current_map.get(key)
+            icon_file = _ICON_MAP.get(key)
             if not icon_file:
                 if key in toolbar_system_fallbacks:
                     action.setIcon(style.standardIcon(toolbar_system_fallbacks[key]))
@@ -1704,11 +1581,8 @@ class MainWindow(QMainWindow):
             icon_path = icons_dir / icon_file
             if icon_path.exists():
                 try:
-                    svg_data = icon_path.read_bytes().replace(
-                        b'currentColor', _wtext.encode()
-                    )
-                    pm = _QPixmap()
-                    if pm.loadFromData(svg_data, 'SVG') and not pm.isNull():
+                    pm = _render_svg(icon_path, _wtext)
+                    if not pm.isNull():
                         action.setIcon(QIcon(pm))
                     else:
                         action.setIcon(QIcon(str(icon_path)))
@@ -1736,8 +1610,8 @@ class MainWindow(QMainWindow):
 
         # Applica icone ai submenu che non sono QAction in _actions
         _submenu_icons = {
-            "split_view":  current_map.get("menu_split_view", ""),
-            "indent_type": current_map.get("indent_width", ""),
+            "split_view":  _ICON_MAP.get("menu_split_view", ""),
+            "indent_type": _ICON_MAP.get("indent_width", ""),
         }
         for menu_key, icon_file in _submenu_icons.items():
             menu = self._menus.get(menu_key)
@@ -1745,239 +1619,30 @@ class MainWindow(QMainWindow):
                 icon_path = icons_dir / icon_file
                 if icon_path.exists():
                     try:
-                        svg_data = icon_path.read_bytes().replace(
-                            b'currentColor', _wtext.encode()
-                        )
-                        pm = _QPixmap()
-                        if pm.loadFromData(svg_data, 'SVG') and not pm.isNull():
+                        pm = _render_svg(icon_path, _wtext)
+                        if not pm.isNull():
                             from PyQt6.QtGui import QIcon as _QIcon2
                             menu.setIcon(_QIcon2(pm))
                     except Exception:
                         pass
 
         # Re-applica icone agli action dei plugin (registrati via _plugin_icon_actions)
-        # Usa la chiave logica (es. "plugin_git") per tradurre al file del set attivo;
-        # fallback su lucide se il file non esiste nel set corrente.
-        _lucide_dir = Path(__file__).parent.parent / "icons" / "lucide"
-        _set_map    = _ICON_MAPS.get(selected_set, {})
-        _lucide_map = _ICON_MAPS.get("lucide", {})
         for widget, icon_key in getattr(self, "_plugin_icon_actions", []):
             if not icon_key:
                 continue
-            _set_file    = _set_map.get(icon_key)
-            _lucide_file = _lucide_map.get(icon_key)
-            _candidates  = []
-            if _set_file:
-                _candidates.append(icons_dir / _set_file)
-            if _lucide_file:
-                _candidates.append(_lucide_dir / _lucide_file)
-            for icon_path in _candidates:
-                if not icon_path.exists():
-                    continue
-                try:
-                    svg_data = icon_path.read_bytes().replace(b'currentColor', _wtext.encode())
-                    pm = _QPixmap()
-                    if pm.loadFromData(svg_data, 'SVG') and not pm.isNull():
-                        from PyQt6.QtGui import QIcon as _PIIcon
-                        widget.setIcon(_PIIcon(pm))
-                        break
-                except Exception:
-                    pass
-
-    def _check_missing_icons(self) -> None:
-        """Controlla se mancano icone del set attivo e mostra banner se necessario."""
-        from config.settings import Settings
-        from pathlib import Path
-
-        icon_set = Settings.instance().get("ui/icon_set", "lucide")
-        if icon_set == "system":
-            return
-
-        icons_dir = Path(__file__).parent.parent / "icons" / icon_set
-        current_map = _ICON_MAPS.get(icon_set, {})
-        missing = sum(1 for f in set(current_map.values()) if not (icons_dir / f).exists())
-        if missing == 0:
-            return
-
-        self._show_icon_banner(icon_set, missing)
-
-    def _show_icon_banner(self, icon_set: str, missing_count: int) -> None:
-        """Banner non invasivo che avverte delle icone mancanti e offre il download."""
-        from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
-
-        banner = QFrame(self)
-        banner.setObjectName("IconBanner")
-        banner.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        banner.setStyleSheet(
-            "QFrame#IconBanner {"
-            "  background: palette(window);"
-            "  border-bottom: 2px solid palette(highlight);"
-            "}"
-            "QLabel#IconBannerMsg { padding: 0 4px; }"
-            "QPushButton#IconBannerDl {"
-            "  border: 1px solid palette(highlight);"
-            "  border-radius: 3px; padding: 2px 10px;"
-            "  color: palette(highlight);"
-            "  background: transparent;"
-            "}"
-            "QPushButton#IconBannerDl:hover { background: palette(midlight); }"
-            "QPushButton#IconBannerX {"
-            "  border: none; background: transparent;"
-            "  color: palette(shadow); padding: 2px 6px;"
-            "}"
-            "QPushButton#IconBannerX:hover { color: palette(text); }"
-        )
-
-        hbox = QHBoxLayout(banner)
-        hbox.setContentsMargins(10, 3, 6, 3)
-        hbox.setSpacing(8)
-
-        lbl = QLabel(
-            tr("msg.icons_missing",
-               default=f"ℹ  {missing_count} icone del set «{icon_set}» non trovate.")
-            .format(count=missing_count, icon_set=icon_set)
-        )
-        lbl.setObjectName("IconBannerMsg")
-        hbox.addWidget(lbl)
-        hbox.addStretch(1)
-
-        btn_dl = QPushButton(tr("button.download_icons", default="Scarica icone"))
-        btn_dl.setObjectName("IconBannerDl")
-        btn_dl.clicked.connect(lambda: (banner.hide(), self.download_icon_set(icon_set)))
-        hbox.addWidget(btn_dl)
-
-        btn_x = QPushButton("✕")
-        btn_x.setObjectName("IconBannerX")
-        btn_x.setFixedWidth(26)
-        btn_x.setToolTip(tr("button.close", default="Chiudi"))
-        btn_x.clicked.connect(banner.hide)
-        hbox.addWidget(btn_x)
-
-        central = self.centralWidget()
-        if central is not None and central.layout() is not None:
-            central.layout().insertWidget(0, banner)
-
-    def download_icon_set(self, set_name: str) -> None:
-        """Scarica un set di icone completo. Chiamato dal pannello Preferenze."""
-        import urllib.request
-        import ssl
-        from pathlib import Path
-        from PyQt6.QtWidgets import QProgressDialog
-
-        if set_name == "system":
-            print("[download_icon_set] set 'system' selezionato, rebuild toolbar diretto")
-            self._rebuild_toolbar()
-            return
-
-        print(f"[download_icon_set] avvio download set='{set_name}'")
-
-        URL_TEMPLATES = {
-            "lucide":   "https://unpkg.com/lucide-static@latest/icons/{icon}.svg",
-            "material": "https://fonts.gstatic.com/s/i/materialicons/{icon}/v4/24px.svg",
-        }
-
-        # Ricava i file unici direttamente da _ICON_MAPS (rimuove il suffisso .svg)
-        icons_to_download = sorted(
-            {v[:-4] for v in _ICON_MAPS.get(set_name, {}).values()}
-        )
-
-        total = len(icons_to_download)
-        dest_dir = Path(__file__).parent.parent / "icons" / set_name
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        print(f"[download_icon_set] destinazione: {dest_dir}")
-
-        already = sum(1 for ic in icons_to_download if (dest_dir / f"{ic}.svg").exists())
-        print(f"[download_icon_set] {already}/{total} icone già presenti")
-
-        if already == total:
-            print("[download_icon_set] tutte le icone già presenti, rebuild diretto")
-            self._rebuild_toolbar()
-            return
-
-        progress = QProgressDialog(self)
-        progress.setWindowTitle(f"Download icone '{set_name}'")
-        progress.setLabelText(f"Preparazione… ({total - already} da scaricare)")
-        progress.setCancelButtonText("Annulla")
-        progress.setRange(0, total)
-        progress.setValue(already)
-        progress.setMinimumWidth(420)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.show()
-        QApplication.processEvents()
-
-        # TLS: verifica disabilitata intenzionalmente per compatibilità
-        # con proxy aziendali MITM che sostituiscono il certificato del server.
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-
-        downloaded = 0
-        failed = 0
-        lucide_dir = Path(__file__).parent.parent / "icons" / "lucide"
-
-        for i, icon in enumerate(icons_to_download):
-            if progress.wasCanceled():
-                print(f"[download_icon_set] annullato dall'utente a i={i}")
-                break
-
-            local_file = dest_dir / f"{icon}.svg"
-
-            if local_file.exists():
-                progress.setValue(i + 1)
-                progress.setLabelText(f"[{i+1}/{total}] {icon}.svg — già presente")
-                QApplication.processEvents()
+            icon_file = _ICON_MAP.get(icon_key)
+            if not icon_file:
                 continue
-
-            lucide_src = lucide_dir / f"{icon}.svg"
-
-            progress.setLabelText(f"[{i+1}/{total}]  Scarico  {icon}.svg …")
-            QApplication.processEvents()
-
-            url = URL_TEMPLATES[set_name].format(icon=icon)
-            print(f"[download_icon_set] GET {url}")
-            downloaded_ok = False
+            icon_path = icons_dir / icon_file
+            if not icon_path.exists():
+                continue
             try:
-                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-                with urllib.request.urlopen(req, timeout=10.0, context=ctx) as resp:
-                    data = resp.read()
-                    local_file.write_bytes(data)
-                    downloaded += 1
-                    downloaded_ok = True
-                    print(f"[download_icon_set] OK {icon}.svg ({len(data)} bytes)")
-            except Exception as e:
-                print(f"[download_icon_set] ERRORE CDN {icon}.svg: {e}")
-                # Fallback: copia da lucide se disponibile (icone lucide-native)
-                if set_name != "lucide" and lucide_src.exists():
-                    import shutil
-                    shutil.copy(lucide_src, local_file)
-                    downloaded += 1
-                    downloaded_ok = True
-                    print(f"[download_icon_set] copiata da lucide: {icon}.svg")
-                    progress.setLabelText(f"[{i+1}/{total}] {icon}.svg — copiata da lucide")
-                else:
-                    failed += 1
-                    # placeholder per non riprovare al prossimo avvio
-                    local_file.write_bytes(b'<svg xmlns="http://www.w3.org/2020/svg"/>')
-                    progress.setLabelText(f"[{i+1}/{total}]  ⚠ Errore: {icon}.svg")
-                QApplication.processEvents()
-                if not downloaded_ok:
-                    continue
-
-            progress.setValue(i + 1)
-            QApplication.processEvents()
-
-        progress.setValue(total)
-        summary = f"Completato: {downloaded} scaricate, {already} già presenti"
-        if failed:
-            summary += f", {failed} errori"
-        print(f"[download_icon_set] {summary}")
-
-        if not progress.wasCanceled():
-            progress.setLabelText(summary)
-            QApplication.processEvents()
-
-        progress.close()
-        self._rebuild_toolbar()
+                pm = _render_svg(icon_path, _wtext)
+                if not pm.isNull():
+                    from PyQt6.QtGui import QIcon as _PIIcon
+                    widget.setIcon(_PIIcon(pm))
+            except Exception:
+                pass
 
     # ── Slot: cambio editor corrente ──────────────────────────────────────────
 

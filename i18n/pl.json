@@ -410,7 +410,6 @@
     "disable": "Wyłącz",
     "install": "Zainstaluj",
     "uninstall": "Odinstaluj",
-    "download_icons": "Pobierz ikony",
     "count": "Liczba"
   },
   "msg": {
@@ -459,7 +458,6 @@
     "mark_occurrences": "🎨 Kolor {color_num}: podświetlono {count} wystąpień",
     "marks_cleared": "🎨 Wyczyszczono wszystkie zaznaczenia",
     "update_error": "Nie można teraz sprawdzić aktualizacji.\nSprawdź połączenie z siecią o o spróbuj ponownie później.\n\nSzczegóły: {error}",
-    "icons_missing": "ℹ  Nie znaleziono na dysku {count} ikon z zestawu «{icon_set}».",
     "export_pdf_ok": "PDF wyeksportowano pomyślnie:\n{path}",
     "export_pdf_empty": "Plik PDF wydaje się być pusty o non è stato creato:\n{path}",
     "export_pdf_failed": "Eksport PDF nie powiódł się.",
@@ -561,13 +559,7 @@
       "active_theme": "Aktywny motyw:",
       "edit_theme": "Edytuj motyw...",
       "import_theme": "Importuj motyw JSON...",
-      "export_theme": "Eksportuj motyw JSON...",
-      "icons": "Ikony paska narzędzi",
-      "icon_lucide": "Lucide (Liniowe, Nowoczesne)",
-      "icon_material": "Material (Google, Wypełnione)",
-      "icon_system": "Systemowe (Standardowe OS)",
-      "icon_set_label": "Zestaw ikon:",
-      "icon_note": "Uwaga: Jeśli zestawu nie ma na tym komputerze, zostanie pobrany automatycznie."
+      "export_theme": "Eksportuj motyw JSON..."
     },
     "file": {
       "encoding": "Kodowanie i końcówki wierszy",

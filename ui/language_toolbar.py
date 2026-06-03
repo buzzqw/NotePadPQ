@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 
 # Mappa chiave → nome file SVG Lucide per i bottoni custom della language toolbar.
-# Le icone già presenti in _ICON_MAPS (bold, italic, ecc.) non vanno qui.
+# Le icone già presenti in _ICON_MAP (bold, italic, ecc.) non vanno qui.
 _MD_ICON_FILES: dict[str, str] = {
     "md_h1":          "heading-1.svg",
     "md_h2":          "heading-2.svg",
@@ -206,28 +206,37 @@ def _make_math_icon(mw: "MainWindow") -> QIcon:
     return QIcon(pm)
 
 
+def render_svg_icon(icon_path: Path, color: str) -> QPixmap:
+    """Renders an SVG icon replacing currentColor with color.
+    For Lucide-style icons (stroke-only, fill=none) boosts stroke-width 2→2.5
+    so thin outlines are clearly visible at toolbar size."""
+    raw = icon_path.read_bytes()
+    svg_data = raw.replace(b"currentColor", color.encode())
+    if b'stroke-width="2"' in raw and b'fill="none"' in raw:
+        svg_data = svg_data.replace(b'stroke-width="2"', b'stroke-width="2.5"')
+    pm = QPixmap()
+    pm.loadFromData(svg_data, "SVG")
+    return pm
+
+
 def _load_icon(icon_key: str, mw: "MainWindow") -> QIcon:
     """Carica un'icona Lucide (o del set attivo) sostituendo currentColor con il
     colore testo corrente della palette, identico a _rebuild_toolbar()."""
-    from config.settings import Settings
     from PyQt6.QtGui import QPalette
 
     icon_file = _MD_ICON_FILES.get(icon_key, "")
     if not icon_file:
         return QIcon()
 
-    icon_set  = Settings.instance().get("ui/icon_set", "lucide")
-    icons_dir = Path(__file__).parent.parent / "icons" / icon_set
-    icon_path = icons_dir / icon_file
+    icon_path = Path(__file__).parent.parent / "icons" / "lucide" / icon_file
 
     if not icon_path.exists():
         return QIcon()
 
     color = mw.palette().color(QPalette.ColorRole.WindowText).name()
     try:
-        svg_data = icon_path.read_bytes().replace(b"currentColor", color.encode())
-        pm = QPixmap()
-        if pm.loadFromData(svg_data, "SVG") and not pm.isNull():
+        pm = render_svg_icon(icon_path, color)
+        if not pm.isNull():
             return QIcon(pm)
     except Exception:
         pass

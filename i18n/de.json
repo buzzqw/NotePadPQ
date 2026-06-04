@@ -24,7 +24,8 @@
     "macro": "Makro",
     "utilities": "Dienstprogramme",
     "text": "Text",
-    "line": "Zeilen"
+    "line": "Zeilen",
+    "windows": "Fenster"
   },
   "action": {
     "new": "Neu",

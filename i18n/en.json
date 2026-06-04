@@ -24,7 +24,8 @@
     "macro": "Macro",
     "utilities": "Utilities",
     "text": "Text",
-    "line": "Lines"
+    "line": "Lines",
+    "windows": "Windows"
   },
   "action": {
     "new": "New",

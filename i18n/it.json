@@ -24,7 +24,8 @@
     "macro": "Macro",
     "utilities": "Utilità",
     "text": "Testo",
-    "line": "Righe"
+    "line": "Righe",
+    "windows": "Finestre"
   },
   "action": {
     "new": "Nuovo",

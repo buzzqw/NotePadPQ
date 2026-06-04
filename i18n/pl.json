@@ -24,7 +24,8 @@
     "macro": "Makro",
     "utilities": "Narzędzia",
     "text": "Tekst",
-    "line": "Wiersze"
+    "line": "Wiersze",
+    "windows": "Okna"
   },
   "action": {
     "new": "Nowy",

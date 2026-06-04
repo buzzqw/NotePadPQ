@@ -811,6 +811,7 @@ class MainWindow(QMainWindow):
         self._build_menu_tools(mb)
         self._build_menu_build(mb)
         self._build_menu_plugins(mb)
+        self._build_menu_windows(mb)
         self._build_menu_help(mb)
 
         from ui.keybinding import load_and_apply_shortcuts
@@ -1470,6 +1471,53 @@ class MainWindow(QMainWindow):
         # Il menu è SEMPRE visibile: l'utente deve poter aprire il Plugin Manager
         # anche quando non ci sono plugin attivi.
         m.menuAction().setVisible(True)
+
+    # ── Menu Finestre ─────────────────────────────────────────────────────────
+
+    def _build_menu_windows(self, mb: QMenuBar) -> None:
+        m = mb.addMenu(tr("menu.windows"))
+        self._menus["windows"] = m
+        m.aboutToShow.connect(self._populate_menu_windows)
+
+    def _populate_menu_windows(self) -> None:
+        m = self._menus.get("windows")
+        if not m:
+            return
+        m.clear()
+        tm = self._tab_manager
+        current_editor = tm.current_editor()
+        panels = tm._panels()
+        is_split = len(panels) > 1
+        for panel_idx, panel in enumerate(panels):
+            tab_m = panel.tab_manager
+            if is_split:
+                m.addSection(tr("split_view.panel" + str(panel_idx + 1),
+                                default=f"Pannello {panel_idx + 1}"))
+            for i in range(tab_m.count()):
+                editor = tab_m.editor_at(i)
+                widget = tab_m.widget(i)
+                if editor is not None:
+                    fp = editor.file_path
+                    label = fp.name if fp else tr("label.untitled")
+                    if editor.is_modified():
+                        label += " *"
+                    is_current = editor is current_editor
+                    act = m.addAction(label)
+                    act.setCheckable(True)
+                    act.setChecked(is_current)
+                    act.triggered.connect(lambda _c, ed=editor: self._tab_manager.set_current_editor(ed))
+                else:
+                    label = tab_m.tabText(i).rstrip(" *")
+                    if hasattr(widget, "is_modified") and widget.is_modified():
+                        label += " *"
+                    is_current = (panel is tm._active and i == tab_m.currentIndex())
+                    act = m.addAction(label)
+                    act.setCheckable(True)
+                    act.setChecked(is_current)
+                    act.triggered.connect(lambda _c, p=panel, idx=i: [
+                        setattr(self._tab_manager, "_active", p),
+                        p.tab_manager.setCurrentIndex(idx),
+                    ])
 
     # ── Menu Aiuto ────────────────────────────────────────────────────────────
 

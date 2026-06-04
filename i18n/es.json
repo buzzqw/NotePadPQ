@@ -24,7 +24,8 @@
     "macro": "Macro",
     "utilities": "Utilidades",
     "text": "Texto",
-    "line": "Líneas"
+    "line": "Líneas",
+    "windows": "Ventanas"
   },
   "action": {
     "new": "Nuevo",

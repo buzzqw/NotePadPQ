@@ -1691,6 +1691,15 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        # Propaga il refresh alla language toolbar (palette/icone si aggiornano al cambio tema)
+        lt = getattr(self, "_lang_toolbar", None)
+        if lt is not None and lt.isVisible():
+            lt._rebuild(
+                is_md="markdown" in (lt._current_lang or ""),
+                is_tex="latex"   in (lt._current_lang or "") or
+                       bool(set((lt._current_lang or "").split()) & {"tex", "bibtex", "plaintex"}),
+            )
+
     # ── Slot: cambio editor corrente ──────────────────────────────────────────
 
     @pyqtSlot(object)

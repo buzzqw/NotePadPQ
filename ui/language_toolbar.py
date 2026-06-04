@@ -305,7 +305,7 @@ class _LanguageToolbarWidget(QWidget):
     def _make_stylesheet(self) -> str:
         return (
             "QWidget#LanguageToolbar {"
-            "  background: palette(window);"
+            "  background: palette(button);"
             "  border-bottom: 1px solid palette(mid);"
             "}"
             "QToolButton {"
@@ -449,6 +449,7 @@ class _LanguageToolbarWidget(QWidget):
             except (RuntimeError, TypeError):
                 pass
             self._fl_conn = None
+        self.setStyleSheet(self._make_stylesheet())
         self._clear_buttons()
         acts = self._mw._actions
 

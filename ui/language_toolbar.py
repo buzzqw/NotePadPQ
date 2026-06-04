@@ -1488,7 +1488,6 @@ class _LanguageToolbarWidget(QWidget):
                 "<!DOCTYPE html><html><head>"
                 "<meta charset=\"UTF-8\">"
                 "<style>"
-                "@page{margin:2cm;}"
                 "body{font-family:sans-serif;font-size:11pt;line-height:1.6;margin:0;}"
                 "img{max-width:100%;height:auto;}"
                 "pre{background:#f4f4f4;padding:.8em;overflow-x:auto;}"
@@ -1499,6 +1498,24 @@ class _LanguageToolbarWidget(QWidget):
                 f"{body}"
                 "</body></html>"
             )
+
+        from PyQt6.QtGui import QPageLayout as _QPageLayout
+        from PyQt6.QtCore import QMarginsF as _QMarginsF
+        _page_layout = self._mw._printer.pageLayout()
+        # Margini estratti in mm dal page setup; minimo 20mm se non configurati
+        _m = _page_layout.margins(_QPageLayout.Unit.Millimeter)
+        _D = 20.0
+        _mt = _m.top()    if _m.top()    > 5 else _D
+        _mr = _m.right()  if _m.right()  > 5 else _D
+        _mb = _m.bottom() if _m.bottom() > 5 else _D
+        _ml = _m.left()   if _m.left()   > 5 else _D
+        # QPageLayout con i margini effettivi — passato direttamente a printToPdf
+        _effective_layout = _QPageLayout(
+            _page_layout.pageSize(),
+            _page_layout.orientation(),
+            _QMarginsF(_ml, _mt, _mr, _mb),
+            _QPageLayout.Unit.Millimeter,
+        )
 
         # Pre-stash raw HTML <img> tags prima della conversione markdown: python-markdown
         # può escaparle (convertendo < in &lt;) se non le riconosce come blocco HTML.
@@ -1534,64 +1551,63 @@ class _LanguageToolbarWidget(QWidget):
 
         _exported = False
         _err_msg = ""
+        _pandoc_args = [
+            "-V", f"geometry:top={_mt}mm,bottom={_mb}mm,left={_ml}mm,right={_mr}mm",
+        ]
 
-        # Primario: QWebEngineView — CSS completo, gestisce % correttamente
-        try:
-            from PyQt6.QtWebEngineWidgets import QWebEngineView
-            from PyQt6.QtCore import QUrl, QEventLoop
-            _we_ok = [False]
-            from core.webengine import safe_webview as _swv
-            view = _swv()
-            if view is None:
-                raise RuntimeError("GL not available")
-            base_url = QUrl.fromLocalFile(str(_base_dir) + "/")
-            view.setHtml(html_full, base_url)
+        # Primario: QWebEngineView — preserva nl2br e formattazione HTML del Markdown
+        if not _exported:
+            try:
+                from PyQt6.QtWebEngineWidgets import QWebEngineView
+                from PyQt6.QtCore import QUrl, QEventLoop
+                _we_ok = [False]
+                from core.webengine import safe_webview as _swv
+                view = _swv()
+                if view is None:
+                    raise RuntimeError("GL not available")
+                base_url = QUrl.fromLocalFile(str(_base_dir) + "/")
+                view.setHtml(html_full, base_url)
 
-            def _on_load(ok):
-                if ok:
-                    loop2 = QEventLoop()
-                    def _pdf_done(pdf_data):
-                        if pdf_data:
-                            try:
-                                _Path(path).write_bytes(bytes(pdf_data))
-                                _we_ok[0] = True
-                            except Exception:
-                                pass
-                        loop2.quit()
-                    view.page().printToPdf(_pdf_done)
-                    loop2.exec()
-                view.deleteLater()
+                def _on_load(ok):
+                    if ok:
+                        loop2 = QEventLoop()
+                        def _pdf_done(pdf_data):
+                            if pdf_data:
+                                try:
+                                    _Path(path).write_bytes(bytes(pdf_data))
+                                    _we_ok[0] = True
+                                except Exception:
+                                    pass
+                            loop2.quit()
+                        view.page().printToPdf(_pdf_done, _effective_layout)
+                        loop2.exec()
+                    view.deleteLater()
 
-            loop = QEventLoop()
-            view.loadFinished.connect(_on_load)
-            view.loadFinished.connect(lambda _: loop.quit())
-            loop.exec()
-            _exported = _we_ok[0]
-        except Exception as exc:
-            _err_msg = str(exc)
+                loop = QEventLoop()
+                view.loadFinished.connect(_on_load)
+                view.loadFinished.connect(lambda _: loop.quit())
+                loop.exec()
+                _exported = _we_ok[0]
+            except Exception as exc:
+                _err_msg = str(exc)
 
         if not _exported:
-            # Fallback: QTextDocument — % convertite in px (718px = larghezza utile A4)
+            # Fallback 2: QTextDocument
             try:
                 from PyQt6.QtPrintSupport import QPrinter
                 from PyQt6.QtGui import QTextDocument
                 from PyQt6.QtCore import QUrl
+                _pl_mm = _page_layout.paintRect(_QPageLayout.Unit.Millimeter).width()
+                _usable_px = max(200, int(_pl_mm * 96 / 25.4))
                 html_body_px = _re.sub(
                     r'<img\b[^>]*>',
-                    lambda m: _fix_img_pct_to_px(_fix_img_paths(m.group(0)), 718),
+                    lambda m: _fix_img_pct_to_px(_fix_img_paths(m.group(0)), _usable_px),
                     html_body, flags=_re.IGNORECASE
                 )
-                from PyQt6.QtGui import QPageLayout, QPageSize
-                from PyQt6.QtCore import QMarginsF
                 printer = QPrinter(QPrinter.PrinterMode.HighResolution)
                 printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
                 printer.setOutputFileName(path)
-                printer.setPageLayout(QPageLayout(
-                    QPageSize(QPageSize.PageSizeId.A4),
-                    QPageLayout.Orientation.Portrait,
-                    QMarginsF(20, 20, 20, 20),
-                    QPageLayout.Unit.Millimeter,
-                ))
+                printer.setPageLayout(_effective_layout)
                 doc = QTextDocument()
                 doc.setBaseUrl(QUrl.fromLocalFile(str(_base_dir) + "/"))
                 doc.setHtml(_make_html(html_body_px))
@@ -1599,6 +1615,41 @@ class _LanguageToolbarWidget(QWidget):
                 _exported = True
             except Exception as _e:
                 _err_msg = str(_e)
+
+        if not _exported:
+            # Fallback 3: pandoc (via pypandoc o subprocess)
+            try:
+                import pypandoc as _pypandoc
+                _pypandoc.convert_text(
+                    content, "pdf", format="markdown+hard_line_breaks",
+                    outputfile=path, extra_args=_pandoc_args
+                )
+                _exported = True
+            except Exception:
+                pass
+        if not _exported:
+            import subprocess as _sp, shutil as _sh
+            if _sh.which("pandoc"):
+                try:
+                    import tempfile as _tf, os as _os2
+                    with _tf.NamedTemporaryFile(suffix=".md", delete=False,
+                                               mode="w", encoding="utf-8") as _tf_md:
+                        _tf_md.write(content)
+                        _tf_md_path = _tf_md.name
+                    try:
+                        _r = _sp.run(
+                            ["pandoc", _tf_md_path, "-o", path,
+                             "--from=markdown+hard_line_breaks"] + _pandoc_args,
+                            capture_output=True, text=True
+                        )
+                        if _r.returncode == 0:
+                            _exported = True
+                        else:
+                            _err_msg = _r.stderr.strip()
+                    finally:
+                        _os2.unlink(_tf_md_path)
+                except Exception as _e:
+                    _err_msg = str(_e)
 
         if _exported:
             import os as _os

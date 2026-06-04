@@ -1488,7 +1488,8 @@ class _LanguageToolbarWidget(QWidget):
                 "<!DOCTYPE html><html><head>"
                 "<meta charset=\"UTF-8\">"
                 "<style>"
-                "body{font-family:sans-serif;font-size:11pt;line-height:1.6;margin:2cm;}"
+                "@page{margin:2cm;}"
+                "body{font-family:sans-serif;font-size:11pt;line-height:1.6;margin:0;}"
                 "img{max-width:100%;height:auto;}"
                 "pre{background:#f4f4f4;padding:.8em;overflow-x:auto;}"
                 "code{background:#f4f4f4;padding:.1em .3em;border-radius:3px;}"
@@ -1580,9 +1581,17 @@ class _LanguageToolbarWidget(QWidget):
                     lambda m: _fix_img_pct_to_px(_fix_img_paths(m.group(0)), 718),
                     html_body, flags=_re.IGNORECASE
                 )
+                from PyQt6.QtGui import QPageLayout, QPageSize
+                from PyQt6.QtCore import QMarginsF
                 printer = QPrinter(QPrinter.PrinterMode.HighResolution)
                 printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
                 printer.setOutputFileName(path)
+                printer.setPageLayout(QPageLayout(
+                    QPageSize(QPageSize.PageSizeId.A4),
+                    QPageLayout.Orientation.Portrait,
+                    QMarginsF(20, 20, 20, 20),
+                    QPageLayout.Unit.Millimeter,
+                ))
                 doc = QTextDocument()
                 doc.setBaseUrl(QUrl.fromLocalFile(str(_base_dir) + "/"))
                 doc.setHtml(_make_html(html_body_px))

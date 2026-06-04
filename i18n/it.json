@@ -562,7 +562,9 @@
       "edge_col_label": "Colonna (0 = disabilitata):",
       "writing_group": "Scrittura",
       "smart_typography": "Tipografia intelligente (virgolette, em dash, ellissi)",
-      "sentence_focus": "Focus paragrafo corrente (attenua il resto)"
+      "sentence_focus": "Focus paragrafo corrente (attenua il resto)",
+      "typewriter_deadzone_label": "Zona morta modalità dattilografo:",
+      "typewriter_deadzone_suffix": " righe"
     },
     "aspect": {
       "theme": "Tema",
@@ -1029,6 +1031,7 @@
     "pref_mermaid": "Abilita il rendering di diagrammi Mermaid nei blocchi mermaid)",
     "pref_smart_typography": "Converti automaticamente virgolette in tipografiche, trattini doppi in em dash e tre punti in ellissi",
     "pref_sentence_focus": "Attenua il testo fuori dal paragrafo corrente. Attivabile dal menu Documento.",
+    "pref_typewriter_deadzone": "Numero di righe entro cui il cursore non provoca uno scorrimento automatico in modalità dattilografo.",
     "fif_replace_in_file": "Sostituisci tutte le corrispondenze in questo file",
     "fif_replace_match": "Sostituisci questa corrispondenza"
   },

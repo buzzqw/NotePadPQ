@@ -562,7 +562,9 @@
       "edge_col_label": "Spalte (0 = deaktiviert):",
       "writing_group": "Schreiben",
       "smart_typography": "Intelligente Typografie (Anführungszeichen, Gedankenstrich, Ellipse)",
-      "sentence_focus": "Absatz-Fokus (Rest abdunkeln)"
+      "sentence_focus": "Absatz-Fokus (Rest abdunkeln)",
+      "typewriter_deadzone_label": "Schreibmaschinen-Totzone:",
+      "typewriter_deadzone_suffix": " Zeilen"
     },
     "aspect": {
       "theme": "Design",
@@ -1029,6 +1031,7 @@
     "pref_mermaid": "Mermaid-Diagramme in mermaid)",
     "pref_smart_typography": "Konvertiert automatisch Anführungszeichen, Bindestriche zu Gedankenstrich und Punkte zu Ellipse",
     "pref_sentence_focus": "Text außerhalb des aktuellen Absatzes abdunkeln. Im Menü Dokument umschaltbar.",
+    "pref_typewriter_deadzone": "Anzahl Zeilen um die Mitte, innerhalb derer kein automatisches Scrollen im Schreibmaschinenmodus ausgelöst wird.",
     "fif_replace_in_file": "Alle Treffer in dieser Datei ersetzen",
     "fif_replace_match": "Diesen Treffer ersetzen"
   },

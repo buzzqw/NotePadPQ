@@ -139,14 +139,15 @@ class PreferencesDialog(QDialog):
         # Scrittura (Markdown / testo)
         grp_writing = QGroupBox(tr("pref.editor.writing_group", default="Scrittura"))
         wl = QVBoxLayout(grp_writing)
-        self._smart_typography = QCheckBox(tr("pref.editor.smart_typography",
-                                              default='Tipografia intelligente (virgolette, em dash, ellissi)'))
-        self._smart_typography.setToolTip(tr("tooltip.pref_smart_typography"))
-        wl.addWidget(self._smart_typography)
-        self._sentence_focus_pref = QCheckBox(tr("pref.editor.sentence_focus",
-                                                  default="Focus paragrafo corrente (attenua il resto)"))
-        self._sentence_focus_pref.setToolTip(tr("tooltip.pref_sentence_focus"))
-        wl.addWidget(self._sentence_focus_pref)
+        tw_row = QHBoxLayout()
+        self._typewriter_deadzone = QSpinBox()
+        self._typewriter_deadzone.setRange(0, 20)
+        self._typewriter_deadzone.setSuffix(tr("pref.editor.typewriter_deadzone_suffix", default=" righe"))
+        self._typewriter_deadzone.setToolTip(tr("tooltip.pref_typewriter_deadzone"))
+        tw_row.addWidget(QLabel(tr("pref.editor.typewriter_deadzone_label", default="Zona morta modalità dattilografo:")))
+        tw_row.addWidget(self._typewriter_deadzone)
+        tw_row.addStretch()
+        wl.addLayout(tw_row)
         vl.addWidget(grp_writing)
 
         vl.addStretch()
@@ -603,8 +604,7 @@ class PreferencesDialog(QDialog):
         self._ac_threshold.setValue(s.get("autocomplete/threshold", 2))
 
         # Editor — Scrittura
-        self._smart_typography.setChecked(s.get("editor/smart_typography", False))
-        self._sentence_focus_pref.setChecked(s.get("editor/sentence_focus", False))
+        self._typewriter_deadzone.setValue(s.get("editor/typewriter_deadzone", 3))
 
         # Preview
         self._preview_sync.setChecked(s.get("preview/sync_cursor", True))
@@ -734,8 +734,7 @@ class PreferencesDialog(QDialog):
         s.set("autocomplete/threshold", self._ac_threshold.value())
 
         # Editor — Scrittura
-        s.set("editor/smart_typography", self._smart_typography.isChecked())
-        s.set("editor/sentence_focus",   self._sentence_focus_pref.isChecked())
+        s.set("editor/typewriter_deadzone", self._typewriter_deadzone.value())
 
         # Preview
         s.set("preview/sync_cursor", self._preview_sync.isChecked())

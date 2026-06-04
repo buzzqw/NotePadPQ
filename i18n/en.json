@@ -562,7 +562,9 @@
       "edge_col_label": "Column (0 = disabled):",
       "writing_group": "Writing",
       "smart_typography": "Smart typography (quotes, em dash, ellipsis)",
-      "sentence_focus": "Paragraph focus (dim the rest)"
+      "sentence_focus": "Paragraph focus (dim the rest)",
+      "typewriter_deadzone_label": "Typewriter mode dead zone:",
+      "typewriter_deadzone_suffix": " lines"
     },
     "aspect": {
       "theme": "Theme",
@@ -1029,6 +1031,7 @@
     "pref_mermaid": "Enable Mermaid diagram rendering in mermaid)",
     "pref_smart_typography": "Auto-convert straight quotes to typographic, double hyphens to em dash and three dots to ellipsis",
     "pref_sentence_focus": "Dim text outside the current paragraph. Can be toggled from the Document menu.",
+    "pref_typewriter_deadzone": "Number of lines around the center within which the cursor does not trigger auto-scroll in typewriter mode.",
     "fif_replace_in_file": "Replace all matches in this file",
     "fif_replace_match": "Replace this match"
   },

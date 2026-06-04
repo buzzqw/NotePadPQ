@@ -562,7 +562,9 @@
       "edge_col_label": "Columna (0 = desactivada):",
       "writing_group": "Escritura",
       "smart_typography": "Tipografía inteligente (comillas, raya, puntos suspensivos)",
-      "sentence_focus": "Enfoque de párrafo (atenuar el resto)"
+      "sentence_focus": "Enfoque de párrafo (atenuar el resto)",
+      "typewriter_deadzone_label": "Zona muerta modo mecanógrafo:",
+      "typewriter_deadzone_suffix": " líneas"
     },
     "aspect": {
       "theme": "Tema",
@@ -1029,6 +1031,7 @@
     "pref_mermaid": "Habilitar el renderizado de diagramas Mermaid en bloques mermaid)",
     "pref_smart_typography": "Convierte comillas, guiones dobles en raya y puntos en puntos suspensivos automáticamente",
     "pref_sentence_focus": "Atenuar el texto fuera del párrafo actual. Activable desde el menú Documento.",
+    "pref_typewriter_deadzone": "Número de líneas alrededor del centro en las que el cursor no activa el desplazamiento automático en modo mecanógrafo.",
     "fif_replace_in_file": "Reemplazar todas las coincidencias en este archivo",
     "fif_replace_match": "Reemplazar esta coincidencia"
   },

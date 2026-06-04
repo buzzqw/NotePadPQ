@@ -562,7 +562,9 @@
       "edge_col_label": "Colonne (0 = désactivée) :",
       "writing_group": "Écriture",
       "smart_typography": "Typographie intelligente (guillemets, tiret, points de suspension)",
-      "sentence_focus": "Focus paragraphe (atténuer le reste)"
+      "sentence_focus": "Focus paragraphe (atténuer le reste)",
+      "typewriter_deadzone_label": "Zone morte mode machine à écrire:",
+      "typewriter_deadzone_suffix": " lignes"
     },
     "aspect": {
       "theme": "Thème",
@@ -1029,6 +1031,7 @@
     "pref_mermaid": "Activer le rendu des diagrammes Mermaid dans les blocs mermaid)",
     "pref_smart_typography": "Convertit automatiquement les guillemets, tirets en tiret cadratin et points en points de suspension",
     "pref_sentence_focus": "Atténuer le texte en dehors du paragraphe courant. Activable depuis le menu Document.",
+    "pref_typewriter_deadzone": "Nombre de lignes autour du centre dans lesquelles le curseur ne déclenche pas de défilement automatique en mode machine à écrire.",
     "fif_replace_in_file": "Remplacer toutes les correspondances dans ce fichier",
     "fif_replace_match": "Remplacer cette correspondance"
   },

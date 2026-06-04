@@ -798,8 +798,16 @@ class EditorWidget(QsciScintilla):
         if not self._typewriter_mode:
             return
         visible = self.SendScintilla(self.SCI_LINESONSCREEN)
-        target = max(0, line - visible // 2)
-        self.setFirstVisibleLine(target)
+        if visible <= 0:
+            return
+        from config.settings import Settings
+        dead_zone = max(0, Settings.instance().get("editor/typewriter_deadzone", 3))
+        visual_line = self.SendScintilla(self.SCI_VISIBLEFROMDOCLINE, line)
+        first_visual = self.SendScintilla(self.SCI_GETFIRSTVISIBLELINE)
+        center_visual = first_visual + visible // 2
+        if abs(visual_line - center_visual) > dead_zone:
+            target = max(0, visual_line - visible // 2)
+            self.SendScintilla(self.SCI_SETFIRSTVISIBLELINE, target)
 
     def set_word_wrap(self, enabled: bool) -> None:
         mode = (QsciScintilla.WrapMode.WrapWord

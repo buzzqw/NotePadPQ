@@ -562,7 +562,9 @@
       "edge_col_label": "Kolumna (0 = wyłączona):",
       "writing_group": "Pisanie",
       "smart_typography": "Inteligentna typografia (cudzysłowy, myślnik, wielokropek)",
-      "sentence_focus": "Fokus akapitu (przyćmienie reszty)"
+      "sentence_focus": "Fokus akapitu (przyćmienie reszty)",
+      "typewriter_deadzone_label": "Martwa strefa trybu maszynisty:",
+      "typewriter_deadzone_suffix": " wiersze"
     },
     "aspect": {
       "theme": "Motyw",
@@ -1029,6 +1031,7 @@
     "pref_mermaid": "Włącz renderowanie diagramów Mermaid w blokach mermaid)",
     "pref_smart_typography": "Automatycznie konwertuje cudzysłowy, podwójne myślniki na myślnik i kropki na wielokropek",
     "pref_sentence_focus": "Przyćmi tekst poza bieżącym akapitem. Można włączyć z menu Dokument.",
+    "pref_typewriter_deadzone": "Liczba wierszy wokół środka, w obrębie których kursor nie wyzwala automatycznego przewijania w trybie maszynisty.",
     "fif_replace_in_file": "Zastąp wszystkie dopasowania w tym pliku",
     "fif_replace_match": "Zastąp to dopasowanie"
   },

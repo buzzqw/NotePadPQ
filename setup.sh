@@ -108,7 +108,7 @@ _ask_optional_components() {
     printf "║      Apertura/esportazione DOCX come rich text                  ║\n"
     printf "║      Stato: %-52s║\n" "$lbl3"
     echo   "║                                                                 ║"
-    printf "║  [4] Code Formatter — black, ruff (Python)                      ║\n"
+    printf "║  [4] Code Formatter — black (Python), ruff                       ║\n"
     printf "║      Formattazione codice con Ctrl+Alt+F                        ║\n"
     printf "║      Stato: %-52s║\n" "$lbl4"
     echo   "║                                                                 ║"
@@ -161,9 +161,18 @@ _ask_optional_components() {
 
 # Tenta pip con gli argomenti opzionali; se fallisce a causa di "externally managed",
 # offre l'installazione in un venv dedicato e aggiorna il lanciatore.
+# Se il .venv del progetto esiste già, installa direttamente lì senza passare per pip di sistema.
 _pip_or_venv() {
     local pkgs="$1"
     local extra_args="${2:-}"
+    local VENV_DIR="${PROJECT_DIR}/.venv"
+
+    # Se il venv esiste già, installa direttamente nel venv (coerenza: tutto in un posto)
+    if [[ -x "${VENV_DIR}/bin/python" ]]; then
+        echo "  .venv rilevato — installo nel venv esistente: ${VENV_DIR}"
+        "${VENV_DIR}/bin/pip" install --quiet $pkgs
+        return $?
+    fi
 
     $PYTHON -m pip install $extra_args $pkgs >/tmp/_pip_out.txt 2>&1
     local pip_exit=$?
@@ -357,8 +366,9 @@ elif command -v apt-get &>/dev/null; then
         _pip_or_venv "pymupdf" "$BREAK"
     fi
     if $INSTALL_FORMATTERS; then
-        echo "  Code Formatter: installo black e ruff via pip..."
-        _pip_or_venv "$PIP_FORMATTERS" "$BREAK"
+        echo "  Code Formatter: installo black via apt e ruff via pip..."
+        sudo apt-get install -y python3-black 2>/dev/null || true
+        _pip_or_venv "ruff" "$BREAK"
     fi
 
 elif command -v dnf &>/dev/null; then

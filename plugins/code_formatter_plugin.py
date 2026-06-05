@@ -31,8 +31,10 @@ Menu: Strumenti → 🎨 Format Document  (Ctrl+Alt+F)
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import xml.dom.minidom
 from pathlib import Path
@@ -47,9 +49,57 @@ from PyQt6.QtWidgets import (
 
 from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from editor.lexers import get_language_name
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
+
+
+# ─── Ricerca eseguibili ──────────────────────────────────────────────────────
+
+def _find_exe(name: str) -> Optional[str]:
+    """
+    Cerca l'eseguibile `name` in ordine:
+      1. PATH di sistema  (shutil.which)
+      2. ~/.local/bin     (pip install --user su Linux/macOS)
+      3. <project>/.venv/bin/  (venv dedicato di NotePadPQ)
+      4. stessa directory di sys.executable  (venv attivo o Python portatile)
+    Ritorna il percorso assoluto trovato, oppure None.
+    """
+    # 1. PATH standard
+    found = shutil.which(name)
+    if found:
+        return found
+
+    extra_dirs: list[Path] = []
+
+    # 2. ~/.local/bin  (pip install --user)
+    local_bin = Path.home() / ".local" / "bin"
+    if local_bin.is_dir():
+        extra_dirs.append(local_bin)
+
+    # 3. .venv del progetto (cartella del plugin → radice progetto)
+    project_root = Path(__file__).resolve().parent.parent
+    venv_bin = project_root / ".venv" / ("Scripts" if sys.platform == "win32" else "bin")
+    if venv_bin.is_dir():
+        extra_dirs.append(venv_bin)
+
+    # 4. directory di sys.executable (venv attivo o Python portatile)
+    py_dir = Path(sys.executable).parent
+    if py_dir not in extra_dirs:
+        extra_dirs.append(py_dir)
+
+    for d in extra_dirs:
+        candidate = d / name
+        # su Windows prova anche con .exe
+        if sys.platform == "win32" and not candidate.suffix:
+            candidate_exe = d / (name + ".exe")
+            if candidate_exe.is_file():
+                return str(candidate_exe)
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+
+    return None
 
 
 # ─── Configurazione default dei formatter ─────────────────────────────────────
@@ -164,8 +214,10 @@ def _run_formatter(cmd: List[str], text: str) -> Tuple[bool, str, str]:
     Ritorna (successo, stdout, stderr).
     """
     exe = cmd[0]
-    if not shutil.which(exe):
+    exe_path = _find_exe(exe)
+    if not exe_path:
         return False, "", f"Formatter '{exe}' non trovato nel PATH.\nInstallalo prima di usarlo."
+    cmd = [exe_path] + cmd[1:]
 
     try:
         result = subprocess.run(
@@ -226,11 +278,15 @@ class _PrefsDialog(QDialog):
             check_lbl = QLabel()
             exe = (stored_str or default_str).split()[0] if (stored_str or default_str) else ""
             if exe:
-                found = shutil.which(exe)
-                check_lbl.setText(
-                    f'<span style="color:{"#4ec9b0" if found else "#f44747"};">'
-                    f'{"✅ trovato" if found else "❌ non trovato nel PATH"}</span>'
-                )
+                found = _find_exe(exe)
+                if found:
+                    check_lbl.setText(
+                        f'<span style="color:#4ec9b0;">✅ trovato: {found}</span>'
+                    )
+                else:
+                    check_lbl.setText(
+                        '<span style="color:#f44747;">❌ non trovato nel PATH</span>'
+                    )
             fl.addRow("Stato:", check_lbl)
             fl.addRow("Note:", QLabel(cfg["desc"]))
 
@@ -309,7 +365,7 @@ class _Formatter:
         if not ok:
             # prova alternativa (es. ruff se black non c'è)
             alt = cfg.get("alt")
-            if alt and not shutil.which(cmd[0]):
+            if alt and not _find_exe(cmd[0]):
                 ok2, stdout2, stderr2 = _run_formatter(alt, text)
                 if ok2 and stdout2.strip():
                     return True, stdout2, ""
@@ -371,8 +427,8 @@ class CodeFormatterPlugin(BasePlugin):
         if not lang:
             if not silent:
                 QMessageBox.information(
-                    self._mw, "Format Document",
-                    "Linguaggio non riconosciuto o nessun formatter disponibile per questo file."
+                    self._mw, tr("plugin.code_formatter.title_doc"),
+                    tr("plugin.code_formatter.no_lang")
                 )
             return
 
@@ -392,9 +448,9 @@ class CodeFormatterPlugin(BasePlugin):
         else:
             if not silent:
                 QMessageBox.warning(
-                    self._mw, "Format Document",
-                    f"Il formatter ha segnalato un errore:\n\n{err}\n\n"
-                    "Il documento non è stato modificato."
+                    self._mw, tr("plugin.code_formatter.title_doc"),
+                    tr("plugin.code_formatter.error", err=err) + "\n\n" +
+                    tr("plugin.code_formatter.doc_unchanged")
                 )
 
     def _format_selection(self):
@@ -403,15 +459,15 @@ class CodeFormatterPlugin(BasePlugin):
             return
         if not editor.hasSelectedText():
             QMessageBox.information(
-                self._mw, "Format Selection",
-                "Seleziona prima il testo da formattare."
+                self._mw, tr("plugin.code_formatter.title_sel"),
+                tr("plugin.code_formatter.no_selection")
             )
             return
         lang = self._detect_lang(editor)
         if not lang:
             QMessageBox.information(
-                self._mw, "Format Selection",
-                "Linguaggio non riconosciuto o nessun formatter disponibile per questo file."
+                self._mw, tr("plugin.code_formatter.title_sel"),
+                tr("plugin.code_formatter.no_lang")
             )
             return
 
@@ -423,9 +479,9 @@ class CodeFormatterPlugin(BasePlugin):
                 editor.replaceSelectedText(formatted)
         else:
             QMessageBox.warning(
-                self._mw, "Format Selection",
-                f"Il formatter ha segnalato un errore:\n\n{err}\n\n"
-                "La selezione non è stata modificata."
+                self._mw, tr("plugin.code_formatter.title_sel"),
+                tr("plugin.code_formatter.error", err=err) + "\n\n" +
+                tr("plugin.code_formatter.sel_unchanged")
             )
 
     def _open_prefs(self):
@@ -439,17 +495,17 @@ class CodeFormatterPlugin(BasePlugin):
 
     def _detect_lang(self, editor) -> Optional[str]:
         """Rileva il linguaggio dall'editor e lo mappa alla chiave formatter."""
-        # prova tramite il lexer dell'editor
+        # 1. Usa get_language_name() che legge _current_language (più preciso)
         lang_raw = None
         try:
-            lang_raw = editor.language().lower() if hasattr(editor, "language") else None
+            lang_raw = get_language_name(editor).lower()
         except Exception:
             pass
 
-        # prova dall'estensione del file
-        if not lang_raw:
+        # 2. Fallback dall'estensione del file
+        if not lang_raw or lang_raw == "text":
             try:
-                path = editor.file_path()
+                path = editor.file_path  # attributo Path|None, non metodo
                 if path:
                     ext = Path(path).suffix.lower().lstrip(".")
                     _EXT_MAP = {

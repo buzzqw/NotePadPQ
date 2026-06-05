@@ -889,6 +889,15 @@
       "error_encrypt": "Erreur de chiffrement",
       "error_decrypt": "Erreur de déchiffrement",
       "decrypt_failed": "Déchiffrement échoué:\n{error}\n\nVérifiez le mot de passe et l'algorithme."
+    },
+    "code_formatter": {
+      "title_doc": "Formater le document",
+      "title_sel": "Formater la sélection",
+      "no_lang": "Langue non reconnue ou aucun formateur disponible pour ce fichier.",
+      "no_selection": "Veuillez d'abord sélectionner le texte à formater.",
+      "error": "Le formateur a signalé une erreur :\n\n{err}",
+      "doc_unchanged": "Le document n'a pas été modifié.",
+      "sel_unchanged": "La sélection n'a pas été modifiée."
     }
   },
   "db": {

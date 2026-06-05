@@ -889,6 +889,15 @@
       "error_encrypt": "Encryption error",
       "error_decrypt": "Decryption error",
       "decrypt_failed": "Decryption failed:\n{error}\n\nCheck password and algorithm."
+    },
+    "code_formatter": {
+      "title_doc": "Format Document",
+      "title_sel": "Format Selection",
+      "no_lang": "Language not recognized or no formatter available for this file.",
+      "no_selection": "Please select text to format first.",
+      "error": "The formatter reported an error:\n\n{err}",
+      "doc_unchanged": "The document was not modified.",
+      "sel_unchanged": "The selection was not modified."
     }
   },
   "db": {

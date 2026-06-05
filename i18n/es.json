@@ -889,6 +889,15 @@
       "error_encrypt": "Error de cifrado",
       "error_decrypt": "Error de descifrado",
       "decrypt_failed": "Descifrado fallido:\n{error}\n\nVerifique la contraseña y el algoritmo."
+    },
+    "code_formatter": {
+      "title_doc": "Formatear documento",
+      "title_sel": "Formatear selección",
+      "no_lang": "Idioma no reconocido o ningún formateador disponible para este archivo.",
+      "no_selection": "Seleccione primero el texto a formatear.",
+      "error": "El formateador reportó un error:\n\n{err}",
+      "doc_unchanged": "El documento no fue modificado.",
+      "sel_unchanged": "La selección no fue modificada."
     }
   },
   "db": {

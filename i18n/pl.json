@@ -889,6 +889,15 @@
       "error_encrypt": "Błąd szyfrowania",
       "error_decrypt": "Błąd deszyfrowania",
       "decrypt_failed": "Deszyfrowanie nie powiodło się:\n{error}\n\nSprawdź hasło i algorytm."
+    },
+    "code_formatter": {
+      "title_doc": "Formatuj dokument",
+      "title_sel": "Formatuj zaznaczenie",
+      "no_lang": "Język nierozpoznany lub brak formatera dla tego pliku.",
+      "no_selection": "Najpierw zaznacz tekst do sformatowania.",
+      "error": "Formater zgłosił błąd:\n\n{err}",
+      "doc_unchanged": "Dokument nie został zmodyfikowany.",
+      "sel_unchanged": "Zaznaczenie nie zostało zmodyfikowane."
     }
   },
   "db": {

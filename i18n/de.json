@@ -889,6 +889,15 @@
       "error_encrypt": "Verschlüsselungsfehler",
       "error_decrypt": "Entschlüsselungsfehler",
       "decrypt_failed": "Entschlüsselung fehlgeschlagen:\n{error}\n\nPasswort und Algorithmus prüfen."
+    },
+    "code_formatter": {
+      "title_doc": "Dokument formatieren",
+      "title_sel": "Auswahl formatieren",
+      "no_lang": "Sprache nicht erkannt oder kein Formatter für diese Datei verfügbar.",
+      "no_selection": "Bitte zuerst den zu formatierenden Text auswählen.",
+      "error": "Der Formatter hat einen Fehler gemeldet:\n\n{err}",
+      "doc_unchanged": "Das Dokument wurde nicht geändert.",
+      "sel_unchanged": "Die Auswahl wurde nicht geändert."
     }
   },
   "db": {

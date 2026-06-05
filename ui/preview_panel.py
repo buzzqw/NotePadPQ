@@ -192,6 +192,14 @@ class _MarkdownWorker(QThread):
             import re as _re
             preprocessed, anchor_lines = _inject_md_line_anchors(self._text)
             if _HAS_MARKDOWN:
+                # Inject markdown="1" into <div> tags that lack it so that
+                # md_in_html renders Markdown inside them (GitHub-style behaviour).
+                preprocessed = _re.sub(
+                    r'<(div)(\s[^>]*)?>',
+                    lambda m: f'<div{m.group(2) or ""} markdown="1">'
+                              if 'markdown=' not in (m.group(2) or '') else m.group(0),
+                    preprocessed,
+                )
                 body = _markdown_lib.markdown(
                     preprocessed,
                     extensions=["tables", "fenced_code", "toc", "md_in_html"],
@@ -885,8 +893,12 @@ class PreviewPanel(QWidget):
             self._md_anchor_lines = anchor_lines
             vp_w = self._web_fallback.viewport().width() or 800
             html = _fix_img_percent_dimensions(html, vp_w)
+            # Resolve relative image paths using the directory of the open file
+            from PyQt6.QtCore import QUrl
+            file_path = getattr(self._editor, "file_path", None) if self._editor else None
+            base_url = QUrl.fromLocalFile(str(file_path.parent) + "/") if file_path else QUrl()
             # MathJax e Mermaid richiedono WebEngine (JS); QTextBrowser non esegue JS
-            self._show_html(html, force_webengine=needs_js)
+            self._show_html(html, force_webengine=needs_js, base_url=base_url)
             if not needs_js:
                 self._build_anchor_pos_map()
 
@@ -977,22 +989,25 @@ class PreviewPanel(QWidget):
 
     # ── Helpers visualizzazione ───────────────────────────────────────────────
 
-    def _show_html(self, html: str, force_webengine: bool = False) -> None:
+    def _show_html(self, html: str, force_webengine: bool = False, base_url=None) -> None:
         """
         Mostra HTML nel viewer appropriato.
         Stack fisso: 0=QTextBrowser, 1=LaTeX tree, 2=testo grezzo, 3=PDF, 4+=WebEngine
         - force_webengine=True  → WebEngine (indice dinamico, solo HTML puro)
         - force_webengine=False → QTextBrowser all'indice 0 (istantaneo)
         """
+        from PyQt6.QtCore import QUrl
+        if base_url is None:
+            base_url = QUrl()
         if force_webengine and _HAS_WEBENGINE:
             view = self._get_web_view()
             if view is not None:
                 idx = self._stack.indexOf(view)
                 self._stack.setCurrentIndex(idx)
-                view.setHtml(html)
+                view.setHtml(html, base_url)
                 return
         # QTextBrowser è sempre all'indice 0
-        self._web_fallback.setHtml(html)
+        self._web_fallback.setHtml(html, base_url)
         self._stack.setCurrentIndex(0)
 
     def _highlight_tree_item(self, line: int) -> None:

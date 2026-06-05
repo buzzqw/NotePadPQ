@@ -261,7 +261,7 @@
     "lang_toolbar_begin_env": "Begin environment",
     "lang_toolbar_end_env": "End environment",
     "lang_toolbar_env_name": "Environment name:",
-    "lang_toolbar_export_pdf": "Export as PDF",
+    "lang_toolbar_export_pdf": "Export as Formatted PDF",
     "lang_toolbar_export_html": "Export as HTML",
     "build_analyze_ai": "Analyze log with AI",
     "build_analyze_ai_send": "Send to AI",

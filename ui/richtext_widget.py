@@ -17,6 +17,7 @@ Dipendenze opzionali (degradano gracefully):
   python-docx      — fallback scrittura DOCX
   pypandoc         — ODT/RTF conversione
 """
+
 from __future__ import annotations
 
 import json
@@ -26,22 +27,32 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import (
-    Qt, QObject, QTimer, QEventLoop, QUrl, pyqtSignal, pyqtSlot
-)
+from PyQt6.QtCore import Qt, QObject, QTimer, QEventLoop, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QToolBar, QToolButton,
-    QComboBox, QLabel, QFileDialog, QMessageBox, QProgressDialog,
-    QApplication, QSizePolicy
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QToolBar,
+    QToolButton,
+    QComboBox,
+    QLabel,
+    QFileDialog,
+    QMessageBox,
+    QProgressDialog,
+    QApplication,
+    QSizePolicy,
 )
 
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
     from PyQt6.QtWebEngineCore import (
-        QWebEngineSettings, QWebEngineScript, QWebEnginePage
+        QWebEngineSettings,
+        QWebEngineScript,
+        QWebEnginePage,
     )
     from PyQt6.QtWebChannel import QWebChannel
+
     WEBENGINE_OK = True
 except ImportError:
     WEBENGINE_OK = False
@@ -77,10 +88,10 @@ _ASSETS_DIR = Path(__file__).parent / "assets" / "jodit"
 
 # Jodit 4 — MIT licence, no dependencies, single-file distribution
 # URL senza versione: jsdelivr risolve sempre all'ultima stabile
-_JODIT_JS_URL  = "https://cdn.jsdelivr.net/npm/jodit/es2021/jodit.min.js"
+_JODIT_JS_URL = "https://cdn.jsdelivr.net/npm/jodit/es2021/jodit.min.js"
 _JODIT_CSS_URL = "https://cdn.jsdelivr.net/npm/jodit/es2021/jodit.min.css"
 
-_JODIT_JS  = _ASSETS_DIR / "jodit.min.js"
+_JODIT_JS = _ASSETS_DIR / "jodit.min.js"
 _JODIT_CSS = _ASSETS_DIR / "jodit.min.css"
 
 
@@ -89,9 +100,7 @@ def _download_jodit(parent: Optional[QWidget] = None) -> bool:
     _ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 
     dlg = QProgressDialog(
-        tr("richtext.downloading_jodit"),
-        tr("button.cancel"),
-        0, 100, parent
+        tr("richtext.downloading_jodit"), tr("button.cancel"), 0, 100, parent
     )
     dlg.setWindowTitle("NotePadPQ")
     dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
@@ -111,8 +120,7 @@ def _download_jodit(parent: Optional[QWidget] = None) -> bool:
 
             # Scarica con progress reale; gestisce redirect automaticamente
             req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "NotePadPQ/1.0 (richtext downloader)"}
+                url, headers={"User-Agent": "NotePadPQ/1.0 (richtext downloader)"}
             )
             with urllib.request.urlopen(req, timeout=30) as resp:
                 total = int(resp.headers.get("Content-Length", 0))
@@ -143,8 +151,7 @@ def _download_jodit(parent: Optional[QWidget] = None) -> bool:
         for _, dest in files:
             dest.unlink(missing_ok=True)
         QMessageBox.critical(
-            parent, "NotePadPQ",
-            tr("richtext.download_failed", exc=exc)
+            parent, "NotePadPQ", tr("richtext.download_failed", exc=exc)
         )
         return False
 
@@ -157,6 +164,7 @@ def ensure_jodit(parent: Optional[QWidget] = None) -> bool:
 
 
 # ── Conversione formati ───────────────────────────────────────────────────────
+
 
 class RichTextIO:
     """Conversione bidirezionale tra HTML interno e formati file."""
@@ -190,6 +198,7 @@ class RichTextIO:
     def _docx_to_html(path: Path) -> tuple[str, str]:
         try:
             import mammoth
+
             with open(path, "rb") as f:
                 result = mammoth.convert_to_html(f)
             html = result.value
@@ -206,12 +215,22 @@ class RichTextIO:
     def _doc_to_html(path: Path) -> tuple[str, str]:
         """Converte .doc (Word 97-2003) → HTML via LibreOffice → mammoth."""
         import subprocess, tempfile, shutil
+
         tmp = Path(tempfile.mkdtemp(prefix="npq_doc_"))
         try:
             res = subprocess.run(
-                ["libreoffice", "--headless", "--convert-to", "docx",
-                 "--outdir", str(tmp), str(path)],
-                capture_output=True, text=True, timeout=60
+                [
+                    "libreoffice",
+                    "--headless",
+                    "--convert-to",
+                    "docx",
+                    "--outdir",
+                    str(tmp),
+                    str(path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
             )
             if res.returncode != 0:
                 return "", f"LibreOffice: {res.stderr.strip() or res.stdout.strip()}"
@@ -224,7 +243,10 @@ class RichTextIO:
                 docx = candidates[0]
             return RichTextIO._docx_to_html(docx)
         except FileNotFoundError:
-            return "", "LibreOffice non trovato — installa libreoffice per aprire file .doc"
+            return (
+                "",
+                "LibreOffice non trovato — installa libreoffice per aprire file .doc",
+            )
         except Exception as e:
             return "", str(e)
         finally:
@@ -234,6 +256,7 @@ class RichTextIO:
     def _extract_body(html: str) -> str:
         """Estrae il contenuto del <body> da un documento HTML completo."""
         import re
+
         m = re.search(r"<body(?:[^>]*)>(.*?)</body>", html, re.DOTALL | re.IGNORECASE)
         return m.group(1).strip() if m else html
 
@@ -242,6 +265,7 @@ class RichTextIO:
         fmt = path.suffix.lstrip(".")
         try:
             import pypandoc
+
             # Prova --embed-resources (pandoc 3+), fallback a --self-contained
             for embed in ("--embed-resources", "--self-contained"):
                 try:
@@ -255,11 +279,23 @@ class RichTextIO:
             pass
         # Fallback: pandoc subprocess con immagini embedded come base64
         import subprocess
+
         try:
             for embed in ("--embed-resources", "--self-contained"):
                 result = subprocess.run(
-                    ["pandoc", "-f", fmt, "-t", "html", "--standalone", embed, str(path)],
-                    capture_output=True, text=True, timeout=60,
+                    [
+                        "pandoc",
+                        "-f",
+                        fmt,
+                        "-t",
+                        "html",
+                        "--standalone",
+                        embed,
+                        str(path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
                 )
                 if result.returncode == 0:
                     return RichTextIO._extract_body(result.stdout), ""
@@ -298,6 +334,7 @@ class RichTextIO:
         # Preferisce htmldocx, fallback python-docx + BeautifulSoup
         try:
             from htmldocx import HtmlToDocx
+
             parser = HtmlToDocx()
             doc = parser.parse_html_string(html)
             doc.save(str(path))
@@ -306,6 +343,7 @@ class RichTextIO:
             pass
         try:
             from docx import Document
+
             doc = Document()
             # Inserisce il testo come plain text (degraded)
             from html.parser import HTMLParser
@@ -314,6 +352,7 @@ class RichTextIO:
                 def __init__(self):
                     super().__init__()
                     self.text = []
+
                 def handle_data(self, data):
                     self.text.append(data)
 
@@ -332,15 +371,19 @@ class RichTextIO:
     @staticmethod
     def _html_to_pandoc(html: str, path: Path) -> str:
         import subprocess
-        with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w",
-                                         encoding="utf-8") as f:
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".html", delete=False, mode="w", encoding="utf-8"
+        ) as f:
             f.write(RichTextIO._full_html(html))
             tmp = f.name
         try:
             fmt = path.suffix.lstrip(".")
             result = subprocess.run(
                 ["pandoc", "-f", "html", "-t", fmt, tmp, "-o", str(path)],
-                capture_output=True, text=True, timeout=30
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
             if result.returncode != 0:
                 return result.stderr
@@ -365,11 +408,12 @@ class RichTextIO:
 
 # ── QWebChannel bridge ────────────────────────────────────────────────────────
 
+
 class _EditorBridge(QObject):
     """Oggetto esposto a JavaScript via QWebChannel."""
 
     content_changed = pyqtSignal()
-    js_ready        = pyqtSignal()
+    js_ready = pyqtSignal()
 
     def __init__(self, widget: "RichTextWidget"):
         super().__init__()
@@ -572,13 +616,13 @@ class RichTextWidget(QWidget):
     """
 
     modified_changed = pyqtSignal(bool)
-    convert_to_text  = pyqtSignal(str, str)   # (content, suggested_name)
+    convert_to_text = pyqtSignal(str, str)  # (content, suggested_name)
 
     def __init__(self, path: Optional[Path] = None, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.file_path: Optional[Path] = path
-        self._modified   = False
-        self._js_ready   = False
+        self._modified = False
+        self._js_ready = False
         self._pending_html: Optional[str] = None
         self._tmpdir: Optional[Path] = None
 
@@ -598,8 +642,7 @@ class RichTextWidget(QWidget):
 
         if not WEBENGINE_OK:
             lbl = QLabel(
-                "⚠ PyQt6-WebEngine non installato.\n"
-                "pip install PyQt6-WebEngine"
+                "⚠ PyQt6-WebEngine non installato.\n" "pip install PyQt6-WebEngine"
             )
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(lbl)
@@ -607,9 +650,11 @@ class RichTextWidget(QWidget):
 
         # WebEngineView
         from core.webengine import safe_webview
+
         self._view = safe_webview(self)
         if self._view is None:
             from i18n.i18n import tr as _tr
+
             lbl = QLabel(_tr("plugin.terminal.no_gl"), self)
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setWordWrap(True)
@@ -620,9 +665,7 @@ class RichTextWidget(QWidget):
         )
         # Abilita Javascript e accesso file locali
         settings = self._view.settings()
-        settings.setAttribute(
-            QWebEngineSettings.WebAttribute.JavascriptEnabled, True
-        )
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
         settings.setAttribute(
             QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True
         )
@@ -649,6 +692,7 @@ class RichTextWidget(QWidget):
     def _make_toolbar(self) -> QWidget:
         from PyQt6.QtCore import QSize
         from PyQt6.QtGui import QIcon
+
         bar = QToolBar(self)
         bar.setMovable(False)
         bar.setFloatable(False)
@@ -672,16 +716,10 @@ class RichTextWidget(QWidget):
             bar.addWidget(b)
             return b
 
-        btn("save.svg", "💾",
-            tr("action.save") + "  Ctrl+S",
-            self.save)
-        btn(_save_as_svg, "📁",
-            tr("richtext.save_as") + "  Ctrl+Shift+S",
-            self.save_as)
+        btn("save.svg", "💾", tr("action.save") + "  Ctrl+S", self.save)
+        btn(_save_as_svg, "📁", tr("richtext.save_as") + "  Ctrl+Shift+S", self.save_as)
         bar.addSeparator()
-        btn("printer.svg", "🖨",
-            tr("richtext.print"),
-            lambda _: self._print_document())
+        btn("printer.svg", "🖨", tr("richtext.print"), lambda _: self._print_document())
         _b_pdf = QToolButton(bar)
         _b_pdf.setText("PDF")
         _b_pdf.setToolTip(tr("richtext.export_pdf"))
@@ -689,9 +727,7 @@ class RichTextWidget(QWidget):
         _b_pdf.clicked.connect(lambda _: self._export_pdf())
         bar.addWidget(_b_pdf)
         bar.addSeparator()
-        btn("file-text.svg", "✎",
-            tr("richtext.open_as_text"),
-            self._open_as_text)
+        btn("file-text.svg", "✎", tr("richtext.open_as_text"), self._open_as_text)
 
         # Word count label a destra
         spacer = QWidget()
@@ -728,14 +764,14 @@ class RichTextWidget(QWidget):
 
         # Crea tmpdir con gli asset di Jodit
         self._tmpdir = Path(tempfile.mkdtemp(prefix="npq_rt_"))
-        js_src  = _JODIT_JS
+        js_src = _JODIT_JS
         css_src = _JODIT_CSS
 
         if not (js_src.exists() and css_src.exists()):
             self._status_lbl.setText(tr("richtext.jodit_not_ready"))
             return
 
-        shutil.copy(js_src,  self._tmpdir / "jodit.min.js")
+        shutil.copy(js_src, self._tmpdir / "jodit.min.js")
         shutil.copy(css_src, self._tmpdir / "jodit.min.css")
 
         # Ottieni qwebchannel.js dal sistema Qt
@@ -744,15 +780,22 @@ class RichTextWidget(QWidget):
 
         # Genera la pagina HTML
         from i18n.i18n import I18n
-        lang = I18n.instance().current_language() if hasattr(I18n.instance(), "current_language") else "it"
-        jodit_lang = {"it": "it", "en": "en", "de": "de", "fr": "fr", "es": "es"}.get(lang, "en")
+
+        lang = (
+            I18n.instance().current_language()
+            if hasattr(I18n.instance(), "current_language")
+            else "it"
+        )
+        jodit_lang = {"it": "it", "en": "en", "de": "de", "fr": "fr", "es": "es"}.get(
+            lang, "en"
+        )
 
         html_content = _HTML_TEMPLATE.format(lang=jodit_lang)
         html_path = self._tmpdir / "editor.html"
         html_path.write_text(html_content, encoding="utf-8")
 
         # Configura QWebChannel
-        self._bridge  = _EditorBridge(self)
+        self._bridge = _EditorBridge(self)
         self._channel = QWebChannel(self._view.page())
         self._channel.registerObject("bridge", self._bridge)
         self._view.page().setWebChannel(self._channel)
@@ -764,6 +807,7 @@ class RichTextWidget(QWidget):
 
     def _get_qwebchannel_js(self) -> str:
         from PyQt6.QtCore import QFile, QIODevice
+
         f = QFile(":/qtwebchannel/qwebchannel.js")
         if f.open(QIODevice.OpenModeFlag.ReadOnly):
             data = bytes(f.readAll()).decode("utf-8")
@@ -773,7 +817,7 @@ class RichTextWidget(QWidget):
         try:
             with urllib.request.urlopen(
                 "https://raw.githubusercontent.com/qt/qtwebchannel/dev/src/webchannel/qwebchannel.js",
-                timeout=5
+                timeout=5,
             ) as r:
                 return r.read().decode()
         except Exception:
@@ -840,7 +884,7 @@ class RichTextWidget(QWidget):
         if self.file_path is None:
             return self.save_as()
         html = self.get_html()
-        err  = RichTextIO.save_html(html, self.file_path)
+        err = RichTextIO.save_html(html, self.file_path)
         if err:
             QMessageBox.critical(self, "NotePadPQ", tr("richtext.save_error", err=err))
             return False
@@ -850,21 +894,21 @@ class RichTextWidget(QWidget):
 
     def save_as(self) -> bool:
         import re as _re
+
         # Mostra il nome senza estensione nel campo del dialog
         if self.file_path:
             default = str(self.file_path.with_suffix(""))
         else:
             default = str(Path.home() / "documento")
         path, selected_filter = QFileDialog.getSaveFileName(
-            self, tr("richtext.save_as"),
-            default, _SAVE_FILTER
+            self, tr("richtext.save_as"), default, _SAVE_FILTER
         )
         if not path:
             return False
         p = Path(path)
         # Se il path non ha estensione (o non corrisponde al filtro scelto),
         # applica l'estensione del filtro selezionato
-        m = _re.search(r'\*(\.\w+)', selected_filter)
+        m = _re.search(r"\*(\.\w+)", selected_filter)
         if m:
             ext = m.group(1).lower()
             if p.suffix.lower() != ext:
@@ -872,7 +916,7 @@ class RichTextWidget(QWidget):
         if p.suffix.lower() == ".pdf":
             return self._export_pdf(p)
         html = self.get_html()
-        err  = RichTextIO.save_html(html, p)
+        err = RichTextIO.save_html(html, p)
         if err:
             QMessageBox.critical(self, "NotePadPQ", tr("richtext.save_error", err=err))
             return False
@@ -889,6 +933,7 @@ class RichTextWidget(QWidget):
         """Apre QPrintDialog e stampa il contenuto del documento."""
         from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
         from PyQt6.QtGui import QTextDocument
+
         if not WEBENGINE_OK or not self._js_ready:
             return
         # Mostra la dialog prima (sincrona), poi legge l'HTML via callback asincrono
@@ -898,10 +943,12 @@ class RichTextWidget(QWidget):
         if dlg.exec() != QPrintDialog.DialogCode.Accepted:
             return
         _printer = printer
+
         def _do_print(html: str) -> None:
             doc = QTextDocument()
             doc.setHtml(RichTextIO._full_html(html or ""))
             doc.print(_printer)
+
         self._view.page().runJavaScript("window.getContent()", _do_print)
 
     def export_pdf(self) -> None:
@@ -917,8 +964,7 @@ class RichTextWidget(QWidget):
             else:
                 default = str(Path.home() / "documento")
             dest, _ = QFileDialog.getSaveFileName(
-                self, tr("richtext.export_pdf"),
-                default, "PDF (*.pdf)"
+                self, tr("richtext.export_pdf"), default, "PDF (*.pdf)"
             )
             if not dest:
                 return False
@@ -935,6 +981,7 @@ class RichTextWidget(QWidget):
 
         _path = path
         from core.webengine import safe_webview
+
         _view = safe_webview()
         if _view is None:
             return False
@@ -975,9 +1022,7 @@ class RichTextWidget(QWidget):
         if mod != self._modified:
             self._modified = mod
             self.modified_changed.emit(mod)
-            self._mod_lbl.setText(
-                ("● " + tr("label.modified")) if mod else ""
-            )
+            self._mod_lbl.setText(("● " + tr("label.modified")) if mod else "")
 
     def _update_status(self) -> None:
         if self.file_path:
@@ -991,11 +1036,10 @@ class RichTextWidget(QWidget):
             if not html:
                 return
             import re
+
             text = re.sub(r"<[^>]+>", " ", html)
             words = len(text.split())
-            self._wc_label.setText(
-                tr("richtext.word_count", count=words)
-            )
+            self._wc_label.setText(tr("richtext.word_count", count=words))
 
         self._view.page().runJavaScript("window.getContent()", cb)
 
@@ -1007,8 +1051,10 @@ class RichTextWidget(QWidget):
             return
         # Lettura asincrona: emette il segnale dal callback JS senza loop.exec()
         _name = name
+
         def _cb(html: str):
             self.convert_to_text.emit(html or "", _name)
+
         self._view.page().runJavaScript("window.getContent()", _cb)
 
     # ── Cleanup ───────────────────────────────────────────────────────────────

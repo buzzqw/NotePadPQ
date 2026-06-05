@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QSizePolicy, QSplitter, QStackedWidget, QTabWidget,
     QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
     QWizard, QWizardPage, QSpinBox, QCheckBox, QInputDialog, QProgressBar,
+    QTreeWidget, QTreeWidgetItem, QAbstractItemView, QFrame,
 )
 
 from plugins.base_plugin import BasePlugin
@@ -78,42 +79,312 @@ _METHOD_COLORS = {
     "OPTIONS": "#0d5aa7",   # blu scuro
 }
 
-# Stile dark per le text area di codice
-_CODE_AREA_STYLE = (
-    "QTextEdit {"
-    "  background: #1e1e1e;"
-    "  color: #d4d4d4;"
-    "  border: 1px solid #3c3c3c;"
-    "  border-radius: 4px;"
-    "  font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;"
-    "  font-size: 11px;"
-    "}"
-)
+# ─── Palette temi (dark / light) ─────────────────────────────────────────────
+# Dizionari con chiavi semantiche usati da _make_styles() per generare
+# tutti gli stylesheet in modo coerente col tema corrente dell'app.
 
-# Stile per il pannello sinistra (collection/cronologia)
-_SIDEBAR_STYLE = (
-    "QListWidget {"
-    "  background: #252526;"
-    "  color: #cccccc;"
-    "  border: none;"
-    "  border-radius: 4px;"
-    "  outline: none;"
-    "}"
-    "QListWidget::item { padding: 5px 8px; border-radius: 3px; }"
-    "QListWidget::item:selected { background: #094771; color: #ffffff; }"
-    "QListWidget::item:hover { background: #2a2d2e; }"
-)
+_DARK_P = {
+    # sfondi principali
+    "bg_base":       "#0d1117",   # sfondo globale widget
+    "bg_panel":      "#161b22",   # pannelli / tab inattive
+    "bg_panel2":     "#1c2128",   # tab pane, code area
+    "bg_toolbar":    "#21262d",   # toolbar, header tabelle
+    "bg_sidebar":    "#1e2128",   # sidebar sinistra
+    "bg_input":      "#21262d",   # QLineEdit, QComboBox
+    "bg_input_url":  "#161b22",   # URL bar (leggermente più scuro)
+    "bg_code":       "#1c2128",   # text area codice
+    "bg_alt_row":    "#1c2128",   # righe alterne tabelle
+    # testi
+    "fg_primary":    "#e6edf3",   # testo principale
+    "fg_secondary":  "#c9d1d9",   # testo secondario input
+    "fg_muted":      "#8b949e",   # testo attenuato (label, hint)
+    "fg_disabled":   "#484f58",   # testo disabilitato
+    # bordi
+    "border":        "#30363d",   # bordo standard
+    "border_input":  "#30363d",   # bordo input
+    "border_focus":  "#58a6ff",   # bordo focus
+    # accenti
+    "accent":        "#58a6ff",   # link / accento principale
+    "accent_sel":    "#1f6feb",   # selezione
+    "accent_sel_fg": "#ffffff",   # testo su selezione
+    "btn_hover":     "#444c56",   # hover toolbar button
+    "btn_pressed":   "#2d333b",   # pressed toolbar button
+    # send button (sempre verde — colore azione)
+    "send_bg":       "#238636",
+    "send_bg_hover": "#2ea043",
+    "send_bg_press": "#1a6329",
+    "send_border":   "#2ea043",
+    "send_hover_b":  "#3fb950",
+    "send_dis_bg":   "#21262d",
+    "send_dis_fg":   "#484f58",
+    "send_dis_brd":  "#30363d",
+    # open-in-editor button
+    "oie_bg":        "#1f6feb",
+    "oie_bg_hover":  "#388bfd",
+    "oie_border":    "#388bfd",
+    # progress bar
+    "progress_chunk":"#388bfd",
+    # separatori
+    "sep_color":     "#30363d",
+}
+
+_LIGHT_P = {
+    # sfondi principali
+    "bg_base":       "#ffffff",
+    "bg_panel":      "#f6f8fa",
+    "bg_panel2":     "#ffffff",
+    "bg_toolbar":    "#f6f8fa",
+    "bg_sidebar":    "#f6f8fa",
+    "bg_input":      "#ffffff",
+    "bg_input_url":  "#ffffff",
+    "bg_code":       "#ffffff",
+    "bg_alt_row":    "#f6f8fa",
+    # testi
+    "fg_primary":    "#24292f",
+    "fg_secondary":  "#32383f",
+    "fg_muted":      "#57606a",
+    "fg_disabled":   "#8c959f",
+    # bordi
+    "border":        "#d0d7de",
+    "border_input":  "#d0d7de",
+    "border_focus":  "#0969da",
+    # accenti
+    "accent":        "#0969da",
+    "accent_sel":    "#0969da",
+    "accent_sel_fg": "#ffffff",
+    "btn_hover":     "#eaeef2",
+    "btn_pressed":   "#d0d7de",
+    # send button
+    "send_bg":       "#1a7f37",
+    "send_bg_hover": "#1f8b3c",
+    "send_bg_press": "#116329",
+    "send_border":   "#1f8b3c",
+    "send_hover_b":  "#28a745",
+    "send_dis_bg":   "#f6f8fa",
+    "send_dis_fg":   "#8c959f",
+    "send_dis_brd":  "#d0d7de",
+    # open-in-editor button
+    "oie_bg":        "#0969da",
+    "oie_bg_hover":  "#1f7ae0",
+    "oie_border":    "#1f7ae0",
+    # progress bar
+    "progress_chunk":"#0969da",
+    # separatori
+    "sep_color":     "#d0d7de",
+}
 
 
-def _method_style(method: str) -> str:
+def _get_palette() -> dict:
+    """Restituisce la palette corrente in base al tema attivo dell'applicazione."""
+    try:
+        from config.themes import ThemeManager
+        return _DARK_P if ThemeManager.instance().is_dark() else _LIGHT_P
+    except Exception:
+        return _DARK_P
+
+
+def _make_styles(p: dict) -> dict:
+    """Costruisce tutti gli stylesheet del REST Client dalla palette p."""
+    bg       = p["bg_base"]
+    bg2      = p["bg_panel"]
+    bg3      = p["bg_panel2"]
+    tb       = p["bg_toolbar"]
+    sidebar  = p["bg_sidebar"]
+    inp      = p["bg_input"]
+    inp_url  = p["bg_input_url"]
+    code     = p["bg_code"]
+    alt_row  = p["bg_alt_row"]
+    fg       = p["fg_primary"]
+    fg2      = p["fg_secondary"]
+    muted    = p["fg_muted"]
+    disabled = p["fg_disabled"]
+    border   = p["border"]
+    brd_in   = p["border_input"]
+    brd_foc  = p["border_focus"]
+    sel      = p["accent_sel"]
+    sel_fg   = p["accent_sel_fg"]
+    btn_hov  = p["btn_hover"]
+    btn_prs  = p["btn_pressed"]
+
+    code_area = (
+        "QTextEdit {"
+        f"  background: {code};"
+        f"  color: {fg};"
+        f"  border: 1px solid {border};"
+        "  border-radius: 4px;"
+        "  font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;"
+        "  font-size: 11px;"
+        "}"
+        f"QTextEdit:focus {{ border-color: {brd_foc}; }}"
+    )
+
+    sidebar_style = (
+        "QTreeWidget, QListWidget {"
+        f"  background: {sidebar};"
+        f"  color: {fg};"
+        "  border: none;"
+        "  outline: none;"
+        "}"
+        f"QTreeWidget::item, QListWidget::item {{ padding: 5px 8px; border-radius: 3px; }}"
+        f"QTreeWidget::item:selected, QListWidget::item:selected {{ background: {sel}; color: {sel_fg}; }}"
+        f"QTreeWidget::item:hover, QListWidget::item:hover {{ background: {btn_hov}; }}"
+        f"QTreeWidget::branch {{ background: {sidebar}; }}"
+        "QTreeWidget::branch:has-siblings:!adjoins-item { border-image: none; }"
+        f"QTreeWidget::branch:open:has-children {{ color: {brd_foc}; }}"
+    )
+
+    toolbar_btn = (
+        f"QPushButton {{ background: {inp}; color: {fg}; border: 1px solid {border};"
+        "  border-radius: 4px; padding: 3px 10px; font-size: 11px; }"
+        f"QPushButton:hover {{ background: {btn_hov}; border-color: {brd_foc}; }}"
+        f"QPushButton:pressed {{ background: {btn_prs}; }}"
+    )
+
+    send_btn = (
+        f"QPushButton {{ background: {p['send_bg']}; color: white; border: 1px solid {p['send_border']};"
+        "  border-radius: 5px; padding: 6px 18px; font-weight: bold; font-size: 12px; }"
+        f"QPushButton:hover {{ background: {p['send_bg_hover']}; border-color: {p['send_hover_b']}; }}"
+        f"QPushButton:pressed {{ background: {p['send_bg_press']}; }}"
+        f"QPushButton:disabled {{ background: {p['send_dis_bg']}; color: {p['send_dis_fg']}; border-color: {p['send_dis_brd']}; }}"
+    )
+
+    tab_style = (
+        f"QTabWidget::pane {{ border: 1px solid {border}; border-radius: 0px;"
+        f"  background: {bg3}; }}"
+        f"QTabBar::tab {{ background: {bg2}; color: {muted}; padding: 6px 14px;"
+        f"  border: 1px solid {border}; border-bottom: none;"
+        "  border-top-left-radius: 4px; border-top-right-radius: 4px;"
+        "  margin-right: 2px; font-size: 11px; }"
+        f"QTabBar::tab:selected {{ background: {bg3}; color: {fg}; border-bottom-color: {bg3};"
+        f"  border-top: 2px solid {brd_foc}; }}"
+        f"QTabBar::tab:hover {{ background: {tb}; color: {fg2}; }}"
+    )
+
+    table_style = (
+        f"QTableWidget {{ background: {bg2}; alternate-background-color: {alt_row}; color: {fg};"
+        f"  gridline-color: {tb}; border: none; selection-background-color: {sel}; }}"
+        f"QHeaderView::section {{ background: {tb}; color: {muted}; border: none;"
+        f"  padding: 5px; border-bottom: 1px solid {border}; font-size: 11px; }}"
+        "QTableWidget::item { padding: 3px 6px; }"
+    )
+
+    lineedit_style = (
+        f"QLineEdit {{ background: {inp}; color: {fg2}; border: 1px solid {brd_in};"
+        "  border-radius: 4px; padding: 3px 8px; font-size: 11px; }"
+        f"QLineEdit:focus {{ border-color: {brd_foc}; color: {fg}; }}"
+    )
+
+    url_edit_style = (
+        f"QLineEdit {{ background: {inp_url}; color: {fg};"
+        f"  border: 1px solid {brd_in}; border-radius: 5px; padding: 6px 12px;"
+        "  font-size: 12px; font-family: 'Cascadia Code', monospace; }"
+        f"QLineEdit:focus {{ border-color: {brd_foc}; }}"
+    )
+
+    combo_style = (
+        f"QComboBox {{ background: {inp}; color: {fg2}; border: 1px solid {brd_in};"
+        "  border-radius: 4px; padding: 2px 8px; font-size: 11px; }"
+        f"QComboBox QAbstractItemView {{ background: {bg2}; color: {fg};"
+        f"  border: 1px solid {border}; selection-background-color: {sel}; }}"
+    )
+
+    auth_lineedit_style = (
+        f"QLineEdit {{ background: {inp}; color: {fg2}; border: 1px solid {brd_in};"
+        "  border-radius: 4px; padding: 4px 10px; }"
+        f"QLineEdit:focus {{ border-color: {brd_foc}; }}"
+        f"QLineEdit:disabled {{ color: {disabled}; background: {bg2}; }}"
+    )
+
+    icon_btn_style = (
+        f"QPushButton {{ background: transparent; color: {muted}; border: none; font-size: 14px; }}"
+        f"QPushButton:hover {{ color: {fg}; }}"
+    )
+
+    save_btn_style = (
+        f"QPushButton {{ background: transparent; color: {muted}; border: 1px solid {border};"
+        "  border-radius: 4px; padding: 3px 10px; font-size: 11px; }"
+        f"QPushButton:hover {{ color: {fg}; border-color: {muted}; }}"
+    )
+
+    oie_btn_style = (
+        f"QPushButton {{ background: {p['oie_bg']}; color: white; border: 1px solid {p['oie_border']};"
+        "  border-radius: 4px; padding: 3px 10px; font-size: 11px; }"
+        f"QPushButton:hover {{ background: {p['oie_bg_hover']}; }}"
+    )
+
+    splitter_style = f"QSplitter::handle {{ background: {border}; }}"
+
+    sep_style = f"color: {p['sep_color']}; background: {p['sep_color']}; max-height: 1px;"
+
+    progress_style = (
+        "QProgressBar { border: none; background: transparent; margin: 0; }"
+        f"QProgressBar::chunk {{ background: {p['progress_chunk']}; }}"
+    )
+
+    sidebar_btn_style = (
+        f"QPushButton {{ background: transparent; color: {muted}; border: none; font-size: 14px; }}"
+        f"QPushButton:hover {{ color: {fg}; }}"
+    )
+
+    resp_view_combo_style = (
+        f"QComboBox {{ background: {inp}; color: {fg2}; border: 1px solid {border};"
+        "  border-radius: 4px; padding: 2px 6px; font-size: 11px; }"
+        f"QComboBox QAbstractItemView {{ background: {bg2}; color: {fg};"
+        f"  border: 1px solid {border}; selection-background-color: {sel}; }}"
+    )
+
+    return {
+        "code_area":        code_area,
+        "sidebar":          sidebar_style,
+        "toolbar_btn":      toolbar_btn,
+        "send_btn":         send_btn,
+        "tab":              tab_style,
+        "table":            table_style,
+        "lineedit":         lineedit_style,
+        "url_edit":         url_edit_style,
+        "combo":            combo_style,
+        "auth_lineedit":    auth_lineedit_style,
+        "icon_btn":         icon_btn_style,
+        "save_btn":         save_btn_style,
+        "oie_btn":          oie_btn_style,
+        "splitter":         splitter_style,
+        "sep":              sep_style,
+        "progress":         progress_style,
+        "sidebar_btn":      sidebar_btn_style,
+        "resp_view_combo":  resp_view_combo_style,
+        # valori singoli usati per setStyleSheet inline
+        "bg_base":          bg,
+        "bg_toolbar":       tb,
+        "bg_sidebar":       sidebar,
+        "fg_primary":       fg,
+        "fg_muted":         muted,
+        "border":           border,
+        "border_focus":     brd_foc,
+        "accent_sel":       sel,
+    }
+
+
+# Stili di default (dark) — usati come fallback prima che _apply_styles() venga chiamato
+_DEFAULT_STYLES = _make_styles(_DARK_P)
+_CODE_AREA_STYLE   = _DEFAULT_STYLES["code_area"]
+_SIDEBAR_STYLE     = _DEFAULT_STYLES["sidebar"]
+_TOOLBAR_BTN_STYLE = _DEFAULT_STYLES["toolbar_btn"]
+_SEND_BTN_STYLE    = _DEFAULT_STYLES["send_btn"]
+_TAB_STYLE         = _DEFAULT_STYLES["tab"]
+
+
+def _method_style(method: str, p: Optional[dict] = None) -> str:
     """Restituisce lo stylesheet per il ComboBox/label del metodo HTTP."""
-    color = _METHOD_COLORS.get(method, "#888888")
+    if p is None:
+        p = _get_palette()
+    color = _METHOD_COLORS.get(method, p["fg_muted"])
     return (
         f"QComboBox {{ color: {color}; font-weight: bold; font-size: 12px;"
-        f"  border: 2px solid {color}; border-radius: 4px;"
-        f"  padding: 3px 6px; background: #1e1e1e; }}"
-        f"QComboBox::drop-down {{ border: none; }}"
-        f"QComboBox QAbstractItemView {{ color: #cccccc; background: #252526; }}"
+        f"  border: 2px solid {color}; border-radius: 5px;"
+        f"  padding: 4px 8px; background: {p['bg_toolbar']}; }}"
+        f"QComboBox::drop-down {{ border: none; width: 0px; }}"
+        f"QComboBox QAbstractItemView {{ color: {p['fg_primary']}; background: {p['bg_panel']};"
+        f"  border: 1px solid {p['border']}; selection-background-color: {p['accent_sel']}; }}"
     )
 
 
@@ -238,7 +509,7 @@ class _RequestWizard(QWizard):
 
     def __init__(self, request: HttpRequest, envs: List[EnvProfile], parent=None):
         super().__init__(parent)
-        self.setWindowTitle("🧙 Wizard nuova richiesta HTTP")
+        self.setWindowTitle("Wizard nuova richiesta HTTP")
         self.resize(620, 480)
         self.setWizardStyle(QWizard.WizardStyle.ModernStyle)
 
@@ -348,7 +619,7 @@ class _RequestWizard(QWizard):
         lay.addWidget(self._w_body)
 
         # tasto per inserire template JSON
-        btn_tpl = QPushButton("📋 Inserisci template JSON")
+        btn_tpl = QPushButton("Inserisci template JSON")
         btn_tpl.clicked.connect(lambda: self._w_body.setPlainText('{\n  "chiave": "valore"\n}'))
         lay.addWidget(btn_tpl)
 
@@ -374,9 +645,9 @@ class _RequestWizard(QWizard):
         lay.addWidget(self._w_headers)
 
         btn_row = QHBoxLayout()
-        btn_add = QPushButton("➕ Aggiungi header")
+        btn_add = QPushButton("+ Aggiungi header")
         btn_add.clicked.connect(lambda: self._add_header_row("", ""))
-        btn_del = QPushButton("🗑 Rimuovi selezionato")
+        btn_del = QPushButton("- Rimuovi selezionato")
         btn_del.clicked.connect(self._remove_selected_header)
         btn_row.addWidget(btn_add)
         btn_row.addWidget(btn_del)
@@ -442,9 +713,9 @@ class _EnvDialog(QDialog):
         self._env_list.currentIndexChanged.connect(self._load_env)
         top.addWidget(QLabel("Ambiente:"))
         top.addWidget(self._env_list)
-        btn_new = QPushButton("➕ Nuovo")
+        btn_new = QPushButton("+ Nuovo")
         btn_new.clicked.connect(self._new_env)
-        btn_del = QPushButton("🗑 Elimina")
+        btn_del = QPushButton("- Elimina")
         btn_del.clicked.connect(self._del_env)
         top.addWidget(btn_new)
         top.addWidget(btn_del)
@@ -456,9 +727,9 @@ class _EnvDialog(QDialog):
         lay.addWidget(self._table)
 
         btn_row = QHBoxLayout()
-        btn_add = QPushButton("➕ Aggiungi variabile")
+        btn_add = QPushButton("+ Aggiungi variabile")
         btn_add.clicked.connect(lambda: self._add_var("", ""))
-        btn_rem = QPushButton("🗑 Rimuovi variabile")
+        btn_rem = QPushButton("- Rimuovi variabile")
         btn_rem.clicked.connect(self._remove_var)
         btn_row.addWidget(btn_add)
         btn_row.addWidget(btn_rem)
@@ -618,8 +889,9 @@ class _RequestWorker(QObject):
 class _RestPanel(QWidget):
     """Widget principale del REST Client."""
 
-    def __init__(self, parent=None):
+    def __init__(self, main_window=None, parent=None):
         super().__init__(parent)
+        self._mw = main_window
         self._collection: List[HttpRequest] = []
         self._history:    List[HttpRequest] = []
         self._envs:       List[EnvProfile]  = [
@@ -630,209 +902,548 @@ class _RestPanel(QWidget):
         self._current_req: HttpRequest = HttpRequest()
         self._worker: Optional[_RequestWorker] = None
         self._thread: Optional[threading.Thread] = None
+        self._last_response_body: str = ""
         self._build_ui()
         self._load_data()
+        # Applica il tema corretto subito dopo la costruzione della UI
+        self._apply_styles()
+        # Connette al signal theme_changed per aggiornare gli stili al cambio tema
+        try:
+            from config.themes import ThemeManager
+            ThemeManager.instance().theme_changed.connect(
+                lambda _: self._apply_styles()
+            )
+        except Exception:
+            pass
+
+    # ── Tema dinamico ─────────────────────────────────────────────────────────
+
+    def _apply_styles(self):
+        """Ricalcola e riapplica tutti gli stylesheet in base al tema attivo."""
+        p  = _get_palette()
+        st = _make_styles(p)
+
+        # Widget contenitore
+        self._sidebar_w.setStyleSheet(f"background: {p['bg_sidebar']};")
+        self._right_w.setStyleSheet(f"background: {p['bg_base']};")
+        self._toolbar_w.setStyleSheet(
+            f"background: {p['bg_toolbar']}; border-bottom: 1px solid {p['border']};"
+        )
+        self._req_panel.setStyleSheet(f"background: {p['bg_base']};")
+        self._resp_panel.setStyleSheet(f"background: {p['bg_base']};")
+
+        # Splitter
+        self._hsplit.setStyleSheet(st["splitter"])
+        self._vsplit.setStyleSheet(st["splitter"])
+
+        # Separatori
+        for sep in self._separators:
+            sep.setStyleSheet(st["sep"])
+
+        # Sidebar tree/list
+        self._coll_tree.setStyleSheet(st["sidebar"])
+        self._hist_list.setStyleSheet(st["sidebar"])
+
+        # Label sidebar
+        self._lbl_coll.setStyleSheet(
+            f"color: {p['fg_muted']}; font-size: 10px; font-weight: bold; letter-spacing: 1px;"
+        )
+        self._lbl_hist.setStyleSheet(
+            f"color: {p['fg_muted']}; font-size: 10px; font-weight: bold;"
+            f" letter-spacing: 1px; padding: 6px 6px 2px;"
+            f" background: {p['bg_sidebar']};"
+        )
+
+        # Bottoni sidebar (icona)
+        for btn in self._sidebar_icon_btns:
+            btn.setStyleSheet(st["sidebar_btn"])
+
+        # Bottoni toolbar principale
+        for btn in self._toolbar_btns:
+            btn.setStyleSheet(st["toolbar_btn"])
+
+        # Name / URL
+        self._req_name_edit.setStyleSheet(st["lineedit"])
+        self._url_edit.setStyleSheet(st["url_edit"])
+        self._env_cb.setStyleSheet(st["combo"])
+        self._lbl_env.setStyleSheet(f"color: {p['fg_muted']}; font-size: 11px;")
+
+        # Metodo HTTP ComboBox
+        self._method_cb.setStyleSheet(_method_style(self._method_cb.currentText(), p))
+
+        # Pulsante Invia
+        self._btn_send.setStyleSheet(st["send_btn"])
+
+        # Progress bar
+        self._progress.setStyleSheet(st["progress"])
+
+        # Tab richiesta / risposta
+        self._req_tabs.setStyleSheet(st["tab"])
+        self._resp_tabs.setStyleSheet(st["tab"])
+
+        # Tabelle
+        for tbl in self._styled_tables:
+            tbl.setStyleSheet(st["table"])
+
+        # Auth
+        self._auth_w.setStyleSheet(
+            f"background: {p['bg_base']}; QLabel {{ color: {p['fg_secondary']}; }}"
+        )
+        self._lbl_auth_title.setStyleSheet(
+            f"color: {p['fg_primary']}; font-weight: bold; font-size: 12px; margin-bottom: 4px;"
+        )
+        self._auth_type_cb.setStyleSheet(st["combo"])
+        self._auth_val_edit.setStyleSheet(st["auth_lineedit"])
+        self._auth_show_chk.setStyleSheet(f"color: {p['fg_muted']};")
+        self._auth_hdr_edit.setStyleSheet(st["auth_lineedit"])
+
+        # Body
+        self._lbl_body_type.setStyleSheet(f"color: {p['fg_muted']}; font-size: 11px;")
+        self._body_type_cb.setStyleSheet(st["combo"])
+        self._body_edit.setStyleSheet(st["code_area"])
+        self._btn_prettify.setStyleSheet(st["toolbar_btn"])
+
+        # Pre-request
+        self._lbl_pre.setStyleSheet(f"color: {p['fg_muted']}; font-size: 11px; margin-bottom: 4px;")
+        self._pre_req_edit.setStyleSheet(st["code_area"])
+
+        # Risposta — status bar
+        self._lbl_resp.setStyleSheet(f"font-weight: bold; color: {p['fg_primary']}; font-size: 11px;")
+        self._status_lbl.setStyleSheet(f"color: {p['fg_muted']}; font-size: 11px;")
+        self._resp_view_cb.setStyleSheet(st["resp_view_combo"])
+        self._btn_copy_resp.setStyleSheet(st["icon_btn"])
+        self._btn_open_in_editor.setStyleSheet(st["oie_btn"])
+        self._btn_save_resp.setStyleSheet(st["save_btn"])
+
+        # Risposta — body / raw
+        self._resp_body.setStyleSheet(st["code_area"])
+        self._resp_raw.setStyleSheet(st["code_area"])
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(4, 4, 4, 4)
-        root.setSpacing(4)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # Liste di widget da ri-stilare al cambio tema
+        self._toolbar_btns: list = []
+        self._sidebar_icon_btns: list = []
+        self._styled_tables: list = []
+        self._separators: list = []
+
+        # ── splitter orizzontale: sidebar sx + area principale dx ─────────────
+        self._hsplit = QSplitter(Qt.Orientation.Horizontal)
+        self._hsplit.setChildrenCollapsible(False)
+        self._hsplit.setHandleWidth(1)
+        hsplit = self._hsplit  # alias locale per compatibilità codice successivo
+
+        # ═══════════════════════════════════════════════════════════════════════
+        # PANNELLO SINISTRO — Sidebar (Collection tree + Cronologia)
+        # ═══════════════════════════════════════════════════════════════════════
+        sidebar_w = QWidget()
+        self._sidebar_w = sidebar_w
+        sidebar_lay = QVBoxLayout(sidebar_w)
+        sidebar_lay.setContentsMargins(0, 0, 0, 0)
+        sidebar_lay.setSpacing(0)
+
+        # toolbar sidebar
+        sidebar_toolbar = QHBoxLayout()
+        sidebar_toolbar.setContentsMargins(6, 6, 6, 4)
+        sidebar_toolbar.setSpacing(4)
+        lbl_coll = QLabel("Collection")
+        self._lbl_coll = lbl_coll
+        sidebar_toolbar.addWidget(lbl_coll)
+        sidebar_toolbar.addStretch()
+        btn_add_folder = QPushButton("+dir")
+        btn_add_folder.setToolTip("Nuova cartella")
+        btn_add_folder.setFixedSize(26, 22)
+        btn_add_folder.clicked.connect(self._add_folder)
+        self._sidebar_icon_btns.append(btn_add_folder)
+        sidebar_toolbar.addWidget(btn_add_folder)
+        btn_add_req = QPushButton("+")
+        btn_add_req.setToolTip("Salva richiesta corrente nella collection")
+        btn_add_req.setFixedSize(26, 22)
+        btn_add_req.clicked.connect(self._add_to_collection)
+        self._sidebar_icon_btns.append(btn_add_req)
+        sidebar_toolbar.addWidget(btn_add_req)
+        sidebar_lay.addLayout(sidebar_toolbar)
+
+        # Separatore
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        self._separators.append(sep)
+        sidebar_lay.addWidget(sep)
+
+        # QTreeWidget per la collection (con folder e request)
+        self._coll_tree = QTreeWidget()
+        self._coll_tree.setHeaderHidden(True)
+        self._coll_tree.setStyleSheet(_SIDEBAR_STYLE)
+        self._coll_tree.setIndentation(16)
+        self._coll_tree.setAnimated(True)
+        self._coll_tree.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self._coll_tree.itemDoubleClicked.connect(self._tree_item_activated)
+        self._coll_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._coll_tree.customContextMenuRequested.connect(self._coll_context_menu)
+        sidebar_lay.addWidget(self._coll_tree, stretch=3)
+
+        # Separatore
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.Shape.HLine)
+        self._separators.append(sep2)
+        sidebar_lay.addWidget(sep2)
+
+        # Label cronologia
+        lbl_hist = QLabel("Cronologia")
+        self._lbl_hist = lbl_hist
+        sidebar_lay.addWidget(lbl_hist)
+
+        # Lista cronologia
+        self._hist_list = QListWidget()
+        self._hist_list.setStyleSheet(_SIDEBAR_STYLE)
+        self._hist_list.setMaximumHeight(140)
+        self._hist_list.itemDoubleClicked.connect(self._load_from_history)
+        self._hist_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._hist_list.customContextMenuRequested.connect(self._hist_context_menu)
+        sidebar_lay.addWidget(self._hist_list, stretch=1)
+
+        sidebar_w.setMinimumWidth(160)
+        sidebar_w.setMaximumWidth(260)
+        hsplit.addWidget(sidebar_w)
+
+        # ═══════════════════════════════════════════════════════════════════════
+        # PANNELLO DESTRO — Request editor + Response viewer
+        # ═══════════════════════════════════════════════════════════════════════
+        right_w = QWidget()
+        self._right_w = right_w
+        right_lay = QVBoxLayout(right_w)
+        right_lay.setContentsMargins(0, 0, 0, 0)
+        right_lay.setSpacing(0)
 
         # ── toolbar superiore ─────────────────────────────────────────────────
-        toolbar = QHBoxLayout()
+        toolbar_w = QWidget()
+        self._toolbar_w = toolbar_w
+        toolbar = QHBoxLayout(toolbar_w)
+        toolbar.setContentsMargins(6, 4, 6, 4)
+        toolbar.setSpacing(4)
 
-        self._btn_wizard = QPushButton("🧙 Wizard")
-        self._btn_wizard.setToolTip("Apri il wizard guidato per costruire la richiesta")
-        self._btn_wizard.clicked.connect(self._open_wizard)
-        toolbar.addWidget(self._btn_wizard)
-
-        self._btn_new = QPushButton("➕ Nuova")
-        self._btn_new.clicked.connect(self._new_request)
-        toolbar.addWidget(self._btn_new)
-
-        self._btn_save_coll = QPushButton("💾 Salva collection")
-        self._btn_save_coll.setToolTip("Salva tutte le richieste in un file .http")
-        self._btn_save_coll.clicked.connect(self._save_collection)
-        toolbar.addWidget(self._btn_save_coll)
-
-        self._btn_load_coll = QPushButton("📂 Carica collection")
-        self._btn_load_coll.setToolTip("Carica richieste da file .http")
-        self._btn_load_coll.clicked.connect(self._load_collection)
-        toolbar.addWidget(self._btn_load_coll)
-
-        self._btn_env = QPushButton("🌍 Ambienti")
-        self._btn_env.setToolTip("Gestisci variabili d'ambiente")
-        self._btn_env.clicked.connect(self._manage_envs)
-        toolbar.addWidget(self._btn_env)
+        for text, tip, slot in [
+            ("+ Nuova",         "Nuova richiesta",                          self._new_request),
+            ("Wizard",          "Wizard guidato passo dopo passo",           self._open_wizard),
+            ("Importa cURL",    "Importa da cURL (clipboard o incolla)",     self._import_curl),
+            ("Salva",           "Salva collection in file .http",            self._save_collection),
+            ("Carica",          "Carica collection da file .http",           self._load_collection),
+            ("Ambienti",        "Gestisci variabili d'ambiente ({{VAR}})",   self._manage_envs),
+        ]:
+            b = QPushButton(text)
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            self._toolbar_btns.append(b)
+            toolbar.addWidget(b)
+            if text in ("+ Nuova", "Importa cURL", "Carica"):
+                setattr(self, {
+                    "+ Nuova": "_btn_new",
+                    "Importa cURL": "_btn_curl",
+                    "Carica": "_btn_load_coll",
+                }[text], b)
+            elif text == "Salva":
+                self._btn_save_coll = b
+            elif text == "Ambienti":
+                self._btn_env = b
+            elif text == "Wizard":
+                self._btn_wizard = b
 
         toolbar.addStretch()
-        root.addLayout(toolbar)
+        right_lay.addWidget(toolbar_w)
 
-        # ── splitter orizzontale: lista sx + dettaglio dx ─────────────────────
-        hsplit = QSplitter(Qt.Orientation.Horizontal)
+        # ── splitter verticale: request (su) + response (giù) ─────────────────
+        self._vsplit = QSplitter(Qt.Orientation.Vertical)
+        self._vsplit.setChildrenCollapsible(False)
+        self._vsplit.setHandleWidth(2)
+        vsplit = self._vsplit  # alias locale
 
-        # lista sinistra: Collection + Cronologia
-        left_tabs = QTabWidget()
-        left_tabs.setMaximumWidth(240)
-        left_tabs.setMinimumWidth(160)
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # SEZIONE RICHIESTA
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        req_panel = QWidget()
+        self._req_panel = req_panel
+        req_panel_lay = QVBoxLayout(req_panel)
+        req_panel_lay.setContentsMargins(8, 8, 8, 4)
+        req_panel_lay.setSpacing(4)
 
-        # tab Collection
-        coll_w = QWidget()
-        coll_lay = QVBoxLayout(coll_w)
-        coll_lay.setContentsMargins(2, 2, 2, 2)
-        self._coll_list = QListWidget()
-        self._coll_list.itemDoubleClicked.connect(self._load_from_collection)
-        self._coll_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self._coll_list.customContextMenuRequested.connect(self._coll_context_menu)
-        coll_lay.addWidget(self._coll_list)
-        left_tabs.addTab(coll_w, "📁 Collection")
+        # ── Name bar (nome richiesta + ambiente) ──────────────────────────────
+        name_bar = QHBoxLayout()
+        name_bar.setSpacing(6)
+        self._req_name_edit = QLineEdit()
+        self._req_name_edit.setPlaceholderText("Nome richiesta (opzionale)")
+        name_bar.addWidget(self._req_name_edit, stretch=1)
 
-        # tab Cronologia
-        hist_w = QWidget()
-        hist_lay = QVBoxLayout(hist_w)
-        hist_lay.setContentsMargins(2, 2, 2, 2)
-        self._hist_list = QListWidget()
-        self._hist_list.itemDoubleClicked.connect(self._load_from_history)
-        hist_lay.addWidget(self._hist_list)
-        left_tabs.addTab(hist_w, "🕐 Cronologia")
+        lbl_env = QLabel("Ambiente:")
+        self._lbl_env = lbl_env
+        name_bar.addWidget(lbl_env)
+        self._env_cb = QComboBox()
+        for e in self._envs:
+            self._env_cb.addItem(e.name)
+        self._env_cb.setFixedWidth(90)
+        name_bar.addWidget(self._env_cb)
+        req_panel_lay.addLayout(name_bar)
 
-        hsplit.addWidget(left_tabs)
-
-        # dettaglio destra
-        right_w = QWidget()
-        right_lay = QVBoxLayout(right_w)
-        right_lay.setContentsMargins(2, 2, 2, 2)
-        right_lay.setSpacing(4)
-
-        # barra metodo + URL + invia
+        # ── URL bar (metodo + URL + invia) ────────────────────────────────────
         req_bar = QHBoxLayout()
+        req_bar.setSpacing(4)
+
         self._method_cb = QComboBox()
         self._method_cb.addItems(_HTTP_METHODS)
-        self._method_cb.setFixedWidth(90)
+        self._method_cb.setFixedWidth(95)
+        self._method_cb.currentTextChanged.connect(
+            lambda m: self._method_cb.setStyleSheet(_method_style(m, _get_palette()))
+        )
         req_bar.addWidget(self._method_cb)
 
         self._url_edit = QLineEdit()
         self._url_edit.setPlaceholderText("https://api.esempio.com/endpoint  oppure  {{base_url}}/path")
         req_bar.addWidget(self._url_edit, stretch=1)
 
-        self._env_cb = QComboBox()
-        for e in self._envs:
-            self._env_cb.addItem(e.name)
-        self._env_cb.setFixedWidth(90)
-        req_bar.addWidget(self._env_cb)
-
-        self._btn_send = QPushButton("▶ Invia")
-        self._btn_send.setFixedWidth(80)
+        self._btn_send = QPushButton("Invia")
+        self._btn_send.setFixedWidth(90)
         self._btn_send.clicked.connect(self._send_request)
         req_bar.addWidget(self._btn_send)
 
-        right_lay.addLayout(req_bar)
+        req_panel_lay.addLayout(req_bar)
 
-        # tab request: Auth / Body / Headers
+        # progress bar (thin, come VS Code)
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.setFixedHeight(3)
+        self._progress.setVisible(False)
+        req_panel_lay.addWidget(self._progress)
+
+        # ── Tab richiesta: Params / Auth / Body / Headers / Pre-request ───────
         self._req_tabs = QTabWidget()
+        self._req_tabs.setStyleSheet(_TAB_STYLE)
 
-        # Auth
+        # ─ Params ─────────────────────────────────────────────────────────────
+        params_w = QWidget()
+        params_lay = QVBoxLayout(params_w)
+        params_lay.setContentsMargins(4, 4, 4, 4)
+        self._params_table = QTableWidget(0, 3)
+        self._params_table.setHorizontalHeaderLabels(["✔", "Chiave", "Valore"])
+        self._params_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self._params_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self._params_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self._params_table.setColumnWidth(0, 28)
+        self._params_table.setAlternatingRowColors(True)
+        self._styled_tables.append(self._params_table)
+        params_lay.addWidget(self._params_table)
+        params_btn = QHBoxLayout()
+        params_btn.addWidget(self._make_btn("➕ Aggiungi", lambda: self._add_param_row("", "")))
+        params_btn.addWidget(self._make_btn("🗑 Rimuovi", self._remove_param_row))
+        params_btn.addStretch()
+        params_lay.addLayout(params_btn)
+        self._req_tabs.addTab(params_w, "Params")
+
+        # ─ Auth ───────────────────────────────────────────────────────────────
         auth_w = QWidget()
+        self._auth_w = auth_w
         auth_lay = QFormLayout(auth_w)
+        auth_lay.setContentsMargins(16, 14, 16, 14)
+        auth_lay.setSpacing(10)
+        lbl_auth_title = QLabel("Autenticazione")
+        self._lbl_auth_title = lbl_auth_title
+        auth_lay.addRow(lbl_auth_title)
         self._auth_type_cb = QComboBox()
         self._auth_type_cb.addItems(_AUTH_TYPES)
         self._auth_type_cb.currentTextChanged.connect(self._auth_type_changed)
         auth_lay.addRow("Tipo:", self._auth_type_cb)
         self._auth_val_edit = QLineEdit()
         self._auth_val_edit.setPlaceholderText("Token / user:pass / API-key")
+        self._auth_val_edit.setEchoMode(QLineEdit.EchoMode.Password)
         auth_lay.addRow("Valore:", self._auth_val_edit)
+        # checkbox mostra/nascondi token
+        self._auth_show_chk = QCheckBox("Mostra valore")
+        self._auth_show_chk.toggled.connect(
+            lambda on: self._auth_val_edit.setEchoMode(
+                QLineEdit.EchoMode.Normal if on else QLineEdit.EchoMode.Password
+            )
+        )
+        auth_lay.addRow("", self._auth_show_chk)
         self._auth_hdr_edit = QLineEdit("X-Api-Key")
         self._auth_hdr_edit.setPlaceholderText("Nome header (solo API Key)")
         self._auth_hdr_edit.setEnabled(False)
         auth_lay.addRow("Header (API Key):", self._auth_hdr_edit)
-        self._req_tabs.addTab(auth_w, "🔒 Auth")
+        self._req_tabs.addTab(auth_w, "Auth")
 
-        # Body
+        # ─ Body ───────────────────────────────────────────────────────────────
         body_w = QWidget()
         body_lay = QVBoxLayout(body_w)
+        body_lay.setContentsMargins(4, 4, 4, 4)
+        body_lay.setSpacing(4)
         body_bar = QHBoxLayout()
-        body_bar.addWidget(QLabel("Tipo:"))
+        lbl_body_type = QLabel("Tipo:")
+        self._lbl_body_type = lbl_body_type
+        body_bar.addWidget(lbl_body_type)
         self._body_type_cb = QComboBox()
         self._body_type_cb.addItems(_BODY_TYPES)
         body_bar.addWidget(self._body_type_cb)
         body_bar.addStretch()
+        btn_prettify_body = QPushButton("Formatta")
+        btn_prettify_body.setToolTip("Formatta il body JSON")
+        btn_prettify_body.clicked.connect(self._prettify_body)
+        self._btn_prettify = btn_prettify_body
+        body_bar.addWidget(btn_prettify_body)
         body_lay.addLayout(body_bar)
         self._body_edit = QTextEdit()
         self._body_edit.setFont(QFont("Monospace", 10))
         self._body_edit.setPlaceholderText('{\n  "chiave": "valore"\n}')
         _JsonHighlighter(self._body_edit.document())
         body_lay.addWidget(self._body_edit)
-        self._req_tabs.addTab(body_w, "📄 Body")
+        self._req_tabs.addTab(body_w, "Body")
 
-        # Headers
+        # ─ Headers ────────────────────────────────────────────────────────────
         hdr_w = QWidget()
         hdr_lay = QVBoxLayout(hdr_w)
+        hdr_lay.setContentsMargins(4, 4, 4, 4)
         self._hdr_table = QTableWidget(0, 2)
         self._hdr_table.setHorizontalHeaderLabels(["Header", "Valore"])
         self._hdr_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._hdr_table.setAlternatingRowColors(True)
+        self._styled_tables.append(self._hdr_table)
         hdr_lay.addWidget(self._hdr_table)
         hdr_btn = QHBoxLayout()
         hdr_btn.addWidget(self._make_btn("➕ Aggiungi", lambda: self._add_header_row("", "")))
         hdr_btn.addWidget(self._make_btn("🗑 Rimuovi", self._remove_header_row))
         hdr_btn.addStretch()
         hdr_lay.addLayout(hdr_btn)
-        self._req_tabs.addTab(hdr_w, "📋 Headers")
+        self._req_tabs.addTab(hdr_w, "Headers")
 
-        right_lay.addWidget(self._req_tabs)
+        # ─ Pre-request ────────────────────────────────────────────────────────
+        pre_w = QWidget()
+        pre_lay = QVBoxLayout(pre_w)
+        pre_lay.setContentsMargins(4, 4, 4, 4)
+        lbl_pre = QLabel("Script eseguito prima dell'invio (funzionalità futura):")
+        self._lbl_pre = lbl_pre
+        pre_lay.addWidget(lbl_pre)
+        self._pre_req_edit = QTextEdit()
+        self._pre_req_edit.setFont(QFont("Monospace", 10))
+        self._pre_req_edit.setPlaceholderText("# es: pm.environment.set('TOKEN', 'valore')")
+        self._pre_req_edit.setEnabled(False)
+        pre_lay.addWidget(self._pre_req_edit)
+        self._req_tabs.addTab(pre_w, "Pre-request")
 
-        # progress bar
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)
-        self._progress.setFixedHeight(6)
-        self._progress.setVisible(False)
-        right_lay.addWidget(self._progress)
+        req_panel_lay.addWidget(self._req_tabs, stretch=1)
 
-        # ── risposta ──────────────────────────────────────────────────────────
-        resp_group = QGroupBox("Risposta")
-        resp_lay = QVBoxLayout(resp_group)
+        vsplit.addWidget(req_panel)
 
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        # SEZIONE RISPOSTA
+        # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        resp_panel = QWidget()
+        self._resp_panel = resp_panel
+        resp_panel_lay = QVBoxLayout(resp_panel)
+        resp_panel_lay.setContentsMargins(8, 6, 8, 8)
+        resp_panel_lay.setSpacing(4)
+
+        # status bar risposta (status badge + time + size + pulsanti)
+        resp_status_bar = QHBoxLayout()
+        resp_status_bar.setSpacing(8)
+        lbl_resp = QLabel("Risposta")
+        self._lbl_resp = lbl_resp
+        resp_status_bar.addWidget(lbl_resp)
         self._status_lbl = QLabel("—")
-        self._status_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        resp_lay.addWidget(self._status_lbl)
+        resp_status_bar.addWidget(self._status_lbl)
+        resp_status_bar.addStretch()
 
-        resp_tabs = QTabWidget()
+        # pulsanti area risposta
+        self._resp_view_cb = QComboBox()
+        self._resp_view_cb.addItems(["Pretty", "Raw"])
+        self._resp_view_cb.setFixedWidth(72)
+        self._resp_view_cb.currentTextChanged.connect(self._toggle_resp_view)
+        resp_status_bar.addWidget(self._resp_view_cb)
 
-        # Body risposta
+        self._btn_copy_resp = QPushButton("Copia")
+        self._btn_copy_resp.setToolTip("Copia risposta negli appunti")
+        self._btn_copy_resp.setFixedSize(26, 22)
+        self._btn_copy_resp.clicked.connect(self._copy_response)
+        resp_status_bar.addWidget(self._btn_copy_resp)
+
+        self._btn_open_in_editor = QPushButton("Apri in editor")
+        self._btn_open_in_editor.setToolTip("Apri la risposta in un nuovo tab dell'editor")
+        self._btn_open_in_editor.clicked.connect(self._open_response_in_editor)
+        resp_status_bar.addWidget(self._btn_open_in_editor)
+
+        self._btn_save_resp = QPushButton("Salva")
+        self._btn_save_resp.setToolTip("Salva la risposta su file")
+        self._btn_save_resp.clicked.connect(self._save_response)
+        resp_status_bar.addWidget(self._btn_save_resp)
+
+        resp_panel_lay.addLayout(resp_status_bar)
+
+        # ─ Tab risposta: Body / Headers / Cookies / Raw ────────────────────────
+        self._resp_tabs = QTabWidget()
+        resp_tabs = self._resp_tabs  # alias locale
+
+        # Body (Pretty)
         body_resp_w = QWidget()
         body_resp_lay = QVBoxLayout(body_resp_w)
-        resp_btn_bar = QHBoxLayout()
-        self._btn_copy_resp = QPushButton("📋 Copia")
-        self._btn_copy_resp.clicked.connect(self._copy_response)
-        self._btn_insert_resp = QPushButton("📥 Inserisci in editor")
-        self._btn_insert_resp.clicked.connect(self._insert_response)
-        resp_btn_bar.addWidget(self._btn_copy_resp)
-        resp_btn_bar.addWidget(self._btn_insert_resp)
-        resp_btn_bar.addStretch()
-        body_resp_lay.addLayout(resp_btn_bar)
+        body_resp_lay.setContentsMargins(0, 0, 0, 0)
         self._resp_body = QTextEdit()
         self._resp_body.setReadOnly(True)
         self._resp_body.setFont(QFont("Monospace", 10))
         _JsonHighlighter(self._resp_body.document())
         body_resp_lay.addWidget(self._resp_body)
-        resp_tabs.addTab(body_resp_w, "📄 Body")
+        resp_tabs.addTab(body_resp_w, "Body")
 
         # Headers risposta
         hdr_resp_w = QWidget()
         hdr_resp_lay = QVBoxLayout(hdr_resp_w)
+        hdr_resp_lay.setContentsMargins(4, 4, 4, 4)
         self._resp_hdr_table = QTableWidget(0, 2)
         self._resp_hdr_table.setHorizontalHeaderLabels(["Header", "Valore"])
         self._resp_hdr_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self._resp_hdr_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._resp_hdr_table.setAlternatingRowColors(True)
+        self._styled_tables.append(self._resp_hdr_table)
         hdr_resp_lay.addWidget(self._resp_hdr_table)
-        resp_tabs.addTab(hdr_resp_w, "📋 Headers")
+        resp_tabs.addTab(hdr_resp_w, "Headers")
 
-        resp_lay.addWidget(resp_tabs)
-        right_lay.addWidget(resp_group, stretch=1)
+        # Cookies risposta
+        cookies_resp_w = QWidget()
+        cookies_resp_lay = QVBoxLayout(cookies_resp_w)
+        cookies_resp_lay.setContentsMargins(4, 4, 4, 4)
+        self._resp_cookies_table = QTableWidget(0, 4)
+        self._resp_cookies_table.setHorizontalHeaderLabels(["Nome", "Valore", "Domain", "Path"])
+        self._resp_cookies_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._resp_cookies_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._resp_cookies_table.setAlternatingRowColors(True)
+        self._styled_tables.append(self._resp_cookies_table)
+        cookies_resp_lay.addWidget(self._resp_cookies_table)
+        resp_tabs.addTab(cookies_resp_w, "Cookies")
+
+        # Raw (testo grezzo)
+        raw_resp_w = QWidget()
+        raw_resp_lay = QVBoxLayout(raw_resp_w)
+        raw_resp_lay.setContentsMargins(0, 0, 0, 0)
+        self._resp_raw = QTextEdit()
+        self._resp_raw.setReadOnly(True)
+        self._resp_raw.setFont(QFont("Monospace", 9))
+        raw_resp_lay.addWidget(self._resp_raw)
+        resp_tabs.addTab(raw_resp_w, "Raw")
+
+        resp_panel_lay.addWidget(resp_tabs, stretch=1)
+
+        # pulsante inserisci (nascosto nella status bar, spostato qui sotto)
+        self._btn_insert_resp = QPushButton("Inserisci nel cursore")
+        self._btn_insert_resp.setToolTip("Inserisce il body della risposta nella posizione del cursore nell'editor attivo")
+        self._btn_insert_resp.clicked.connect(self._insert_response)
+        # (non aggiunto al layout, disponibile via context menu / menu azione)
+
+        vsplit.addWidget(resp_panel)
+        vsplit.setSizes([350, 350])
+
+        right_lay.addWidget(vsplit, stretch=1)
 
         hsplit.addWidget(right_w)
-        hsplit.setSizes([200, 600])
+        hsplit.setSizes([210, 790])
         root.addWidget(hsplit, stretch=1)
 
     def _make_btn(self, text: str, slot) -> QPushButton:
@@ -857,6 +1468,120 @@ class _RestPanel(QWidget):
         for r in rows:
             self._hdr_table.removeRow(r)
 
+    def _add_param_row(self, k: str, v: str):
+        from PyQt6.QtWidgets import QCheckBox as _QCB
+        from PyQt6.QtWidgets import QTableWidgetItem as _TWI
+        r = self._params_table.rowCount()
+        self._params_table.insertRow(r)
+        chk_widget = QWidget()
+        chk_lay = QHBoxLayout(chk_widget)
+        chk_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        chk_lay.setContentsMargins(0, 0, 0, 0)
+        chk = QCheckBox()
+        chk.setChecked(True)
+        chk_lay.addWidget(chk)
+        self._params_table.setCellWidget(r, 0, chk_widget)
+        self._params_table.setItem(r, 1, QTableWidgetItem(k))
+        self._params_table.setItem(r, 2, QTableWidgetItem(v))
+        # aggiorna URL quando il valore cambia
+        chk.stateChanged.connect(self._sync_params_to_url)
+        self._params_table.itemChanged.connect(self._sync_params_to_url)
+
+    def _remove_param_row(self):
+        rows = sorted({i.row() for i in self._params_table.selectedItems()}, reverse=True)
+        for r in rows:
+            self._params_table.removeRow(r)
+        self._sync_params_to_url()
+
+    def _sync_params_to_url(self, *_):
+        """Aggiorna la URL aggiungendo i query params dalla tabella Params."""
+        try:
+            base_url = self._url_edit.text().split("?")[0]
+            params = []
+            for row in range(self._params_table.rowCount()):
+                chk_w = self._params_table.cellWidget(row, 0)
+                chk = chk_w.findChild(QCheckBox) if chk_w else None
+                if chk and not chk.isChecked():
+                    continue
+                ki = self._params_table.item(row, 1)
+                vi = self._params_table.item(row, 2)
+                k = ki.text().strip() if ki else ""
+                v = vi.text().strip() if vi else ""
+                if k:
+                    params.append((k, v))
+            if params:
+                qs = urllib.parse.urlencode(params)
+                self._url_edit.blockSignals(True)
+                self._url_edit.setText(f"{base_url}?{qs}")
+                self._url_edit.blockSignals(False)
+            elif "?" in self._url_edit.text():
+                self._url_edit.blockSignals(True)
+                self._url_edit.setText(base_url)
+                self._url_edit.blockSignals(False)
+        except Exception:
+            pass
+
+    def _import_curl(self):
+        """Importa una richiesta da un comando cURL (legge dal clipboard o chiede input)."""
+        clip = QApplication.clipboard().text().strip()
+        if not clip.startswith("curl"):
+            clip, ok = QInputDialog.getMultiLineText(
+                self, "Importa cURL",
+                "Incolla il comando cURL da importare:",
+                clip
+            )
+            if not ok or not clip.strip().startswith("curl"):
+                return
+
+        curl = clip.replace("\\\n", " ").replace("\\\r\n", " ")
+        req = HttpRequest()
+        # metodo
+        m = re.search(r"-X\s+([A-Z]+)", curl)
+        if m:
+            req.method = m.group(1)
+        else:
+            req.method = "POST" if re.search(r"--data|--data-raw|-d\s", curl) else "GET"
+        # URL (prende il primo token che sembra un URL)
+        url_m = re.findall(r"['\"]?(https?://[^\s'\"]+)['\"]?", curl)
+        if url_m:
+            req.url = url_m[0]
+        # headers
+        for hm in re.finditer(r"-H\s+['\"]([^'\"]+)['\"]", curl):
+            hdr = hm.group(1)
+            if ":" in hdr:
+                k, v = hdr.split(":", 1)
+                k, v = k.strip(), v.strip()
+                if k.lower() == "authorization":
+                    if v.lower().startswith("bearer "):
+                        req.auth_type = "Bearer Token"
+                        req.auth_value = v[7:]
+                    elif v.lower().startswith("basic "):
+                        req.auth_type = "Basic (user:pass)"
+                        try:
+                            req.auth_value = base64.b64decode(v[6:]).decode()
+                        except Exception:
+                            req.auth_value = v[6:]
+                    else:
+                        req.headers[k] = v
+                elif k.lower() == "content-type":
+                    for bt, ct in _CONTENT_TYPE_MAP.items():
+                        if ct in v:
+                            req.body_type = bt
+                            break
+                else:
+                    req.headers[k] = v
+        # body
+        body_m = re.search(r"(?:--data(?:-raw)?|-d)\s+['\"](.+?)['\"](?:\s|$)", curl, re.DOTALL)
+        if body_m:
+            req.body = body_m.group(1)
+            if req.body_type == "Nessuno":
+                req.body_type = "JSON" if req.body.strip().startswith("{") else "Testo libero"
+            if req.method == "GET":
+                req.method = "POST"
+        self._apply_request(req)
+        QMessageBox.information(self, "cURL importato",
+            f"Richiesta importata:\n  {req.method} {req.url}")
+
     # ── Wizard ────────────────────────────────────────────────────────────────
 
     def _open_wizard(self):
@@ -869,51 +1594,181 @@ class _RestPanel(QWidget):
     def _new_request(self):
         self._apply_request(HttpRequest())
 
-    # ── Collection ────────────────────────────────────────────────────────────
+    # ── Collection (QTreeWidget) ──────────────────────────────────────────────
 
     def _coll_context_menu(self, pos):
-        item = self._coll_list.itemAt(pos)
+        item = self._coll_tree.itemAt(pos)
         menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background: #2d2d2d; color: #d4d4d4; border: 1px solid #555; }"
+            "QMenu::item:selected { background: #094771; }"
+        )
         if item:
-            menu.addAction("📂 Carica", lambda: self._load_from_collection(item))
-            menu.addAction("💾 Aggiorna con corrente", lambda: self._update_in_collection(item))
-            menu.addAction("🗑 Rimuovi", lambda: self._remove_from_collection(item))
-        menu.addAction("➕ Salva corrente nella collection", self._add_to_collection)
-        menu.exec(self._coll_list.mapToGlobal(pos))
+            is_folder = item.data(0, Qt.ItemDataRole.UserRole) == "folder"
+            if not is_folder:
+                menu.addAction("Apri",    lambda: self._tree_item_activated(item, 0))
+                menu.addAction("Aggiorna", lambda: self._update_tree_item(item))
+                menu.addSeparator()
+                menu.addAction("Rinomina", lambda: self._rename_tree_item(item))
+                menu.addAction("Elimina",  lambda: self._delete_tree_item(item))
+            else:
+                menu.addAction("Rinomina cartella", lambda: self._rename_tree_item(item))
+                menu.addAction("Aggiungi richiesta", lambda: self._add_to_folder(item))
+                menu.addSeparator()
+                menu.addAction("Elimina cartella",  lambda: self._delete_tree_item(item))
+        menu.addSeparator()
+        menu.addAction("+ Nuova richiesta",  self._add_to_collection)
+        menu.addAction("+ Nuova cartella",   self._add_folder)
+        menu.exec(self._coll_tree.viewport().mapToGlobal(pos))
+
+    def _tree_item_activated(self, item: QTreeWidgetItem, _col: int):
+        """Carica la richiesta associata all'item del tree."""
+        if item.data(0, Qt.ItemDataRole.UserRole) == "folder":
+            item.setExpanded(not item.isExpanded())
+            return
+        req_idx = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        if req_idx is not None and 0 <= req_idx < len(self._collection):
+            self._apply_request(self._collection[req_idx])
+
+    def _add_folder(self):
+        name, ok = QInputDialog.getText(self, "Nuova cartella", "Nome cartella:")
+        if ok and name.strip():
+            folder_item = QTreeWidgetItem(self._coll_tree)
+            folder_item.setText(0, f"[dir] {name.strip()}")
+            folder_item.setData(0, Qt.ItemDataRole.UserRole, "folder")
+            folder_item.setExpanded(True)
+            self._coll_tree.addTopLevelItem(folder_item)
+            self._save_data()
 
     def _add_to_collection(self):
         req = self._collect_current()
-        name, ok = QInputDialog.getText(self, "Salva nella collection", "Nome richiesta:", text=req.name)
-        if ok and name.strip():
-            req.name = name.strip()
-            self._collection.append(req)
-            self._coll_list.addItem(req.name)
-            self._save_data()
+        name, ok = QInputDialog.getText(
+            self, "Salva richiesta", "Nome richiesta:",
+            text=self._req_name_edit.text().strip() or req.name
+        )
+        if not ok or not name.strip():
+            return
+        req.name = name.strip()
+        self._req_name_edit.setText(req.name)
+        req_idx = len(self._collection)
+        self._collection.append(req)
+        # scegli parent: cartella selezionata o root
+        sel = self._coll_tree.currentItem()
+        if sel and sel.data(0, Qt.ItemDataRole.UserRole) == "folder":
+            parent = sel
+        elif sel and sel.parent():
+            parent = sel.parent()
+        else:
+            parent = None
+        item = QTreeWidgetItem()
+        method_color = _METHOD_COLORS.get(req.method, "#888")
+        item.setText(0, f"{req.name}")
+        item.setForeground(0, QColor("#d4d4d4"))
+        item.setData(0, Qt.ItemDataRole.UserRole, "request")
+        item.setData(0, Qt.ItemDataRole.UserRole + 1, req_idx)
+        item.setToolTip(0, f"{req.method}  {req.url}")
+        if parent:
+            parent.addChild(item)
+            parent.setExpanded(True)
+        else:
+            self._coll_tree.addTopLevelItem(item)
+        self._save_data()
 
-    def _update_in_collection(self, item: QListWidgetItem):
-        idx = self._coll_list.row(item)
-        if 0 <= idx < len(self._collection):
+    def _add_to_folder(self, folder_item: QTreeWidgetItem):
+        """Salva la richiesta corrente come figlio di una cartella specifica."""
+        self._coll_tree.setCurrentItem(folder_item)
+        self._add_to_collection()
+
+    def _update_tree_item(self, item: QTreeWidgetItem):
+        req_idx = item.data(0, Qt.ItemDataRole.UserRole + 1)
+        if req_idx is not None and 0 <= req_idx < len(self._collection):
             req = self._collect_current()
-            req.name = self._collection[idx].name
-            self._collection[idx] = req
+            req.name = self._collection[req_idx].name
+            self._collection[req_idx] = req
+            item.setToolTip(0, f"{req.method}  {req.url}")
             self._save_data()
 
-    def _remove_from_collection(self, item: QListWidgetItem):
-        idx = self._coll_list.row(item)
-        if 0 <= idx < len(self._collection):
-            self._collection.pop(idx)
-            self._coll_list.takeItem(idx)
+    def _rename_tree_item(self, item: QTreeWidgetItem):
+        old = item.text(0).lstrip("[dir] ").strip()
+        name, ok = QInputDialog.getText(self, "Rinomina", "Nuovo nome:", text=old)
+        if ok and name.strip():
+            is_folder = item.data(0, Qt.ItemDataRole.UserRole) == "folder"
+            if is_folder:
+                item.setText(0, f"[dir] {name.strip()}")
+            else:
+                item.setText(0, name.strip())
+                req_idx = item.data(0, Qt.ItemDataRole.UserRole + 1)
+                if req_idx is not None and 0 <= req_idx < len(self._collection):
+                    self._collection[req_idx].name = name.strip()
             self._save_data()
 
-    def _load_from_collection(self, item: QListWidgetItem):
-        idx = self._coll_list.row(item)
-        if 0 <= idx < len(self._collection):
-            self._apply_request(self._collection[idx])
+    def _delete_tree_item(self, item: QTreeWidgetItem):
+        is_folder = item.data(0, Qt.ItemDataRole.UserRole) == "folder"
+        label = "la cartella e tutte le sue richieste" if is_folder else "questa richiesta"
+        if QMessageBox.question(
+            self, "Elimina", f"Eliminare {label}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        # rimuovi le request dalla lista se è un item richiesta
+        if not is_folder:
+            req_idx = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            # non rimuovere dalla lista self._collection per semplicità;
+            # la ricostruiamo al prossimo _refresh_collection_ui
+            pass
+        parent = item.parent() or self._coll_tree.invisibleRootItem()
+        parent.removeChild(item)
+        # ricostruiamo self._collection dall'albero
+        self._rebuild_collection_from_tree()
+        self._save_data()
+
+    def _rebuild_collection_from_tree(self):
+        """Ricostruisce self._collection percorrendo l'albero (elimina buchi)."""
+        new_coll: List[HttpRequest] = []
+        def _visit(node):
+            for i in range(node.childCount()):
+                child = node.child(i)
+                if child.data(0, Qt.ItemDataRole.UserRole) == "folder":
+                    _visit(child)
+                else:
+                    old_idx = child.data(0, Qt.ItemDataRole.UserRole + 1)
+                    if old_idx is not None and 0 <= old_idx < len(self._collection):
+                        new_idx = len(new_coll)
+                        new_coll.append(self._collection[old_idx])
+                        child.setData(0, Qt.ItemDataRole.UserRole + 1, new_idx)
+        _visit(self._coll_tree.invisibleRootItem())
+        self._collection = new_coll
 
     def _load_from_history(self, item: QListWidgetItem):
         idx = self._hist_list.row(item)
         if 0 <= idx < len(self._history):
             self._apply_request(self._history[idx])
+
+    def _hist_context_menu(self, pos):
+        item = self._hist_list.itemAt(pos)
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background: #2d2d2d; color: #d4d4d4; border: 1px solid #555; }"
+            "QMenu::item:selected { background: #094771; }"
+        )
+        if item:
+            menu.addAction("Apri", lambda: self._load_from_history(item))
+            menu.addAction("Salva in collection", lambda: self._save_history_item(item))
+        menu.addAction("Svuota cronologia", self._clear_history)
+        menu.exec(self._hist_list.viewport().mapToGlobal(pos))
+
+    def _save_history_item(self, item: QListWidgetItem):
+        idx = self._hist_list.row(item)
+        if 0 <= idx < len(self._history):
+            old = self._current_req
+            self._apply_request(self._history[idx])
+            self._add_to_collection()
+            self._apply_request(old)
+
+    def _clear_history(self):
+        self._history.clear()
+        self._hist_list.clear()
+        self._save_data()
 
     # ── Serializzazione ───────────────────────────────────────────────────────
 
@@ -997,9 +1852,15 @@ class _RestPanel(QWidget):
         return requests
 
     def _refresh_collection_ui(self):
-        self._coll_list.clear()
-        for r in self._collection:
-            self._coll_list.addItem(r.name)
+        """Ricostruisce il QTreeWidget della collection dalla lista self._collection."""
+        self._coll_tree.clear()
+        for idx, r in enumerate(self._collection):
+            item = QTreeWidgetItem(self._coll_tree)
+            item.setText(0, r.name)
+            item.setData(0, Qt.ItemDataRole.UserRole, "request")
+            item.setData(0, Qt.ItemDataRole.UserRole + 1, idx)
+            item.setToolTip(0, f"{r.method}  {r.url}")
+            item.setForeground(0, QColor("#d4d4d4"))
 
     # ── Ambienti ──────────────────────────────────────────────────────────────
 
@@ -1019,6 +1880,7 @@ class _RestPanel(QWidget):
 
     def _collect_current(self) -> HttpRequest:
         r = HttpRequest()
+        r.name       = self._req_name_edit.text().strip() or "Nuova richiesta"
         r.method     = self._method_cb.currentText()
         r.url        = self._url_edit.text().strip()
         r.env_profile = self._env_cb.currentText()
@@ -1038,6 +1900,7 @@ class _RestPanel(QWidget):
 
     def _apply_request(self, r: HttpRequest):
         self._current_req = r
+        self._req_name_edit.setText(r.name if r.name != "Nuova richiesta" else "")
         self._method_cb.setCurrentText(r.method)
         self._url_edit.setText(r.url)
         idx = next((i for i, e in enumerate(self._envs) if e.name == r.env_profile), 0)
@@ -1050,6 +1913,12 @@ class _RestPanel(QWidget):
         self._hdr_table.setRowCount(0)
         for k, v in r.headers.items():
             self._add_header_row(k, v)
+        # reset risposta
+        self._resp_body.clear()
+        self._resp_raw.clear()
+        self._resp_hdr_table.setRowCount(0)
+        self._resp_cookies_table.setRowCount(0)
+        self._status_lbl.setText("—")
 
     # ── Invio richiesta ───────────────────────────────────────────────────────
 
@@ -1097,11 +1966,19 @@ class _RestPanel(QWidget):
         headers = result["headers"]
         ct      = result.get("content_type", "")
 
+        self._last_content_type = ct
+        self._last_response_body = body
+
         color = "#4ec9b0" if status < 300 else ("#dcdcaa" if status < 400 else "#f44747")
-        self._status_lbl.setText(
-            f'<span style="color:{color};font-weight:bold;">HTTP {status}</span>'
-            f'&nbsp;&nbsp;{elapsed*1000:.0f} ms'
+        size_kb = len(body.encode("utf-8", errors="replace")) / 1024
+        size_str = f"{size_kb:.1f} KB" if size_kb >= 1 else f"{len(body.encode())} B"
+        status_text = (
+            f'<span style="background:{color};color:#111;font-weight:bold;'
+            f'  border-radius:3px;padding:1px 6px;">HTTP {status}</span>'
+            f'&nbsp;&nbsp;<span style="color:#aaa;">{elapsed*1000:.0f} ms</span>'
+            f'&nbsp;&nbsp;<span style="color:#888;">{size_str}</span>'
         )
+        self._status_lbl.setText(status_text)
 
         # pretty-print body
         pretty = body
@@ -1117,6 +1994,14 @@ class _RestPanel(QWidget):
                 pass
         self._resp_body.setPlainText(pretty)
 
+        # raw view (status line + headers + blank + body)
+        raw_lines = [f"HTTP/1.1 {status}"]
+        for k, v in headers.items():
+            raw_lines.append(f"{k}: {v}")
+        raw_lines.append("")
+        raw_lines.append(body)
+        self._resp_raw.setPlainText("\n".join(raw_lines))
+
         # headers risposta
         self._resp_hdr_table.setRowCount(0)
         for k, v in headers.items():
@@ -1125,26 +2010,141 @@ class _RestPanel(QWidget):
             self._resp_hdr_table.setItem(r, 0, QTableWidgetItem(k))
             self._resp_hdr_table.setItem(r, 1, QTableWidgetItem(str(v)))
 
+        # cookies: parse Set-Cookie headers
+        self._resp_cookies_table.setRowCount(0)
+        for k, v in headers.items():
+            if k.lower() == "set-cookie":
+                self._parse_set_cookie(str(v))
+
         self._save_data()
+
+    def _parse_set_cookie(self, cookie_str: str):
+        """Parsa una riga Set-Cookie e aggiunge una riga alla tabella cookies."""
+        parts = [p.strip() for p in cookie_str.split(";")]
+        name = val = domain = path = ""
+        if parts and "=" in parts[0]:
+            name, val = parts[0].split("=", 1)
+        for part in parts[1:]:
+            pl = part.lower()
+            if pl.startswith("domain="):
+                domain = part.split("=", 1)[1]
+            elif pl.startswith("path="):
+                path = part.split("=", 1)[1]
+        r = self._resp_cookies_table.rowCount()
+        self._resp_cookies_table.insertRow(r)
+        self._resp_cookies_table.setItem(r, 0, QTableWidgetItem(name))
+        self._resp_cookies_table.setItem(r, 1, QTableWidgetItem(val))
+        self._resp_cookies_table.setItem(r, 2, QTableWidgetItem(domain))
+        self._resp_cookies_table.setItem(r, 3, QTableWidgetItem(path))
 
     def _on_error(self, msg: str):
         self._btn_send.setEnabled(True)
         self._progress.setVisible(False)
-        self._status_lbl.setText(f'<span style="color:#f44747;">❌ Errore: {msg}</span>')
+        self._status_lbl.setText(
+            f'<span style="background:#f44747;color:#fff;font-weight:bold;'
+            f'  border-radius:3px;padding:1px 6px;">❌ Errore</span>'
+            f'&nbsp;&nbsp;<span style="color:#f88;">{msg}</span>'
+        )
+        self._last_response_body = ""
         self._resp_body.setPlainText(f"Errore di rete:\n{msg}")
+        self._resp_raw.setPlainText(f"Errore:\n{msg}")
 
-    # ── Copia / inserimento ───────────────────────────────────────────────────
+    # ── Copia / inserimento / salvataggio ────────────────────────────────────
+
+    def _prettify_body(self):
+        """Formatta il body JSON nell'editor richiesta."""
+        text = self._body_edit.toPlainText().strip()
+        if not text:
+            return
+        try:
+            pretty = json.dumps(json.loads(text), indent=2, ensure_ascii=False)
+            self._body_edit.setPlainText(pretty)
+        except Exception:
+            try:
+                pretty = xml.dom.minidom.parseString(text.encode()).toprettyxml(indent="  ")
+                self._body_edit.setPlainText(pretty)
+            except Exception:
+                QMessageBox.information(self, "Formatta", "Non è possibile formattare il testo (non è JSON/XML valido).")
+
+    def _toggle_resp_view(self, mode: str):
+        """Cambia la visualizzazione della risposta: Pretty o Raw."""
+        # Viene gestita automaticamente dalla tab Raw, qui aggiorniamo solo la tab Body
+        if mode == "Raw":
+            self._resp_body.setFont(QFont("Monospace", 9))
+        else:
+            self._resp_body.setFont(QFont("Monospace", 10))
+
+    def _save_response(self):
+        """Salva la risposta corrente su file."""
+        body = self._resp_body.toPlainText()
+        if not body:
+            QMessageBox.information(self, "REST Client", "Nessuna risposta da salvare.")
+            return
+        ct = getattr(self, "_last_content_type", "")
+        if "json" in ct:
+            ext = "JSON (*.json);;Testo (*.txt);;Tutti (*)"
+            default = "risposta.json"
+        elif "xml" in ct:
+            ext = "XML (*.xml);;Testo (*.txt);;Tutti (*)"
+            default = "risposta.xml"
+        elif "html" in ct:
+            ext = "HTML (*.html);;Testo (*.txt);;Tutti (*)"
+            default = "risposta.html"
+        else:
+            ext = "Testo (*.txt);;Tutti (*)"
+            default = "risposta.txt"
+        path, _ = QFileDialog.getSaveFileName(self, "Salva risposta", default, ext)
+        if path:
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(body)
+                QMessageBox.information(self, "Salvato", f"Risposta salvata in:\n{path}")
+            except Exception as exc:
+                QMessageBox.critical(self, "Errore", f"Impossibile salvare:\n{exc}")
 
     def _copy_response(self):
         QApplication.clipboard().setText(self._resp_body.toPlainText())
 
-    def _insert_response(self):
-        """Inserisce il body della risposta nell'editor attivo."""
+    def _open_response_in_editor(self):
+        """Apre il body della risposta in un nuovo tab dell'editor con la sintassi corretta."""
+        body = self._resp_body.toPlainText()
+        if not body:
+            QMessageBox.information(self, "REST Client", "Nessuna risposta da aprire.")
+            return
         try:
-            mw = self.parent()
-            while mw and not hasattr(mw, "_tab_manager"):
-                mw = mw.parent()
-            if mw:
+            mw = self._mw
+            if mw is None:
+                mw = self.parent()
+                while mw and not hasattr(mw, "_tab_manager"):
+                    mw = mw.parent()
+            if mw and hasattr(mw, "_tab_manager"):
+                tab = mw._tab_manager.new_tab(path=None)
+                from editor.editor_widget import LineEnding
+                tab.load_content(body, "UTF-8", LineEnding.LF)
+                # imposta linguaggio in base al content-type
+                ct = getattr(self, "_last_content_type", "")
+                if hasattr(tab, "set_language"):
+                    if "json" in ct:
+                        tab.set_language("json")
+                    elif "xml" in ct:
+                        tab.set_language("xml")
+                    elif "html" in ct:
+                        tab.set_language("html")
+            else:
+                QMessageBox.warning(self, "REST Client",
+                    "Impossibile aprire un nuovo tab: editor non trovato.")
+        except Exception as exc:
+            QMessageBox.warning(self, "REST Client", f"Errore apertura tab:\n{exc}")
+
+    def _insert_response(self):
+        """Inserisce il body della risposta nell'editor attivo al cursore."""
+        try:
+            mw = self._mw
+            if mw is None:
+                mw = self.parent()
+                while mw and not hasattr(mw, "_tab_manager"):
+                    mw = mw.parent()
+            if mw and hasattr(mw, "_tab_manager"):
                 editor = mw._tab_manager.current_editor()
                 if editor:
                     editor.insert(self._resp_body.toPlainText())
@@ -1199,8 +2199,8 @@ class RestClientPlugin(BasePlugin):
     def on_load(self, main_window: "MainWindow") -> None:
         super().on_load(main_window)
 
-        self._panel = _RestPanel()
-        self._dock  = QDockWidget("🌐 REST Client", main_window)
+        self._panel = _RestPanel(main_window=main_window)
+        self._dock  = QDockWidget("REST Client", main_window)
         self._dock.setObjectName("RestClientDock")
         self._dock.setWidget(self._panel)
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._dock)

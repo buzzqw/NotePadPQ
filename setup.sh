@@ -233,11 +233,11 @@ check_opt('Sympy',      'import sympy',      'calcolo simbolico')
 _check_synctex
 
 echo
-echo "--- Plugin FTP/SFTP/SSH/SMB ---"
+echo "--- Plugin FTP/SFTP/SMB ---"
 if python3 -c "import paramiko" &>/dev/null 2>&1; then
-    echo "  paramiko: OK  (SFTP + SSH)"
+    echo "  paramiko: OK  (SFTP)"
 else
-    echo "  paramiko: non installato  →  pip install paramiko  (per SFTP e SSH)"
+    echo "  paramiko: non installato  →  pip install paramiko  (per SFTP)"
 fi
 case "$(uname -s)" in
   Linux*)

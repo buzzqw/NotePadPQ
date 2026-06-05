@@ -156,6 +156,10 @@ _ICON_MAP: dict[str, str] = {
     "plugin_encrypt": "lock.svg", "plugin_encrypt_dec": "keyboard.svg",
     "plugin_terminal": "terminal.svg", "plugin_search": "search.svg",
     "plugin_rest": "send.svg",
+    # Code Formatter tool actions
+    "tool_format_doc":   "sparkles.svg",
+    "tool_format_sel":   "file-check.svg",
+    "tool_formatter_prefs": "settings.svg",
     # Split view submenu
     "menu_split_view": "columns-2.svg",
 }

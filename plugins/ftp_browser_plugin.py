@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import os
 import io
-import threading
 from pathlib import Path, PurePosixPath
 from typing import Optional, List, TYPE_CHECKING
 
@@ -28,9 +27,9 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem, QPushButton, QLabel, QLineEdit, QSpinBox,
     QComboBox, QDialog, QFormLayout, QDialogButtonBox,
     QMessageBox, QApplication, QProgressDialog, QMenu, QInputDialog,
-    QCheckBox, QTextEdit, QSplitter, QTabWidget,
+    QCheckBox,
 )
-from PyQt6.QtGui import QIcon, QFont, QColor, QTextCursor, QKeyEvent
+from PyQt6.QtGui import QIcon, QFont, QColor
 
 from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
@@ -42,7 +41,7 @@ if TYPE_CHECKING:
 # ─── Modello connessione ──────────────────────────────────────────────────────
 
 class FtpProfile:
-    """Dati di una connessione FTP/SFTP/SSH/SMB."""
+    """Dati di una connessione FTP/SFTP/SMB."""
 
     def __init__(self, name="", host="", port=21, user="anonymous",
                  password="", protocol="FTP", remote_dir="/",
@@ -52,7 +51,7 @@ class FtpProfile:
         self.port       = port
         self.user       = user
         self.password   = password
-        self.protocol   = protocol   # "FTP", "SFTP", "SSH" o "SMB"
+        self.protocol   = protocol   # "FTP", "SFTP" o "SMB"
         self.remote_dir = remote_dir
         self.domain     = domain      # per SMB/AD
         self.smb_share  = smb_share   # nome share SMB (es. "documents")
@@ -91,7 +90,7 @@ class _ProfileDialog(QDialog):
         self._password = QLineEdit(self._profile.password)
         self._password.setEchoMode(QLineEdit.EchoMode.Password)
         self._protocol = QComboBox()
-        self._protocol.addItems(["FTP", "SFTP", "SSH", "SMB"])
+        self._protocol.addItems(["FTP", "SFTP", "SMB"])
         self._protocol.setCurrentText(self._profile.protocol)
         self._remote   = QLineEdit(self._profile.remote_dir)
 
@@ -128,14 +127,13 @@ class _ProfileDialog(QDialog):
             default_port = 21
         elif proto == "SMB":
             default_port = 445
-        else:   # SFTP, SSH
+        else:   # SFTP
             default_port = 22
         if self._port.value() in (21, 22, 445):
             self._port.setValue(default_port)
         is_smb = (proto == "SMB")
-        is_ssh = (proto == "SSH")
         if hasattr(self, "_remote"):
-            self._remote.setEnabled(not is_ssh and not is_smb)
+            self._remote.setEnabled(not is_smb)
         if hasattr(self, "_domain"):
             self._domain.setEnabled(is_smb)
         if hasattr(self, "_smb_share"):
@@ -166,241 +164,47 @@ class _ProfileDialog(QDialog):
         return self._profile
 
 
-# ─── Terminale SSH interattivo ────────────────────────────────────────────────
-
-class _SshOutputReader(QObject):
-    """Legge l'output del canale SSH in un thread separato e lo emette come segnale."""
-    data_ready = pyqtSignal(str)
-    finished   = pyqtSignal()
-
-    def __init__(self, channel):
-        super().__init__()
-        self._channel = channel
-        self._running = True
-
-    def run(self):
-        while self._running:
-            try:
-                if self._channel.recv_ready():
-                    chunk = self._channel.recv(4096)
-                    if chunk:
-                        self.data_ready.emit(chunk.decode("utf-8", errors="replace"))
-                    else:
-                        break
-                elif self._channel.closed or self._channel.exit_status_ready():
-                    break
-                else:
-                    import time
-                    time.sleep(0.05)
-            except Exception:
-                break
-        self.finished.emit()
-
-    def stop(self):
-        self._running = False
 
 
-class _SshTerminalDialog(QDialog):
-    """Finestra di terminale SSH interattivo basata su paramiko."""
+# ─── Dialog conferma mount SMB ────────────────────────────────────────────────
 
-    def __init__(self, profile: "FtpProfile", parent=None):
+class _SmbMountDialog(QDialog):
+    """Dialog di conferma mount SMB con nota di sicurezza.
+
+    Mostra host/share/credenziali e la nota che le credenziali
+    vengono gestite in modo sicuro (file tmpfs / stdin / dialog nativo).
+    """
+
+    def __init__(self, host: str, share: str, domain: str, user: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(tr("plugin.ftp_browser.ssh_title", user=profile.user, host=profile.host))
-        self.resize(800, 520)
-        self._profile = profile
-        self._ssh = None
-        self._channel = None
-        self._reader = None
-        self._reader_thread = None
-        self._history: list[str] = []
-        self._hist_idx = 0
-        self._build_ui()
-        self._connect()
+        self.setWindowTitle(tr("plugin.ftp_browser.smb_mount_title"))
+        self.resize(460, 200)
+        self._build_ui(host, share, domain, user)
 
-    def _build_ui(self):
+    def _build_ui(self, host: str, share: str, domain: str, user: str):
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(6, 6, 6, 6)
-        lay.setSpacing(4)
+        lay.setSpacing(12)
 
-        # Info bar
-        info = QHBoxLayout()
-        self._lbl_status = QLabel(tr("plugin.ftp_browser.ssh_connecting", host=self._profile.host, port=self._profile.port))
-        self._lbl_status.setStyleSheet("color: #888; font-size: 11px;")
-        info.addWidget(self._lbl_status)
-        info.addStretch()
-        btn_clear = QPushButton(tr("plugin.ftp_browser.ssh_btn_clear"))
-        btn_clear.setFixedWidth(70)
-        btn_clear.clicked.connect(self._clear_output)
-        info.addWidget(btn_clear)
-        lay.addLayout(info)
+        # Intestazione
+        title = QLabel(tr("plugin.ftp_browser.smb_mount_question",
+                          host=host, share=share, domain=domain, user=user))
+        title.setWordWrap(True)
+        lay.addWidget(title)
 
-        # Output terminal
-        self._output = QTextEdit()
-        self._output.setReadOnly(True)
-        self._output.setFont(QFont("Monospace", 10))
-        self._output.setStyleSheet(
-            "QTextEdit { background: #1e1e1e; color: #d4d4d4;"
-            "  border: 1px solid #3c3c3c; border-radius: 4px; }"
+        # Nota sicurezza
+        note = QLabel(tr("plugin.ftp_browser.smb_security_note"))
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #888; font-size: 11px;")
+        lay.addWidget(note)
+
+        lay.addStretch()
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        lay.addWidget(self._output, stretch=1)
-
-        # Input bar
-        input_row = QHBoxLayout()
-        self._lbl_prompt = QLabel("$")
-        self._lbl_prompt.setStyleSheet("color: #49cc90; font-weight: bold; font-family: monospace;")
-        input_row.addWidget(self._lbl_prompt)
-
-        self._input = QLineEdit()
-        self._input.setPlaceholderText(tr("plugin.ftp_browser.ssh_input_placeholder"))
-        self._input.setFont(QFont("Monospace", 10))
-        self._input.setStyleSheet(
-            "QLineEdit { background: #252526; color: #d4d4d4;"
-            "  border: 1px solid #3c3c3c; border-radius: 4px; padding: 4px; }"
-        )
-        self._input.returnPressed.connect(self._send_command)
-        self._input.installEventFilter(self)
-        input_row.addWidget(self._input, stretch=1)
-
-        btn_send = QPushButton(tr("plugin.ftp_browser.ssh_btn_send"))
-        btn_send.setFixedWidth(70)
-        btn_send.setStyleSheet(
-            "QPushButton { background: #0e639c; color: white; border: none;"
-            "  border-radius: 4px; padding: 4px 10px; font-weight: bold; }"
-            "QPushButton:hover { background: #1177bb; }"
-        )
-        btn_send.clicked.connect(self._send_command)
-        input_row.addWidget(btn_send)
-        lay.addLayout(input_row)
-
-        # Bottoni utility
-        util_row = QHBoxLayout()
-        for label, cmd in [("ls -la", "ls -la\n"), ("pwd", "pwd\n"),
-                            ("df -h", "df -h\n"), ("top (q per uscire)", "top\n")]:
-            b = QPushButton(label)
-            b.setFixedHeight(24)
-            b.setStyleSheet(
-                "QPushButton { background: #2d2d2d; color: #aaa; border: 1px solid #444;"
-                "  border-radius: 3px; font-size: 11px; padding: 0 8px; }"
-                "QPushButton:hover { background: #3c3c3c; color: #fff; }"
-            )
-            b.clicked.connect(lambda checked, c=cmd: self._send_raw(c))
-            util_row.addWidget(b)
-        util_row.addStretch()
-        lay.addLayout(util_row)
-
-        # Pulsante chiudi
-        btn_close = QPushButton(tr("plugin.ftp_browser.ssh_btn_close"))
-        btn_close.clicked.connect(self.close)
-        lay.addWidget(btn_close)
-
-    def eventFilter(self, obj, event):
-        """Gestisce freccia su/giù per la cronologia comandi."""
-        if obj is self._input and isinstance(event, QKeyEvent):
-            from PyQt6.QtCore import Qt as _Qt
-            if event.key() == _Qt.Key.Key_Up:
-                if self._history and self._hist_idx < len(self._history):
-                    self._hist_idx += 1
-                    self._input.setText(self._history[-self._hist_idx])
-                return True
-            elif event.key() == _Qt.Key.Key_Down:
-                if self._hist_idx > 1:
-                    self._hist_idx -= 1
-                    self._input.setText(self._history[-self._hist_idx])
-                else:
-                    self._hist_idx = 0
-                    self._input.clear()
-                return True
-        return super().eventFilter(obj, event)
-
-    def _connect(self):
-        try:
-            import paramiko
-        except ImportError:
-            self._append_output(tr("plugin.ftp_browser.ssh_missing"))
-            self._lbl_status.setText(tr("plugin.ftp_browser.ssh_status_missing"))
-            return
-        try:
-            self._ssh = paramiko.SSHClient()
-            self._ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self._ssh.connect(
-                self._profile.host,
-                port=self._profile.port,
-                username=self._profile.user,
-                password=self._profile.password,
-                timeout=15,
-            )
-            self._channel = self._ssh.invoke_shell(term="xterm", width=120, height=40)
-            self._channel.setblocking(False)
-            self._lbl_status.setText(
-                tr("plugin.ftp_browser.ssh_connected", user=self._profile.user,
-                   host=self._profile.host, port=self._profile.port)
-            )
-            self._lbl_status.setStyleSheet("color: #49cc90; font-size: 11px; font-weight: bold;")
-            self._start_reader()
-        except Exception as exc:
-            self._append_output(tr("plugin.ftp_browser.ssh_conn_failed", error=exc))
-            self._lbl_status.setText(tr("plugin.ftp_browser.ssh_conn_error"))
-            self._lbl_status.setStyleSheet("color: #f44747; font-size: 11px;")
-
-    def _start_reader(self):
-        self._reader = _SshOutputReader(self._channel)
-        self._reader.data_ready.connect(self._append_output)
-        self._reader.finished.connect(self._on_reader_finished)
-        self._reader_thread = threading.Thread(target=self._reader.run, daemon=True)
-        self._reader_thread.start()
-
-    def _append_output(self, text: str):
-        # Rimuovi sequenze ANSI di base per leggibilità
-        import re
-        clean = re.sub(r"\x1b\[[0-9;]*[mABCDEFGHJKSTfhil]", "", text)
-        clean = re.sub(r"\x1b\].*?\x07", "", clean)
-        clean = clean.replace("\r\n", "\n").replace("\r", "\n")
-        cursor = self._output.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        self._output.setTextCursor(cursor)
-        self._output.insertPlainText(clean)
-        self._output.ensureCursorVisible()
-
-    def _send_command(self):
-        cmd = self._input.text()
-        if not cmd:
-            return
-        self._history.append(cmd)
-        self._hist_idx = 0
-        self._input.clear()
-        self._send_raw(cmd + "\n")
-
-    def _send_raw(self, raw: str):
-        if self._channel and not self._channel.closed:
-            try:
-                self._channel.send(raw)
-            except Exception as exc:
-                self._append_output(tr("plugin.ftp_browser.ssh_send_error", error=exc))
-        else:
-            self._append_output(tr("plugin.ftp_browser.ssh_channel_inactive"))
-
-    def _clear_output(self):
-        self._output.clear()
-
-    def _on_reader_finished(self):
-        self._append_output(tr("plugin.ftp_browser.ssh_closed"))
-        self._lbl_status.setText(tr("plugin.ftp_browser.ssh_disconnected"))
-        self._lbl_status.setStyleSheet("color: #888; font-size: 11px;")
-
-    def closeEvent(self, event):
-        if self._reader:
-            self._reader.stop()
-        if self._channel:
-            try:
-                self._channel.close()
-            except Exception:
-                pass
-        if self._ssh:
-            try:
-                self._ssh.close()
-            except Exception:
-                pass
-        super().closeEvent(event)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lay.addWidget(buttons)
 
 
 # ─── Pannello FTP ─────────────────────────────────────────────────────────────
@@ -623,17 +427,11 @@ class _FtpPanel(QWidget):
 
         idx = self._profile_combo.currentIndex()
         if idx < 0 or idx >= len(self._profiles):
-            QMessageBox.warning(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.select_profile"))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.select_profile"))
             return
 
         profile = self._profiles[idx]
         self._current_profile = profile
-
-        # ── SSH: apre terminale interattivo, non naviga file ──────────────────
-        if profile.protocol == "SSH":
-            dlg = _SshTerminalDialog(profile, parent=self)
-            dlg.show()
-            return
 
         # ── SMB: mount helper ─────────────────────────────────────────────────
         if profile.protocol == "SMB":
@@ -650,16 +448,22 @@ class _FtpPanel(QWidget):
                 self._conn = self._connect_ftp(profile)
 
             self._btn_connect.setText(tr("plugin.ftp_browser.disconnect_btn"))
-            self._status.setText(tr("plugin.ftp_browser.ssh_connected", user=profile.user,
+            self._status.setText(tr("plugin.ftp_browser.status_connected", user=profile.user,
                                     host=profile.host, port=profile.port))
             self._list_directory(profile.remote_dir)
         except Exception as e:
             self._conn = None
-            self._status.setText(tr("plugin.ftp_browser.ssh_conn_error"))
-            QMessageBox.critical(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.status_download_failed", error=e))
+            self._status.setText(tr("plugin.ftp_browser.status_conn_error"))
+            QMessageBox.critical(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.status_download_failed", error=e))
 
     def _smb_mount_helper(self, profile: FtpProfile) -> None:
-        """Controlla se la share SMB è già montata; se no, tenta il mount."""
+        """Controlla se la share SMB è già montata; se no, propone opzioni di mount.
+
+        SICUREZZA: le credenziali NON vengono mai passate come argomenti
+        visibili in ps/Task Manager. Linux usa un file credenziali temporaneo
+        in tmpfs (/run/user/UID); macOS delega il dialog password al sistema;
+        Windows usa stdin per passare la password a net use.
+        """
         import sys
         import subprocess
         import shutil
@@ -692,29 +496,28 @@ class _FtpPanel(QWidget):
                 pass
             return
 
-        # ── Non montata: chiedi conferma e tenta mount ────────────────────────
-        unc = f"//\"{host}\"/\"{share}\"" if share else f"//\"{host}\""
-        reply = QMessageBox.question(
-            self, tr("plugin.ftp_browser.smb_mount_title"),
-            tr("plugin.ftp_browser.smb_mount_question", host=host, share=share, domain=dom, user=user),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+        # ── Non montata: chiedi conferma ──────────────────────────────────────
+        dlg = _SmbMountDialog(host, share, dom, user, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
 
+        # ── Mount ─────────────────────────────────────────────────────────────
         self._status.setText(tr("plugin.ftp_browser.smb_mounting", host=host, share=share))
         QApplication.processEvents()
 
         try:
             if sys.platform.startswith("win"):
-                # Windows: net use \\host\share password /user:domain\user
-                cmd = ["net", "use",
-                       f"\\\\{host}\\{share}",
-                       pwd or "*",
-                       f"/user:{dom}\\{user}"]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+                # Windows: net use \\host\share /user:domain\user
+                # La password è passata via STDIN — non visibile in ps/Task Manager
+                unc = f"\\\\{host}\\{share}"
+                cmd = ["net", "use", unc, f"/user:{dom}\\{user}"]
+                result = subprocess.run(
+                    cmd,
+                    input=(pwd + "\n") if pwd else "\n",
+                    capture_output=True, text=True, timeout=20
+                )
                 if result.returncode == 0:
-                    mounted_path = f"\\\\{host}\\{share}"
+                    mounted_path = unc
                     self._status.setText(tr("plugin.ftp_browser.smb_mount_ok", path=mounted_path))
                     QMessageBox.information(self, tr("plugin.ftp_browser.smb_already_mounted_title"),
                         tr("plugin.ftp_browser.smb_mount_ok_win", path=mounted_path))
@@ -723,34 +526,61 @@ class _FtpPanel(QWidget):
                     raise RuntimeError(result.stderr.strip() or result.stdout.strip())
 
             elif sys.platform == "darwin":
-                # macOS: mount_smbfs //user:pass@host/share /Volumes/share
-                mnt_dir = f"/Volumes/{share or host}"
-                os.makedirs(mnt_dir, exist_ok=True)
-                safe_pwd = pwd.replace("@", "%40").replace(":", "%3A")
-                smb_url  = f"smb://{user}:{safe_pwd}@{host}/{share}"
+                # macOS: apre la URL smb://user@host/share SENZA password nell'URL.
+                # Il sistema operativo mostra il suo dialog nativo per la password.
+                smb_url = f"smb://{user}@{host}/{share}" if share else f"smb://{user}@{host}"
                 result = subprocess.run(
-                    ["mount_smbfs", smb_url, mnt_dir],
-                    capture_output=True, text=True, timeout=20
+                    ["open", smb_url],
+                    capture_output=True, text=True, timeout=10
                 )
-                if result.returncode == 0:
-                    self._status.setText(tr("plugin.ftp_browser.smb_mount_ok", path=mnt_dir))
-                    QMessageBox.information(self, tr("plugin.ftp_browser.smb_already_mounted_title"),
-                        tr("plugin.ftp_browser.smb_mount_ok_msg", path=mnt_dir))
-                    subprocess.Popen(["open", mnt_dir])
-                else:
-                    raise RuntimeError(result.stderr.strip() or "mount_smbfs fallito")
+                if result.returncode != 0:
+                    raise RuntimeError(result.stderr.strip() or "open smb:// fallito")
+                self._status.setText(tr("plugin.ftp_browser.smb_mount_ok", path=smb_url))
+                QMessageBox.information(self, tr("plugin.ftp_browser.smb_already_mounted_title"),
+                    tr("plugin.ftp_browser.smb_mount_ok_msg", path=smb_url))
 
             else:
-                # Linux: mount.cifs //host/share /mnt/share -o user=,pass=,domain=
+                # Linux: usa un file credenziali temporaneo in /run/user/UID (tmpfs).
+                # La password NON appare come argomento del processo (non visibile in ps).
                 if not shutil.which("mount.cifs") and not shutil.which("mount"):
                     raise RuntimeError(tr("plugin.ftp_browser.smb_cifs_missing"))
+
                 mnt_dir = f"/mnt/smb_{host}_{share}".replace(" ", "_")
                 os.makedirs(mnt_dir, exist_ok=True)
-                opts = f"username={user},password={pwd},domain={dom},uid={os.getuid()},gid={os.getgid()}"
-                cmd = ["pkexec", "mount", "-t", "cifs",
-                       f"//{host}/{share}", mnt_dir,
-                       "-o", opts]
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+                # Directory sicura in tmpfs (non sul disco fisso)
+                run_dir = f"/run/user/{os.getuid()}"
+                if not os.path.isdir(run_dir):
+                    run_dir = "/tmp"  # fallback
+
+                import tempfile, stat
+                cred_fd, cred_path = tempfile.mkstemp(prefix="npq_smb_", dir=run_dir)
+                try:
+                    # Scrivi il file credenziali con permessi 0600 (solo owner)
+                    os.chmod(cred_path, stat.S_IRUSR | stat.S_IWUSR)
+                    cred_content = (
+                        f"username={user}\n"
+                        f"password={pwd}\n"
+                        f"domain={dom}\n"
+                    )
+                    os.write(cred_fd, cred_content.encode())
+                    os.close(cred_fd)
+
+                    opts = (
+                        f"credentials={cred_path},"
+                        f"uid={os.getuid()},gid={os.getgid()}"
+                    )
+                    cmd = ["pkexec", "mount", "-t", "cifs",
+                           f"//{host}/{share}", mnt_dir,
+                           "-o", opts]
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                finally:
+                    # Elimina sempre il file credenziali, anche in caso di errore
+                    try:
+                        os.unlink(cred_path)
+                    except Exception:
+                        pass
+
                 if result.returncode == 0:
                     self._status.setText(tr("plugin.ftp_browser.smb_mount_ok", path=mnt_dir))
                     QMessageBox.information(self, tr("plugin.ftp_browser.smb_already_mounted_title"),
@@ -763,7 +593,7 @@ class _FtpPanel(QWidget):
                     raise RuntimeError(err)
 
         except Exception as exc:
-            self._status.setText(tr("plugin.ftp_browser.ssh_conn_error"))
+            self._status.setText(tr("plugin.ftp_browser.status_conn_error"))
             QMessageBox.critical(self, tr("plugin.ftp_browser.smb_mount_failed_title"),
                 tr("plugin.ftp_browser.smb_mount_failed_msg", error=exc))
 
@@ -849,7 +679,7 @@ class _FtpPanel(QWidget):
             entries = self._fetch_listing(path)
         except Exception as e:
             self._status.setText(tr("plugin.ftp_browser.status_read_error"))
-            QMessageBox.warning(self, "FTP/SFTP/SSH/SMB", str(e))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", str(e))
             return
 
         for name, size, date, is_dir in sorted(
@@ -939,7 +769,7 @@ class _FtpPanel(QWidget):
             self._status.setText(tr("plugin.ftp_browser.status_download_ok", path=remote_path))
         except Exception as e:
             self._status.setText(tr("plugin.ftp_browser.status_download_error"))
-            QMessageBox.warning(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.status_download_failed", error=e))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.status_download_failed", error=e))
 
     def _fetch_file(self, remote_path: str) -> bytes:
         kind = self._conn[0]
@@ -1043,7 +873,7 @@ class _FtpPanel(QWidget):
                 self._conn[1].rename(path, new_path)
             self._list_directory(self._current_dir)
         except Exception as e:
-            QMessageBox.warning(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.rename_failed", error=e))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.rename_failed", error=e))
 
     def _delete(self, path: str, name: str) -> None:
         reply = QMessageBox.question(
@@ -1064,7 +894,7 @@ class _FtpPanel(QWidget):
                 self._conn[1].remove(path)
             self._list_directory(self._current_dir)
         except Exception as e:
-            QMessageBox.warning(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.delete_failed", error=e))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.delete_failed", error=e))
 
     def _mkdir(self) -> None:
         name, ok = QInputDialog.getText(self, tr("plugin.ftp_browser.mkdir_dialog_title"),
@@ -1080,11 +910,11 @@ class _FtpPanel(QWidget):
                 self._conn[1].mkdir(new_path)
             self._list_directory(self._current_dir)
         except Exception as e:
-            QMessageBox.warning(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.mkdir_failed", error=e))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.mkdir_failed", error=e))
 
     def _new_file(self) -> None:
         if not self._conn:
-            QMessageBox.warning(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.new_file_not_connected"))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.new_file_not_connected"))
             return
         name, ok = QInputDialog.getText(self, tr("plugin.ftp_browser.new_file_dialog_title"),
                                         tr("plugin.ftp_browser.new_file_dialog_label"))
@@ -1102,7 +932,7 @@ class _FtpPanel(QWidget):
             self._open_in_editor(remote_path, b"")
             self._status.setText(tr("plugin.ftp_browser.status_file_created", path=remote_path))
         except Exception as e:
-            QMessageBox.warning(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.new_file_failed", error=e))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.new_file_failed", error=e))
 
     # ── Upload file corrente ──────────────────────────────────────────────────
 
@@ -1149,7 +979,7 @@ class _FtpPanel(QWidget):
         remote_path = getattr(editor, "_ftp_remote_path", None)
         if not remote_path:
             QMessageBox.information(
-                self, "FTP/SFTP/SSH/SMB",
+                self, "FTP/SFTP/SMB",
                 tr("plugin.ftp_browser.not_connected_upload")
             )
             return
@@ -1159,18 +989,18 @@ class _FtpPanel(QWidget):
             self._mw._on_editor_changed(editor)
             self._upload_ok(remote_path)
         else:
-            QMessageBox.warning(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.upload_failed_msg"))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.upload_failed_msg"))
 
     def upload_editor(self, editor) -> None:
         """Upload a local editor file to the currently browsed FTP directory."""
         if not editor or not editor.file_path:
-            QMessageBox.information(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.not_saved_upload"))
+            QMessageBox.information(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.not_saved_upload"))
             return
         if not self._conn:
-            QMessageBox.information(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.no_active_conn_upload"))
+            QMessageBox.information(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.no_active_conn_upload"))
             return
         if not self._current_dir:
-            QMessageBox.information(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.no_folder_open_upload"))
+            QMessageBox.information(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.no_folder_open_upload"))
             return
         remote_path = self._current_dir.rstrip("/") + "/" + editor.file_path.name
         raw = editor.get_content().encode(editor.encoding, errors="replace")
@@ -1179,7 +1009,7 @@ class _FtpPanel(QWidget):
             self._mw._on_editor_changed(editor)
             self._upload_ok(remote_path)
         else:
-            QMessageBox.warning(self, "FTP/SFTP/SSH/SMB", tr("plugin.ftp_browser.upload_failed_msg"))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.upload_failed_msg"))
 
     def _upload_ok(self, remote_path: str) -> None:
         """Show upload success feedback and refresh the directory listing."""
@@ -1215,9 +1045,9 @@ class _FtpPanel(QWidget):
 
 class FtpBrowserPlugin(BasePlugin):
 
-    NAME        = "FTP/SFTP/SSH/SMB Browser"
+    NAME        = "FTP/SFTP/SMB Browser"
     VERSION     = "1.1"
-    DESCRIPTION = "FTP/SFTP navigation panel with SSH terminal and SMB mount helper."
+    DESCRIPTION = "FTP/SFTP navigation panel with SMB mount helper."
     AUTHOR      = "NotePadPQ Team"
 
     def on_load(self, main_window: "MainWindow") -> None:

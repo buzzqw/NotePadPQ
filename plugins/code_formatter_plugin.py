@@ -191,7 +191,7 @@ class _PrefsDialog(QDialog):
 
     def __init__(self, settings: dict, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("⚙ Preferenze Formatter")
+        self.setWindowTitle("Preferenze Formatter")
         self.resize(580, 400)
         self._settings = dict(settings)
         self._edits: Dict[str, QLineEdit] = {}
@@ -334,20 +334,23 @@ class CodeFormatterPlugin(BasePlugin):
 
         self.add_menu_action(
             main_window, "tools",
-            "🎨 Format Document",
+            "Format Document",
             self._format_document,
             shortcut="Ctrl+Alt+F",
+            icon_key="tool_format_doc",
         )
         self.add_menu_action(
             main_window, "tools",
-            "🎨 Format Selection",
+            "Format Selection",
             self._format_selection,
             shortcut="Ctrl+Alt+Shift+F",
+            icon_key="tool_format_sel",
         )
         self.add_menu_action(
             main_window, "tools",
-            "⚙ Preferenze Formatter…",
+            "Preferenze Formatter…",
             self._open_prefs,
+            icon_key="tool_formatter_prefs",
         )
 
     def on_unload(self) -> None:

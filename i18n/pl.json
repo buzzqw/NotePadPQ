@@ -300,7 +300,8 @@
     "lang_toolbar_ref_key": "Klucz odniesienia:",
     "toggle_checklist": "Przełącz zadanie",
     "smart_typography": "Inteligentna typografia",
-    "sentence_focus": "Fokus akapitu"
+    "sentence_focus": "Fokus akapitu",
+    "spell_check_dialog": "Korekta pisowni..."
   },
   "color": {
     "red": "Czerwony",
@@ -383,7 +384,14 @@
     "pdf_link_page": "Przejdź do strony {n}",
     "pdf_fit_width": "Szerokość strony",
     "pdf_fit_page": "Cała strona",
-    "pdf_auto": "Auto"
+    "pdf_auto": "Auto",
+    "spell_not_found": "Słowo nie znalezione w słowniku",
+    "spell_context": "Kontekst",
+    "spell_replace_with": "Zamień na",
+    "spell_suggestions": "Sugestie",
+    "spell_language": "Język słownika",
+    "spell_remaining": "Pozostałe błędy: {count}",
+    "spell_complete": "Sprawdzanie pisowni zakończone."
   },
   "button": {
     "ok": "OK",
@@ -417,7 +425,12 @@
     "install": "Zainstaluj",
     "uninstall": "Odinstaluj",
     "count": "Liczba",
-    "skip": "Pomiń"
+    "skip": "Pomiń",
+    "spell_ignore": "Ignoruj",
+    "spell_ignore_all": "Ignoruj wszystko",
+    "spell_replace": "Zamień",
+    "spell_replace_all": "Zamień wszystko",
+    "spell_add_dict": "Dodaj do słownika"
   },
   "msg": {
     "unsaved_changes": "Plik \"{name}\" ma niezapisane zmiany.\nZapisać przed zamknięciem?",
@@ -648,7 +661,8 @@
     "ok": "OK",
     "error": "Błąd",
     "save_clipboard_image": "Zapisz obraz ze schowka",
-    "image_filter_save": "Obrazy PNG (*.png);;JPEG (*.jpg *.jpeg);;Wszystkie pliki (*)"
+    "image_filter_save": "Obrazy PNG (*.png);;JPEG (*.jpg *.jpeg);;Wszystkie pliki (*)",
+    "spell_check_title": "Korekta Pisowni"
   },
   "preview": {
     "crop_top": "Góra:",

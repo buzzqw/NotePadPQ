@@ -300,7 +300,8 @@
     "lang_toolbar_ref_key": "Chiave di riferimento:",
     "toggle_checklist": "Segna/desegna attività",
     "smart_typography": "Tipografia intelligente",
-    "sentence_focus": "Focus paragrafo"
+    "sentence_focus": "Focus paragrafo",
+    "spell_check_dialog": "Revisione ortografica..."
   },
   "color": {
     "red": "Rosso",
@@ -383,7 +384,14 @@
     "pdf_link_page": "Vai a pagina {n}",
     "pdf_fit_width": "Larghezza pagina",
     "pdf_fit_page": "Intera pagina",
-    "pdf_auto": "Auto"
+    "pdf_auto": "Auto",
+    "spell_not_found": "Parola non trovata nel dizionario",
+    "spell_context": "Contesto",
+    "spell_replace_with": "Sostituisci con",
+    "spell_suggestions": "Suggerimenti",
+    "spell_language": "Lingua del dizionario",
+    "spell_remaining": "Errori rimanenti: {count}",
+    "spell_complete": "Controllo ortografico completato."
   },
   "button": {
     "ok": "OK",
@@ -417,7 +425,12 @@
     "install": "Installa",
     "uninstall": "Disinstalla",
     "count": "Conta",
-    "skip": "Salta"
+    "skip": "Salta",
+    "spell_ignore": "Ignora",
+    "spell_ignore_all": "Ignora tutto",
+    "spell_replace": "Sostituisci",
+    "spell_replace_all": "Sostituisci tutto",
+    "spell_add_dict": "Aggiungi al dizionario"
   },
   "msg": {
     "unsaved_changes": "Il file \"{name}\" ha modifiche non salvate.\nSalvare prima di chiudere?",
@@ -648,7 +661,8 @@
     "ok": "OK",
     "error": "Errore",
     "save_clipboard_image": "Salva immagine clipboard",
-    "image_filter_save": "Immagini PNG (*.png);;JPEG (*.jpg *.jpeg);;Tutti i file (*)"
+    "image_filter_save": "Immagini PNG (*.png);;JPEG (*.jpg *.jpeg);;Tutti i file (*)",
+    "spell_check_title": "Revisione Ortografica"
   },
   "preview": {
     "crop_top": "Su:",

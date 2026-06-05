@@ -300,7 +300,8 @@
     "lang_toolbar_ref_key": "Clé de référence :",
     "toggle_checklist": "Basculer tâche",
     "smart_typography": "Typographie intelligente",
-    "sentence_focus": "Focus paragraphe"
+    "sentence_focus": "Focus paragraphe",
+    "spell_check_dialog": "Révision orthographique..."
   },
   "color": {
     "red": "Rouge",
@@ -383,7 +384,14 @@
     "pdf_link_page": "Aller à la page {n}",
     "pdf_fit_width": "Largeur de page",
     "pdf_fit_page": "Page entière",
-    "pdf_auto": "Auto"
+    "pdf_auto": "Auto",
+    "spell_not_found": "Mot non trouvé dans le dictionnaire",
+    "spell_context": "Contexte",
+    "spell_replace_with": "Remplacer par",
+    "spell_suggestions": "Suggestions",
+    "spell_language": "Langue du dictionnaire",
+    "spell_remaining": "Erreurs restantes : {count}",
+    "spell_complete": "Vérification orthographique terminée."
   },
   "button": {
     "ok": "OK",
@@ -417,7 +425,12 @@
     "install": "Installer",
     "uninstall": "Désinstaller",
     "count": "Compter",
-    "skip": "Ignorer"
+    "skip": "Ignorer",
+    "spell_ignore": "Ignorer",
+    "spell_ignore_all": "Tout ignorer",
+    "spell_replace": "Remplacer",
+    "spell_replace_all": "Remplacer tout",
+    "spell_add_dict": "Ajouter au dictionnaire"
   },
   "msg": {
     "unsaved_changes": "Le fichier \"{name}\" contient des modifications non enregistrées.\nEnregistrer avant de fermer ?",
@@ -648,7 +661,8 @@
     "ok": "OK",
     "error": "Erreur",
     "save_clipboard_image": "Enregistrer l'image du presse-papier",
-    "image_filter_save": "Images PNG (*.png);;JPEG (*.jpg *.jpeg);;Tous les fichiers (*)"
+    "image_filter_save": "Images PNG (*.png);;JPEG (*.jpg *.jpeg);;Tous les fichiers (*)",
+    "spell_check_title": "Révision Orthographique"
   },
   "preview": {
     "crop_top": "Haut:",

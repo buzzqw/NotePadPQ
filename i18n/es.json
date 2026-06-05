@@ -300,7 +300,8 @@
     "lang_toolbar_ref_key": "Clave de referencia:",
     "toggle_checklist": "Marcar/desmarcar tarea",
     "smart_typography": "Tipografía inteligente",
-    "sentence_focus": "Enfoque de párrafo"
+    "sentence_focus": "Enfoque de párrafo",
+    "spell_check_dialog": "Revisión ortográfica..."
   },
   "color": {
     "red": "Rojo",
@@ -383,7 +384,14 @@
     "pdf_link_page": "Ir a la página {n}",
     "pdf_fit_width": "Ancho de página",
     "pdf_fit_page": "Página completa",
-    "pdf_auto": "Auto"
+    "pdf_auto": "Auto",
+    "spell_not_found": "Palabra no encontrada en el diccionario",
+    "spell_context": "Contexto",
+    "spell_replace_with": "Reemplazar con",
+    "spell_suggestions": "Sugerencias",
+    "spell_language": "Idioma del diccionario",
+    "spell_remaining": "Errores restantes: {count}",
+    "spell_complete": "Revisión ortográfica completada."
   },
   "button": {
     "ok": "Aceptar",
@@ -417,7 +425,12 @@
     "install": "Instalar",
     "uninstall": "Desinstalar",
     "count": "Contar",
-    "skip": "Omitir"
+    "skip": "Omitir",
+    "spell_ignore": "Ignorar",
+    "spell_ignore_all": "Ignorar todo",
+    "spell_replace": "Reemplazar",
+    "spell_replace_all": "Reemplazar todo",
+    "spell_add_dict": "Agregar al diccionario"
   },
   "msg": {
     "unsaved_changes": "El archivo \"{name}\" tiene cambios sin guardar.\n¿Guardar antes de cerrar?",
@@ -648,7 +661,8 @@
     "ok": "Aceptar",
     "error": "Error",
     "save_clipboard_image": "Guardar imagen del portapapeles",
-    "image_filter_save": "Imágenes PNG (*.png);;JPEG (*.jpg *.jpeg);;Todos los archivos (*)"
+    "image_filter_save": "Imágenes PNG (*.png);;JPEG (*.jpg *.jpeg);;Todos los archivos (*)",
+    "spell_check_title": "Revisión Ortográfica"
   },
   "preview": {
     "crop_top": "Arriba:",

@@ -1412,6 +1412,27 @@ class EditorWidget(QsciScintilla):
 
                 menu.addSeparator()
 
+        # Submenu cambio lingua dizionario (mostrato solo se spell check attivo)
+        if self._spell_checker is not None:
+            menu.addSeparator()
+            lang_menu = menu.addMenu(tr("action.spell_lang"))
+            _current_lang = self._spell_lang or "it"
+            from PyQt6.QtGui import QActionGroup as _LangAG
+            _lang_ag = _LangAG(menu)
+            _lang_ag.setExclusive(True)
+            for _lcode, _llabel in [
+                ("it", "Italiano"), ("en", "English"), ("de", "Deutsch"),
+                ("fr", "Français"), ("es", "Español"), ("pl", "Polski"),
+            ]:
+                _la = lang_menu.addAction(_llabel)
+                _la.setCheckable(True)
+                _la.setChecked(_lcode == _current_lang)
+                _la.triggered.connect(
+                    lambda _checked, c=_lcode: self._change_spell_lang_from_context(c)
+                )
+                _lang_ag.addAction(_la)
+            menu.addSeparator()
+
         cut   = menu.addAction(tr("action.cut"))
         cut.triggered.connect(self.cut)
         cut.setEnabled(self.hasSelectedText())
@@ -1458,6 +1479,15 @@ class EditorWidget(QsciScintilla):
             self._spell_checker.word_frequency.load_words([w])
         self._spell_text_hash = 0
         self._do_spell_check()
+
+    def _change_spell_lang_from_context(self, lang: str) -> None:
+        """Cambia la lingua del dizionario dal context menu e aggiorna Settings."""
+        self.set_spell_language(lang)
+        try:
+            from config.settings import Settings
+            Settings.instance().set("spellcheck/language", lang)
+        except Exception:
+            pass
 
     # ── Conversione selezione → tabella ──────────────────────────────────────
 

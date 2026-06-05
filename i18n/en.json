@@ -300,7 +300,8 @@
     "lang_toolbar_ref_key": "Reference key:",
     "toggle_checklist": "Toggle task",
     "smart_typography": "Smart typography",
-    "sentence_focus": "Paragraph focus"
+    "sentence_focus": "Paragraph focus",
+    "spell_check_dialog": "Spelling Review..."
   },
   "color": {
     "red": "Red",
@@ -383,7 +384,14 @@
     "pdf_link_page": "Go to page {n}",
     "pdf_fit_width": "Page width",
     "pdf_fit_page": "Full page",
-    "pdf_auto": "Auto"
+    "pdf_auto": "Auto",
+    "spell_not_found": "Word not found in dictionary",
+    "spell_context": "Context",
+    "spell_replace_with": "Replace with",
+    "spell_suggestions": "Suggestions",
+    "spell_language": "Dictionary language",
+    "spell_remaining": "Remaining errors: {count}",
+    "spell_complete": "Spell check complete."
   },
   "button": {
     "ok": "OK",
@@ -417,7 +425,12 @@
     "install": "Install",
     "uninstall": "Uninstall",
     "count": "Count",
-    "skip": "Skip"
+    "skip": "Skip",
+    "spell_ignore": "Ignore",
+    "spell_ignore_all": "Ignore All",
+    "spell_replace": "Replace",
+    "spell_replace_all": "Replace All",
+    "spell_add_dict": "Add to Dictionary"
   },
   "msg": {
     "unsaved_changes": "File \"{name}\" has unsaved changes.\nSave before closing?",
@@ -648,7 +661,8 @@
     "ok": "OK",
     "error": "Error",
     "save_clipboard_image": "Save clipboard image",
-    "image_filter_save": "PNG Images (*.png);;JPEG (*.jpg *.jpeg);;All files (*)"
+    "image_filter_save": "PNG Images (*.png);;JPEG (*.jpg *.jpeg);;All files (*)",
+    "spell_check_title": "Spelling Review"
   },
   "preview": {
     "crop_top": "Top:",

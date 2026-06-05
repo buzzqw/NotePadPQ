@@ -1222,6 +1222,7 @@ class MainWindow(QMainWindow):
         _spell_saved   = _S.instance().get("spellcheck/language", "it")
         m.addAction(self._act("spell_check", "F4", self._toggle_spellcheck,
                               checkable=True, checked=_spell_enabled))
+        m.addAction(self._act("spell_check_dialog", "Shift+F4", self._open_spell_check_dialog))
 
         # Tipografia intelligente (Markdown + testo)
         _smart_typo = _S.instance().get("editor/smart_typography", False)
@@ -1245,7 +1246,8 @@ class MainWindow(QMainWindow):
         _spell_ag.setExclusive(True)
         self._spell_lang_actions: dict[str, QAction] = {}
         for _code, _label in [("it", "Italiano"), ("en", "English"),
-                               ("de", "Deutsch"), ("fr", "Français"), ("es", "Español")]:
+                               ("de", "Deutsch"), ("fr", "Français"), ("es", "Español"),
+                               ("pl", "Polski")]:
             _a = QAction(_label, self, checkable=True)
             _a.setChecked(_code == _spell_saved)
             _a.triggered.connect(lambda _checked, c=_code: self._set_spell_lang(c))
@@ -4414,6 +4416,32 @@ class MainWindow(QMainWindow):
             for ed in self._tab_manager.all_editors():
                 if hasattr(ed, "set_spell_language"):
                     ed.set_spell_language(lang)
+        # Aggiorna il checkmark nel submenu lingua
+        if hasattr(self, "_spell_lang_actions"):
+            for code, act in self._spell_lang_actions.items():
+                act.blockSignals(True)
+                act.setChecked(code == lang)
+                act.blockSignals(False)
+
+    def _open_spell_check_dialog(self) -> None:
+        """Apre il dialog avanzato di controllo ortografico (stile LibreOffice)."""
+        editor = self._current_editor()
+        if editor is None:
+            return
+        # Se lo spell check non è ancora attivo, lo abilita prima di aprire il dialog
+        if getattr(editor, "_spell_checker", None) is None:
+            from config.settings import Settings
+            lang = Settings.instance().get("spellcheck/language", "it")
+            if hasattr(editor, "set_spellcheck_enabled"):
+                editor.set_spellcheck_enabled(True, lang)
+            # Segna il toggle come attivo
+            if "spell_check" in self._actions:
+                self._actions["spell_check"].setChecked(True)
+            from config.settings import Settings as _S
+            _S.instance().set("spellcheck/enabled", True)
+        from ui.spell_check_dialog import SpellCheckDialog
+        dlg = SpellCheckDialog(editor, parent=self)
+        dlg.exec()
 
     # ── Tipografia intelligente ───────────────────────────────────────────────
 

@@ -300,7 +300,8 @@
     "lang_toolbar_ref_key": "Referenzschlüssel:",
     "toggle_checklist": "Aufgabe umschalten",
     "smart_typography": "Intelligente Typografie",
-    "sentence_focus": "Absatz-Fokus"
+    "sentence_focus": "Absatz-Fokus",
+    "spell_check_dialog": "Rechtschreibkorrektur..."
   },
   "color": {
     "red": "Rot",
@@ -383,7 +384,14 @@
     "pdf_link_page": "Gehe zu Seite {n}",
     "pdf_fit_width": "Seitenbreite",
     "pdf_fit_page": "Ganze Seite",
-    "pdf_auto": "Auto"
+    "pdf_auto": "Auto",
+    "spell_not_found": "Wort nicht im Wörterbuch gefunden",
+    "spell_context": "Kontext",
+    "spell_replace_with": "Ersetzen durch",
+    "spell_suggestions": "Vorschläge",
+    "spell_language": "Wörterbuchsprache",
+    "spell_remaining": "Verbleibende Fehler: {count}",
+    "spell_complete": "Rechtschreibprüfung abgeschlossen."
   },
   "button": {
     "ok": "OK",
@@ -417,7 +425,12 @@
     "install": "Installieren",
     "uninstall": "Deinstallieren",
     "count": "Zählen",
-    "skip": "Überspringen"
+    "skip": "Überspringen",
+    "spell_ignore": "Ignorieren",
+    "spell_ignore_all": "Alle ignorieren",
+    "spell_replace": "Ersetzen",
+    "spell_replace_all": "Alle ersetzen",
+    "spell_add_dict": "Zum Wörterbuch hinzufügen"
   },
   "msg": {
     "unsaved_changes": "Die Datei \"{name}\" enthält nicht gespeicherte Änderungen.\nVor dem Schließen speichern?",
@@ -648,7 +661,8 @@
     "ok": "OK",
     "error": "Fehler",
     "save_clipboard_image": "Zwischenablage-Bild speichern",
-    "image_filter_save": "PNG-Bilder (*.png);;JPEG (*.jpg *.jpeg);;Alle Dateien (*)"
+    "image_filter_save": "PNG-Bilder (*.png);;JPEG (*.jpg *.jpeg);;Alle Dateien (*)",
+    "spell_check_title": "Rechtschreibkorrektur"
   },
   "preview": {
     "crop_top": "Oben:",

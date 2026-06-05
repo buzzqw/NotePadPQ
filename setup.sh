@@ -19,40 +19,118 @@ PIP_SPREADSHEET="openpyxl xlrd odfpy"
 # Pacchetti per il plugin Rich Text (WYSIWYG docx/odt/rtf)
 PIP_RICHTEXT="mammoth htmldocx"
 
+# Pacchetti per i Code Formatter Python (black e ruff; prettier/clang-format si installano a parte)
+PIP_FORMATTERS="black ruff"
+
 # ─── Helper ───────────────────────────────────────────────────────────────────
 
+# Controlla se tutti i moduli Python di una lista sono importabili.
+# Usa prima il Python di sistema, poi quello del .venv se presente.
+# Ritorna: "all" se tutti presenti, "partial" se alcuni, "none" se nessuno.
+_check_pkg_status() {
+    local pkgs="$1"
+    local python_bins="$PYTHON"
+    local VENV_DIR="${PROJECT_DIR}/.venv"
+    [[ -x "${VENV_DIR}/bin/python" ]] && python_bins="$PYTHON ${VENV_DIR}/bin/python"
+
+    local total=0
+    local found=0
+    for pkg in $pkgs; do
+        total=$((total + 1))
+        local import_name
+        case "$pkg" in
+            pymupdf)   import_name="fitz" ;;
+            odfpy)     import_name="odf" ;;
+            PyGithub)  import_name="github" ;;
+            Pillow)    import_name="PIL" ;;
+            *)         import_name="${pkg//-/_}" ;;
+        esac
+        import_name="${import_name,,}"   # lowercase
+        # prova su tutti i Python disponibili
+        local ok=false
+        for pybin in $python_bins; do
+            if $pybin -c "import ${import_name}" &>/dev/null 2>&1; then
+                ok=true
+                break
+            fi
+        done
+        $ok && found=$((found + 1))
+    done
+
+    if   [[ $found -eq $total ]];   then echo "all"
+    elif [[ $found -gt 0 ]];        then echo "partial"
+    else                                 echo "none"
+    fi
+}
+
+# Rileva lo stato di installazione di tutti i componenti opzionali;
+# setta le variabili STATUS_LATEX, STATUS_SPREADSHEET, STATUS_RICHTEXT, STATUS_FORMATTERS.
+_detect_installed_components() {
+    STATUS_LATEX=$(_check_pkg_status "$PIP_LATEX")
+    STATUS_SPREADSHEET=$(_check_pkg_status "$PIP_SPREADSHEET")
+    STATUS_RICHTEXT=$(_check_pkg_status "$PIP_RICHTEXT")
+    # Per i formatter controlliamo solo black e ruff (gli altri sono di sistema)
+    STATUS_FORMATTERS=$(_check_pkg_status "$PIP_FORMATTERS")
+}
+
+# Restituisce l'etichetta visiva per uno stato componente.
+_status_label() {
+    case "$1" in
+        all)     echo "✓ già installato" ;;
+        partial) echo "~ parzialmente installato" ;;
+        *)       echo "✗ non installato" ;;
+    esac
+}
+
 # Chiede all'utente quali componenti opzionali installare;
-# setta INSTALL_LATEX, INSTALL_SPREADSHEET, INSTALL_RICHTEXT (true/false)
+# setta INSTALL_LATEX, INSTALL_SPREADSHEET, INSTALL_RICHTEXT, INSTALL_FORMATTERS (true/false)
 _ask_optional_components() {
+    _detect_installed_components
+    local lbl1; lbl1=$(_status_label "$STATUS_LATEX")
+    local lbl2; lbl2=$(_status_label "$STATUS_SPREADSHEET")
+    local lbl3; lbl3=$(_status_label "$STATUS_RICHTEXT")
+    local lbl4; lbl4=$(_status_label "$STATUS_FORMATTERS")
+
     echo
     echo "╔══════════════════════════════════════════════════════════════════╗"
     echo "║  Componenti opzionali di NotePadPQ                              ║"
+    echo "║  (✓ già installato  ~ parziale  ✗ mancante)                     ║"
     echo "╠══════════════════════════════════════════════════════════════════╣"
-    echo "║  [1] LaTeX avanzato  — pymupdf, matplotlib, sympy               ║"
-    echo "║      Anteprima PDF, rendering equazioni, calcolo simbolico      ║"
-    echo "║                                                                 ║"
-    echo "║  [2] Foglio di calcolo — openpyxl, xlrd, odfpy                  ║"
-    echo "║      Apertura/salvataggio XLSX, XLS, ODS                       ║"
-    echo "║                                                                 ║"
-    echo "║  [3] Rich Text (WYSIWYG) — mammoth, htmldocx                    ║"
-    echo "║      Apertura/esportazione DOCX come rich text                  ║"
-    echo "║                                                                 ║"
-    echo "║  [a] Tutti i componenti opzionali                               ║"
-    echo "║  [n] Nessun componente opzionale (solo dipendenze base)         ║"
-    echo "╚══════════════════════════════════════════════════════════════════╝"
+    printf "║  [1] LaTeX avanzato  — pymupdf, matplotlib, sympy               ║\n"
+    printf "║      Anteprima PDF, rendering equazioni, calcolo simbolico      ║\n"
+    printf "║      Stato: %-52s║\n" "$lbl1"
+    echo   "║                                                                 ║"
+    printf "║  [2] Foglio di calcolo — openpyxl, xlrd, odfpy                  ║\n"
+    printf "║      Apertura/salvataggio XLSX, XLS, ODS                        ║\n"
+    printf "║      Stato: %-52s║\n" "$lbl2"
+    echo   "║                                                                 ║"
+    printf "║  [3] Rich Text (WYSIWYG) — mammoth, htmldocx                    ║\n"
+    printf "║      Apertura/esportazione DOCX come rich text                  ║\n"
+    printf "║      Stato: %-52s║\n" "$lbl3"
+    echo   "║                                                                 ║"
+    printf "║  [4] Code Formatter — black, ruff (Python)                      ║\n"
+    printf "║      Formattazione codice con Ctrl+Alt+F                        ║\n"
+    printf "║      Stato: %-52s║\n" "$lbl4"
+    echo   "║                                                                 ║"
+    echo   "║  [a] Tutti i componenti opzionali                               ║"
+    echo   "║  [n] Nessun componente opzionale (solo dipendenze base)         ║"
+    echo   "╚══════════════════════════════════════════════════════════════════╝"
     echo
-    echo -n "Seleziona i componenti da installare (es. 1 2 3 oppure a/n): "
+    echo    "  Componenti già completamente installati verranno saltati."
+    echo -n "Seleziona i componenti da installare (es. 1 2 3 4 oppure a/n): "
     read -r OPT_CHOICE
 
     INSTALL_LATEX=false
     INSTALL_SPREADSHEET=false
     INSTALL_RICHTEXT=false
+    INSTALL_FORMATTERS=false
 
     case "$OPT_CHOICE" in
         a|A|all|ALL)
             INSTALL_LATEX=true
             INSTALL_SPREADSHEET=true
             INSTALL_RICHTEXT=true
+            INSTALL_FORMATTERS=true
             ;;
         n|N|no|NO|'')
             # nessun opzionale
@@ -62,14 +140,22 @@ _ask_optional_components() {
             [[ "$OPT_CHOICE" == *1* ]] && INSTALL_LATEX=true
             [[ "$OPT_CHOICE" == *2* ]] && INSTALL_SPREADSHEET=true
             [[ "$OPT_CHOICE" == *3* ]] && INSTALL_RICHTEXT=true
+            [[ "$OPT_CHOICE" == *4* ]] && INSTALL_FORMATTERS=true
             ;;
     esac
 
+    # Salta automaticamente i componenti già completamente installati
+    [[ "$STATUS_LATEX"        == "all" ]] && INSTALL_LATEX=false
+    [[ "$STATUS_SPREADSHEET" == "all" ]] && INSTALL_SPREADSHEET=false
+    [[ "$STATUS_RICHTEXT"     == "all" ]] && INSTALL_RICHTEXT=false
+    [[ "$STATUS_FORMATTERS"  == "all" ]] && INSTALL_FORMATTERS=false
+
     echo
     echo "Componenti selezionati:"
-    $INSTALL_LATEX       && echo "  LaTeX avanzato     : sì" || echo "  LaTeX avanzato     : no"
-    $INSTALL_SPREADSHEET && echo "  Foglio di calcolo  : sì" || echo "  Foglio di calcolo  : no"
-    $INSTALL_RICHTEXT    && echo "  Rich Text (WYSIWYG): sì" || echo "  Rich Text (WYSIWYG): no"
+    $INSTALL_LATEX        && echo "  LaTeX avanzato     : sì" || { [[ "$STATUS_LATEX"        == "all" ]] && echo "  LaTeX avanzato     : già installato (saltato)" || echo "  LaTeX avanzato     : no"; }
+    $INSTALL_SPREADSHEET  && echo "  Foglio di calcolo  : sì" || { [[ "$STATUS_SPREADSHEET" == "all" ]] && echo "  Foglio di calcolo  : già installato (saltato)" || echo "  Foglio di calcolo  : no"; }
+    $INSTALL_RICHTEXT     && echo "  Rich Text (WYSIWYG): sì" || { [[ "$STATUS_RICHTEXT"     == "all" ]] && echo "  Rich Text (WYSIWYG): già installato (saltato)" || echo "  Rich Text (WYSIWYG): no"; }
+    $INSTALL_FORMATTERS   && echo "  Code Formatter     : sì" || { [[ "$STATUS_FORMATTERS"  == "all" ]] && echo "  Code Formatter     : già installato (saltato)" || echo "  Code Formatter     : no"; }
     echo
 }
 
@@ -214,9 +300,10 @@ echo
 if [[ "$OS" == MINGW* ]] || [[ "$OS" == CYGWIN* ]] || [[ "$OS" == MSYS* ]]; then
     # Windows: pip funziona liberamente
     PIP_OPTIONAL=""
-    $INSTALL_SPREADSHEET && PIP_OPTIONAL+="$PIP_SPREADSHEET "
-    $INSTALL_RICHTEXT    && PIP_OPTIONAL+="$PIP_RICHTEXT "
-    $INSTALL_LATEX       && PIP_OPTIONAL+="$PIP_LATEX "
+    $INSTALL_SPREADSHEET  && PIP_OPTIONAL+="$PIP_SPREADSHEET "
+    $INSTALL_RICHTEXT     && PIP_OPTIONAL+="$PIP_RICHTEXT "
+    $INSTALL_LATEX        && PIP_OPTIONAL+="$PIP_LATEX "
+    $INSTALL_FORMATTERS   && PIP_OPTIONAL+="$PIP_FORMATTERS "
     $PYTHON -m pip install $PIP_CORE $PIP_OPTIONAL
 
 elif command -v pacman &>/dev/null; then
@@ -242,6 +329,10 @@ elif command -v pacman &>/dev/null; then
             python-pymupdf python-matplotlib python-sympy 2>/dev/null || \
             $PYTHON -m pip install $PIP_LATEX 2>/dev/null || true
     fi
+    if $INSTALL_FORMATTERS; then
+        echo "  Code Formatter: installo black e ruff via pip..."
+        $PYTHON -m pip install $PIP_FORMATTERS 2>/dev/null || true
+    fi
 
 elif command -v apt-get &>/dev/null; then
     BREAK="--break-system-packages"
@@ -265,6 +356,10 @@ elif command -v apt-get &>/dev/null; then
         echo "  LaTeX avanzato: installo pymupdf via pip..."
         _pip_or_venv "pymupdf" "$BREAK"
     fi
+    if $INSTALL_FORMATTERS; then
+        echo "  Code Formatter: installo black e ruff via pip..."
+        _pip_or_venv "$PIP_FORMATTERS" "$BREAK"
+    fi
 
 elif command -v dnf &>/dev/null; then
     sudo dnf install -y \
@@ -272,9 +367,10 @@ elif command -v dnf &>/dev/null; then
         python3-chardet python3-markdown 2>/dev/null || true
 
     PIP_OPTIONAL=""
-    $INSTALL_SPREADSHEET && PIP_OPTIONAL+="$PIP_SPREADSHEET "
-    $INSTALL_RICHTEXT    && PIP_OPTIONAL+="$PIP_RICHTEXT "
-    $INSTALL_LATEX       && PIP_OPTIONAL+="$PIP_LATEX "
+    $INSTALL_SPREADSHEET  && PIP_OPTIONAL+="$PIP_SPREADSHEET "
+    $INSTALL_RICHTEXT     && PIP_OPTIONAL+="$PIP_RICHTEXT "
+    $INSTALL_LATEX        && PIP_OPTIONAL+="$PIP_LATEX "
+    $INSTALL_FORMATTERS   && PIP_OPTIONAL+="$PIP_FORMATTERS "
     $PYTHON -m pip install --user $PIP_CORE $PIP_OPTIONAL || true
 
 elif [[ "$OS" == "FreeBSD" ]]; then
@@ -297,8 +393,9 @@ elif [[ "$OS" == "FreeBSD" ]]; then
     PIPBIN=$(command -v pip3 || command -v pip || true)
     if [[ -n "$PIPBIN" ]]; then
         PIP_OPTIONAL=""
-        $INSTALL_RICHTEXT && PIP_OPTIONAL+="$PIP_RICHTEXT "
-        $INSTALL_LATEX    && PIP_OPTIONAL+="$PIP_LATEX "
+        $INSTALL_RICHTEXT     && PIP_OPTIONAL+="$PIP_RICHTEXT "
+        $INSTALL_LATEX        && PIP_OPTIONAL+="$PIP_LATEX "
+        $INSTALL_FORMATTERS   && PIP_OPTIONAL+="$PIP_FORMATTERS "
         $PIPBIN install --user PyQt6 PyQt6-WebEngine PyQt6-QScintilla pyspellchecker PyGithub $PIP_OPTIONAL || true
     else
         echo "  ERRORE: pip non trovato dopo installazione py${PY_VER}-pip"
@@ -307,9 +404,10 @@ elif [[ "$OS" == "FreeBSD" ]]; then
 
 else
     PIP_OPTIONAL=""
-    $INSTALL_SPREADSHEET && PIP_OPTIONAL+="$PIP_SPREADSHEET "
-    $INSTALL_RICHTEXT    && PIP_OPTIONAL+="$PIP_RICHTEXT "
-    $INSTALL_LATEX       && PIP_OPTIONAL+="$PIP_LATEX "
+    $INSTALL_SPREADSHEET  && PIP_OPTIONAL+="$PIP_SPREADSHEET "
+    $INSTALL_RICHTEXT     && PIP_OPTIONAL+="$PIP_RICHTEXT "
+    $INSTALL_LATEX        && PIP_OPTIONAL+="$PIP_LATEX "
+    $INSTALL_FORMATTERS   && PIP_OPTIONAL+="$PIP_FORMATTERS "
     $PYTHON -m pip install $PIP_CORE $PIP_OPTIONAL || true
 fi
 

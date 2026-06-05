@@ -41,6 +41,15 @@ python-gitlab>=3.0.0   # Plugin GitLab MR
 keyring>=23.5.0        # Gestione sicura dei token
 cryptography>=41.0.0   # Cifratura file clipboard_history (Fernet/AES)
 
+# --- Code Formatter (Opzionali) ---
+black>=23.0.0          # Formattatore Python (Ctrl+Alt+F)
+ruff>=0.1.0            # Linter/formattatore Python ultra-veloce (Ctrl+Alt+F)
+# Formatter di sistema (non installabili via pip):
+#   npm i -g prettier       # JS/TS/HTML/CSS/JSON/YAML
+#   apt install clang-format / brew install clang-format  # C/C++
+#   rustup component add rustfmt  # Rust
+#   gofmt: incluso nel toolchain Go
+
 # --- LSP (Language Server Protocol) ---
 # Il client LSP usa solo librerie standard (subprocess, json, threading).
 # Installare separatamente i server per i linguaggi desiderati:

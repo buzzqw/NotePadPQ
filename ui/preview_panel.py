@@ -194,7 +194,7 @@ class _MarkdownWorker(QThread):
             if _HAS_MARKDOWN:
                 body = _markdown_lib.markdown(
                     preprocessed,
-                    extensions=["tables", "fenced_code", "toc"],
+                    extensions=["tables", "fenced_code", "toc", "md_in_html"],
                 )
             else:
                 import html as _html

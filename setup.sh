@@ -21,6 +21,115 @@ PIP_RICHTEXT="mammoth htmldocx"
 
 # ─── Helper ───────────────────────────────────────────────────────────────────
 
+# Chiede all'utente quali componenti opzionali installare;
+# setta INSTALL_LATEX, INSTALL_SPREADSHEET, INSTALL_RICHTEXT (true/false)
+_ask_optional_components() {
+    echo
+    echo "╔══════════════════════════════════════════════════════════════════╗"
+    echo "║  Componenti opzionali di NotePadPQ                              ║"
+    echo "╠══════════════════════════════════════════════════════════════════╣"
+    echo "║  [1] LaTeX avanzato  — pymupdf, matplotlib, sympy               ║"
+    echo "║      Anteprima PDF, rendering equazioni, calcolo simbolico      ║"
+    echo "║                                                                 ║"
+    echo "║  [2] Foglio di calcolo — openpyxl, xlrd, odfpy                  ║"
+    echo "║      Apertura/salvataggio XLSX, XLS, ODS                       ║"
+    echo "║                                                                 ║"
+    echo "║  [3] Rich Text (WYSIWYG) — mammoth, htmldocx                    ║"
+    echo "║      Apertura/esportazione DOCX come rich text                  ║"
+    echo "║                                                                 ║"
+    echo "║  [a] Tutti i componenti opzionali                               ║"
+    echo "║  [n] Nessun componente opzionale (solo dipendenze base)         ║"
+    echo "╚══════════════════════════════════════════════════════════════════╝"
+    echo
+    echo -n "Seleziona i componenti da installare (es. 1 2 3 oppure a/n): "
+    read -r OPT_CHOICE
+
+    INSTALL_LATEX=false
+    INSTALL_SPREADSHEET=false
+    INSTALL_RICHTEXT=false
+
+    case "$OPT_CHOICE" in
+        a|A|all|ALL)
+            INSTALL_LATEX=true
+            INSTALL_SPREADSHEET=true
+            INSTALL_RICHTEXT=true
+            ;;
+        n|N|no|NO|'')
+            # nessun opzionale
+            ;;
+        *)
+            # selezione multipla: es. "1 2" o "13"
+            [[ "$OPT_CHOICE" == *1* ]] && INSTALL_LATEX=true
+            [[ "$OPT_CHOICE" == *2* ]] && INSTALL_SPREADSHEET=true
+            [[ "$OPT_CHOICE" == *3* ]] && INSTALL_RICHTEXT=true
+            ;;
+    esac
+
+    echo
+    echo "Componenti selezionati:"
+    $INSTALL_LATEX       && echo "  LaTeX avanzato     : sì" || echo "  LaTeX avanzato     : no"
+    $INSTALL_SPREADSHEET && echo "  Foglio di calcolo  : sì" || echo "  Foglio di calcolo  : no"
+    $INSTALL_RICHTEXT    && echo "  Rich Text (WYSIWYG): sì" || echo "  Rich Text (WYSIWYG): no"
+    echo
+}
+
+# Tenta pip con gli argomenti opzionali; se fallisce a causa di "externally managed",
+# offre l'installazione in un venv dedicato e aggiorna il lanciatore.
+_pip_or_venv() {
+    local pkgs="$1"
+    local extra_args="${2:-}"
+
+    $PYTHON -m pip install $extra_args $pkgs >/tmp/_pip_out.txt 2>&1
+    local pip_exit=$?
+
+    if [[ $pip_exit -eq 0 ]]; then
+        return 0
+    fi
+
+    if grep -q "externally-managed\|externally managed\|--break-system-packages" /tmp/_pip_out.txt 2>/dev/null; then
+        echo
+        echo "  pip ha bloccato l'installazione (ambiente Python gestito dal sistema)."
+        echo -n "  Installare i pacchetti in un virtualenv dedicato (${PROJECT_DIR}/.venv)? [S/n] "
+        read -r VENV_CHOICE
+        VENV_CHOICE=${VENV_CHOICE:-s}
+        if [[ "$VENV_CHOICE" =~ ^[Ss]$ ]]; then
+            _install_in_venv "$pkgs"
+        else
+            echo "  Installazione saltata. Puoi installare manualmente: pip install $pkgs"
+        fi
+    else
+        echo "  ATTENZIONE: pip ha restituito un errore durante l'installazione."
+        cat /tmp/_pip_out.txt
+    fi
+}
+
+# Crea (o riusa) un venv in PROJECT_DIR/.venv e installa i pacchetti.
+# Aggiorna anche il lanciatore .desktop per usare il Python del venv.
+_install_in_venv() {
+    local pkgs="$1"
+    local VENV_DIR="${PROJECT_DIR}/.venv"
+
+    echo "  Creazione virtualenv in ${VENV_DIR}..."
+    $PYTHON -m venv "$VENV_DIR"
+    "${VENV_DIR}/bin/pip" install --upgrade pip --quiet
+    echo "  Installazione pacchetti nel venv..."
+    "${VENV_DIR}/bin/pip" install $pkgs
+
+    # Aggiorna il lanciatore .desktop (se già creato) per usare il Python del venv
+    local LAUNCHER="${HOME}/.local/share/applications/notepadpq.desktop"
+    if [[ -f "$LAUNCHER" ]]; then
+        sed -i "s|^Exec=.*|Exec=${VENV_DIR}/bin/python ${PROJECT_DIR}/main.py %F|" "$LAUNCHER"
+        echo "  Lanciatore aggiornato per usare il venv: ${VENV_DIR}/bin/python"
+    fi
+
+    echo
+    echo "  NOTA: per avviare NotePadPQ dal terminale con le dipendenze del venv:"
+    echo "    ${VENV_DIR}/bin/python ${PROJECT_DIR}/main.py"
+    echo "  oppure attiva il venv prima:"
+    echo "    source ${VENV_DIR}/bin/activate"
+    echo
+}
+
 _print_latex_hint() {
     echo
     echo "┌─────────────────────────────────────────────────────────────────┐"
@@ -97,10 +206,18 @@ EOF
 
 echo "=== NotePadPQ Setup ==="
 echo "Installazione dipendenze base: editor, spellcheck, plugin Git."
+
+# Chiedi all'utente quali componenti opzionali installare
+_ask_optional_components
 echo
 
 if [[ "$OS" == MINGW* ]] || [[ "$OS" == CYGWIN* ]] || [[ "$OS" == MSYS* ]]; then
-    $PYTHON -m pip install $PIP_CORE $PIP_SPREADSHEET $PIP_RICHTEXT
+    # Windows: pip funziona liberamente
+    PIP_OPTIONAL=""
+    $INSTALL_SPREADSHEET && PIP_OPTIONAL+="$PIP_SPREADSHEET "
+    $INSTALL_RICHTEXT    && PIP_OPTIONAL+="$PIP_RICHTEXT "
+    $INSTALL_LATEX       && PIP_OPTIONAL+="$PIP_LATEX "
+    $PYTHON -m pip install $PIP_CORE $PIP_OPTIONAL
 
 elif command -v pacman &>/dev/null; then
     echo "Arch Linux: installo dipendenze native via pacman..."
@@ -108,31 +225,65 @@ elif command -v pacman &>/dev/null; then
         python-pyqt6 python-pyqt6-webengine python-qscintilla-qt6 \
         python-chardet python-markdown python-docutils \
         python-pygithub python-gitlab \
-        python-pyspellchecker python-keyring \
-        python-openpyxl python-xlrd python-odfpy 2>/dev/null || true
-    $PYTHON -m pip install $PIP_RICHTEXT 2>/dev/null || true
+        python-pyspellchecker python-keyring 2>/dev/null || true
+
+    if $INSTALL_SPREADSHEET; then
+        echo "  Spreadsheet: installo dipendenze native..."
+        sudo pacman -S --needed --noconfirm \
+            python-openpyxl python-xlrd python-odfpy 2>/dev/null || true
+    fi
+    if $INSTALL_RICHTEXT; then
+        echo "  Rich Text: installo via pip..."
+        $PYTHON -m pip install $PIP_RICHTEXT 2>/dev/null || true
+    fi
+    if $INSTALL_LATEX; then
+        echo "  LaTeX avanzato: installo dipendenze native..."
+        sudo pacman -S --needed --noconfirm \
+            python-pymupdf python-matplotlib python-sympy 2>/dev/null || \
+            $PYTHON -m pip install $PIP_LATEX 2>/dev/null || true
+    fi
 
 elif command -v apt-get &>/dev/null; then
     BREAK="--break-system-packages"
     sudo apt-get update
-    sudo apt-get install -y \
-        python3-pyqt6 python3-pyqt6.qsci python3-chardet \
-        python3-markdown python3-pyqt6.qtwebengine \
-        python3-openpyxl python3-xlrd python3-odf 2>/dev/null || true
-    $PYTHON -m pip install $BREAK $PIP_CORE $PIP_SPREADSHEET $PIP_RICHTEXT 2>/dev/null || true
+    # Pacchetti base via apt (preferiti al pip su Debian/Ubuntu)
+    APT_BASE="python3-pyqt6 python3-pyqt6.qsci python3-chardet python3-markdown python3-pyqt6.qtwebengine"
+    APT_OPTIONAL=""
+    $INSTALL_SPREADSHEET && APT_OPTIONAL+=" python3-openpyxl python3-xlrd python3-odf"
+    $INSTALL_LATEX       && APT_OPTIONAL+=" python3-matplotlib python3-sympy"
+    sudo apt-get install -y $APT_BASE $APT_OPTIONAL 2>/dev/null || true
+
+    # Pacchetti non disponibili in apt → pip (con fallback venv)
+    echo "  Installazione pacchetti base non disponibili in apt (PyGithub, keyring, ecc.)..."
+    _pip_or_venv "$PIP_CORE" "$BREAK"
+
+    if $INSTALL_RICHTEXT; then
+        echo "  Rich Text: installo via pip..."
+        _pip_or_venv "$PIP_RICHTEXT" "$BREAK"
+    fi
+    if $INSTALL_LATEX; then
+        echo "  LaTeX avanzato: installo pymupdf via pip..."
+        _pip_or_venv "pymupdf" "$BREAK"
+    fi
 
 elif command -v dnf &>/dev/null; then
     sudo dnf install -y \
         python3-qt6 python3-qscintilla-qt6 python3-qt6-webengine \
-        python3-chardet python3-markdown \
-        python3-openpyxl 2>/dev/null || true
-    $PYTHON -m pip install --user $PIP_CORE $PIP_SPREADSHEET $PIP_RICHTEXT || true
+        python3-chardet python3-markdown 2>/dev/null || true
+
+    PIP_OPTIONAL=""
+    $INSTALL_SPREADSHEET && PIP_OPTIONAL+="$PIP_SPREADSHEET "
+    $INSTALL_RICHTEXT    && PIP_OPTIONAL+="$PIP_RICHTEXT "
+    $INSTALL_LATEX       && PIP_OPTIONAL+="$PIP_LATEX "
+    $PYTHON -m pip install --user $PIP_CORE $PIP_OPTIONAL || true
 
 elif [[ "$OS" == "FreeBSD" ]]; then
     echo "FreeBSD: rilevazione versione Python..."
     PY_VER=$($PYTHON -c "import sys; print(f'{sys.version_info.major}{sys.version_info.minor}')")
     echo "  Versione Python: $PY_VER"
-    # Pacchetti disponibili nei ports FreeBSD
+    # Pacchetti base disponibili nei ports FreeBSD
+    PKG_OPTIONAL=""
+    $INSTALL_SPREADSHEET && PKG_OPTIONAL+=" py${PY_VER}-openpyxl py${PY_VER}-xlrd py${PY_VER}-odfpy"
     sudo pkg install -y \
         "py${PY_VER}-pip" \
         "py${PY_VER}-qt6-qscintilla2" \
@@ -141,20 +292,25 @@ elif [[ "$OS" == "FreeBSD" ]]; then
         "py${PY_VER}-docutils" \
         "py${PY_VER}-keyring" \
         "py${PY_VER}-python-gitlab" \
-        "py${PY_VER}-openpyxl" \
-        "py${PY_VER}-xlrd" \
-        "py${PY_VER}-odfpy"
+        $PKG_OPTIONAL
     # PyQt6, PyQt6-WebEngine, pyspellchecker, PyGithub non sono nei ports -> pip
     PIPBIN=$(command -v pip3 || command -v pip || true)
     if [[ -n "$PIPBIN" ]]; then
-        $PIPBIN install --user PyQt6 PyQt6-WebEngine PyQt6-QScintilla pyspellchecker PyGithub $PIP_RICHTEXT || true
+        PIP_OPTIONAL=""
+        $INSTALL_RICHTEXT && PIP_OPTIONAL+="$PIP_RICHTEXT "
+        $INSTALL_LATEX    && PIP_OPTIONAL+="$PIP_LATEX "
+        $PIPBIN install --user PyQt6 PyQt6-WebEngine PyQt6-QScintilla pyspellchecker PyGithub $PIP_OPTIONAL || true
     else
         echo "  ERRORE: pip non trovato dopo installazione py${PY_VER}-pip"
         echo "  Riprova: sudo pkg install py${PY_VER}-pip"
     fi
 
 else
-    $PYTHON -m pip install $PIP_CORE $PIP_SPREADSHEET $PIP_RICHTEXT || true
+    PIP_OPTIONAL=""
+    $INSTALL_SPREADSHEET && PIP_OPTIONAL+="$PIP_SPREADSHEET "
+    $INSTALL_RICHTEXT    && PIP_OPTIONAL+="$PIP_RICHTEXT "
+    $INSTALL_LATEX       && PIP_OPTIONAL+="$PIP_LATEX "
+    $PYTHON -m pip install $PIP_CORE $PIP_OPTIONAL || true
 fi
 
 # ─── Verifica finale ──────────────────────────────────────────────────────────

@@ -909,7 +909,7 @@ Works automatically on Linux, Windows, and macOS without any configuration.
 
 ## 17. LaTeX Support
 
-NotePadPQ has comprehensive LaTeX support, but **advanced** features require optional libraries that are not automatically installed by the setup script. The assumption is that users who use NotePadPQ for LaTeX writing already have TeX Live installed and the accessory libraries.
+NotePadPQ has comprehensive LaTeX support, but **advanced** features require optional libraries. The `setup.sh` script interactively asks whether to install them: choose component **[1] Advanced LaTeX** when prompted. If you already have TeX Live installed, `synctex` is already available.
 
 ### Features Always Available (no extra dependencies)
 - **Full LaTeX syntax highlighting**
@@ -933,7 +933,12 @@ NotePadPQ has comprehensive LaTeX support, but **advanced** features require opt
 | Symbolic computation | `sympy` | `pip install sympy` |
 | SyncTeX (editor cursor ↔ PDF position) | `synctex` | included in TeX Live |
 
-**Quick install:**
+**Install via setup.sh** (recommended):
+```bash
+bash setup.sh   # select [1] Advanced LaTeX when prompted
+```
+
+**Manual install:**
 ```bash
 pip install pymupdf matplotlib sympy
 ```
@@ -943,7 +948,7 @@ On **Arch Linux**:
 sudo pacman -S python-pymupdf python-matplotlib python-sympy texlive-bin
 ```
 
-> If you are already using TeX Live for LaTeX compilation, `synctex` is already available. The Python libraries can be installed separately without touching the rest of the setup.
+> On Debian/Ubuntu, if `pip` is blocked by the system package manager, `setup.sh` automatically offers to install packages in a dedicated virtualenv (`<project>/.venv`).
 
 Optional features activate automatically if the libraries are present; no additional configuration is needed.
 

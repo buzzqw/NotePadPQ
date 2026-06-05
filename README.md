@@ -209,6 +209,18 @@ bash setup.sh
 python main.py
 ```
 
+The script auto-detects the OS (Arch Linux, Debian/Ubuntu, Fedora, Windows, FreeBSD) and installs the base dependencies. It then **interactively asks which optional components to install**:
+
+| # | Component | Packages |
+|---|-----------|----------|
+| 1 | Advanced LaTeX | `pymupdf`, `matplotlib`, `sympy` |
+| 2 | Spreadsheet | `openpyxl`, `xlrd`, `odfpy` |
+| 3 | Rich Text (WYSIWYG) | `mammoth`, `htmldocx` |
+
+Enter the numbers of the components you want (e.g. `1 3`), `a` for all, or `n` for none.
+
+> 💡 **Debian/Ubuntu note:** if `pip` is blocked by the system package manager (*externally-managed environment*), the script automatically offers to install the packages inside a dedicated **virtualenv** (`<project>/.venv`) and updates the `.desktop` launcher accordingly.
+
 ### Manual Installation
 
 **Core dependencies** (always required):
@@ -563,7 +575,17 @@ bash setup.sh
 python main.py
 ```
 
-Lo script rileva il sistema operativo (Arch Linux, apt, dnf, Windows) e installa le dipendenze base in modo nativo.
+Lo script rileva il sistema operativo (Arch Linux, apt, dnf, Windows, FreeBSD) e installa le dipendenze base in modo nativo. Poi **chiede interattivamente quali componenti opzionali installare**:
+
+| # | Componente | Pacchetti |
+|---|------------|-----------|
+| 1 | LaTeX avanzato | `pymupdf`, `matplotlib`, `sympy` |
+| 2 | Foglio di calcolo | `openpyxl`, `xlrd`, `odfpy` |
+| 3 | Rich Text (WYSIWYG) | `mammoth`, `htmldocx` |
+
+Inserisci i numeri dei componenti desiderati (es. `1 3`), `a` per tutti, oppure `n` per nessuno.
+
+> 💡 **Nota Debian/Ubuntu:** se `pip` è bloccato dal gestore pacchetti di sistema (*externally-managed environment*), lo script propone automaticamente di installare i pacchetti in un **virtualenv** dedicato (`<progetto>/.venv`) e aggiorna il lanciatore `.desktop` di conseguenza.
 
 ### Installazione manuale
 

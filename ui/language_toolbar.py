@@ -189,13 +189,13 @@ def _make_table_icon(key: str, mw: "MainWindow") -> QIcon:
 
 def _make_math_icon(mw: "MainWindow") -> QIcon:
     """Genera un'icona 20×20 con il simbolo Σ per il bottone matematica."""
-    from PyQt6.QtGui import QPalette, QFont
+    from PyQt6.QtGui import QFont
     size = 20
     pm = QPixmap(size, size)
     pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    color = mw.palette().color(QPalette.ColorRole.WindowText)
+    color = QColor(toolbar_icon_color(mw))
     p.setPen(color)
     font = QFont()
     font.setPointSize(12)
@@ -219,11 +219,25 @@ def render_svg_icon(icon_path: Path, color: str) -> QPixmap:
     return pm
 
 
+def toolbar_icon_color(mw: "MainWindow") -> str:
+    """Restituisce il colore esadecimale da usare per le icone della toolbar.
+
+    Su temi chiari (Window luminoso) scurisce il colore rispetto a WindowText
+    per garantire un contrasto sufficiente. Su temi scuri usa WindowText così
+    com'è (tipicamente bianco/grigio chiaro).
+    """
+    from PyQt6.QtGui import QPalette
+    pal = mw.palette()
+    win_color = pal.color(QPalette.ColorRole.Window)
+    # Se la luminosità dello sfondo finestra è alta → tema chiaro
+    if win_color.lightness() > 128:
+        return "#1a1a1a"
+    return pal.color(QPalette.ColorRole.WindowText).name()
+
+
 def _load_icon(icon_key: str, mw: "MainWindow") -> QIcon:
     """Carica un'icona Lucide (o del set attivo) sostituendo currentColor con il
     colore testo corrente della palette, identico a _rebuild_toolbar()."""
-    from PyQt6.QtGui import QPalette
-
     icon_file = _MD_ICON_FILES.get(icon_key, "")
     if not icon_file:
         return QIcon()
@@ -233,7 +247,7 @@ def _load_icon(icon_key: str, mw: "MainWindow") -> QIcon:
     if not icon_path.exists():
         return QIcon()
 
-    color = mw.palette().color(QPalette.ColorRole.WindowText).name()
+    color = toolbar_icon_color(mw)
     try:
         pm = render_svg_icon(icon_path, color)
         if not pm.isNull():

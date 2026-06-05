@@ -1619,8 +1619,8 @@ class MainWindow(QMainWindow):
         # testo della palette corrente (currentColor), availableSizes() riporta
         # [24x24] e le icone sono visibili su qualsiasi tema (chiaro o scuro).
         from PyQt6.QtGui import QPixmap as _QPixmap, QPalette as _QPalette
-        from ui.language_toolbar import render_svg_icon as _render_svg
-        _wtext = self.palette().color(_QPalette.ColorRole.WindowText).name()
+        from ui.language_toolbar import render_svg_icon as _render_svg, toolbar_icon_color as _icon_color
+        _wtext = _icon_color(self)
         for key, action in self._actions.items():
             icon_file = _ICON_MAP.get(key)
             if not icon_file:

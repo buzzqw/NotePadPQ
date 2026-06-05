@@ -490,7 +490,8 @@
     "macro_no_macro": "Brak nagranego makra.",
     "macro_play_n_title": "Uruchom makro N razy",
     "macro_play_n_prompt": "Liczba powtórzeń:",
-    "macro_save_name_prompt": "Nazwa makra:"
+    "macro_save_name_prompt": "Nazwa makra:",
+    "no_terminal_supported": "Nie znaleziono obsługiwanego terminala.\nSkonfiguruj go w Preferencje → Build."
   },
   "pref": {
     "title": "Preferencje",

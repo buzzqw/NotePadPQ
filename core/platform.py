@@ -211,6 +211,60 @@ def open_path_in_filemanager(path: Path) -> bool:
         return False
 
 
+def open_terminal_in_folder(folder: str) -> bool:
+    """
+    Apre il terminale di sistema nella directory specificata.
+    Legge il comando configurato dall'utente (build/terminal_cmd) se presente.
+    Restituisce True se il comando è stato avviato correttamente.
+    """
+    import shlex
+
+    try:
+        from config.settings import Settings
+        terminal_cmd = Settings.instance().get("build/terminal_cmd", "")
+    except Exception:
+        terminal_cmd = ""
+
+    try:
+        if terminal_cmd:
+            cmd_str = terminal_cmd.replace("{DIR}", folder)
+            subprocess.Popen(shlex.split(cmd_str))
+            return True
+
+        if IS_WINDOWS:
+            try:
+                subprocess.Popen(["wt.exe", "-d", folder])
+            except FileNotFoundError:
+                subprocess.Popen(["cmd.exe", "/K", f"cd /d {folder}"])
+            return True
+
+        if IS_MAC:
+            subprocess.Popen(["open", "-a", "Terminal", folder])
+            return True
+
+        # Linux / BSD — prova i terminali più comuni
+        terminals = [
+            ["gnome-terminal", f"--working-directory={folder}"],
+            ["konsole", "--workdir", folder],
+            ["xfce4-terminal", f"--working-directory={folder}"],
+            ["tilix", f"--working-directory={folder}"],
+            ["alacritty", "--working-directory", folder],
+            ["kitty", f"--directory={folder}"],
+            ["lxterminal", f"--working-directory={folder}"],
+            ["mate-terminal", f"--working-directory={folder}"],
+            ["xterm", "-e", f"bash -c 'cd {folder!r}; exec bash'"],
+        ]
+        for cmd in terminals:
+            try:
+                subprocess.Popen(cmd)
+                return True
+            except FileNotFoundError:
+                continue
+        return False
+    except Exception:
+        return False
+
+
 def open_url_in_browser(url: str) -> bool:
     """
     Apre un URL nel browser predefinito. Cross-platform.

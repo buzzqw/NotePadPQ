@@ -490,7 +490,8 @@
     "macro_no_macro": "Nessuna macro registrata.",
     "macro_play_n_title": "Esegui macro N volte",
     "macro_play_n_prompt": "Numero di ripetizioni:",
-    "macro_save_name_prompt": "Nome macro:"
+    "macro_save_name_prompt": "Nome macro:",
+    "no_terminal_supported": "Nessun terminale supportato trovato.\nConfigurane uno in Preferenze → Build."
   },
   "pref": {
     "title": "Preferenze",

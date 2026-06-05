@@ -490,7 +490,8 @@
     "macro_no_macro": "Kein Makro aufgezeichnet.",
     "macro_play_n_title": "Makro N-mal ausführen",
     "macro_play_n_prompt": "Anzahl der Wiederholungen:",
-    "macro_save_name_prompt": "Makroname:"
+    "macro_save_name_prompt": "Makroname:",
+    "no_terminal_supported": "Kein unterstütztes Terminal gefunden.\nKonfigurieren Sie eines in Einstellungen → Build."
   },
   "pref": {
     "title": "Einstellungen",

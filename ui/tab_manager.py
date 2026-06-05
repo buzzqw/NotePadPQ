@@ -515,6 +515,12 @@ class TabManager(QTabWidget):
             lambda: self._open_containing_dir(editor)
         )
 
+        act_open_terminal = menu.addAction(tr("action.open_terminal"))
+        act_open_terminal.setEnabled(editor.file_path is not None)
+        act_open_terminal.triggered.connect(
+            lambda: self._open_terminal_here(editor)
+        )
+
         menu.addSeparator()
 
         act_clone = menu.addAction(tr("action.clone_document"))
@@ -546,6 +552,20 @@ class TabManager(QTabWidget):
         if editor.file_path:
             from core.platform import open_path_in_filemanager
             open_path_in_filemanager(editor.file_path)
+
+    def _open_terminal_here(self, editor: EditorWidget) -> None:
+        from core.platform import open_terminal_in_folder
+        from pathlib import Path
+        if editor.file_path:
+            folder = str(editor.file_path.parent)
+        else:
+            folder = str(Path(__file__).parent.parent)
+        if not open_terminal_in_folder(folder):
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self, "NotePadPQ",
+                tr("msg.no_terminal_supported")
+            )
 
     def _clone_tab(self, editor: EditorWidget) -> None:
         content  = editor.get_content()

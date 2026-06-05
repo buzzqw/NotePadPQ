@@ -233,6 +233,40 @@ check_opt('Sympy',      'import sympy',      'calcolo simbolico')
 _check_synctex
 
 echo
+echo "--- Plugin FTP/SFTP/SSH/SMB ---"
+if python3 -c "import paramiko" &>/dev/null 2>&1; then
+    echo "  paramiko: OK  (SFTP + SSH)"
+else
+    echo "  paramiko: non installato  →  pip install paramiko  (per SFTP e SSH)"
+fi
+case "$(uname -s)" in
+  Linux*)
+    if command -v mount.cifs &>/dev/null; then
+        echo "  cifs-utils: OK  (mount SMB)"
+    else
+        echo "  cifs-utils: non installato  →  sudo apt install cifs-utils  (per SMB)"
+    fi ;;
+  Darwin*)  echo "  macOS: mount_smbfs incluso nel sistema (SMB OK)" ;;
+  MINGW*|CYGWIN*|MSYS*) echo "  Windows: net use incluso nel sistema (SMB OK)" ;;
+esac
+echo
+
+echo "--- Code Formatter (opzionali) ---"
+for tool in black ruff prettier clang-format rustfmt gofmt; do
+    if command -v "$tool" &>/dev/null; then
+        echo "  $tool: OK"
+    else
+        echo "  $tool: non installato  (opzionale)"
+    fi
+done
+echo "  Installa i formatter mancanti:"
+echo "    pip install black ruff              # Python"
+echo "    npm i -g prettier                  # JS/TS/HTML/CSS"
+echo "    apt install clang-format           # C/C++ (oppure brew/choco)"
+echo "    rustup component add rustfmt       # Rust"
+echo "    (gofmt è incluso nel toolchain Go)"
+
+echo
 echo "--- LSP (server di linguaggio, opzionali) ---"
 for tool in pylsp clangd rust-analyzer gopls texlab typescript-language-server; do
     if command -v "$tool" &>/dev/null; then
@@ -273,6 +307,23 @@ echo "│    pip install mammoth htmldocx                                 │"
 echo "└─────────────────────────────────────────────────────────────────┘"
 echo
 
+echo "┌─────────────────────────────────────────────────────────────────┐"
+echo "│  Plugin Code Formatter (opzionale)                              │"
+echo "│                                                                 │"
+echo "│  Per formattare il codice con Ctrl+Alt+F:                       │"
+echo "│                                                                 │"
+echo "│  • black / ruff  — Python  (pip install black ruff)             │"
+echo "│  • prettier      — JS/TS/HTML/CSS  (npm i -g prettier)          │"
+echo "│  • clang-format  — C/C++  (apt install clang-format)            │"
+echo "│  • rustfmt       — Rust  (rustup component add rustfmt)         │"
+echo "│  • gofmt         — Go  (incluso nel toolchain Go)               │"
+echo "│  • json.tool / minidom — JSON/XML  (stdlib Python, già incluso) │"
+echo "│                                                                 │"
+echo "│  Installazione rapida:                                          │"
+echo "│    pip install black ruff                                       │"
+echo "│    npm i -g prettier                                            │"
+echo "└─────────────────────────────────────────────────────────────────┘"
+echo
 echo "┌─────────────────────────────────────────────────────────────────┐"
 echo "│  Plugin Foglio di Calcolo (opzionale)                           │"
 echo "│                                                                 │"

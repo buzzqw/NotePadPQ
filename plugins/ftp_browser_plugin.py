@@ -22,15 +22,15 @@ import threading
 from pathlib import Path, PurePosixPath
 from typing import Optional, List, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QThread
 from PyQt6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget,
     QTreeWidgetItem, QPushButton, QLabel, QLineEdit, QSpinBox,
     QComboBox, QDialog, QFormLayout, QDialogButtonBox,
     QMessageBox, QApplication, QProgressDialog, QMenu, QInputDialog,
-    QCheckBox,
+    QCheckBox, QTextEdit, QSplitter, QTabWidget,
 )
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QFont, QColor, QTextCursor, QKeyEvent
 
 from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
@@ -42,17 +42,20 @@ if TYPE_CHECKING:
 # ─── Modello connessione ──────────────────────────────────────────────────────
 
 class FtpProfile:
-    """Dati di una connessione FTP/SFTP."""
+    """Dati di una connessione FTP/SFTP/SSH/SMB."""
 
     def __init__(self, name="", host="", port=21, user="anonymous",
-                 password="", protocol="FTP", remote_dir="/"):
+                 password="", protocol="FTP", remote_dir="/",
+                 domain="", smb_share=""):
         self.name       = name
         self.host       = host
         self.port       = port
         self.user       = user
         self.password   = password
-        self.protocol   = protocol   # "FTP" o "SFTP"
+        self.protocol   = protocol   # "FTP", "SFTP", "SSH" o "SMB"
         self.remote_dir = remote_dir
+        self.domain     = domain      # per SMB/AD
+        self.smb_share  = smb_share   # nome share SMB (es. "documents")
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()
@@ -88,9 +91,14 @@ class _ProfileDialog(QDialog):
         self._password = QLineEdit(self._profile.password)
         self._password.setEchoMode(QLineEdit.EchoMode.Password)
         self._protocol = QComboBox()
-        self._protocol.addItems(["FTP", "SFTP"])
+        self._protocol.addItems(["FTP", "SFTP", "SSH", "SMB"])
         self._protocol.setCurrentText(self._profile.protocol)
         self._remote   = QLineEdit(self._profile.remote_dir)
+
+        self._domain    = QLineEdit(getattr(self._profile, "domain", ""))
+        self._domain.setPlaceholderText("WORKGROUP  oppure  DOMINIO.LOCAL")
+        self._smb_share = QLineEdit(getattr(self._profile, "smb_share", ""))
+        self._smb_share.setPlaceholderText("es. documents  oppure  homes")
 
         form.addRow("Nome profilo:", self._name)
         form.addRow("Host:", self._host)
@@ -99,6 +107,8 @@ class _ProfileDialog(QDialog):
         form.addRow("Password:", self._password)
         form.addRow("Protocollo:", self._protocol)
         form.addRow("Directory remota:", self._remote)
+        self._row_domain    = form.addRow("Dominio/Workgroup:", self._domain)
+        self._row_smb_share = form.addRow("Share SMB:", self._smb_share)
 
         layout.addLayout(form)
 
@@ -114,25 +124,283 @@ class _ProfileDialog(QDialog):
         self._on_protocol_changed(self._protocol.currentText())
 
     def _on_protocol_changed(self, proto: str) -> None:
-        default_port = 21 if proto == "FTP" else 22
-        if self._port.value() in (21, 22):
+        if proto == "FTP":
+            default_port = 21
+        elif proto == "SMB":
+            default_port = 445
+        else:   # SFTP, SSH
+            default_port = 22
+        if self._port.value() in (21, 22, 445):
             self._port.setValue(default_port)
+        is_smb = (proto == "SMB")
+        is_ssh = (proto == "SSH")
+        if hasattr(self, "_remote"):
+            self._remote.setEnabled(not is_ssh and not is_smb)
+        if hasattr(self, "_domain"):
+            self._domain.setEnabled(is_smb)
+        if hasattr(self, "_smb_share"):
+            self._smb_share.setEnabled(is_smb)
 
     def _on_accept(self) -> None:
         if not self._host.text().strip():
             QMessageBox.warning(self, "Errore", "Inserire l'host.")
             return
-        self._profile.name     = self._name.text().strip() or self._host.text()
-        self._profile.host     = self._host.text().strip()
-        self._profile.port     = self._port.value()
-        self._profile.user     = self._user.text()
-        self._profile.password = self._password.text()
-        self._profile.protocol = self._protocol.currentText()
+        proto = self._protocol.currentText()
+        if proto == "SMB" and not self._smb_share.text().strip():
+            QMessageBox.warning(self, "Errore", "Inserire il nome della share SMB.")
+            return
+        self._profile.name      = self._name.text().strip() or self._host.text()
+        self._profile.host      = self._host.text().strip()
+        self._profile.port      = self._port.value()
+        self._profile.user      = self._user.text()
+        self._profile.password  = self._password.text()
+        self._profile.protocol  = proto
         self._profile.remote_dir = self._remote.text() or "/"
+        self._profile.domain    = self._domain.text().strip()
+        self._profile.smb_share = self._smb_share.text().strip()
         self.accept()
 
     def result_profile(self) -> FtpProfile:
         return self._profile
+
+
+# ─── Terminale SSH interattivo ────────────────────────────────────────────────
+
+class _SshOutputReader(QObject):
+    """Legge l'output del canale SSH in un thread separato e lo emette come segnale."""
+    data_ready = pyqtSignal(str)
+    finished   = pyqtSignal()
+
+    def __init__(self, channel):
+        super().__init__()
+        self._channel = channel
+        self._running = True
+
+    def run(self):
+        while self._running:
+            try:
+                if self._channel.recv_ready():
+                    chunk = self._channel.recv(4096)
+                    if chunk:
+                        self.data_ready.emit(chunk.decode("utf-8", errors="replace"))
+                    else:
+                        break
+                elif self._channel.closed or self._channel.exit_status_ready():
+                    break
+                else:
+                    import time
+                    time.sleep(0.05)
+            except Exception:
+                break
+        self.finished.emit()
+
+    def stop(self):
+        self._running = False
+
+
+class _SshTerminalDialog(QDialog):
+    """Finestra di terminale SSH interattivo basata su paramiko."""
+
+    def __init__(self, profile: "FtpProfile", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"SSH — {profile.user}@{profile.host}")
+        self.resize(800, 520)
+        self._profile = profile
+        self._ssh = None
+        self._channel = None
+        self._reader = None
+        self._reader_thread = None
+        self._history: list[str] = []
+        self._hist_idx = 0
+        self._build_ui()
+        self._connect()
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(6, 6, 6, 6)
+        lay.setSpacing(4)
+
+        # Info bar
+        info = QHBoxLayout()
+        self._lbl_status = QLabel(f"Connessione a {self._profile.host}:{self._profile.port}…")
+        self._lbl_status.setStyleSheet("color: #888; font-size: 11px;")
+        info.addWidget(self._lbl_status)
+        info.addStretch()
+        btn_clear = QPushButton("Pulisci")
+        btn_clear.setFixedWidth(70)
+        btn_clear.clicked.connect(self._clear_output)
+        info.addWidget(btn_clear)
+        lay.addLayout(info)
+
+        # Output terminal
+        self._output = QTextEdit()
+        self._output.setReadOnly(True)
+        self._output.setFont(QFont("Monospace", 10))
+        self._output.setStyleSheet(
+            "QTextEdit { background: #1e1e1e; color: #d4d4d4;"
+            "  border: 1px solid #3c3c3c; border-radius: 4px; }"
+        )
+        lay.addWidget(self._output, stretch=1)
+
+        # Input bar
+        input_row = QHBoxLayout()
+        self._lbl_prompt = QLabel("$")
+        self._lbl_prompt.setStyleSheet("color: #49cc90; font-weight: bold; font-family: monospace;")
+        input_row.addWidget(self._lbl_prompt)
+
+        self._input = QLineEdit()
+        self._input.setPlaceholderText("Digita il comando e premi Invio…")
+        self._input.setFont(QFont("Monospace", 10))
+        self._input.setStyleSheet(
+            "QLineEdit { background: #252526; color: #d4d4d4;"
+            "  border: 1px solid #3c3c3c; border-radius: 4px; padding: 4px; }"
+        )
+        self._input.returnPressed.connect(self._send_command)
+        self._input.installEventFilter(self)
+        input_row.addWidget(self._input, stretch=1)
+
+        btn_send = QPushButton("Invia")
+        btn_send.setFixedWidth(70)
+        btn_send.setStyleSheet(
+            "QPushButton { background: #0e639c; color: white; border: none;"
+            "  border-radius: 4px; padding: 4px 10px; font-weight: bold; }"
+            "QPushButton:hover { background: #1177bb; }"
+        )
+        btn_send.clicked.connect(self._send_command)
+        input_row.addWidget(btn_send)
+        lay.addLayout(input_row)
+
+        # Bottoni utility
+        util_row = QHBoxLayout()
+        for label, cmd in [("ls -la", "ls -la\n"), ("pwd", "pwd\n"),
+                            ("df -h", "df -h\n"), ("top (q per uscire)", "top\n")]:
+            b = QPushButton(label)
+            b.setFixedHeight(24)
+            b.setStyleSheet(
+                "QPushButton { background: #2d2d2d; color: #aaa; border: 1px solid #444;"
+                "  border-radius: 3px; font-size: 11px; padding: 0 8px; }"
+                "QPushButton:hover { background: #3c3c3c; color: #fff; }"
+            )
+            b.clicked.connect(lambda checked, c=cmd: self._send_raw(c))
+            util_row.addWidget(b)
+        util_row.addStretch()
+        lay.addLayout(util_row)
+
+        # Pulsante chiudi
+        btn_close = QPushButton("Chiudi connessione")
+        btn_close.clicked.connect(self.close)
+        lay.addWidget(btn_close)
+
+    def eventFilter(self, obj, event):
+        """Gestisce freccia su/giù per la cronologia comandi."""
+        if obj is self._input and isinstance(event, QKeyEvent):
+            from PyQt6.QtCore import Qt as _Qt
+            if event.key() == _Qt.Key.Key_Up:
+                if self._history and self._hist_idx < len(self._history):
+                    self._hist_idx += 1
+                    self._input.setText(self._history[-self._hist_idx])
+                return True
+            elif event.key() == _Qt.Key.Key_Down:
+                if self._hist_idx > 1:
+                    self._hist_idx -= 1
+                    self._input.setText(self._history[-self._hist_idx])
+                else:
+                    self._hist_idx = 0
+                    self._input.clear()
+                return True
+        return super().eventFilter(obj, event)
+
+    def _connect(self):
+        try:
+            import paramiko
+        except ImportError:
+            self._append_output(
+                "❌ paramiko non installato.\n"
+                "   Esegui: pip install paramiko\n"
+            )
+            self._lbl_status.setText("paramiko mancante")
+            return
+        try:
+            self._ssh = paramiko.SSHClient()
+            self._ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self._ssh.connect(
+                self._profile.host,
+                port=self._profile.port,
+                username=self._profile.user,
+                password=self._profile.password,
+                timeout=15,
+            )
+            self._channel = self._ssh.invoke_shell(term="xterm", width=120, height=40)
+            self._channel.setblocking(False)
+            self._lbl_status.setText(
+                f"✓ Connesso a {self._profile.user}@{self._profile.host}:{self._profile.port}"
+            )
+            self._lbl_status.setStyleSheet("color: #49cc90; font-size: 11px; font-weight: bold;")
+            self._start_reader()
+        except Exception as exc:
+            self._append_output(f"❌ Connessione fallita:\n   {exc}\n")
+            self._lbl_status.setText("Errore connessione")
+            self._lbl_status.setStyleSheet("color: #f44747; font-size: 11px;")
+
+    def _start_reader(self):
+        self._reader = _SshOutputReader(self._channel)
+        self._reader.data_ready.connect(self._append_output)
+        self._reader.finished.connect(self._on_reader_finished)
+        self._reader_thread = threading.Thread(target=self._reader.run, daemon=True)
+        self._reader_thread.start()
+
+    def _append_output(self, text: str):
+        # Rimuovi sequenze ANSI di base per leggibilità
+        import re
+        clean = re.sub(r"\x1b\[[0-9;]*[mABCDEFGHJKSTfhil]", "", text)
+        clean = re.sub(r"\x1b\].*?\x07", "", clean)
+        clean = clean.replace("\r\n", "\n").replace("\r", "\n")
+        cursor = self._output.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._output.setTextCursor(cursor)
+        self._output.insertPlainText(clean)
+        self._output.ensureCursorVisible()
+
+    def _send_command(self):
+        cmd = self._input.text()
+        if not cmd:
+            return
+        self._history.append(cmd)
+        self._hist_idx = 0
+        self._input.clear()
+        self._send_raw(cmd + "\n")
+
+    def _send_raw(self, raw: str):
+        if self._channel and not self._channel.closed:
+            try:
+                self._channel.send(raw)
+            except Exception as exc:
+                self._append_output(f"\n❌ Errore invio: {exc}\n")
+        else:
+            self._append_output("\n⚠ Canale SSH non attivo.\n")
+
+    def _clear_output(self):
+        self._output.clear()
+
+    def _on_reader_finished(self):
+        self._append_output("\n\n[Connessione SSH chiusa]\n")
+        self._lbl_status.setText("Disconnesso")
+        self._lbl_status.setStyleSheet("color: #888; font-size: 11px;")
+
+    def closeEvent(self, event):
+        if self._reader:
+            self._reader.stop()
+        if self._channel:
+            try:
+                self._channel.close()
+            except Exception:
+                pass
+        if self._ssh:
+            try:
+                self._ssh.close()
+            except Exception:
+                pass
+        super().closeEvent(event)
 
 
 # ─── Pannello FTP ─────────────────────────────────────────────────────────────
@@ -375,6 +643,18 @@ class _FtpPanel(QWidget):
 
         profile = self._profiles[idx]
         self._current_profile = profile
+
+        # ── SSH: apre terminale interattivo, non naviga file ──────────────────
+        if profile.protocol == "SSH":
+            dlg = _SshTerminalDialog(profile, parent=self)
+            dlg.show()
+            return
+
+        # ── SMB: mount helper ─────────────────────────────────────────────────
+        if profile.protocol == "SMB":
+            self._smb_mount_helper(profile)
+            return
+
         self._status.setText(f"Connessione a {profile.host}…")
         QApplication.processEvents()
 
@@ -391,6 +671,157 @@ class _FtpPanel(QWidget):
             self._conn = None
             self._status.setText("Errore connessione")
             QMessageBox.critical(self, "FTP Browser", f"Connessione fallita:\n{e}")
+
+    def _smb_mount_helper(self, profile: FtpProfile) -> None:
+        """Controlla se la share SMB è già montata; se no, tenta il mount."""
+        import sys
+        import subprocess
+        import shutil
+
+        host  = profile.host
+        share = profile.smb_share or ""
+        user  = profile.user
+        pwd   = profile.password
+        dom   = profile.domain or "WORKGROUP"
+
+        # ── Controlla se già montata ──────────────────────────────────────────
+        already_mounted = self._smb_find_mount(host, share)
+        if already_mounted:
+            self._status.setText(f"✓ Share già montata: {already_mounted}")
+            QMessageBox.information(
+                self, "SMB",
+                f"La share è già accessibile in:\n{already_mounted}\n\n"
+                "Puoi aprire i file direttamente da quel percorso."
+            )
+            # Apri il file manager di sistema sulla cartella
+            try:
+                if sys.platform.startswith("win"):
+                    os.startfile(already_mounted)
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", already_mounted])
+                else:
+                    xdg = shutil.which("xdg-open") or shutil.which("nautilus") or shutil.which("dolphin")
+                    if xdg:
+                        subprocess.Popen([xdg, already_mounted])
+            except Exception:
+                pass
+            return
+
+        # ── Non montata: chiedi conferma e tenta mount ────────────────────────
+        unc = f"//\"{host}\"/\"{share}\"" if share else f"//\"{host}\""
+        reply = QMessageBox.question(
+            self, "SMB — Mount share",
+            f"La share  \\\\{host}\\{share}  non risulta montata.\n\n"
+            f"Vuoi montarla ora con le credenziali del profilo?\n"
+            f"  Utente: {dom}\\{user}\n"
+            f"  Host:   {host}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._status.setText(f"Mount {host}/{share}…")
+        QApplication.processEvents()
+
+        try:
+            if sys.platform.startswith("win"):
+                # Windows: net use \\host\share password /user:domain\user
+                cmd = ["net", "use",
+                       f"\\\\{host}\\{share}",
+                       pwd or "*",
+                       f"/user:{dom}\\{user}"]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+                if result.returncode == 0:
+                    mounted_path = f"\\\\{host}\\{share}"
+                    self._status.setText(f"✓ Montata: {mounted_path}")
+                    QMessageBox.information(self, "SMB",
+                        f"✓ Share montata con successo:\n{mounted_path}")
+                    os.startfile(mounted_path)
+                else:
+                    raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+
+            elif sys.platform == "darwin":
+                # macOS: mount_smbfs //user:pass@host/share /Volumes/share
+                mnt_dir = f"/Volumes/{share or host}"
+                os.makedirs(mnt_dir, exist_ok=True)
+                safe_pwd = pwd.replace("@", "%40").replace(":", "%3A")
+                smb_url  = f"smb://{user}:{safe_pwd}@{host}/{share}"
+                result = subprocess.run(
+                    ["mount_smbfs", smb_url, mnt_dir],
+                    capture_output=True, text=True, timeout=20
+                )
+                if result.returncode == 0:
+                    self._status.setText(f"✓ Montata: {mnt_dir}")
+                    QMessageBox.information(self, "SMB",
+                        f"✓ Share montata in:\n{mnt_dir}")
+                    subprocess.Popen(["open", mnt_dir])
+                else:
+                    raise RuntimeError(result.stderr.strip() or "mount_smbfs fallito")
+
+            else:
+                # Linux: mount.cifs //host/share /mnt/share -o user=,pass=,domain=
+                if not shutil.which("mount.cifs") and not shutil.which("mount"):
+                    raise RuntimeError(
+                        "mount.cifs non trovato.\n"
+                        "Installa: sudo apt install cifs-utils"
+                    )
+                mnt_dir = f"/mnt/smb_{host}_{share}".replace(" ", "_")
+                os.makedirs(mnt_dir, exist_ok=True)
+                opts = f"username={user},password={pwd},domain={dom},uid={os.getuid()},gid={os.getgid()}"
+                cmd = ["pkexec", "mount", "-t", "cifs",
+                       f"//{host}/{share}", mnt_dir,
+                       "-o", opts]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    self._status.setText(f"✓ Montata: {mnt_dir}")
+                    QMessageBox.information(self, "SMB",
+                        f"✓ Share montata in:\n{mnt_dir}\n\n"
+                        "Puoi aprire i file direttamente da quella cartella.")
+                    xdg = shutil.which("xdg-open") or shutil.which("nautilus") or shutil.which("dolphin")
+                    if xdg:
+                        subprocess.Popen([xdg, mnt_dir])
+                else:
+                    err = result.stderr.strip() or "mount fallito"
+                    raise RuntimeError(err)
+
+        except Exception as exc:
+            self._status.setText("Mount fallito")
+            QMessageBox.critical(self, "SMB — Errore mount",
+                f"Impossibile montare la share:\n\n{exc}\n\n"
+                "Suggerimenti:\n"
+                "• Linux: sudo apt install cifs-utils\n"
+                "• Verifica host, share, credenziali e firewall (porta 445)")
+
+    @staticmethod
+    def _smb_find_mount(host: str, share: str) -> Optional[str]:
+        """Cerca se //host/share è già montata. Restituisce il mountpoint o None."""
+        import sys
+        try:
+            if sys.platform.startswith("win"):
+                # Su Windows controlla se \\host\share è accessibile
+                p = f"\\\\{host}\\{share}"
+                return p if os.path.isdir(p) else None
+            elif sys.platform == "darwin":
+                mnt = f"/Volumes/{share}"
+                return mnt if os.path.ismount(mnt) else None
+            else:
+                # Linux: cerca in /proc/mounts
+                needle = f"//{host}/{share}"
+                needle2 = f"\\\\{host}\\{share}"
+                with open("/proc/mounts", "r") as f:
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            dev, mnt = parts[0], parts[1]
+                            if dev.lower() in (needle.lower(), needle2.lower()):
+                                return mnt
+                # Controlla anche path diretti tipo /mnt/smb_host_share
+                candidate = f"/mnt/smb_{host}_{share}".replace(" ", "_")
+                if os.path.ismount(candidate):
+                    return candidate
+        except Exception:
+            pass
+        return None
 
     def _connect_ftp(self, profile: FtpProfile):
         import ftplib

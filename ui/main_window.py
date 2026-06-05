@@ -155,6 +155,7 @@ _ICON_MAP: dict[str, str] = {
     "plugin_richtext": "pen.svg", "plugin_spreadsheet": "table.svg",
     "plugin_encrypt": "lock.svg", "plugin_encrypt_dec": "keyboard.svg",
     "plugin_terminal": "terminal.svg", "plugin_search": "search.svg",
+    "plugin_rest": "send.svg",
     # Split view submenu
     "menu_split_view": "columns-2.svg",
 }

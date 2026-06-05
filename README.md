@@ -159,9 +159,11 @@ Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) d
 | **Encrypt/Decrypt** | AES-256-GCM and ChaCha20-Poly1305 encryption |
 | **Rich Text Editor** | WYSIWYG editor for .doc, .docx, .odt, .rtf, .html powered by Jodit 4 |
 | **Spreadsheet** | Full CSV, TSV, XLSX, XLS, XLSM, ODS editor with sort, filter, formulas, and charts |
-| **FTP Browser** | Browse and edit files on FTP servers |
+| **Code Formatter** | Format Document/Selection for Python (black/ruff), JS/TS/HTML/CSS (prettier), C/C++ (clang-format), Rust (rustfmt), Go (gofmt), JSON/XML (built-in); format-on-save option (`Ctrl+Alt+F`) |
+| **FTP Browser** | Browse and edit files on FTP/SFTP servers; **SSH** interactive terminal (paramiko); **SMB** mount helper — detects if share is already mounted, otherwise mounts via `mount.cifs` (Linux), `net use` (Windows), `mount_smbfs` (macOS) with credentials and domain/workgroup |
 | **Git Integration** | Full Git panel: status, log, diff, branch, PR/MR |
 | **Hex Viewer** | Hexadecimal view of binary files |
+| **REST Client** | Integrated HTTP/REST client with 4-step wizard, collection manager, environment variables (dev/staging/prod), Bearer/Basic/API-Key auth, JSON/XML pretty-print (`Ctrl+Alt+R`) |
 | **Search PQ** | Dock panel for advanced search and replace: TEXT mode (AND/NOT), regexp, LIKE; result queue, inline filter, context menu (`Ctrl+Alt+F`) |
 | **Terminal** | xterm.js+PTY terminal as an independent dock panel, synced with the open file's directory (`Ctrl+Alt+T`) |
 | **Web Search** | Web and Wikipedia search on selected text directly from the context menu |
@@ -236,6 +238,16 @@ pip install pymupdf matplotlib sympy
 ```
 
 > If you already have TeX Live for LaTeX compilation, all advanced LaTeX features (PDF hover preview, equation rendering, SyncTeX) activate automatically.
+
+**Code Formatter plugin** (optional — install only the formatters you need):
+```bash
+pip install black ruff             # Python formatters (ruff used as fallback)
+npm i -g prettier                  # JS / TS / HTML / CSS
+apt install clang-format           # C / C++ (or brew install clang-format)
+rustup component add rustfmt       # Rust
+# gofmt is included in the Go toolchain
+# JSON and XML are formatted using Python stdlib (always available)
+```
 
 ---
 
@@ -500,10 +512,12 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 | **Database** | Browser e query editor per SQLite, PostgreSQL, MySQL/MariaDB con AI SQL generation |
 | **Editor Rich Text** | Editor WYSIWYG per .doc, .docx, .odt, .rtf, .html basato su Jodit 4 |
 | **Encrypt/Decrypt** | Cifratura/decifratura con AES-256-GCM e ChaCha20-Poly1305 |
+| **Code Formatter** | Formatta documento/selezione per Python (black/ruff), JS/TS/HTML/CSS (prettier), C/C++ (clang-format), Rust (rustfmt), Go (gofmt), JSON/XML (built-in); opzione format-on-save (`Ctrl+Alt+F`) |
 | **Foglio di Calcolo** | Editing completo di CSV, TSV, XLSX, XLS, XLSM, ODS con ordinamento, filtro, formule e grafici |
-| **FTP Browser** | Navigazione e modifica file su server FTP |
+| **FTP Browser** | Navigazione e modifica file su server FTP/SFTP; terminale **SSH** interattivo (paramiko); helper **SMB** — rileva se la share è già montata, altrimenti la monta via `mount.cifs` (Linux), `net use` (Windows), `mount_smbfs` (macOS) con credenziali, dominio e workgroup |
 | **Git Integration** | Stato repo, commit, diff, branch, PR/MR direttamente dall'editor |
 | **Hex Viewer** | Visualizzazione esadecimale dei file binari |
+| **REST Client** | Client HTTP/REST integrato con wizard guidato 4-step, gestione collection, variabili d'ambiente (dev/staging/prod), auth Bearer/Basic/API-Key, pretty-print JSON/XML (`Ctrl+Alt+R`) |
 | **Search PQ** | Pannello dock per ricerca e sostituzione avanzata: modalità TEXT (AND/NOT), regexp, LIKE; coda di risultati, filtro inline, contesto menu (`Ctrl+Alt+F`) |
 | **Terminal** | Terminale xterm.js+PTY come pannello dock indipendente, sincronizzato con la directory del file aperto (`Ctrl+Alt+T`) |
 | **Web Search** | Ricerca web e Wikipedia sul testo selezionato direttamente dal menu contestuale |
@@ -580,6 +594,16 @@ pip install pymupdf matplotlib sympy
 ```
 
 > Se hai già TeX Live installato per compilare LaTeX, hai già tutto il necessario. Le funzionalità LaTeX avanzate (anteprima PDF hover, rendering equazioni, SyncTeX) si attivano automaticamente se le librerie sono presenti.
+
+**Plugin Code Formatter** (opzionale — installa solo i formatter che ti servono):
+```bash
+pip install black ruff             # Python (ruff usato come fallback)
+npm i -g prettier                  # JS / TS / HTML / CSS
+apt install clang-format           # C / C++ (oppure brew install clang-format)
+rustup component add rustfmt       # Rust
+# gofmt è incluso nel toolchain Go
+# JSON e XML vengono formattati con la stdlib Python (sempre disponibile)
+```
 
 ### Avvio
 

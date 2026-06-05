@@ -2206,7 +2206,6 @@ class MainWindow(QMainWindow):
     def action_export_pdf(self) -> None:
         editor = self._current_editor()
         if not editor:
-            # Prova con tab custom (spreadsheet, richtext, ecc.)
             custom = self._tab_manager.current_custom_widget()
             if custom is not None and hasattr(custom, "export_pdf"):
                 custom.export_pdf()
@@ -2214,17 +2213,13 @@ class MainWindow(QMainWindow):
         default = str(editor.file_path.with_suffix("")
                       if editor.file_path else Path.home() / "documento")
         path, _ = QFileDialog.getSaveFileName(
-            self, tr("action.export_pdf", default="Stampa come PDF"), default,
-            "PDF (*.pdf)"
-        )
+            self, tr("action.export_pdf"), default, "PDF (*.pdf)")
         if not path:
             return
         from pathlib import Path as _Path
         _p = _Path(path)
         if _p.suffix.lower() != ".pdf":
             path = str(_p.with_suffix(".pdf"))
-        # Usa QTextDocument per generare un PDF con il testo formattato
-        # (non editor.print() che farebbe uno screenshot della vista)
         try:
             from PyQt6.QtPrintSupport import QPrinter as _QPrinter
             from PyQt6.QtGui import QTextDocument as _QTextDocument
@@ -2236,16 +2231,16 @@ class MainWindow(QMainWindow):
             doc.setPlainText(editor.text())
             doc.print(printer)
             if _os.path.exists(path) and _os.path.getsize(path) > 0:
-                from PyQt6.QtWidgets import QMessageBox as _QMB
-                _QMB.information(self, tr("action.export_pdf", default="Stampa come PDF"),
-                                 f"PDF esportato:\n{path}")
+                from PyQt6.QtGui import QDesktopServices as _QDS
+                from PyQt6.QtCore import QUrl as _QUrl
+                _QDS.openUrl(_QUrl.fromLocalFile(path))
             else:
                 from PyQt6.QtWidgets import QMessageBox as _QMB
-                _QMB.warning(self, tr("action.export_pdf", default="Stampa come PDF"),
-                             f"Il PDF sembra vuoto o non creato:\n{path}")
+                _QMB.warning(self, tr("action.export_pdf"),
+                             tr("msg.export_pdf_empty", path=path))
         except Exception as _exc:
             from PyQt6.QtWidgets import QMessageBox as _QMB
-            _QMB.critical(self, tr("action.export_pdf", default="Stampa come PDF"), str(_exc))
+            _QMB.critical(self, tr("action.export_pdf"), str(_exc))
 
     def action_export_as(self) -> None:
         from PyQt6.QtWidgets import QFileDialog, QMessageBox as _QMB

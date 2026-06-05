@@ -164,7 +164,7 @@
     "open_file": "Open",
     "save_file": "Save",
     "print_preview": "Print Preview",
-    "export_pdf": "Print as PDF",
+    "export_pdf": "Generate PDF",
     "export_as": "Export as…",
     "keybinding_editor": "Keyboard Shortcuts Editor...",
     "open_terminal": "Open Terminal Here",

@@ -1007,7 +1007,11 @@ class PreviewPanel(QWidget):
                 view.setHtml(html, base_url)
                 return
         # QTextBrowser è sempre all'indice 0
-        self._web_fallback.setHtml(html, base_url)
+        # PyQt6 6.11+: setHtml non accetta più base_url come argomento;
+        # si imposta la base URL sul documento prima.
+        if not base_url.isEmpty():
+            self._web_fallback.document().setBaseUrl(base_url)
+        self._web_fallback.setHtml(html)
         self._stack.setCurrentIndex(0)
 
     def _highlight_tree_item(self, line: int) -> None:

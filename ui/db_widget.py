@@ -21,10 +21,12 @@ import time
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRegularExpression
+from PyQt6.QtCore import (
+    Qt, QThread, pyqtSignal, QRegularExpression, QStringListModel,
+)
 from PyQt6.QtGui import (
     QFont, QKeySequence, QColor,
-    QSyntaxHighlighter, QTextCharFormat,
+    QSyntaxHighlighter, QTextCharFormat, QTextCursor,
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
@@ -32,7 +34,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QLineEdit,
     QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
     QMessageBox, QApplication, QFileDialog,
-    QTabWidget, QFrame, QSizePolicy, QTabBar,
+    QTabWidget, QFrame, QSizePolicy, QTabBar, QCompleter,
 )
 
 from i18n.i18n import tr
@@ -87,7 +89,70 @@ def _driver_available(db_type: str) -> bool:
         return False
 
 
+# ── Icone SVG dal tema ────────────────────────────────────────────────────────
+
+def _db_svg_icon(main_window, file_name: str):
+    """Carica un'icona SVG del set Lucide colorata in base al tema attivo,
+    per dare alla toolbar del plugin un look moderno e coerente con il resto
+    dell'app (stesso pattern di `BasePlugin.load_plugin_icon`).
+
+    Restituisce un `QIcon` (vuoto se il file non esiste o non è renderizzabile).
+    """
+    from PyQt6.QtGui import QIcon
+    try:
+        from ui.language_toolbar import render_svg_icon, toolbar_icon_color
+    except Exception:
+        return QIcon()
+    path = Path(__file__).parent.parent / "icons" / "lucide" / file_name
+    if not path.exists():
+        return QIcon()
+    try:
+        color = toolbar_icon_color(main_window) if main_window is not None else "#1a1a1a"
+        pm = render_svg_icon(path, color)
+        if not pm.isNull():
+            return QIcon(pm)
+    except Exception:
+        pass
+    return QIcon()
+
+
 # ── SQL syntax highlighter ────────────────────────────────────────────────────
+
+def _sql_theme_colors() -> dict:
+    """Colori per l'highlighter SQL letti dal tema attivo (niente più valori
+    hardcoded come `#0055aa`): così la sintassi resta leggibile su tutti i 40+
+    temi, chiari e scuri. Stesso pattern di `_theme_colors` in
+    `plugins/search_results_plugin.py` / `_chat_palette` nel plugin AI.
+    """
+    try:
+        from config.themes import ThemeManager
+        tm      = ThemeManager.instance()
+        theme   = tm.get_theme(tm._active_name) or {}
+        tokens  = theme.get("tokens", {}) or {}
+        is_dark = bool(theme.get("meta", {}).get("dark", True))
+    except Exception:
+        tokens, is_dark = {}, True
+
+    def _tok(name: str, default: str) -> str:
+        v = tokens.get(name, {})
+        return (v.get("fg") if isinstance(v, dict) else None) or default
+
+    if is_dark:
+        return {
+            "keyword":  _tok("keyword", "#4fa3e0"),
+            "function": _tok("function", "#dcdcaa"),
+            "string":   _tok("string", "#9bc36f"),
+            "number":   _tok("number", "#d0935a"),
+            "comment":  _tok("comment", "#7a8a7a"),
+        }
+    return {
+        "keyword":  _tok("keyword", "#0055aa"),
+        "function": _tok("function", "#7b2a8b"),
+        "string":   _tok("string", "#007a00"),
+        "number":   _tok("number", "#aa4400"),
+        "comment":  _tok("comment", "#888888"),
+    }
+
 
 class _SqlHighlighter(QSyntaxHighlighter):
     _KEYWORDS = (
@@ -103,21 +168,23 @@ class _SqlHighlighter(QSyntaxHighlighter):
 
     def __init__(self, document):
         super().__init__(document)
+        colors = _sql_theme_colors()
+
         kw_fmt = QTextCharFormat()
-        kw_fmt.setForeground(QColor("#0055aa"))
+        kw_fmt.setForeground(QColor(colors["keyword"]))
         kw_fmt.setFontWeight(700)
 
         fn_fmt = QTextCharFormat()
-        fn_fmt.setForeground(QColor("#7b2a8b"))
+        fn_fmt.setForeground(QColor(colors["function"]))
 
         str_fmt = QTextCharFormat()
-        str_fmt.setForeground(QColor("#007a00"))
+        str_fmt.setForeground(QColor(colors["string"]))
 
         num_fmt = QTextCharFormat()
-        num_fmt.setForeground(QColor("#aa4400"))
+        num_fmt.setForeground(QColor(colors["number"]))
 
         cmt_fmt = QTextCharFormat()
-        cmt_fmt.setForeground(QColor("#888888"))
+        cmt_fmt.setForeground(QColor(colors["comment"]))
         cmt_fmt.setFontItalic(True)
 
         self._rules: list[tuple[QRegularExpression, QTextCharFormat]] = []
@@ -638,6 +705,19 @@ def _get_columns(conn, db_type: str, table: str) -> list[tuple[str, str]]:
 
 import re as _re
 
+def _quote_ident(name: str, db_type: str) -> str:
+    """Quota un identificatore (tabella/colonna) secondo il dialetto, così
+    nomi con maiuscole, spazi o parole riservate non rompono la query.
+    MySQL usa i backtick, gli altri (PostgreSQL/SQLite/Oracle/standard) le
+    doppie virgolette. Eventuali quote interne vengono raddoppiate.
+    """
+    if name is None:
+        return name
+    if db_type == "mysql":
+        return "`" + str(name).replace("`", "``") + "`"
+    return '"' + str(name).replace('"', '""') + '"'
+
+
 def _is_select(sql: str) -> bool:
     return bool(_re.match(r"\s*SELECT\b", sql, _re.IGNORECASE))
 
@@ -708,6 +788,93 @@ class _QueryWorker(QThread):
                     pass
 
 
+# ── SQL editor con autocompletamento ───────────────────────────────────────────
+
+class _SqlEditor(QPlainTextEdit):
+    """Editor SQL con autocompletamento di keyword, nomi tabelle e colonne.
+
+    Il completer mostra i suggerimenti mentre si digita (≥ 1 carattere della
+    parola corrente). Le parole vengono fornite dall'esterno via
+    `set_completion_words` (schema della connessione + keyword SQL).
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._completer = QCompleter(self)
+        self._completer.setWidget(self)
+        self._completer.setCompletionMode(
+            QCompleter.CompletionMode.PopupCompletion)
+        self._completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._completer.setModel(QStringListModel([], self._completer))
+        self._completer.activated[str].connect(self._insert_completion)
+
+    def set_completion_words(self, words: list[str]) -> None:
+        model = self._completer.model()
+        if isinstance(model, QStringListModel):
+            model.setStringList(sorted(set(words)))
+
+    def _text_under_cursor(self) -> str:
+        tc = self.textCursor()
+        tc.select(QTextCursor.SelectionType.WordUnderCursor)
+        return tc.selectedText()
+
+    def _insert_completion(self, completion: str) -> None:
+        tc = self.textCursor()
+        prefix_len = len(self._completer.completionPrefix())
+        tc.movePosition(QTextCursor.MoveOperation.Left,
+                        QTextCursor.MoveMode.KeepAnchor, prefix_len)
+        tc.removeSelectedText()
+        tc.insertText(completion)
+        self.setTextCursor(tc)
+
+    def keyPressEvent(self, event) -> None:
+        popup = self._completer.popup()
+        if popup.isVisible():
+            # Tasti che il popup deve gestire/confermare/chiudere.
+            if event.key() in (Qt.Key.Key_Enter, Qt.Key.Key_Return,
+                                Qt.Key.Key_Tab, Qt.Key.Key_Escape,
+                                Qt.Key.Key_Up, Qt.Key.Key_Down):
+                event.ignore()
+                return
+
+        # Ctrl+Space: forza la comparsa del popup.
+        force = (event.key() == Qt.Key.Key_Space
+                 and event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        if force:
+            self._show_completer()
+            return
+
+        super().keyPressEvent(event)
+
+        if event.modifiers() & (Qt.KeyboardModifier.ControlModifier
+                                | Qt.KeyboardModifier.AltModifier):
+            return
+        prefix = self._text_under_cursor()
+        if len(prefix) >= 1 and event.text() and (event.text().isalnum()
+                                                   or event.text() in "_"):
+            self._show_completer()
+        else:
+            popup.hide()
+
+    def _show_completer(self) -> None:
+        prefix = self._text_under_cursor()
+        if not prefix:
+            self._completer.popup().hide()
+            return
+        if prefix != self._completer.completionPrefix():
+            self._completer.setCompletionPrefix(prefix)
+            self._completer.popup().setCurrentIndex(
+                self._completer.completionModel().index(0, 0))
+        if self._completer.completionCount() == 0:
+            self._completer.popup().hide()
+            return
+        rect = self.cursorRect()
+        rect.setWidth(
+            self._completer.popup().sizeHintForColumn(0)
+            + self._completer.popup().verticalScrollBar().sizeHint().width())
+        self._completer.complete(rect)
+
+
 # ── Single query tab ──────────────────────────────────────────────────────────
 
 class _QueryTab(QWidget):
@@ -734,6 +901,11 @@ class _QueryTab(QWidget):
         self._has_more:  bool = False
         self._last_headers: list = []
         self._last_rows:    list = []
+        # Editing in-cella risultati
+        self._editable_table: Optional[str] = None   # tabella se SELECT mono-tabella
+        self._edit_orig_rows: list = []
+        self._edit_headers:   list = []
+        self._applying_edit:  bool = False
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -741,45 +913,82 @@ class _QueryTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # --- Toolbar ---
+        # --- Toolbar moderna a icone ---
         toolbar = QWidget()
         toolbar.setStyleSheet(
             "QWidget { background: palette(window); border-bottom: 1px solid palette(mid); }"
+            "QToolButton { border: none; border-radius: 4px; padding: 4px; }"
+            "QToolButton:hover { background: palette(midlight); }"
+            "QToolButton:pressed { background: palette(mid); }"
+            "QToolButton:disabled { opacity: 0.4; }"
         )
         trow = QHBoxLayout(toolbar)
         trow.setContentsMargins(6, 3, 6, 3)
-        trow.setSpacing(4)
+        trow.setSpacing(2)
 
-        self._btn_run = QPushButton("▶  Esegui")
-        self._btn_run.setStyleSheet("font-weight: bold;")
-        self._btn_run.setFixedHeight(26)
-        self._btn_run.clicked.connect(self._execute)
+        from PyQt6.QtCore import QSize
 
-        self._btn_cancel = QPushButton("✕ Annulla")
-        self._btn_cancel.setFixedHeight(26)
+        def _tool_btn(icon_file: str, fallback: str, tooltip: str, slot):
+            """Crea un QToolButton a icona SVG (con fallback testuale se l'icona
+            non è disponibile) per la toolbar moderna del plugin."""
+            from PyQt6.QtWidgets import QToolButton
+            b = QToolButton()
+            icon = _db_svg_icon(self._mw, icon_file)
+            if not icon.isNull():
+                b.setIcon(icon)
+                b.setIconSize(QSize(18, 18))
+                b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            else:
+                b.setText(fallback)
+                b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            b.setToolTip(tooltip)
+            b.setFixedHeight(28)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(slot)
+            return b
+
+        self._btn_run = _tool_btn(
+            "play.svg", "▶",
+            tr("db_widget.tooltip_run", default="Esegui (F5)"), self._execute)
+
+        self._btn_cancel = _tool_btn(
+            "square.svg", "✕",
+            tr("db_widget.btn_cancel", default="Annulla"), self._cancel)
         self._btn_cancel.setEnabled(False)
-        self._btn_cancel.clicked.connect(self._cancel)
 
-        btn_clear = QPushButton(tr("db_widget.btn_clear"))
-        btn_clear.setFixedHeight(26)
-        btn_clear.clicked.connect(self._clear_editor)
+        btn_clear = _tool_btn(
+            "eraser.svg", tr("db_widget.btn_clear"),
+            tr("db_widget.btn_clear"), self._clear_editor)
 
-        self._btn_export = QPushButton(tr("db_widget.btn_export"))
-        self._btn_export.setFixedHeight(26)
+        self._btn_export = _tool_btn(
+            "save.svg", tr("db_widget.btn_export"),
+            tr("db_widget.btn_export"), self._export_results)
         self._btn_export.setEnabled(False)
-        self._btn_export.clicked.connect(self._export_results)
+
+        self._btn_history = _tool_btn(
+            "rotate-cw.svg", "🕘",
+            tr("db_widget.tooltip_history", default="Query eseguite di recente"),
+            self._show_history_menu)
 
         self._status_lbl = QLabel("")
         self._status_lbl.setStyleSheet("font-size: 11px; color: gray; padding: 0 6px;")
 
         trow.addWidget(self._btn_run)
         trow.addWidget(self._btn_cancel)
+
+        sep1 = QFrame()
+        sep1.setFrameShape(QFrame.Shape.VLine)
+        sep1.setStyleSheet("color: palette(mid);")
+        trow.addWidget(sep1)
+
         trow.addWidget(btn_clear)
         trow.addWidget(self._btn_export)
+        trow.addWidget(self._btn_history)
         trow.addWidget(self._status_lbl)
         trow.addStretch()
 
-        hint = QLabel("F5 = esegui  |  Ctrl+Enter = esegui selezione")
+        hint = QLabel(tr("db_widget.run_hint",
+                         default="F5 = esegui  |  Ctrl+Enter = esegui selezione"))
         hint.setStyleSheet("font-size: 10px; color: gray;")
         trow.addWidget(hint)
         layout.addWidget(toolbar)
@@ -787,8 +996,8 @@ class _QueryTab(QWidget):
         # --- Vertical splitter: editor + results ---
         self._splitter = QSplitter(Qt.Orientation.Vertical)
 
-        # SQL editor
-        self._editor = QPlainTextEdit()
+        # SQL editor (con autocompletamento)
+        self._editor = _SqlEditor()
         self._editor.setPlaceholderText(
             "Scrivi una query SQL…\n"
             "F5 = esegui tutto   Ctrl+Enter = esegui selezione"
@@ -826,13 +1035,29 @@ class _QueryTab(QWidget):
         prow = QHBoxLayout(self._pager)
         prow.setContentsMargins(6, 2, 6, 2)
         prow.setSpacing(4)
-        self._btn_prev = QPushButton("◀")
+        from PyQt6.QtWidgets import QToolButton
+        from PyQt6.QtCore import QSize as _QSize
+        self._btn_prev = QToolButton()
+        _ic_prev = _db_svg_icon(self._mw, "chevron-left.svg")
+        if not _ic_prev.isNull():
+            self._btn_prev.setIcon(_ic_prev)
+            self._btn_prev.setIconSize(_QSize(16, 16))
+        else:
+            self._btn_prev.setText("◀")
         self._btn_prev.setFixedSize(24, 22)
+        self._btn_prev.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_prev.clicked.connect(self._page_prev)
         self._page_lbl = QLabel("")
         self._page_lbl.setStyleSheet("font-size: 10px; color: gray;")
-        self._btn_next = QPushButton("▶")
+        self._btn_next = QToolButton()
+        _ic_next = _db_svg_icon(self._mw, "chevron-right.svg")
+        if not _ic_next.isNull():
+            self._btn_next.setIcon(_ic_next)
+            self._btn_next.setIconSize(_QSize(16, 16))
+        else:
+            self._btn_next.setText("▶")
         self._btn_next.setFixedSize(24, 22)
+        self._btn_next.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_next.clicked.connect(self._page_next)
         prow.addStretch()
         prow.addWidget(self._btn_prev)
@@ -861,6 +1086,70 @@ class _QueryTab(QWidget):
     def focus_editor(self) -> None:
         self._editor.setFocus()
 
+    def set_completion_words(self, words: list[str]) -> None:
+        """Aggiorna le parole dell'autocompletamento dell'editor SQL."""
+        if hasattr(self._editor, "set_completion_words"):
+            self._editor.set_completion_words(words)
+
+    # ── Cronologia query ───────────────────────────────────────────────────────
+
+    _HISTORY_KEY  = "db/query_history"
+    _HISTORY_MAX  = 50
+
+    def _history_load(self) -> list[str]:
+        try:
+            from config.settings import Settings
+            raw = Settings.instance().get(self._HISTORY_KEY, "[]")
+            data = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            return [str(x) for x in data][: self._HISTORY_MAX]
+        except Exception:
+            return []
+
+    def _history_add(self, sql: str) -> None:
+        sql = (sql or "").strip()
+        if not sql:
+            return
+        try:
+            from config.settings import Settings
+            hist = self._history_load()
+            # Niente duplicati consecutivi/ripetuti: porta in cima.
+            hist = [h for h in hist if h != sql]
+            hist.insert(0, sql)
+            hist = hist[: self._HISTORY_MAX]
+            Settings.instance().set(self._HISTORY_KEY, json.dumps(hist))
+        except Exception:
+            pass
+
+    def _show_history_menu(self) -> None:
+        from PyQt6.QtWidgets import QMenu
+        hist = self._history_load()
+        menu = QMenu(self)
+        if not hist:
+            act = menu.addAction(tr("db_widget.history_empty",
+                                    default="(nessuna query recente)"))
+            act.setEnabled(False)
+        else:
+            for sql in hist:
+                label = " ".join(sql.split())[:80]
+                menu.addAction(label, lambda s=sql: self._use_history(s))
+            menu.addSeparator()
+            menu.addAction(tr("db_widget.history_clear",
+                              default="Cancella cronologia"),
+                           self._clear_history)
+        menu.exec(self._btn_history.mapToGlobal(
+            self._btn_history.rect().bottomLeft()))
+
+    def _use_history(self, sql: str) -> None:
+        self.set_sql(sql)
+        self.focus_editor()
+
+    def _clear_history(self) -> None:
+        try:
+            from config.settings import Settings
+            Settings.instance().set(self._HISTORY_KEY, "[]")
+        except Exception:
+            pass
+
     # ── Execution ─────────────────────────────────────────────────────────────
 
     def _get_sql(self) -> str:
@@ -883,13 +1172,14 @@ class _QueryTab(QWidget):
             return
         self._raw_sql    = sql
         self._page_offset = 0
+        self._history_add(sql)
         self._run_worker(sql, offset=0)
 
     def _run_worker(self, sql: str, offset: int) -> None:
         self._btn_run.setEnabled(False)
         self._btn_cancel.setEnabled(True)
         self._status_lbl.setStyleSheet("color: gray; font-size: 11px;")
-        self._status_lbl.setText("Esecuzione…")
+        self._status_lbl.setText(tr("db_widget.executing", default="Esecuzione…"))
         self._worker = _QueryWorker(
             self._conn_info, sql,
             page_size=self.PAGE_SIZE, offset=offset
@@ -912,7 +1202,7 @@ class _QueryTab(QWidget):
 
         if error:
             self._status_lbl.setStyleSheet("color: red; font-size: 11px;")
-            self._status_lbl.setText("✗ Errore")
+            self._status_lbl.setText("✗ " + tr("db_widget.error", default="Errore"))
             self._show_error(error)
             self._pager.setVisible(False)
             self._btn_export.setEnabled(False)
@@ -921,6 +1211,8 @@ class _QueryTab(QWidget):
         self._last_headers = headers
         self._last_rows    = rows
         self._has_more     = has_more
+        # Determina se i risultati sono editabili (SELECT da singola tabella).
+        self._editable_table = self._detect_editable_table(self._raw_sql)
         n = len(rows)
         offset = self._page_offset
         row_from = offset + 1
@@ -952,33 +1244,152 @@ class _QueryTab(QWidget):
         self._run_worker(self._raw_sql, self._page_offset)
 
     def _export_results(self) -> None:
-        if not self._last_rows:
-            return
-        page_count = len(self._last_rows)
+        """Esporta i risultati su file (stile DBeaver) tramite un UNICO dialogo
+        che permette di scegliere: formato (CSV/TSV/XLSX/ODS), separatore (per
+        i formati di testo), se includere la riga di intestazione, l'encoding e
+        QUANTE righe esportare (pagina corrente / tutte / prime N).
 
-        from PyQt6.QtWidgets import QDialog, QRadioButton, QSpinBox, QDialogButtonBox
+        Prima il pulsante chiedeva solo "quante righe" e poi soltanto il nome
+        del file, deducendo il separatore dall'estensione: l'utente non poteva
+        scegliere separatore, intestazioni o encoding come fa DBeaver.
+        """
+        if not self._last_rows:
+            # Prima qui si usciva in silenzio: il pulsante "sembrava non fare
+            # nulla". Diamo un feedback esplicito all'utente.
+            QMessageBox.information(
+                self, "NotePadPQ",
+                tr("db_widget.export_no_rows",
+                   default="Nessun risultato da esportare. Esegui prima una "
+                           "query che restituisca delle righe."))
+            return
+        try:
+            opts = self._ask_export_options()
+        except Exception as exc:
+            QMessageBox.critical(
+                self, "NotePadPQ",
+                tr("db_widget.export_error", default="Errore export") + f":\n{exc}")
+            return
+        if opts is None:
+            return
+
+        # Recupera le righe in base alla scelta (pagina / tutte / prime N).
+        if opts["rows"] == "page":
+            headers, rows = self._last_headers, self._last_rows
+        else:
+            limit = opts["limit"] if opts["rows"] == "first_n" else 0
+            fetched = self._export_fetch(limit)
+            if fetched is None:
+                return
+            headers, rows = fetched
+
+        self._save_rows_to_file(headers, rows, opts)
+
+    def _ask_export_options(self):
+        """Mostra il dialogo unico in stile DBeaver e restituisce un dict con
+        le opzioni scelte, oppure `None` se l'utente annulla.
+
+        Chiavi restituite: `format` (csv/tsv/xlsx/ods), `delimiter` (str),
+        `header` (bool), `encoding` (str), `rows` (page/all/first_n),
+        `limit` (int, valido solo per first_n).
+        """
+        from PyQt6.QtWidgets import (
+            QRadioButton, QSpinBox, QComboBox, QCheckBox, QFormLayout, QGroupBox,
+        )
+        page_count = len(self._last_rows)
+        has_more   = bool(getattr(self, "_has_more", False))
+
         dlg = QDialog(self)
-        dlg.setWindowTitle("Esporta risultati")
+        dlg.setModal(True)
+        dlg.setWindowTitle(tr("db_widget.export_title", default="Esporta risultati"))
         v = QVBoxLayout(dlg)
 
-        r_page = QRadioButton(f"Pagina corrente  ({page_count} righe)")
-        r_page.setChecked(True)
-        r_all  = QRadioButton("Tutte le righe  (ri-esegue la query senza limite)")
-        r_n    = QRadioButton("Prime N righe:")
+        # --- Formato ---
+        fmt_box = QGroupBox(tr("db_widget.export_format", default="Formato"))
+        fmt_form = QFormLayout(fmt_box)
+        fmt_combo = QComboBox()
+        # (etichetta, formato, separatore di default)
+        self._EXPORT_FORMATS = [
+            ("CSV (,)",  "csv",  ","),
+            ("CSV (;)",  "csv",  ";"),
+            ("TSV (Tab)", "tsv", "\t"),
+            ("Excel (.xlsx)", "xlsx", ""),
+            ("OpenDocument (.ods)", "ods", ""),
+        ]
+        for label, _f, _d in self._EXPORT_FORMATS:
+            fmt_combo.addItem(label)
+        fmt_form.addRow(tr("db_widget.export_format", default="Formato") + ":", fmt_combo)
+
+        # Separatore personalizzato (solo per formati di testo)
+        delim_combo = QComboBox()
+        delim_combo.setEditable(True)
+        self._EXPORT_DELIMS = [
+            (tr("db_widget.export_delim_comma", default="Virgola  ,"), ","),
+            (tr("db_widget.export_delim_semicolon", default="Punto e virgola  ;"), ";"),
+            (tr("db_widget.export_delim_tab", default="Tabulazione  \\t"), "\t"),
+            (tr("db_widget.export_delim_pipe", default="Barra verticale  |"), "|"),
+        ]
+        for label, _d in self._EXPORT_DELIMS:
+            delim_combo.addItem(label)
+        fmt_form.addRow(
+            tr("db_widget.export_delimiter", default="Separatore") + ":", delim_combo)
+
+        # Encoding (solo per formati di testo)
+        enc_combo = QComboBox()
+        for enc in ("utf-8", "utf-8-sig", "latin-1", "utf-16"):
+            enc_combo.addItem(enc)
+        fmt_form.addRow(
+            tr("db_widget.export_encoding", default="Codifica") + ":", enc_combo)
+
+        # Intestazioni
+        header_chk = QCheckBox(
+            tr("db_widget.export_header", default="Includi riga di intestazione"))
+        header_chk.setChecked(True)
+        fmt_form.addRow("", header_chk)
+        v.addWidget(fmt_box)
+
+        # --- Righe da esportare ---
+        rows_box = QGroupBox(tr("db_widget.export_rows_group", default="Righe da esportare"))
+        rv = QVBoxLayout(rows_box)
+        r_page = QRadioButton(
+            tr("db_widget.export_page", default="Pagina corrente")
+            + f"  ({page_count} " + tr("db_widget.export_rows", default="righe") + ")")
+        r_all  = QRadioButton(
+            tr("db_widget.export_all",
+               default="Tutte le righe (ri-esegue la query senza limite)"))
+        r_n    = QRadioButton(
+            tr("db_widget.export_first_n", default="Prime N righe:"))
         spin   = QSpinBox()
-        spin.setRange(1, 1_000_000)
+        spin.setRange(1, 10_000_000)
         spin.setValue(1000)
         spin.setEnabled(False)
         r_n.toggled.connect(spin.setEnabled)
-
+        if has_more:
+            r_all.setChecked(True)
+        else:
+            r_page.setChecked(True)
+        rv.addWidget(r_page)
+        rv.addWidget(r_all)
         row_n = QHBoxLayout()
         row_n.addWidget(r_n)
         row_n.addWidget(spin)
         row_n.addStretch()
+        rv.addLayout(row_n)
+        v.addWidget(rows_box)
 
-        v.addWidget(r_page)
-        v.addWidget(r_all)
-        v.addLayout(row_n)
+        # Abilita/disabilita separatore+encoding a seconda del formato scelto.
+        def _on_fmt_changed(idx: int) -> None:
+            _label, fmt, default_delim = self._EXPORT_FORMATS[idx]
+            is_text = fmt in ("csv", "tsv")
+            delim_combo.setEnabled(is_text)
+            enc_combo.setEnabled(is_text)
+            # Allinea il separatore di default a quello del formato scelto.
+            if is_text:
+                for i, (_l, d) in enumerate(self._EXPORT_DELIMS):
+                    if d == default_delim:
+                        delim_combo.setCurrentIndex(i)
+                        break
+        fmt_combo.currentIndexChanged.connect(_on_fmt_changed)
+        _on_fmt_changed(0)
 
         bb = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -988,19 +1399,39 @@ class _QueryTab(QWidget):
         v.addWidget(bb)
 
         if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
+            return None
 
-        if r_page.isChecked():
-            self._show_results(self._last_headers, self._last_rows, for_export=True)
+        _label, fmt, _default_delim = self._EXPORT_FORMATS[fmt_combo.currentIndex()]
+        # Separatore: voce nota dalla lista, oppure testo libero digitato.
+        di = delim_combo.currentIndex()
+        if 0 <= di < len(self._EXPORT_DELIMS) and \
+           delim_combo.currentText() == self._EXPORT_DELIMS[di][0]:
+            delimiter = self._EXPORT_DELIMS[di][1]
         else:
-            # Ri-esegue senza paginazione per ottenere tutte (o N) le righe
-            limit = spin.value() if r_n.isChecked() else 0
-            self._export_fetch(limit)
+            typed = delim_combo.currentText()
+            delimiter = typed.replace("\\t", "\t") if typed else ","
+        if opts_rows := r_all.isChecked():
+            rows_mode = "all"
+        elif r_n.isChecked():
+            rows_mode = "first_n"
+        else:
+            rows_mode = "page"
+        return {
+            "format":   fmt,
+            "delimiter": delimiter,
+            "header":   header_chk.isChecked(),
+            "encoding": enc_combo.currentText() or "utf-8",
+            "rows":     rows_mode,
+            "limit":    spin.value(),
+        }
 
-    def _export_fetch(self, limit: int) -> None:
-        """Ri-esegue la query senza paginazione per l'export."""
+    def _export_fetch(self, limit: int):
+        """Ri-esegue la query senza paginazione (o con LIMIT N) e restituisce
+        `(headers, rows)`; `None` in caso di errore. NON modifica la griglia
+        mostrata: i dati servono al salvataggio su file.
+        """
         if not self._raw_sql or not self._conn_info:
-            return
+            return None
         try:
             conn = _open_connection(self._conn_info)
             cur  = conn.cursor()
@@ -1012,15 +1443,96 @@ class _QueryTab(QWidget):
             else:
                 sql = self._raw_sql
             cur.execute(sql)
+            headers, rows = [], []
             if cur.description:
                 headers = [d[0] for d in cur.description]
                 rows    = [[str(v) if v is not None else "" for v in r]
                            for r in cur.fetchall()]
-                self._show_results(headers, rows, for_export=True)
             conn.close()
+            return headers, rows
         except Exception as exc:
-            QMessageBox.critical(self, "NotePadPQ",
-                                 f"Errore export:\n{exc}")
+            QMessageBox.critical(
+                self, "NotePadPQ",
+                tr("db_widget.export_error", default="Errore export") + f":\n{exc}")
+            return None
+
+    def _save_rows_to_file(self, headers: list, rows: list, opts: dict) -> None:
+        """Salva (headers, rows) su un file scelto dall'utente onorando le
+        `opts` scelte nel dialogo di export (formato, separatore, intestazioni,
+        encoding).
+
+        Per CSV/TSV scrive con uno scrittore custom che rispetta separatore,
+        encoding e intestazioni sì/no; per XLSX/ODS delega a `SpreadsheetIO`.
+        """
+        if headers is None:
+            return
+        fmt        = opts.get("format", "csv")
+        delimiter  = opts.get("delimiter", ",")
+        encoding   = opts.get("encoding", "utf-8") or "utf-8"
+        with_header = bool(opts.get("header", True))
+        ext        = "." + fmt
+
+        conn_name = self._conn_info.get("name", "query")
+        suggested = f"{conn_name}_export{ext}"
+        filters = {
+            "csv":  "CSV (*.csv)",
+            "tsv":  "TSV (*.tsv)",
+            "xlsx": "Excel (*.xlsx)",
+            "ods":  "OpenDocument (*.ods)",
+        }
+        path_str, _selected = QFileDialog.getSaveFileName(
+            self,
+            tr("db_widget.export_title", default="Esporta risultati"),
+            suggested,
+            filters.get(fmt, "CSV (*.csv)"),
+        )
+        if not path_str:
+            return
+        path = Path(path_str)
+        if not path.suffix:
+            path = path.with_suffix(ext)
+
+        err = None
+        try:
+            if fmt in ("csv", "tsv"):
+                # Scrittore custom: rispetta separatore, encoding e header
+                # opzionale (SpreadsheetIO.save scrive sempre l'header in utf-8).
+                import csv as _csv
+                with open(path, "w", encoding=encoding, newline="") as f:
+                    writer = _csv.writer(f, delimiter=delimiter)
+                    if with_header:
+                        writer.writerow(list(headers))
+                    writer.writerows(list(rows))
+            else:
+                from ui.spreadsheet_widget import SpreadsheetIO
+                out_headers = list(headers) if with_header else []
+                err = SpreadsheetIO.save(path, out_headers, list(rows), delimiter)
+        except Exception as exc:
+            err = str(exc)
+        if err:
+            QMessageBox.critical(
+                self, "NotePadPQ",
+                tr("db_widget.export_error", default="Errore export") + f":\n{err}")
+            return
+        self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
+        self._status_lbl.setText(
+            "✓ " + tr("db_widget.export_done",
+                      default="Esportate {n} righe", n=len(rows)))
+
+    def _open_converted_text(self, content: str, suggested_name: str) -> None:
+        """Apre in una nuova scheda editor il contenuto convertito (Markdown /
+        tabularx) emesso dalla SpreadsheetWidget dei risultati.
+
+        Stesso comportamento del plugin Spreadsheet (`_open_as_text`): nel
+        plugin DB il segnale `convert_to_text` non era collegato, perciò i
+        pulsanti "→ Markdown" / "→ tabularx" sembravano non fare nulla.
+        """
+        try:
+            ext = Path(suggested_name).suffix.lower()
+            editor = self._mw._tab_manager.new_tab(template_ext=ext)
+            editor.load_content(content)
+        except Exception as exc:
+            QMessageBox.critical(self, "NotePadPQ", str(exc))
 
     def _show_results(self, headers: list, rows: list, for_export: bool = False) -> None:
         layout = self._results_container.layout()
@@ -1029,16 +1541,43 @@ class _QueryTab(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
+        # L'editing in-cella è permesso solo per SELECT da una singola tabella
+        # (rilevata da _editable_table). In quel caso la griglia è scrivibile e
+        # le modifiche generano UPDATE; altrimenti resta read-only.
+        editable = (not for_export) and bool(self._editable_table) and bool(rows)
         try:
             from ui.spreadsheet_widget import SpreadsheetWidget
             conn_name = self._conn_info.get("name", "db")
             path = Path(f"{conn_name}_query_{self._tab_index}")
             widget = SpreadsheetWidget(
                 path, headers, rows,
-                read_only=not for_export, parent=self
+                read_only=not (for_export or editable), parent=self
             )
+            # I pulsanti "→ Markdown" / "→ tabularx" della SpreadsheetWidget
+            # emettono `convert_to_text`: nel plugin DB il segnale non era
+            # collegato, quindi i pulsanti "non facevano nulla". Lo colleghiamo
+            # all'apertura del contenuto convertito in un nuovo tab editor
+            # (stesso comportamento del plugin Spreadsheet).
+            try:
+                widget.convert_to_text.connect(self._open_converted_text)
+            except Exception:
+                pass
             layout.addWidget(widget)
             self._result_widget = widget
+            if editable:
+                # Conserva una copia immutabile delle righe originali: serve a
+                # costruire la clausola WHERE dell'UPDATE sui valori pre-modifica.
+                self._edit_orig_rows = [list(r) for r in rows]
+                self._edit_headers   = list(headers)
+                self._applying_edit  = False
+                try:
+                    widget._model.dataChanged.connect(self._on_cell_edited)
+                    self._status_lbl.setToolTip(
+                        tr("db_widget.edit_enabled_hint",
+                           default="Doppio clic su una cella per modificarla: "
+                                   "verrà generato e applicato un UPDATE."))
+                except Exception:
+                    pass
             sizes = self._splitter.sizes()
             if sizes[1] < 150:
                 total = sum(sizes)
@@ -1064,6 +1603,137 @@ class _QueryTab(QWidget):
         if sizes[1] < 100:
             total = sum(sizes)
             self._splitter.setSizes([int(total * 0.6), int(total * 0.4)])
+
+    # ── Editing in-cella risultati ──────────────────────────────────────────────
+
+    def _detect_editable_table(self, sql: str) -> Optional[str]:
+        """Se la query è una SELECT semplice da una sola tabella (no JOIN, no
+        aggregazioni/GROUP BY, no UNION), restituisce il nome della tabella;
+        altrimenti None (risultati non editabili).
+        """
+        if not sql:
+            return None
+        s = " ".join(sql.split())
+        low = s.lower()
+        if not low.startswith("select"):
+            return None
+        # Esclude costrutti che impediscono un UPDATE riga-per-riga sicuro.
+        for kw in (" join ", " group by ", " union ", " distinct ",
+                   "count(", "sum(", "avg(", "min(", "max("):
+            if kw in low:
+                return None
+        m = _re.search(r"\bfrom\s+([A-Za-z_][\w]*|\"[^\"]+\"|`[^`]+`)",
+                       s, _re.IGNORECASE)
+        if not m:
+            return None
+        # Niente alias/altra tabella subito dopo (FROM t1, t2 / FROM t alias).
+        rest = s[m.end():].lstrip()
+        if rest.startswith(","):
+            return None
+        table = m.group(1).strip('"`')
+        return table or None
+
+    def _on_cell_edited(self, top_left, bottom_right, _roles=None) -> None:
+        """Genera ed esegue un UPDATE quando una cella viene modificata.
+
+        Il WHERE usa i valori ORIGINALI dell'intera riga (prima della modifica):
+        approccio robusto che non richiede una chiave primaria. Per sicurezza,
+        se l'UPDATE tocca un numero di righe diverso da 1 si fa rollback.
+        """
+        if self._applying_edit or not self._editable_table:
+            return
+        try:
+            row = top_left.row()
+            col = top_left.column()
+        except Exception:
+            return
+        if row >= len(self._edit_orig_rows):
+            return
+        model = self._result_widget._model if self._result_widget else None
+        if model is None:
+            return
+        try:
+            new_val = model._data[row][col]
+        except Exception:
+            return
+        orig_row = self._edit_orig_rows[row]
+        old_val  = orig_row[col] if col < len(orig_row) else ""
+        if str(new_val) == str(old_val):
+            return
+
+        db = self._conn_info.get("type", "")
+        headers = self._edit_headers
+        qtable  = _quote_ident(self._editable_table, db)
+        set_col = _quote_ident(headers[col], db)
+        # Placeholder per dialetto (Oracle usa :1, gli altri ?/%s → usiamo ? per
+        # sqlite, %s per gli altri; ma cur.execute con qmark non vale per pg).
+        ph = "%s" if db in ("postgresql", "mysql") else "?"
+        where_parts = []
+        where_vals  = []
+        for i, h in enumerate(headers):
+            v = orig_row[i] if i < len(orig_row) else ""
+            col_q = _quote_ident(h, db)
+            if v == "" or v is None:
+                where_parts.append(f"{col_q} IS NULL")
+            else:
+                where_parts.append(f"{col_q} = {ph}")
+                where_vals.append(v)
+        sql = (f"UPDATE {qtable} SET {set_col} = {ph} "
+               f"WHERE " + " AND ".join(where_parts))
+        params = [new_val] + where_vals
+
+        ok, msg = self._apply_update(sql, params)
+        if ok:
+            # Aggiorna il valore di riferimento per le modifiche successive.
+            if col < len(orig_row):
+                orig_row[col] = new_val
+            self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
+            self._status_lbl.setText(
+                "✓ " + tr("db_widget.row_updated", default="Riga aggiornata"))
+        else:
+            # Ripristina il valore precedente nella griglia.
+            self._applying_edit = True
+            try:
+                model._data[row][col] = old_val
+                model.dataChanged.emit(top_left, top_left, [])
+            finally:
+                self._applying_edit = False
+            QMessageBox.warning(
+                self, "NotePadPQ",
+                tr("db_widget.update_failed",
+                   default="Modifica non applicata:\n{error}", error=msg))
+
+    def _apply_update(self, sql: str, params: list) -> tuple[bool, str]:
+        """Esegue un UPDATE sincrono in una connessione dedicata. Ritorna
+        (ok, messaggio). Fa rollback se le righe interessate non sono esattamente 1.
+        """
+        conn = None
+        try:
+            conn = _open_connection(self._conn_info)
+            cur  = conn.cursor()
+            cur.execute(sql, params)
+            affected = cur.rowcount
+            if affected != 1:
+                conn.rollback()
+                return False, tr(
+                    "db_widget.update_ambiguous",
+                    default="L'UPDATE avrebbe modificato {n} righe (atteso 1); "
+                            "annullato.", n=affected)
+            conn.commit()
+            return True, ""
+        except Exception as exc:
+            try:
+                if conn is not None:
+                    conn.rollback()
+            except Exception:
+                pass
+            return False, str(exc)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
 
 # ── DB Browser widget ─────────────────────────────────────────────────────────
@@ -1097,6 +1767,10 @@ class DBBrowserWidget(QWidget):
         self._mw         = main_window
         self._conn       = None
         self._query_count = 0
+        # Cache schema: {table: [col_name, ...]} — alimenta autocomplete e
+        # context menu (generazione INSERT, ecc.). Popolata in _load_schema
+        # (tabelle) e _on_item_expanded (colonne, lazy).
+        self._schema_cache: dict[str, list[str]] = {}
 
         self._build_ui()
         self._connect()
@@ -1132,15 +1806,32 @@ class DBBrowserWidget(QWidget):
         self._status_lbl.setStyleSheet("font-size: 11px; color: gray;")
         hrow.addWidget(self._status_lbl)
 
-        btn_refresh = QPushButton("↺")
-        btn_refresh.setFixedWidth(28)
-        btn_refresh.setFixedHeight(24)
-        btn_refresh.setToolTip("Aggiorna schema")
+        from PyQt6.QtWidgets import QToolButton
+        from PyQt6.QtCore import QSize as _QSize
+
+        btn_refresh = QToolButton()
+        _ic_ref = _db_svg_icon(self._mw, "refresh-cw.svg")
+        if not _ic_ref.isNull():
+            btn_refresh.setIcon(_ic_ref)
+            btn_refresh.setIconSize(_QSize(16, 16))
+        else:
+            btn_refresh.setText("↺")
+        btn_refresh.setFixedSize(28, 26)
+        btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_refresh.setToolTip(tr("db_widget.tooltip_refresh_schema",
+                                  default="Aggiorna schema"))
         btn_refresh.clicked.connect(self._load_schema)
         hrow.addWidget(btn_refresh)
 
-        btn_new_q = QPushButton("+ Query")
-        btn_new_q.setFixedHeight(24)
+        btn_new_q = QToolButton()
+        _ic_newq = _db_svg_icon(self._mw, "file-plus.svg")
+        if not _ic_newq.isNull():
+            btn_new_q.setIcon(_ic_newq)
+            btn_new_q.setIconSize(_QSize(16, 16))
+        else:
+            btn_new_q.setText("+ Query")
+        btn_new_q.setFixedSize(28, 26)
+        btn_new_q.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_new_q.setToolTip(tr("db_widget.tooltip_new_query"))
         btn_new_q.clicked.connect(self._add_query_tab)
         hrow.addWidget(btn_new_q)
@@ -1578,6 +2269,7 @@ class DBBrowserWidget(QWidget):
         view_root  = QTreeWidgetItem(["👁  Viste"])
         table_root.setExpanded(True)
 
+        self._schema_cache.clear()
         for name, kind in tables:
             icon = "  📄  " if kind == "table" else "  👁  "
             parent = table_root if kind == "table" else view_root
@@ -1586,6 +2278,9 @@ class DBBrowserWidget(QWidget):
             # Placeholder child so expand arrow appears
             item.addChild(QTreeWidgetItem(["  ⌛ caricamento…"]))
             parent.addChild(item)
+            # Registra la tabella nella cache (colonne caricate lazy all'espansione).
+            self._schema_cache.setdefault(name, [])
+        self._refresh_autocomplete()
 
         self._schema_tree.addTopLevelItem(table_root)
         if view_root.childCount() > 0:
@@ -1608,10 +2303,38 @@ class DBBrowserWidget(QWidget):
                 child = QTreeWidgetItem([f"    🔹 {col_name}  ({col_type})"])
                 child.setForeground(0, Qt.GlobalColor.gray)
                 item.addChild(child)
+            # Aggiorna la cache colonne per autocomplete e generazione SQL.
+            self._schema_cache[table] = [c[0] for c in cols]
+            self._refresh_autocomplete()
         except Exception as exc:
             item.addChild(QTreeWidgetItem([f"  ✗ {exc}"]))
         data["loaded"] = True
         item.setData(0, Qt.ItemDataRole.UserRole, data)
+
+    # Keyword SQL comuni offerte dall'autocompletamento.
+    _SQL_KEYWORDS = (
+        "SELECT FROM WHERE GROUP BY HAVING ORDER LIMIT OFFSET INSERT INTO "
+        "VALUES UPDATE SET DELETE CREATE TABLE VIEW INDEX DROP ALTER ADD "
+        "JOIN INNER LEFT RIGHT OUTER FULL ON AS DISTINCT COUNT SUM AVG MIN "
+        "MAX AND OR NOT NULL IS IN BETWEEN LIKE EXISTS UNION ALL ASC DESC "
+        "PRIMARY KEY FOREIGN REFERENCES DEFAULT CASE WHEN THEN ELSE END"
+    ).split()
+
+    def _refresh_autocomplete(self) -> None:
+        """Compone le parole per l'autocompletamento (keyword SQL + nomi
+        tabelle + colonne dalla cache schema) e le invia a tutti i query-tab.
+        """
+        words: list[str] = list(self._SQL_KEYWORDS)
+        for table, cols in self._schema_cache.items():
+            words.append(table)
+            words.extend(cols)
+        tabs = getattr(self, "_query_tabs", None)
+        if tabs is None:
+            return
+        for i in range(tabs.count()):
+            tab = tabs.widget(i)
+            if hasattr(tab, "set_completion_words"):
+                tab.set_completion_words(words)
 
     def _filter_tree(self, text: str) -> None:
         text = text.lower()
@@ -1645,16 +2368,33 @@ class DBBrowserWidget(QWidget):
             return
         table = data["table"]
         menu = QMenu(self)
-        menu.addAction("SELECT * … LIMIT 100",
+        menu.addAction(tr("db_widget.ctx_select_limit", default="SELECT * … LIMIT 100"),
                        lambda: self._run_select(table, 100))
-        menu.addAction("SELECT * (tutto)",
+        menu.addAction(tr("db_widget.ctx_select_all", default="SELECT * (tutto)"),
                        lambda: self._run_select(table))
-        menu.addAction("Mostra struttura",
+        menu.addAction(tr("db_widget.ctx_count_rows", default="Conta righe"),
+                       lambda: self._count_rows(table))
+        menu.addSeparator()
+        menu.addAction(tr("db_widget.ctx_structure", default="Mostra struttura"),
                        lambda: self._show_structure(table))
+        menu.addAction(tr("db_widget.ctx_copy_name", default="Copia nome tabella"),
+                       lambda: QApplication.clipboard().setText(table))
+        menu.addSeparator()
+        menu.addAction(tr("db_widget.ctx_gen_insert", default="Genera INSERT"),
+                       lambda: self._gen_insert(table))
+        menu.addAction(tr("db_widget.ctx_gen_drop", default="Genera DROP TABLE"),
+                       lambda: self._gen_drop(table))
+        menu.addSeparator()
+        menu.addAction(tr("db_widget.ctx_export_table", default="Esporta tabella…"),
+                       lambda: self._export_table(table))
         menu.exec(self._schema_tree.viewport().mapToGlobal(pos))
 
+    def _db_type(self) -> str:
+        return self._conn_info.get("type", "")
+
     def _run_select(self, table: str, limit: Optional[int] = None) -> None:
-        sql = f"SELECT * FROM {table}"
+        q = _quote_ident(table, self._db_type())
+        sql = f"SELECT * FROM {q}"
         if limit:
             sql += f"\nLIMIT {limit}"
         sql += ";"
@@ -1662,6 +2402,63 @@ class DBBrowserWidget(QWidget):
         if tab:
             tab.set_sql(sql)
             tab._execute()
+
+    def _count_rows(self, table: str) -> None:
+        q = _quote_ident(table, self._db_type())
+        tab = self._current_query_tab()
+        if tab:
+            tab.set_sql(f"SELECT COUNT(*) FROM {q};")
+            tab._execute()
+
+    def _ensure_columns(self, table: str) -> list[str]:
+        """Restituisce le colonne della tabella, caricandole se non in cache."""
+        cols = self._schema_cache.get(table)
+        if cols:
+            return cols
+        try:
+            fetched = _get_columns(self._conn, self._db_type(), table)
+            cols = [c[0] for c in fetched]
+            self._schema_cache[table] = cols
+            return cols
+        except Exception:
+            return []
+
+    def _gen_insert(self, table: str) -> None:
+        db = self._db_type()
+        q = _quote_ident(table, db)
+        cols = self._ensure_columns(table)
+        tab = self._current_query_tab()
+        if not tab:
+            return
+        if cols:
+            col_list = ", ".join(_quote_ident(c, db) for c in cols)
+            placeholders = ", ".join("?" for _ in cols)
+            sql = (f"INSERT INTO {q} ({col_list})\n"
+                   f"VALUES ({placeholders});")
+        else:
+            sql = f"INSERT INTO {q} () VALUES ();"
+        tab.set_sql(sql)
+        tab.focus_editor()
+
+    def _gen_drop(self, table: str) -> None:
+        q = _quote_ident(table, self._db_type())
+        tab = self._current_query_tab()
+        if tab:
+            tab.set_sql(f"DROP TABLE {q};")
+            tab.focus_editor()
+
+    def _export_table(self, table: str) -> None:
+        """Carica l'intera tabella e ne propone l'export tramite il query-tab."""
+        q = _quote_ident(table, self._db_type())
+        tab = self._current_query_tab()
+        if tab:
+            tab.set_sql(f"SELECT * FROM {q};")
+            tab._execute()
+            QMessageBox.information(
+                self, "NotePadPQ",
+                tr("db_widget.export_table_hint",
+                   default="Tabella caricata: usa il pulsante 'Esporta' "
+                           "per salvarla su file."))
 
     def _show_structure(self, table: str) -> None:
         db_type = self._conn_info.get("type", "")
@@ -1688,6 +2485,9 @@ class DBBrowserWidget(QWidget):
         self._query_tabs.addTab(tab, label)
         self._query_tabs.setCurrentWidget(tab)
         tab.focus_editor()
+        # Fornisci subito al nuovo tab le parole per l'autocompletamento
+        # (keyword + schema già caricato).
+        self._refresh_autocomplete()
         return tab
 
     def _current_query_tab(self) -> Optional[_QueryTab]:

@@ -410,22 +410,43 @@ class EditorWidget(QsciScintilla):
         # REGOLA: DrawUnder=True su TUTTI gli indicatori — il testo rimane sempre leggibile.
         # DrawUnder=False (default) disegna sopra il testo coprendolo.
 
-        # Indicatore find (arancione, box tratteggiato sotto il testo)
+        # Indicatore find (arancione pieno e marcato sotto il testo).
+        # FullBox + alpha alto: la parola trovata risalta molto più di un
+        # RoundBox tratteggiato semitrasparente.
         self.indicatorDefine(
-            QsciScintilla.IndicatorStyle.RoundBoxIndicator, INDICATOR_FIND
+            QsciScintilla.IndicatorStyle.FullBoxIndicator, INDICATOR_FIND
         )
-        self.setIndicatorForegroundColor(QColor(255, 165, 0, 200), INDICATOR_FIND)
+        self.setIndicatorForegroundColor(QColor(255, 150, 0, 230), INDICATOR_FIND)
+        try:
+            # Bordo del box ancora più definito (outline opaco).
+            self.setIndicatorOutlineColor(QColor(255, 110, 0, 255), INDICATOR_FIND)
+        except Exception:
+            pass
         self.setIndicatorDrawUnder(True, INDICATOR_FIND)
 
-        # Indicatori Mark 1-4: StraightBox colorato SOTTO il testo
+        # INDICATOR_MARK1 è usato dal Trova per "evidenzia/marca tutte le
+        # occorrenze". Il vecchio giallo tenue (255,220,0,180) era pressoché
+        # invisibile sui temi chiari (giallo su sfondo bianco). Lo rendiamo un
+        # box arancione/ambra pieno e marcato con bordo opaco, coerente con
+        # l'arancione di INDICATOR_FIND e ben visibile su qualunque tema.
+        self.indicatorDefine(
+            QsciScintilla.IndicatorStyle.FullBoxIndicator, INDICATOR_MARK1
+        )
+        self.setIndicatorForegroundColor(QColor(255, 170, 0, 200), INDICATOR_MARK1)
+        try:
+            self.setIndicatorOutlineColor(QColor(220, 120, 0, 255), INDICATOR_MARK1)
+        except Exception:
+            pass
+        self.setIndicatorDrawUnder(True, INDICATOR_MARK1)
+
+        # Indicatori Mark 2-4: StraightBox colorato SOTTO il testo
         mark_colors = [
-            QColor(255, 220, 0, 180),   # giallo
             QColor(0, 200, 100, 180),   # verde
             QColor(100, 150, 255, 180), # blu
             QColor(255, 100, 100, 180), # rosso
         ]
         for i, color in enumerate(mark_colors):
-            idx = INDICATOR_MARK1 + i
+            idx = INDICATOR_MARK2 + i
             self.indicatorDefine(
                 QsciScintilla.IndicatorStyle.StraightBoxIndicator, idx
             )
@@ -461,6 +482,14 @@ class EditorWidget(QsciScintilla):
         self.setCaretLineBackgroundColor(QColor("#2a2d2e"))
         self.setCaretForegroundColor(QColor("#aeafad"))
         self.setCaretWidth(2)
+        # Mantiene l'evidenziazione della riga corrente anche quando l'editor
+        # NON ha il focus: così, navigando da un pannello risultati (Trova /
+        # Search PQ), la riga di destinazione resta visibile mentre il focus è
+        # ancora sull'albero dei risultati.
+        try:
+            self.SendScintilla(QsciScintilla.SCI_SETCARETLINEVISIBLEALWAYS, 1)
+        except Exception:
+            pass
 
     def _setup_selection(self) -> None:
         """Configura colori di selezione."""
@@ -969,6 +998,57 @@ class EditorWidget(QsciScintilla):
             QsciScintilla.SCI_POSITIONFROMLINE, line
         )
         return line, col
+
+    def highlight_find_match(self, line: int, start_col: int,
+                             end_col: int) -> None:
+        """Evidenzia in modo **visibile** un match di ricerca alla riga `line`
+        (0-based), tra le colonne `start_col` e `end_col`.
+
+        Usato dai pannelli risultati (Trova / Search PQ) quando l'utente clicca
+        un risultato. Oltre a impostare la selezione (che però QScintilla disegna
+        attenuata quando l'editor non ha il focus, perché il focus resta
+        sull'albero dei risultati), applica l'indicatore persistente
+        `INDICATOR_FIND` sulla parola: questo viene disegnato SOTTO il testo ed è
+        sempre visibile indipendentemente dal focus. Centra inoltre la riga.
+        """
+        line = max(0, min(line, max(0, self.lines() - 1)))
+        try:
+            line_len = len(self.text(line).rstrip("\n").rstrip("\r"))
+        except Exception:
+            line_len = 0
+        start_col = max(0, min(start_col, line_len))
+        end_col   = max(start_col, min(end_col, line_len))
+
+        # Indicatore persistente sulla parola (visibile anche senza focus).
+        self.clear_indicator(INDICATOR_FIND)
+        if end_col > start_col:
+            self.fillIndicatorRange(line, start_col, line, end_col,
+                                    INDICATOR_FIND)
+
+        # Selezione (sposta anche il caret sulla riga del match).
+        self.setSelection(line, start_col, line, end_col)
+
+        # Centra la riga nello schermo invece di limitarsi a renderla visibile:
+        # calcola la prima riga visibile in modo che il match finisca a metà
+        # dell'area di testo. Usa le righe DOCUMENTO (SCI_LINESONSCREEN conta le
+        # righe visibili tenendo conto di eventuale wrapping).
+        try:
+            self.ensureLineVisible(line)
+            visible = self.SendScintilla(QsciScintilla.SCI_LINESONSCREEN)
+            if visible > 0:
+                # SCI_VISIBLEFROMDOCLINE gestisce code-folding/righe nascoste.
+                doc_visible = self.SendScintilla(
+                    QsciScintilla.SCI_VISIBLEFROMDOCLINE, line
+                )
+                first = max(0, doc_visible - visible // 2)
+                self.SendScintilla(QsciScintilla.SCI_SETFIRSTVISIBLELINE, first)
+            else:
+                self.SendScintilla(QsciScintilla.SCI_SCROLLCARET)
+        except Exception:
+            try:
+                self.SendScintilla(QsciScintilla.SCI_SCROLLCARET)
+            except Exception:
+                pass
 
     # ── Tema / Colori base ────────────────────────────────────────────────────
 

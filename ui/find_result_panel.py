@@ -13,6 +13,30 @@ _COL_INFO  = 0   # "file:riga" o testo risultato
 _COL_TEXT  = 1   # testo della riga
 
 
+def _theme_colors() -> dict:
+    """Colori del tema attivo per intestazioni e nodi (root/file) dell'albero,
+    al posto di valori hardcoded, leggibili su tutti i temi (chiari e scuri).
+    """
+    try:
+        from config.themes import ThemeManager
+        tm     = ThemeManager.instance()
+        theme  = tm.get_theme(tm._active_name) or {}
+        tokens = theme.get("tokens", {}) or {}
+        is_dark = bool(theme.get("meta", {}).get("dark", True))
+    except Exception:
+        tokens, is_dark = {}, True
+
+    def _tok(name: str, default: str) -> str:
+        v = tokens.get(name, {})
+        return (v.get("fg") if isinstance(v, dict) else None) or default
+
+    if is_dark:
+        return {"header": _tok("keyword", "#4fa3e0"),
+                "file":   _tok("string", "#9bc36f")}
+    return {"header": _tok("keyword", "#2060a0"),
+            "file":   _tok("string", "#206020")}
+
+
 class FindResultPanel(QWidget):
     # Emesso quando l'utente vuole aprire un risultato: (percorso, numero_riga_0based)
     navigate_requested = pyqtSignal(str, int)
@@ -20,6 +44,8 @@ class FindResultPanel(QWidget):
     def __init__(self, main_window):
         super().__init__(main_window)
         self._mw = main_window
+        self._current_query: str = ""
+        self._colors = _theme_colors()
 
         vl = QVBoxLayout(self)
         vl.setContentsMargins(2, 2, 2, 2)
@@ -85,6 +111,9 @@ class FindResultPanel(QWidget):
         if not results:
             return
 
+        # Memorizza la query per poter evidenziare il match alla navigazione.
+        self._current_query = query
+
         # Raggruppa per file
         by_file: dict[str, list] = {}
         for r in results:
@@ -100,7 +129,7 @@ class FindResultPanel(QWidget):
         root = QTreeWidgetItem(self._tree)
         root.setText(0, f'🔍 "{query}"  ({total} occorrenze in {n_files} file)')
         root.setFont(0, QFont())
-        root.setForeground(0, QBrush(QColor("#2060a0")))
+        root.setForeground(0, QBrush(QColor(self._colors["header"])))
         root.setData(0, Qt.ItemDataRole.UserRole, None)
 
         for file_path, file_results in by_file.items():
@@ -109,7 +138,7 @@ class FindResultPanel(QWidget):
             file_item = QTreeWidgetItem(root)
             file_item.setText(0, f"📄 {fname}  ({len(file_results)})")
             file_item.setText(1, file_path)
-            file_item.setForeground(0, QBrush(QColor("#206020")))
+            file_item.setForeground(0, QBrush(QColor(self._colors["file"])))
             file_item.setData(0, Qt.ItemDataRole.UserRole, None)
             file_item.setToolTip(1, file_path)
 
@@ -119,7 +148,8 @@ class FindResultPanel(QWidget):
                 item.setText(0, f"  riga {line_no:>5}")
                 item.setText(1, r["text"].rstrip())
                 item.setFont(1, self._mono)
-                item.setData(0, Qt.ItemDataRole.UserRole, (r["file"], r["line"]))
+                item.setData(0, Qt.ItemDataRole.UserRole,
+                             (r["file"], r["line"], r.get("col", 0)))
 
         root.setExpanded(True)
         for i in range(root.childCount()):
@@ -174,18 +204,61 @@ class FindResultPanel(QWidget):
 
     def _on_item_activated(self, item: QTreeWidgetItem, col: int) -> None:
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        if data:
-            file_path, line = data
-            self.navigate_requested.emit(file_path, line)
+        if not data:
+            return
+        file_path = data[0]
+        line      = data[1]
+        match_col = data[2] if len(data) > 2 else 0
+        self._navigate_and_highlight(file_path, line, match_col)
 
     def _do_navigate(self, file_path: str, line: int) -> None:
+        # Compatibilità col segnale navigate_requested(str,int).
+        self._navigate_and_highlight(file_path, line, 0)
+
+    def _navigate_and_highlight(self, file_path: str, line: int, col: int) -> None:
+        """Apre il file alla riga indicata ed **evidenzia** (seleziona) il match,
+        invece di limitarsi a posizionare il cursore. Se non riesce a calcolare
+        il match (query sconosciuta o assente nella riga) seleziona l'intera riga.
+        """
         from pathlib import Path
-        self._mw.open_files([Path(file_path)])
+        import re
+        if file_path:
+            self._mw.open_files([Path(file_path)])
         editor = self._mw._current_editor()
-        if editor:
-            editor.setCursorPosition(line, 0)
+        if editor is None:
+            return
+
+        line = max(0, min(line, max(0, editor.lines() - 1)))
+        try:
+            line_text = editor.text(line).rstrip("\n").rstrip("\r")
+        except Exception:
+            line_text = ""
+
+        start, end = None, None
+        if self._current_query and line_text:
+            col = max(0, min(col, len(line_text)))
+            try:
+                pat = re.compile(re.escape(self._current_query), re.IGNORECASE)
+            except re.error:
+                pat = None
+            if pat is not None:
+                # `search(text, col)` cerca a partire da `col` senza creare
+                # sotto-stringhe: gli offset restituiti sono già assoluti.
+                m = pat.search(line_text, col) or pat.search(line_text)
+                if m and m.end() > m.start():
+                    start, end = m.start(), m.end()
+        if start is None:
+            start, end = 0, len(line_text)
+
+        # Evidenziazione robusta: oltre alla selezione (attenuata da QScintilla
+        # quando l'editor non ha il focus), applica l'indicatore persistente
+        # sulla parola e mantiene visibile la riga corrente anche senza focus.
+        if hasattr(editor, "highlight_find_match"):
+            editor.highlight_find_match(line, start, end)
+        else:
+            editor.setSelection(line, start, line, end)
             editor.ensureLineVisible(line)
-            editor.setFocus()
+        editor.setFocus()
 
     # ── Context menu ──────────────────────────────────────────────────────────
 

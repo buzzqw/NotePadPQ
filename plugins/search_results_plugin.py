@@ -43,6 +43,40 @@ def _t(key: str, **kw) -> str:
     return tr(f"plugin.search_results.{key}", **kw)
 
 
+def _theme_colors() -> dict:
+    """Colori del tema attivo per intestazioni e nodi dell'albero risultati.
+
+    Legge la palette dal ThemeManager corrente (come fa `_chat_palette` nel
+    plugin AI) per non usare colori hardcoded (`#2060a0`/`#206020`): così le
+    intestazioni restano leggibili su tutti i 40+ temi, chiari e scuri. Tutti i
+    valori hanno un fallback sensato.
+    """
+    try:
+        from config.themes import ThemeManager
+        tm     = ThemeManager.instance()
+        theme  = tm.get_theme(tm._active_name) or {}
+        tokens = theme.get("tokens", {}) or {}
+        is_dark = bool(theme.get("meta", {}).get("dark", True))
+    except Exception:
+        tokens, is_dark = {}, True
+
+    def _tok(name: str, default: str) -> str:
+        v = tokens.get(name, {})
+        return (v.get("fg") if isinstance(v, dict) else None) or default
+
+    if is_dark:
+        return {
+            "header":  _tok("keyword", "#4fa3e0"),    # intestazioni sezione / root
+            "section": _tok("function", "#7bb86f"),   # intestazione "Filtra"
+            "file":    _tok("string", "#9bc36f"),      # nodo file
+        }
+    return {
+        "header":  _tok("keyword", "#2060a0"),
+        "section": _tok("function", "#206040"),
+        "file":    _tok("string", "#206020"),
+    }
+
+
 class _SearchResultsPanel(QWidget):
     """
     Pannello multifunzione per i risultati di trova/sostituisci.
@@ -54,6 +88,7 @@ class _SearchResultsPanel(QWidget):
         self._mw = main_window
         self._all_results: list[dict] = []
         self._current_query: str = ""
+        self._colors = _theme_colors()
         # Timer per debounce auto-ricerca (300 ms dopo l'ultima digitazione)
         self._debounce_timer = QTimer(self)
         self._debounce_timer.setSingleShot(True)
@@ -75,7 +110,8 @@ class _SearchResultsPanel(QWidget):
 
         lbl_search_doc = QLabel(_t("section_search_doc"))
         lbl_search_doc.setToolTip(_t("section_search_doc_tooltip"))
-        lbl_search_doc.setStyleSheet("font-weight: bold; color: #2060a0; padding: 1px 0;")
+        lbl_search_doc.setStyleSheet(
+            f"font-weight: bold; color: {self._colors['header']}; padding: 1px 0;")
         vl.addWidget(lbl_search_doc)
 
         # ── Riga A: campo testo + opzioni ricerca ─────────────────────────────
@@ -159,7 +195,8 @@ class _SearchResultsPanel(QWidget):
 
         lbl_filter = QLabel(_t("section_filter"))
         lbl_filter.setToolTip(_t("section_filter_tooltip"))
-        lbl_filter.setStyleSheet("font-weight: bold; color: #206040; padding: 1px 0;")
+        lbl_filter.setStyleSheet(
+            f"font-weight: bold; color: {self._colors['section']}; padding: 1px 0;")
         vl.addWidget(lbl_filter)
 
         # ── Riga C: filtro rapido con supporto grep/regexp/LIKE ───────────────
@@ -273,7 +310,7 @@ class _SearchResultsPanel(QWidget):
 
         root = QTreeWidgetItem(self._tree)
         root.setText(0, _t("root_label", query=query, total=total, n_files=n_files))
-        root.setForeground(0, QBrush(QColor("#2060a0")))
+        root.setForeground(0, QBrush(QColor(self._colors["header"])))
         root.setFont(0, QFont())
         # Memorizza i parametri di ricerca nel nodo root per ripristino al click
         root.setData(0, Qt.ItemDataRole.UserRole, {
@@ -289,7 +326,7 @@ class _SearchResultsPanel(QWidget):
             file_item = QTreeWidgetItem(root)
             file_item.setText(0, _t("file_label", fname=fname, count=len(file_results)))
             file_item.setText(1, file_path)
-            file_item.setForeground(0, QBrush(QColor("#206020")))
+            file_item.setForeground(0, QBrush(QColor(self._colors["file"])))
             file_item.setData(0, Qt.ItemDataRole.UserRole, None)
             file_item.setToolTip(1, file_path)
 
@@ -362,10 +399,12 @@ class _SearchResultsPanel(QWidget):
         if isinstance(data, dict) and data.get("_is_search_header"):
             self._restore_search_params(data)
             return
-        # Altrimenti è una foglia → naviga
+        # Altrimenti è una foglia → naviga (con colonna del match per evidenziarlo)
         if isinstance(data, tuple):
-            file_path, line, *_ = data
-            self.navigate_requested.emit(file_path, line)
+            file_path = data[0]
+            line      = data[1]
+            col       = data[2] if len(data) > 2 else 0
+            self._navigate_and_highlight(file_path, line, col)
 
     def _restore_search_params(self, params: dict) -> None:
         """Ripristina i campi di ricerca con i parametri di una ricerca precedente."""
@@ -379,12 +418,98 @@ class _SearchResultsPanel(QWidget):
         self._search_edit.setFocus()
 
     def _do_navigate(self, file_path: str, line: int) -> None:
-        self._mw.open_files([Path(file_path)])
+        # Compatibilità col segnale navigate_requested(str,int): naviga senza
+        # colonna nota (evidenzia comunque il match se ricalcolabile).
+        self._navigate_and_highlight(file_path, line, 0)
+
+    def _navigate_and_highlight(self, file_path: str, line: int, col: int) -> None:
+        """Apre il file alla riga indicata ed **evidenzia** (seleziona) il match.
+
+        Ricalcola la lunghezza del match sulla riga di destinazione usando la
+        query e la modalità correnti, così la parola trovata risulta selezionata
+        (non solo il cursore posizionato). Se non riesce a determinare il match,
+        seleziona l'intera riga come fallback visivo.
+        """
+        if file_path:
+            self._mw.open_files([Path(file_path)])
         editor = self._mw._current_editor()
-        if editor:
-            editor.setCursorPosition(line, 0)
+        if editor is None:
+            return
+
+        # Testo della riga di destinazione (clamp ai limiti del documento).
+        line = max(0, min(line, max(0, editor.lines() - 1)))
+        try:
+            line_text = editor.text(line)
+        except Exception:
+            line_text = ""
+        line_text = line_text.rstrip("\n").rstrip("\r")
+
+        start, end = self._match_span(line_text, col)
+        if start is None:
+            # Fallback: seleziona tutta la riga per dare comunque evidenza visiva.
+            start, end = 0, len(line_text)
+
+        # Evidenziazione robusta: oltre alla selezione (attenuata da QScintilla
+        # quando l'editor non ha il focus), applica l'indicatore persistente
+        # sulla parola e mantiene visibile la riga corrente anche senza focus.
+        if hasattr(editor, "highlight_find_match"):
+            editor.highlight_find_match(line, start, end)
+        else:
+            editor.setSelection(line, start, line, end)
             editor.ensureLineVisible(line)
-            editor.setFocus()
+        editor.setFocus()
+
+    def _compile_query_pattern(self) -> Optional[re.Pattern]:
+        """Compila un singolo pattern regex che rappresenta la query corrente,
+        coerente con la modalità (text/regex/like) e le opzioni (case, whole-word).
+
+        Usato in modo condiviso da evidenziazione e sostituzione, così che ciò
+        che viene **sostituito** corrisponda esattamente a ciò che è stato
+        **cercato** (in passato la sostituzione ignorava regex/LIKE e l'opzione
+        case, usando sempre `re.escape(query)` con IGNORECASE fisso).
+
+        In modalità testo usa la prima parola "must" (i token negati `-x`/`!x`
+        non sono sostituibili). Restituisce None se la query è vuota o invalida.
+        """
+        query = self._current_query
+        if not query:
+            return None
+        case_sensitive = self._chk_case.isChecked()
+        whole_word     = self._chk_whole_word.isChecked()
+        mode           = self._search_mode.currentData()
+        flags = 0 if case_sensitive else re.IGNORECASE
+        try:
+            if mode == "regex":
+                return re.compile(query, flags)
+            if mode == "like":
+                base = self._like_to_regex(query)
+                return re.compile(base.pattern, flags | re.DOTALL)
+            # Modalità testo: prima parola "must" (no token negati).
+            tokens = [t for t in query.split()
+                      if not t.startswith(("-", "!"))]
+            word = tokens[0] if tokens else query
+            escaped = re.escape(word)
+            if whole_word:
+                escaped = rf"\b{escaped}\b"
+            return re.compile(escaped, flags)
+        except re.error:
+            return None
+
+    def _match_span(self, line_text: str, col: int) -> tuple[Optional[int], Optional[int]]:
+        """Calcola (start, end) del match sulla riga, coerente con la ricerca
+        corrente. Restituisce (None, None) se non determinabile.
+        """
+        if not line_text:
+            return None, None
+        pat = self._compile_query_pattern()
+        if pat is None:
+            return None, None
+        # Cerca prima dalla colonna memorizzata, poi su tutta la riga.
+        col = max(0, min(col, len(line_text)))
+        m = pat.search(line_text, col) or pat.search(line_text)
+        if m and m.end() > m.start():
+            return m.start(), m.end()
+        return None, None
 
     # ── Auto-ricerca (debounce) ───────────────────────────────────────────────
 
@@ -627,15 +752,25 @@ class _SearchResultsPanel(QWidget):
         editor.ensureLineVisible(line_0)
         editor.setFocus()
 
-        # Cerca e sostituisce solo quella occorrenza specifica
-        line_text = editor.text(line_0)
-        try:
-            match = re.search(re.escape(query), line_text[col:], re.IGNORECASE)
-        except re.error:
+        # Cerca e sostituisce solo quella occorrenza specifica, usando lo stesso
+        # pattern della ricerca (coerente con modalità regex/LIKE/text e case).
+        pat = self._compile_query_pattern()
+        if pat is None:
             return
-        if match:
-            abs_start = col + match.start()
-            abs_end   = col + match.end()
+        line_text = editor.text(line_0).rstrip("\n").rstrip("\r")
+        col = max(0, min(col, len(line_text)))
+        match = pat.search(line_text, col) or pat.search(line_text)
+        if match and match.end() > match.start():
+            abs_start = match.start()
+            abs_end   = match.end()
+            # In modalità regex il replace può contenere riferimenti ai gruppi
+            # (\1, \g<name>): espandili rispetto al match corrente.
+            mode = self._search_mode.currentData()
+            if mode == "regex":
+                try:
+                    replace_text = match.expand(replace_text)
+                except (re.error, IndexError):
+                    pass
             editor.setSelection(line_0, abs_start, line_0, abs_end)
             editor.replaceSelectedText(replace_text)
 
@@ -652,9 +787,17 @@ class _SearchResultsPanel(QWidget):
         editor = self._mw._current_editor()
         if editor is None:
             return
+        # Usa lo stesso pattern della ricerca (coerente con regex/LIKE/text e case).
+        pat = self._compile_query_pattern()
+        if pat is None:
+            return
         text = editor.text()
+        mode = self._search_mode.currentData()
+        # In modalità testo/LIKE il replace è letterale: neutralizza eventuali
+        # sequenze di backreference (\1, \g<...>). In regex le lasciamo attive.
+        repl = replace_text if mode == "regex" else replace_text.replace("\\", "\\\\")
         try:
-            new_text, count = re.subn(re.escape(query), replace_text, text, flags=re.IGNORECASE)
+            new_text, count = pat.subn(repl, text)
         except re.error:
             return
         if count > 0:

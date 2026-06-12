@@ -482,9 +482,34 @@ ESEMPI
         )
         if found:
             self._lbl_status.setText("")
+            # findFirst seleziona il match, ma QScintilla disegna la selezione
+            # attenuata quando l'editor non ha il focus (dopo Ctrl+F il focus
+            # resta sul dialog) e non centra la riga. Rinforziamo con
+            # highlight_find_match: indicatore marcato sulla parola + riga
+            # centrata, sempre visibili.
+            self._emphasize_find_selection(editor)
         else:
             self._lbl_status.setText(tr("msg.no_results", query=text))
         return found
+
+    def _emphasize_find_selection(self, editor) -> None:
+        """Dopo un match nativo (findFirst), evidenzia la parola con
+        l'indicatore marcato e centra la riga, anche se il focus è sul dialog.
+        """
+        if not hasattr(editor, "highlight_find_match"):
+            return
+        try:
+            sel = editor.getSelection()  # (lineFrom, idxFrom, lineTo, idxTo)
+            line_from, col_from, line_to, col_to = sel
+            if line_from < 0:
+                return
+            if line_to == line_from and col_to > col_from:
+                editor.highlight_find_match(line_from, col_from, col_to)
+            else:
+                # Match multiriga (es. regex): centra/evidenzia la prima riga.
+                editor.highlight_find_match(line_from, col_from, col_from)
+        except Exception:
+            pass
 
     def _do_incremental(self) -> None:
         """Cerca mentre si digita e aggiorna la lista occorrenze."""
@@ -536,7 +561,9 @@ ESEMPI
             re_flags = 0 if flags["case_sensitive"] else re.IGNORECASE
             pat = pattern_text if flags["regex"] else re.escape(pattern_text)
             if flags.get("whole_word"):
-                pat = rf"{pat}"
+                # Bugfix: prima era un no-op (rf"{pat}"), quindi "parola intera"
+                # non aveva alcun effetto su lista occorrenze e conteggio.
+                pat = rf"\b{pat}\b"
             compiled = re.compile(pat, re_flags)
         except re.error as e:
             self._lbl_status.setText(tr("msg.regex_error", error=str(e)))
@@ -987,8 +1014,11 @@ ESEMPI
         for editor in self._mw._tab_manager.all_editors():
             text = editor.text()
             name = editor.file_path.name if editor.file_path else tr("label.untitled")
-            matches = [(i + 1, line) for i, line in enumerate(text.split("\n"))
-                       if pattern.search(line)]
+            matches = []
+            for i, line in enumerate(text.split("\n")):
+                m = pattern.search(line)
+                if m:
+                    matches.append((i + 1, line, m.start()))
             if not matches:
                 continue
             total_matches += len(matches)
@@ -997,9 +1027,11 @@ ESEMPI
                 [f"📄 {name}  (" + tr("msg.file_matches", matches=len(matches)) + ")", ""]
             )
             doc_item.setData(0, _ROLE, {"editor": editor})
-            for ln, lt in matches:
+            for ln, lt, col in matches:
                 child = QTreeWidgetItem(["  " + tr("msg.row_n", n=ln), lt.strip()[:140]])
-                child.setData(0, _ROLE, {"editor": editor, "line": ln})
+                # Salva anche la colonna del match così il pannello risultati
+                # può evidenziare la parola con precisione (non solo la riga).
+                child.setData(0, _ROLE, {"editor": editor, "line": ln, "col": col})
                 doc_item.addChild(child)
             doc_item.setExpanded(True)
 
@@ -1046,10 +1078,22 @@ ESEMPI
             return
         editor   = data.get("editor")
         line_num = data.get("line")
+        col      = data.get("col")
         if editor is not None:
             self._mw._tab_manager.set_current_editor(editor)
             if line_num:
-                editor.go_to_line(int(line_num))
+                ln = int(line_num) - 1
+                if col is not None:
+                    # Evidenzia la parola: seleziona dal match fino a fine parola
+                    # ricalcolata, o almeno posiziona il cursore sulla colonna.
+                    line_text = editor.text(ln).rstrip("\n").rstrip("\r")
+                    end = col
+                    while end < len(line_text) and (line_text[end].isalnum() or line_text[end] == "_"):
+                        end += 1
+                    editor.setSelection(ln, col, ln, max(end, col + 1))
+                    editor.ensureLineVisible(ln)
+                else:
+                    editor.go_to_line(int(line_num))
                 editor.setFocus()
 
     # ── Stato ─────────────────────────────────────────────────────────────────

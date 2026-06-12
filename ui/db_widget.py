@@ -1308,10 +1308,13 @@ class _QueryTab(QWidget):
         fmt_form = QFormLayout(fmt_box)
         fmt_combo = QComboBox()
         # (etichetta, formato, separatore di default)
+        # NB: il delimitatore NON va incorporato qui (es. "CSV (,)"): si
+        # sceglie nel campo "Separatore" sottostante, altrimenti l'utente lo
+        # vedrebbe ripetuto in due posti (formato + separatore). Per TSV il
+        # separatore è implicito (tab) e il campo Separatore è disabilitato.
         self._EXPORT_FORMATS = [
-            ("CSV (,)",  "csv",  ","),
-            ("CSV (;)",  "csv",  ";"),
-            ("TSV (Tab)", "tsv", "\t"),
+            ("CSV (.csv)",  "csv",  ","),
+            ("TSV (.tsv)", "tsv", "\t"),
             ("Excel (.xlsx)", "xlsx", ""),
             ("OpenDocument (.ods)", "ods", ""),
         ]
@@ -1377,10 +1380,14 @@ class _QueryTab(QWidget):
         v.addWidget(rows_box)
 
         # Abilita/disabilita separatore+encoding a seconda del formato scelto.
+        # Per TSV il separatore è SEMPRE il tab (campo disabilitato e forzato),
+        # così non c'è ambiguità con la scelta del formato.
         def _on_fmt_changed(idx: int) -> None:
             _label, fmt, default_delim = self._EXPORT_FORMATS[idx]
             is_text = fmt in ("csv", "tsv")
-            delim_combo.setEnabled(is_text)
+            # Il separatore è scelto dall'utente solo per il CSV; per TSV è
+            # implicito (tab) e quindi il combo è bloccato.
+            delim_combo.setEnabled(fmt == "csv")
             enc_combo.setEnabled(is_text)
             # Allinea il separatore di default a quello del formato scelto.
             if is_text:
@@ -1562,6 +1569,17 @@ class _QueryTab(QWidget):
                 widget.convert_to_text.connect(self._open_converted_text)
             except Exception:
                 pass
+            # Il pulsante "Esporta/Salva come…" della griglia risultati apriva
+            # solo il semplice QFileDialog della SpreadsheetWidget. Nel plugin
+            # DB lo deleghiamo all'interfaccia di esportazione ricca stile
+            # DBeaver (`_export_results`: formato, separatore, codifica,
+            # intestazioni, quante righe). Solo per la griglia visualizzata,
+            # non per quella interna usata in fase di export.
+            if not for_export:
+                try:
+                    widget.export_handler = self._export_results
+                except Exception:
+                    pass
             layout.addWidget(widget)
             self._result_widget = widget
             if editable:

@@ -1240,6 +1240,11 @@ class SpreadsheetWidget(QWidget):
         super().__init__(parent)
         self.file_path = path
         self._read_only = read_only
+        # Callback opzionale per l'export: se impostato (es. dal plugin DB), il
+        # pulsante "Esporta/Salva come…" lo invoca al posto del semplice
+        # QFileDialog di `_save_as`, così da poter mostrare un'interfaccia di
+        # esportazione ricca (stile DBeaver). Vedi `ui/db_widget.py`.
+        self.export_handler = None
         self._delimiter = delimiter
         self._encoding = encoding
         self._first_row_header = first_row_header
@@ -1323,7 +1328,7 @@ class SpreadsheetWidget(QWidget):
             "Salva il foglio in un nuovo file scegliendo il formato\n"
             "Conversione disponibile: CSV ↔ XLSX ↔ ODS ↔ TSV"
         )
-        btn_save_as.clicked.connect(self._save_as)
+        btn_save_as.clicked.connect(self._on_save_as_clicked)
         toolbar.addWidget(btn_save_as)
 
         btn_pdf = QPushButton("→ PDF")
@@ -1934,6 +1939,20 @@ class SpreadsheetWidget(QWidget):
         else:
             self._model.mark_saved()
 
+    def _on_save_as_clicked(self) -> None:
+        """Gestisce il click su "Esporta/Salva come…".
+
+        Se è stato impostato un `export_handler` esterno (es. dal plugin DB che
+        vuole mostrare l'interfaccia di esportazione stile DBeaver), lo invoca.
+        Altrimenti usa il comportamento di default (`_save_as`, semplice
+        QFileDialog di salvataggio in altro formato).
+        """
+        handler = getattr(self, "export_handler", None)
+        if callable(handler):
+            handler()
+            return
+        self._save_as()
+
     def _save_as(self) -> None:
         _FILTERS = [
             ("CSV (*.csv)",            ".csv"),
@@ -2002,6 +2021,13 @@ class SpreadsheetWidget(QWidget):
         """Esporta il foglio corrente come PDF."""
         from pathlib import Path as _Path
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        headers = self._model.get_headers()
+        data = self._model.get_data()
+        # Chiede prima QUANTE righe esportare (tutte / prime N).
+        n = self._ask_rows_scope("Esporta come PDF", len(data))
+        if n is None:
+            return
+        data = data[:n]
         default = str(self.file_path.with_suffix("")) if self.file_path else str(_Path.home() / "foglio")
         path, _ = QFileDialog.getSaveFileName(
             self, "Esporta come PDF", default, "PDF (*.pdf)"
@@ -2011,8 +2037,6 @@ class SpreadsheetWidget(QWidget):
         p = _Path(path)
         if p.suffix.lower() != ".pdf":
             p = p.with_suffix(".pdf")
-        headers = self._model.get_headers()
-        data = self._model.get_data()
         # Costruisce tabella HTML
         th = "".join(f"<th>{h}</th>" for h in headers)
         rows_html = ""
@@ -2129,6 +2153,54 @@ class SpreadsheetWidget(QWidget):
             return "current"
         return "cancel"
 
+    def _ask_rows_scope(self, title: str, total: int):
+        """Chiede all'utente QUANTE righe esportare prima di PDF/Markdown/LaTeX.
+
+        Mostra un piccolo dialogo con due scelte: tutte le righe oppure le
+        prime N. Restituisce il numero massimo di righe da esportare (un intero
+        > 0) oppure `None` se l'utente annulla. `0`/`total` ⇒ tutte.
+
+        Prima questi export emettevano sempre l'intero modello senza dare la
+        possibilità di limitare l'output (a differenza dell'export CSV/Excel).
+        """
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QRadioButton, QSpinBox, QHBoxLayout,
+            QDialogButtonBox, QLabel,
+        )
+        # Se c'è poco da esportare non ha senso chiedere.
+        if total <= 1:
+            return total
+        dlg = QDialog(self)
+        dlg.setModal(True)
+        dlg.setWindowTitle(title)
+        v = QVBoxLayout(dlg)
+        v.addWidget(QLabel("Quante righe vuoi esportare?"))
+        # "Prime N righe" è la scelta di DEFAULT (con N preimpostato), mentre
+        # "Tutte le righe" non mostra alcun numero ed esporta l'intero set.
+        r_n = QRadioButton("Prime N righe:")
+        r_n.setChecked(True)
+        spin = QSpinBox()
+        spin.setRange(1, max(1, total))
+        spin.setValue(min(100, total))
+        spin.setEnabled(True)
+        r_n.toggled.connect(spin.setEnabled)
+        r_all = QRadioButton("Tutte le righe")
+        row = QHBoxLayout()
+        row.addWidget(r_n)
+        row.addWidget(spin)
+        row.addStretch()
+        v.addLayout(row)
+        v.addWidget(r_all)
+        bb = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        v.addWidget(bb)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+        return spin.value() if r_n.isChecked() else total
+
     def _convert_markdown(self) -> None:
         scope = "current"
         if len(self._sheet_names) > 1:
@@ -2136,15 +2208,22 @@ class SpreadsheetWidget(QWidget):
             if scope == "cancel":
                 return
 
+        # Chiede prima QUANTE righe esportare (tutte / prime N). Per "tutti i
+        # fogli" il limite si applica per singolo foglio.
+        total = len(self._model.get_data())
+        n = self._ask_rows_scope("Converti in Markdown", total)
+        if n is None:
+            return
+
         if scope == "all":
             parts: list[str] = []
             for sheet_name in self._sheet_names:
                 headers, data, _ = SpreadsheetIO.load(self.file_path, sheet=sheet_name)
-                parts.append(f"## {sheet_name}\n\n" + self._build_markdown_table(headers, data))
+                parts.append(f"## {sheet_name}\n\n" + self._build_markdown_table(headers, data[:n]))
             content = "\n\n---\n\n".join(parts)
         else:
             content = self._build_markdown_table(
-                self._model.get_headers(), self._model.get_data()
+                self._model.get_headers(), self._model.get_data()[:n]
             )
 
         self.convert_to_text.emit(content, f"{self.file_path.stem}.md")
@@ -2156,16 +2235,23 @@ class SpreadsheetWidget(QWidget):
             if scope == "cancel":
                 return
 
+        # Chiede prima QUANTE righe esportare (tutte / prime N). Per "tutti i
+        # fogli" il limite si applica per singolo foglio.
+        total = len(self._model.get_data())
+        n = self._ask_rows_scope("Converti in tabularx", total)
+        if n is None:
+            return
+
         if scope == "all":
             parts: list[str] = []
             for sheet_name in self._sheet_names:
                 headers, data, _ = SpreadsheetIO.load(self.file_path, sheet=sheet_name)
-                parts.append(f"% {sheet_name}\n" + self._build_tabularx_table(headers, data, caption=sheet_name))
+                parts.append(f"% {sheet_name}\n" + self._build_tabularx_table(headers, data[:n], caption=sheet_name))
             content = "\n\n".join(parts)
         else:
             caption = self._current_sheet or self.file_path.stem
             content = self._build_tabularx_table(
-                self._model.get_headers(), self._model.get_data(), caption=caption
+                self._model.get_headers(), self._model.get_data()[:n], caption=caption
             )
 
         self.convert_to_text.emit(content, f"{self.file_path.stem}.tex")

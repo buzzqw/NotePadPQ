@@ -1239,6 +1239,11 @@ class _AIPanel(QWidget):
         self._streaming_block = False
         self._stream_acc = ""
         self._speed_status = ""   # riga di stato tok/s dei modelli locali
+        self._gen_start    = 0.0  # istante del primo chunk di testo (inizio generazione)
+        self._gen_chars    = 0    # caratteri di sola risposta generati (no pensieri)
+        self._think_start  = 0.0  # istante del primo chunk di pensiero (inizio ragionamento)
+        self._think_chars  = 0    # caratteri di soli pensieri generati
+        self._local_model  = False  # True se il provider è Ollama/llama.cpp (stima tok/s live)
         self._inline_selection: Optional[tuple] = None  # (lf, cf, lt, ct) o None = intero file
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
@@ -1387,6 +1392,7 @@ class _AIPanel(QWidget):
         self._think_box.setReadOnly(True)
         self._think_box.setFont(QFont("Monospace", 9))
         self._think_box.setStyleSheet("background:#111827; color:#6b7280; border:none;")
+        self._think_box.hide()  # collassato finché non arrivano pensieri / espansione manuale
         think_layout.addWidget(self._think_box, 1)
 
         self._think_widget = think_widget
@@ -1433,10 +1439,17 @@ class _AIPanel(QWidget):
         btn_row.addWidget(self._btn_send)
         input_layout.addLayout(btn_row)
 
-        self._splitter.addWidget(input_widget)
-        self._splitter.setSizes([300, 0, 130])
-        self._splitter.setCollapsible(1, True)
+        # Lo splitter gestisce SOLO chat + pensieri (2 pane). L'input resta un
+        # blocco fisso sotto lo splitter: così trascinando l'handle dei Pensieri
+        # non si sposta più la casella di scrittura del messaggio.
+        self._splitter.setSizes([300, 0])
+        self._splitter.setCollapsible(0, False)
+        # Pane Pensieri non collassabile a 0 dallo splitter: quando è visibile
+        # deve mostrare almeno la barra "▶ Pensieri" (il box interno si
+        # mostra/nasconde separatamente via _expand_think/_collapse_think).
+        self._splitter.setCollapsible(1, False)
         layout.addWidget(self._splitter, 1)
+        layout.addWidget(input_widget)
 
         self._status = QLabel("")
         self._status.setStyleSheet("color:#858585; font-size:10px; padding:1px 2px;")
@@ -1883,13 +1896,20 @@ class _AIPanel(QWidget):
         self._has_streaming = False
         self._think_text_acc = ""
         self._speed_status   = ""
+        self._gen_start      = 0.0
+        self._gen_chars      = 0
+        self._think_start    = 0.0
+        self._think_chars    = 0
+        # Stima tok/s live solo per i modelli locali (Ollama/llama.cpp), che a
+        # fine risposta forniscono comunque il dato esatto via speed_ready.
+        self._local_model    = pid in ("ollama", "llamacpp")
         self._elapsed_timer.start(1000)
         self._btn_send.setText("⏹ Ferma")
         self._streaming_block = False
         self._think_box.clear()
+        self._think_box.hide()
         self._think_widget.hide()
-        self._splitter.setSizes([self._splitter.sizes()[0] + self._splitter.sizes()[1],
-                                  0, self._splitter.sizes()[2]])
+        self._splitter.setSizes([sum(self._splitter.sizes()), 0])
         self._status.setToolTip("")
         self._status.setText(f"⟳ {model} sta elaborando… (0s)")
 
@@ -1905,6 +1925,12 @@ class _AIPanel(QWidget):
 
     def _on_stream_chunk(self, chunk: str) -> None:
         self._has_streaming = True
+        # Inizio della generazione vera (primo chunk di sola risposta): da qui
+        # parte il conteggio per la stima tok/s live (i pensieri sono esclusi
+        # perché arrivano su _on_think_chunk).
+        if self._gen_start == 0.0:
+            self._gen_start = time.time()
+        self._gen_chars += len(chunk)
         cursor = self._chat_view.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
@@ -1952,6 +1978,9 @@ class _AIPanel(QWidget):
         if self._think_text_acc:
             self._status.setToolTip(self._think_text_acc[-500:].strip())
             self._status.setToolTipDuration(15000)
+            # Finito il ragionamento: collassa il pannello Pensieri restituendo
+            # spazio alla chat, ma lascia il pulsante "▶ Pensieri" per riaprirlo.
+            self._collapse_think()
 
         if self._chk_inline.isChecked():
             self._apply_inline(text)
@@ -2000,11 +2029,30 @@ class _AIPanel(QWidget):
         elapsed = int(time.time() - self._elapsed_start)
         model   = self._model_combo.currentText()
         if self._has_thinking and not self._has_streaming:
-            self._status.setText(f"💭 {model} sta ragionando… ({elapsed}s)")
+            # tok/s live anche durante il ragionamento (stima sui caratteri dei pensieri).
+            self._status.setText(f"💭 {model} sta ragionando… ({elapsed}s)"
+                                 f"{self._live_speed_suffix(self._think_start, self._think_chars)}")
         elif self._has_streaming:
-            self._status.setText(f"⟳ {model} sta generando… ({elapsed}s)")
+            self._status.setText(f"⟳ {model} sta generando… ({elapsed}s)"
+                                 f"{self._live_speed_suffix(self._gen_start, self._gen_chars)}")
         else:
             self._status.setText(f"⟳ {model} sta elaborando… ({elapsed}s)")
+
+    def _live_speed_suffix(self, start: float, chars: int) -> str:
+        """Stima live dei tok/s per i modelli locali, da mostrare durante le fasi
+        di ragionamento e generazione. È una stima (≈ 4 caratteri per token)
+        finché non arriva il dato esatto da Ollama/llama.cpp a fine risposta
+        (_on_speed). `start` e `chars` sono l'istante d'inizio e i caratteri
+        prodotti nella fase corrente (pensieri o risposta).
+        """
+        if not self._local_model or start == 0.0 or not chars:
+            return ""
+        dt = time.time() - start
+        if dt < 0.5:
+            return ""
+        est_tok = chars / 4.0   # ~4 char/token, euristica robusta
+        tps = est_tok / dt
+        return f" · ~{tps:.1f} tok/s"
 
     def _on_usage(self, in_tok: int, out_tok: int) -> None:
         model = self._model_combo.currentText()
@@ -2030,17 +2078,18 @@ class _AIPanel(QWidget):
 
     def _on_think_chunk(self, chunk: str) -> None:
         self._has_thinking = True
+        # Inizio del ragionamento (primo chunk di pensiero): da qui parte il
+        # conteggio per la stima tok/s live durante la fase "sta ragionando…".
+        if self._think_start == 0.0:
+            self._think_start = time.time()
+        self._think_chars += len(chunk)
         self._think_text_acc += chunk
         if not self._think_widget.isVisible():
             self._think_widget.show()
-            self._think_btn.setChecked(True)
-            sizes = self._splitter.sizes()
-            total = sum(sizes)
-            # assegna ~30% al pannello pensieri, ribilancia chat e input
-            think_h = max(120, total // 3)
-            chat_h  = max(80, sizes[0] - think_h)
-            inp_h   = sizes[-1]
-            self._splitter.setSizes([chat_h, think_h, inp_h])
+        # Durante il ragionamento mostra il box espanso (il pulsante resta
+        # sempre visibile come barra del pane Pensieri).
+        if not self._think_box.isVisible():
+            self._expand_think()
         cursor = self._think_box.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         self._think_box.setTextCursor(cursor)
@@ -2050,17 +2099,41 @@ class _AIPanel(QWidget):
         self._status.setToolTip(self._think_text_acc[-500:].strip())
         self._status.setToolTipDuration(8000)
 
+    def _expand_think(self) -> None:
+        """Mostra il box dei pensieri espanso (pane ~30%, resto alla chat)."""
+        self._think_box.show()
+        self._think_btn.blockSignals(True)
+        self._think_btn.setChecked(True)
+        self._think_btn.setText("▼ Pensieri")
+        self._think_btn.blockSignals(False)
+        # Usa l'altezza effettiva dello splitter (più affidabile della somma dei
+        # sizes correnti, che subito dopo show() può essere ancora [tutto, 0]).
+        total = self._splitter.height() or (sum(self._splitter.sizes()) or 400)
+        think_h = max(120, total // 3)
+        chat_h  = max(80, total - think_h)
+        self._splitter.setSizes([chat_h, think_h])
+
+    def _collapse_think(self) -> None:
+        """Riduce il pannello Pensieri al solo pulsante, restituendo lo spazio
+        alla chat. La barra "▶ Pensieri" resta visibile per riespandere il box
+        in qualsiasi momento dopo la risposta.
+        """
+        self._think_box.hide()
+        self._think_btn.blockSignals(True)
+        self._think_btn.setChecked(False)
+        self._think_btn.setText("▶ Pensieri")
+        self._think_btn.blockSignals(False)
+        # Pane ridotto all'altezza del solo pulsante; tutto il resto alla chat.
+        sizes = self._splitter.sizes()
+        total = sum(sizes)
+        bar_h = self._think_btn.height() or 24
+        self._splitter.setSizes([max(80, total - bar_h), bar_h])
+
     def _toggle_think(self, checked: bool) -> None:
-        self._think_btn.setText(("▼" if checked else "▶") + " Pensieri")
         if checked:
-            sizes = self._splitter.sizes()
-            if sizes[1] == 0:
-                total = sum(sizes)
-                think_h = max(120, total // 3)
-                self._splitter.setSizes([max(60, sizes[0] - think_h), think_h, sizes[2]])
+            self._expand_think()
         else:
-            sizes = self._splitter.sizes()
-            self._splitter.setSizes([sizes[0] + sizes[1], 0, sizes[2]])
+            self._collapse_think()
 
     def _bubble_html(self, role: str, body_html: str, accent: str = "") -> str:
         """Costruisce l'HTML di una bolla messaggio coerente col tema corrente."""
@@ -2111,10 +2184,14 @@ class _AIPanel(QWidget):
         self._streaming_block = False
         self._btn_apply.setEnabled(False)
         self._btn_new_tab.setEnabled(False)
+        self._think_btn.blockSignals(True)
         self._think_btn.setChecked(False)
-        self._think_btn.hide()
+        self._think_btn.setText("▶ Pensieri")
+        self._think_btn.blockSignals(False)
         self._think_box.hide()
         self._think_box.clear()
+        self._think_widget.hide()
+        self._splitter.setSizes([sum(self._splitter.sizes()), 0])
 
     # ── Inline edit / Applica / Nuovo tab ─────────────────────────────────────
 

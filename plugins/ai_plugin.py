@@ -425,6 +425,7 @@ class _AIWorker(QThread):
     result_ready   = pyqtSignal(str)        # risposta completa
     error_occurred = pyqtSignal(str)
     usage_ready    = pyqtSignal(int, int)   # input_tokens, output_tokens
+    speed_ready    = pyqtSignal(float, int) # tok/s generazione, output_tokens (modelli locali)
 
     def __init__(self, provider_id: str, model: str, api_key: str,
                  messages: list[dict], system: str = "",
@@ -699,6 +700,13 @@ class _AIWorker(QThread):
                     if event.get("done", False):
                         if buf and not in_think:
                             _flush_normal(buf)
+                        # Metriche di velocità: eval_count token generati in
+                        # eval_duration nanosecondi → token/secondo.
+                        eval_count = event.get("eval_count")
+                        eval_dur   = event.get("eval_duration")  # nanosecondi
+                        if eval_count and eval_dur:
+                            tps = eval_count / (eval_dur / 1e9)
+                            self.speed_ready.emit(float(tps), int(eval_count))
                         break
         except urllib.error.HTTPError as e:
             # Errore HTTP (es. 400 Bad Request se il modello non accetta "think")
@@ -727,6 +735,9 @@ class _AIWorker(QThread):
             "messages":   msgs,
             "max_tokens": self._max_tokens,
             "stream":     True,
+            # Chiede a llama-server di includere l'oggetto "timings" nei chunk SSE
+            # (token/secondo). Ignorato dai server che non lo supportano.
+            "timings_per_token": True,
         }).encode()
         headers = {"Content-Type": "application/json"}
         if self._key:
@@ -735,6 +746,8 @@ class _AIWorker(QThread):
         full_text = ""
         in_think  = False
         buf       = ""
+        last_tps  = None   # ultimo predicted_per_second visto nei timings
+        last_n    = 0      # ultimo predicted_n (token generati)
         _OPEN     = "<think>"
         _CLOSE    = "</think>"
 
@@ -762,6 +775,14 @@ class _AIWorker(QThread):
                         event = json.loads(payload)
                     except json.JSONDecodeError:
                         continue
+                    # Metriche di velocità (token/secondo) — llama-server le invia
+                    # nei chunk quando "timings_per_token" è abilitato.
+                    timings = event.get("timings")
+                    if isinstance(timings, dict):
+                        tps = timings.get("predicted_per_second")
+                        if tps:
+                            last_tps = float(tps)
+                            last_n   = int(timings.get("predicted_n") or last_n)
                     choices = event.get("choices", [])
                     if not choices:
                         continue
@@ -807,6 +828,8 @@ class _AIWorker(QThread):
                 raise
         finally:
             self._current_resp = None
+        if last_tps:
+            self.speed_ready.emit(last_tps, last_n)
         return full_text
 
     # ── JetBrains AI ──────────────────────────────────────────────────────────
@@ -1215,6 +1238,7 @@ class _AIPanel(QWidget):
         self._old_workers: list[_AIWorker]     = []
         self._streaming_block = False
         self._stream_acc = ""
+        self._speed_status = ""   # riga di stato tok/s dei modelli locali
         self._inline_selection: Optional[tuple] = None  # (lf, cf, lt, ct) o None = intero file
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
@@ -1858,6 +1882,7 @@ class _AIPanel(QWidget):
         self._has_thinking  = False
         self._has_streaming = False
         self._think_text_acc = ""
+        self._speed_status   = ""
         self._elapsed_timer.start(1000)
         self._btn_send.setText("⏹ Ferma")
         self._streaming_block = False
@@ -1875,6 +1900,7 @@ class _AIPanel(QWidget):
         self._worker.result_ready.connect(self._on_result)
         self._worker.error_occurred.connect(self._on_error)
         self._worker.usage_ready.connect(self._on_usage)
+        self._worker.speed_ready.connect(self._on_speed)
         self._worker.start()
 
     def _on_stream_chunk(self, chunk: str) -> None:
@@ -1921,7 +1947,8 @@ class _AIPanel(QWidget):
         self._btn_send.setText("▶ Invia  Ctrl+↵")
         self._btn_apply.setEnabled(True)
         self._btn_new_tab.setEnabled(True)
-        self._status.setText("")
+        # Per i modelli locali _on_speed ha già scritto i tok/s: non sovrascriverli.
+        self._status.setText(self._speed_status)
         if self._think_text_acc:
             self._status.setToolTip(self._think_text_acc[-500:].strip())
             self._status.setToolTipDuration(15000)
@@ -1954,6 +1981,7 @@ class _AIPanel(QWidget):
                 self._worker.result_ready.disconnect()
                 self._worker.error_occurred.disconnect()
                 self._worker.usage_ready.disconnect()
+                self._worker.speed_ready.disconnect()
             except Exception:
                 pass
             # Tieni il worker vivo finché il thread non termina (stesso pattern di PreviewPanel).
@@ -1987,6 +2015,18 @@ class _AIPanel(QWidget):
         else:
             cost_str = ""
         self._status.setText(f"↑{in_tok} tok  ↓{out_tok} tok{cost_str}")
+
+    def _on_speed(self, tok_per_sec: float, out_tok: int) -> None:
+        """Mostra la velocità di generazione (tok/s) dei modelli locali.
+
+        Ollama e llama.cpp non emettono `usage_ready`, quindi questo slot
+        compone direttamente la riga di stato con i token generati e i tok/s.
+        """
+        if out_tok:
+            self._speed_status = f"↓{out_tok} tok · {tok_per_sec:.1f} tok/s"
+        else:
+            self._speed_status = f"{tok_per_sec:.1f} tok/s"
+        self._status.setText(self._speed_status)
 
     def _on_think_chunk(self, chunk: str) -> None:
         self._has_thinking = True

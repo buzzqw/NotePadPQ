@@ -1214,6 +1214,7 @@ class _AIPanel(QWidget):
         self._worker:      Optional[_AIWorker] = None
         self._old_workers: list[_AIWorker]     = []
         self._streaming_block = False
+        self._stream_acc = ""
         self._inline_selection: Optional[tuple] = None  # (lf, cf, lt, ct) o None = intero file
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
@@ -1328,10 +1329,15 @@ class _AIPanel(QWidget):
         # ── Splitter chat / pensieri / input ─────────────────────────────────
         self._splitter = QSplitter(Qt.Orientation.Vertical)
 
+        self._pal = _chat_palette()
         self._chat_view = QTextEdit()
         self._chat_view.setReadOnly(True)
-        self._chat_view.setFont(QFont("Monospace", 10))
-        self._chat_view.setStyleSheet("background:#1e1e1e; color:#d4d4d4; border:none;")
+        # Font di default dell'UI per il testo discorsivo (il monospace viene
+        # applicato solo ai blocchi di codice via stile inline).
+        self._chat_view.setStyleSheet(
+            f"background:{self._pal['base_bg']}; color:{self._pal['base_fg']}; "
+            f"border:none; padding:2px;"
+        )
         self._chat_view.setToolTip(tr("tooltip.ai_chat"))
         self._splitter.addWidget(self._chat_view)
 
@@ -1845,7 +1851,7 @@ class _AIPanel(QWidget):
                 self._inline_selection = None  # None = intero file
 
         self._history.append({"role": "user", "content": text})
-        self._append_msg("user", text, "#9cdcfe")
+        self._append_msg("user", text)
         self._input.clear()
 
         self._elapsed_start = time.time()
@@ -1877,29 +1883,40 @@ class _AIPanel(QWidget):
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
         if not self._streaming_block:
-            # Prefisso "AI: " in grassetto colorato
+            # Intestazione della bolla AI in grassetto (testo grezzo durante lo
+            # streaming; alla fine la chat viene ricostruita con Markdown).
+            self._stream_acc = ""
             cursor.insertBlock()
             lbl = QTextCharFormat()
-            lbl.setForeground(QColor("#c3e88d"))
+            lbl.setForeground(QColor(self._pal["ai_hdr"]))
             lbl.setFontWeight(700)
-            cursor.insertText("AI: ", lbl)
+            header = self._model_combo.currentText() or "AI"
+            cursor.insertText(header + "\n", lbl)
             self._streaming_block = True
 
         # Testo plain — preserva spazi e a capo senza collasso HTML
+        self._stream_acc += chunk
         fmt = QTextCharFormat()
-        fmt.setForeground(QColor("#d4d4d4"))
+        fmt.setForeground(QColor(self._pal["base_fg"]))
         cursor.insertText(chunk, fmt)
         self._chat_view.setTextCursor(cursor)
         self._chat_view.ensureCursorVisible()
 
-    def _on_result(self, text: str) -> None:
-        if not self._streaming_block:
-            self._append_msg("assistant", text, "#c3e88d")
-        else:
-            # streaming già visualizzato chunk per chunk — niente da aggiungere
-            self._streaming_block = False
+    def _rebuild_chat(self) -> None:
+        """Ricostruisce l'intera vista chat dallo storico, con Markdown per l'AI."""
+        self._chat_view.clear()
+        for m in self._history:
+            role = m.get("role", "")
+            if role not in ("user", "assistant"):
+                continue
+            self._append_msg(role, str(m.get("content", "")))
 
+    def _on_result(self, text: str) -> None:
         self._history.append({"role": "assistant", "content": text})
+        # Sia in streaming (testo grezzo già mostrato) sia senza streaming,
+        # ricostruiamo la chat per ottenere il rendering Markdown delle risposte.
+        self._streaming_block = False
+        self._rebuild_chat()
         self._elapsed_timer.stop()
         self._btn_send.setText("▶ Invia  Ctrl+↵")
         self._btn_apply.setEnabled(True)
@@ -1913,7 +1930,7 @@ class _AIPanel(QWidget):
             self._apply_inline(text)
 
     def _on_error(self, msg: str) -> None:
-        self._append_msg("system", f"❌ Errore: {msg}", "#f44747")
+        self._append_msg("system", f"❌ Errore: {msg}")
         self._elapsed_timer.stop()
         self._btn_send.setText("▶ Invia  Ctrl+↵")
         self._status.setText("")
@@ -2005,13 +2022,45 @@ class _AIPanel(QWidget):
             sizes = self._splitter.sizes()
             self._splitter.setSizes([sizes[0] + sizes[1], 0, sizes[2]])
 
-    def _append_msg(self, role: str, text: str, color: str) -> None:
-        prefix = {"user": "Tu:", "assistant": "AI:", "system": ""}
-        pre    = prefix.get(role, "")
-        self._chat_view.append(
-            f'<p><b style="color:{color}">{pre}</b>&nbsp;'
-            f'<span style="color:{color}; white-space:pre-wrap">{_escape(text)}</span></p>'
+    def _bubble_html(self, role: str, body_html: str, accent: str = "") -> str:
+        """Costruisce l'HTML di una bolla messaggio coerente col tema corrente."""
+        pal = self._pal
+        body_fg = pal["base_fg"]
+        if role == "user":
+            bg, hdr_fg = pal["user_bg"], pal["user_hdr"]
+            header = tr("label.ai_role_user")
+        elif role == "assistant":
+            bg, hdr_fg = pal["ai_bg"], pal["ai_hdr"]
+            header = self._model_combo.currentText() or "AI"
+        else:  # system / warning / error
+            bg = pal["base_bg"]
+            hdr_fg = accent or pal["error_fg"]
+            body_fg = accent or pal["error_fg"]
+            header = ""
+
+        hdr_html = (
+            f'<div style="color:{hdr_fg}; font-weight:bold; font-size:11px; '
+            f'margin-bottom:2px;">{_escape(header)}</div>' if header else ""
         )
+        # Tabella usata come contenitore: QTextEdit renderizza in modo affidabile
+        # background+padding sulle celle di tabella (i <div> con background non
+        # sempre rispettano padding/border-radius nel motore Qt).
+        return (
+            f'<table width="100%" cellspacing="0" cellpadding="8" '
+            f'style="margin:4px 0;"><tr>'
+            f'<td style="background:{bg}; border:1px solid {pal["border"]};">'
+            f'{hdr_html}'
+            f'<div style="color:{body_fg};">{body_html}</div>'
+            f'</td></tr></table>'
+        )
+
+    def _append_msg(self, role: str, text: str, color: str = "") -> None:
+        if role == "assistant":
+            body = _render_markdown_to_html(text, self._pal)
+        else:
+            body = f'<span style="white-space:pre-wrap">{_escape(text)}</span>'
+        self._chat_view.append(self._bubble_html(role, body, accent=color))
+        self._chat_view.ensureCursorVisible()
 
     def _clear(self) -> None:
         self._history.clear()
@@ -2116,6 +2165,114 @@ def _extract_code_block(text: str) -> str:
     if len(matches) == 1:
         return matches[0].rstrip("\n")
     return text
+
+
+def _chat_palette() -> dict:
+    """Restituisce i colori del tema attivo usati per le bolle della chat.
+
+    Legge la palette dal ThemeManager corrente in modo che il pannello AI resti
+    leggibile con tutti i 40+ temi (chiari e scuri), invece di usare colori
+    hardcoded. Tutti i valori hanno un fallback sensato.
+    """
+    try:
+        from config.themes import ThemeManager
+        tm    = ThemeManager.instance()
+        theme = tm.get_theme(tm._active_name) or {}
+        ui     = theme.get("ui", {}) or {}
+        tokens = theme.get("tokens", {}) or {}
+        is_dark = bool(theme.get("meta", {}).get("dark", True))
+    except Exception:
+        ui, tokens, is_dark = {}, {}, True
+
+    def _tok(name: str, default: str) -> str:
+        v = tokens.get(name, {})
+        return (v.get("fg") if isinstance(v, dict) else None) or default
+
+    base_bg = ui.get("editor_bg") or ("#1e1e1e" if is_dark else "#ffffff")
+    base_fg = ui.get("editor_fg") or ("#d4d4d4" if is_dark else "#1e1e1e")
+
+    if is_dark:
+        user_bg = "#2a3f54"   # blu-grigio per l'utente
+        ai_bg   = "#2a2d2e"   # grigio neutro per l'AI
+        code_bg = "#1a1a1a"
+        border  = "#3c3c3c"
+    else:
+        user_bg = "#dbeafe"   # azzurro chiaro per l'utente
+        ai_bg   = "#f1f3f5"   # grigio chiarissimo per l'AI
+        code_bg = "#f5f5f5"
+        border  = "#d0d0d0"
+
+    return {
+        "is_dark":   is_dark,
+        "base_bg":   base_bg,
+        "base_fg":   base_fg,
+        "user_bg":   user_bg,
+        "user_hdr":  _tok("identifier", "#4fa3e0"),
+        "ai_bg":     ai_bg,
+        "ai_hdr":    _tok("function", "#7bb86f"),
+        "code_bg":   code_bg,
+        "border":    border,
+        "error_fg":  _tok("error", "#f44747"),
+        "muted_fg":  ui.get("margin_fg") or "#858585",
+    }
+
+
+# python-markdown opzionale (riuso della stessa libreria di ui/preview_panel.py)
+try:
+    import markdown as _md_lib
+    _HAS_MD = True
+except Exception:
+    _md_lib = None
+    _HAS_MD = False
+
+
+def _render_markdown_to_html(text: str, pal: dict) -> str:
+    """Converte il Markdown della risposta AI in HTML formattato.
+
+    Se python-markdown non è installato, esegue un fallback che almeno mostra i
+    blocchi di codice ``` in <pre> e preserva gli a capo. I blocchi/inline code
+    ricevono uno sfondo coerente col tema.
+    """
+    if _HAS_MD:
+        try:
+            body = _md_lib.markdown(
+                text,
+                extensions=["tables", "fenced_code", "sane_lists", "nl2br"],
+            )
+        except Exception:
+            body = "<p>" + _escape(text) + "</p>"
+    else:
+        # Fallback senza libreria: estrai i blocchi ``` e fai escape del resto.
+        parts = re.split(r"```(?:\w+)?\n(.*?)```", text, flags=re.DOTALL)
+        chunks = []
+        for i, part in enumerate(parts):
+            if i % 2 == 1:
+                chunks.append(
+                    f'<pre><code>{_html_escape(part)}</code></pre>'
+                )
+            elif part:
+                chunks.append("<p>" + _escape(part) + "</p>")
+        body = "".join(chunks) or ("<p>" + _escape(text) + "</p>")
+
+    # Styling inline dei blocchi/inline code (QTextEdit non applica fogli di stile
+    # esterni in modo affidabile, quindi gli stili vanno inline).
+    code_bg = pal["code_bg"]
+    body = body.replace(
+        "<pre>",
+        f'<pre style="background:{code_bg}; padding:6px 8px; '
+        f'border-radius:4px; font-family:Monospace; white-space:pre-wrap;">',
+    )
+    body = body.replace(
+        "<code>",
+        f'<code style="background:{code_bg}; border-radius:3px; '
+        f'padding:0 3px; font-family:Monospace;">',
+    )
+    return body
+
+
+def _html_escape(text: str) -> str:
+    import html as _html
+    return _html.escape(text)
 
 
 # ─── Plugin principale ────────────────────────────────────────────────────────

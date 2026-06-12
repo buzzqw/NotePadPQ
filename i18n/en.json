@@ -369,6 +369,7 @@
     "spell_on": "Spell check enabled",
     "spell_off": "Spell check disabled",
     "ai_provider": "Provider:",
+    "ai_role_user": "You",
     "ai_model": "Model:",
     "ai_instruction": "Instruction:",
     "build_log_preview": "Log preview:",

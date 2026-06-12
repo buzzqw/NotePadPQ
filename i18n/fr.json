@@ -369,6 +369,7 @@
     "spell_on": "Correcteur orthographique activé",
     "spell_off": "Correcteur orthographique désactivé",
     "ai_provider": "Fournisseur :",
+    "ai_role_user": "Vous",
     "ai_model": "Modèle :",
     "ai_instruction": "Instruction :",
     "build_log_preview": "Aperçu du journal :",

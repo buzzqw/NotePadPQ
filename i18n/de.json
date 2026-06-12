@@ -369,6 +369,7 @@
     "spell_on": "Rechtschreibprüfung aktiviert",
     "spell_off": "Rechtschreibprüfung deaktiviert",
     "ai_provider": "Anbieter:",
+    "ai_role_user": "Du",
     "ai_model": "Modell:",
     "ai_instruction": "Anweisung:",
     "build_log_preview": "Log-Vorschau:",

@@ -369,6 +369,7 @@
     "spell_on": "Sprawdzanie pisowni włączone",
     "spell_off": "Sprawdzanie pisowni wyłączone",
     "ai_provider": "Dostawca:",
+    "ai_role_user": "Ty",
     "ai_model": "Model:",
     "ai_instruction": "Instrukcja:",
     "build_log_preview": "Podgląd logu:",

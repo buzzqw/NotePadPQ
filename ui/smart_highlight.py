@@ -72,10 +72,17 @@ _SMART_HL_COLOR = QColor(150, 150, 0, 100) # R, G, B, Alpha (0-255)
 
 class SmartHighlighter:
     """
-    Evidenzia automaticamente tutte le occorrenze della parola sotto il cursore.
-    Si attiva 300ms dopo l'ultimo spostamento cursore per non appesantire
-    la digitazione. Viene disattivato se il cursore si sposta fuori dalla parola.
-    Può essere abilitato/disabilitato tramite set_enabled() e il toggle nel menu.
+    Gestisce il toggle (menu/impostazioni) dell'"Evidenziazione automatica
+    parola sotto il cursore".
+
+    NOTA ARCHITETTURALE: l'evidenziazione vera e propria è realizzata dallo
+    smart highlight **interno** di `EditorWidget` (INDICATOR_SMART_HL, azzurro),
+    che è l'unico a disegnare. In passato questa classe disegnava un proprio
+    indicatore (oliva, n.13) sulle stesse parole: ciò produceva una DOPPIA
+    evidenziazione (azzurro + oliva) e, soprattutto, un colore giallo che si
+    confondeva con quello del pannello Trova. Ora questa classe si limita a
+    propagare lo stato abilitato/disabilitato agli editor, senza disegnare
+    nulla di proprio.
     """
 
     DELAY_MS  = 300
@@ -109,10 +116,10 @@ class SmartHighlighter:
         from config.settings import Settings
         Settings.instance().set("editor/smart_highlight_enabled", enabled)
         if not enabled:
-            self._clear_editor_indicators(self._active_editor)
             self._last_word = ""
             self._timer.stop()
-        # Propaga a tutti gli editor aperti (sistema interno editor_widget)
+        # L'evidenziazione è disegnata dallo smart highlight INTERNO dell'editor:
+        # ci limitiamo a propagare lo stato a tutti gli editor aperti.
         try:
             for ed in self._mw._tab_manager.all_editors():
                 ed.set_smart_highlight_enabled(enabled)
@@ -120,26 +127,24 @@ class SmartHighlighter:
             pass
 
     def _clear_editor_indicators(self, editor: Optional["EditorWidget"]) -> None:
+        # Pulisce eventuali residui del vecchio indicatore oliva (n.13) lasciati
+        # da versioni precedenti; il disegno ora è gestito dall'editor interno.
         if editor:
-            editor.clearIndicatorRange(
-                0, 0,
-                editor.lines() - 1, len(editor.text(editor.lines() - 1)),
-                _SMART_HL_INDICATOR_NUM
-            )
+            try:
+                editor.clearIndicatorRange(
+                    0, 0,
+                    editor.lines() - 1, len(editor.text(editor.lines() - 1)),
+                    _SMART_HL_INDICATOR_NUM
+                )
+            except Exception:
+                pass
 
     def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
         if self._active_editor:
-            try:
-                self._active_editor.cursor_changed.disconnect(self._on_cursor_moved)
-            except Exception:
-                pass
-            # Pulisce gli indicatori sull'editor uscente per evitare residui
+            # Pulisce eventuali residui del vecchio indicatore oliva.
             self._clear_editor_indicators(self._active_editor)
         self._active_editor = editor
         self._last_word = ""
-        if editor:
-            editor.cursor_changed.connect(self._on_cursor_moved)
-            self._setup_indicator(editor)
 
     @staticmethod
     def install_into_main_window(main_window: "MainWindow") -> "SmartHighlighter":
@@ -157,89 +162,15 @@ class SmartHighlighter:
             search_menu.addAction(act)
         return hl
 
-    def _setup_indicator(self, editor: "EditorWidget") -> None:
-        # Use StraightBoxIndicator (or BoxIndicator) for a less intrusive highlight
-        # and pass the integer ID, not the color object.
-        editor.indicatorDefine(
-            editor.IndicatorStyle.StraightBoxIndicator, _SMART_HL_INDICATOR_NUM
-        )
-        editor.setIndicatorForegroundColor(_SMART_HL_COLOR, _SMART_HL_INDICATOR_NUM)
-        editor.setIndicatorDrawUnder(True, _SMART_HL_INDICATOR_NUM)
-
-    def _on_cursor_moved(self, line: int, col: int) -> None:
-        if self._enabled:
-            self._timer.start()
-
     def _do_highlight(self) -> None:
-        editor = self._active_editor
-        if not editor:
-            return
-
-        word = self._word_at_cursor(editor)
-
-        if not word or len(word) < self.MIN_LEN:
-            if self._last_word:
-                editor.clearIndicatorRange(
-                    0, 0,
-                    editor.lines() - 1, len(editor.text(editor.lines() - 1)),
-                    _SMART_HL_INDICATOR_NUM
-                )
-                self._last_word = ""
-            return
-
-        if word == self._last_word:
-            return
-
-        self._last_word = word
-        editor.clearIndicatorRange(
-            0, 0,
-            editor.lines() - 1, len(editor.text(editor.lines() - 1)),
-            _SMART_HL_INDICATOR_NUM
-        )
-        self._highlight_all(editor, word)
-
-    def _word_at_cursor(self, editor: "EditorWidget") -> str:
-        """Restituisce la parola sotto il cursore usando l'API nativa QScintilla.
-        Non evidenzia se il cursore è posizionato subito a destra dell'ultima lettera."""
-        line, col = editor.getCursorPosition()
-
-        # wordAtLineIndex usa internamente SCI_WORDSTARTPOSITION / SCI_WORDENDPOSITION:
-        # restituisce "" quando il carattere a col non è un carattere-parola.
-        word = editor.wordAtLineIndex(line, col)
-        if not word:
-            return ""
-
-        # Non evidenziare se il cursore è sul bordo destro o sinistro della parola.
-        text = editor.text(line)
-        char_right = text[col] if col < len(text) else ""
-        char_left  = text[col - 1] if col > 0 else ""
-        right_is_word = char_right.isalnum() or char_right == "_"
-        left_is_word  = char_left.isalnum()  or char_left  == "_"
-        if (left_is_word and not right_is_word) or (right_is_word and not left_is_word):
-            return ""
-
-        return word
-
-    def _highlight_all(self, editor: "EditorWidget", word: str) -> None:
-        """Evidenzia tutte le occorrenze. Una sola chiamata API per ottenere il testo."""
-        pattern = r"\b" + re.escape(word) + r"\b"
-        try:
-            full_text = editor.text()
-            for line_num, text in enumerate(full_text.split('\n')):
-                for m in re.finditer(pattern, text):
-                    # Calcola i byte esatti per QScintilla (evita sfasamenti con accenti)
-                    byte_start = len(text[:m.start()].encode('utf-8'))
-                    byte_end   = len(text[:m.end()].encode('utf-8'))
-                    editor.fillIndicatorRange(
-                        line_num, byte_start,
-                        line_num, byte_end,
-                        _SMART_HL_INDICATOR_NUM
-                    )
-        except Exception:
-            pass
+        """No-op: il disegno dello smart highlight è ora interamente gestito
+        dallo smart highlight INTERNO di `EditorWidget`. Mantenuto solo come slot
+        del timer per retro-compatibilità (il timer non viene più avviato)."""
+        return
 
     def clear(self) -> None:
-        """Rimuove tutti gli highlight smart."""
+        """Rimuove eventuali residui del vecchio indicatore oliva sull'editor
+        attivo. Il disegno corrente è gestito dall'editor interno."""
         self._clear_editor_indicators(self._active_editor)
 
 

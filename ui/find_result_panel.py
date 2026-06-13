@@ -14,27 +14,85 @@ _COL_TEXT  = 1   # testo della riga
 
 
 def _theme_colors() -> dict:
-    """Colori del tema attivo per intestazioni e nodi (root/file) dell'albero,
-    al posto di valori hardcoded, leggibili su tutti i temi (chiari e scuri).
+    """Colori del tema attivo per la lista risultati (sfondo, testo, selezione,
+    intestazioni e nodi file), al posto di valori hardcoded: così l'elenco è
+    leggibile e coerente su tutti i temi, chiari e scuri.
     """
     try:
         from config.themes import ThemeManager
         tm     = ThemeManager.instance()
         theme  = tm.get_theme(tm._active_name) or {}
         tokens = theme.get("tokens", {}) or {}
+        ui     = theme.get("ui", {}) or {}
         is_dark = bool(theme.get("meta", {}).get("dark", True))
     except Exception:
-        tokens, is_dark = {}, True
+        tokens, ui, is_dark = {}, {}, True
 
     def _tok(name: str, default: str) -> str:
         v = tokens.get(name, {})
         return (v.get("fg") if isinstance(v, dict) else None) or default
 
+    def _ui(name: str, default: str) -> str:
+        v = ui.get(name)
+        return v if isinstance(v, str) and v else default
+
     if is_dark:
-        return {"header": _tok("keyword", "#4fa3e0"),
-                "file":   _tok("string", "#9bc36f")}
-    return {"header": _tok("keyword", "#2060a0"),
-            "file":   _tok("string", "#206020")}
+        return {
+            "header":     _tok("keyword", "#4fa3e0"),
+            "file":       _tok("string", "#9bc36f"),
+            "bg":         _ui("editor_bg", "#1e1e1e"),
+            "fg":         _ui("editor_fg", "#d4d4d4"),
+            "alt_bg":     _ui("caret_line_bg", "#262a2d"),
+            "sel_bg":     _ui("selection_bg", "#264f78"),
+            "sel_fg":     "#ffffff",
+            "border":     _ui("fold_bg", "#3a3d41"),
+            "hover_bg":   _ui("caret_line_bg", "#2d3338"),
+        }
+    return {
+        "header":     _tok("keyword", "#2060a0"),
+        "file":       _tok("string", "#206020"),
+        "bg":         _ui("editor_bg", "#ffffff"),
+        "fg":         _ui("editor_fg", "#1e1e1e"),
+        "alt_bg":     "#f1f3f5",
+        "sel_bg":     "#cfe3ff",
+        "sel_fg":     "#0a2b4a",
+        "border":     "#c8cdd2",
+        "hover_bg":   "#e6f0fb",
+    }
+
+
+def _tree_stylesheet(c: dict) -> str:
+    """Foglio di stile per il QTreeWidget dei risultati, derivato dai colori del
+    tema. Garantisce leggibilità (niente più testo scuro su sfondo nero) e una
+    riga selezionata ben evidente."""
+    return f"""
+        QTreeWidget {{
+            background-color: {c['bg']};
+            alternate-background-color: {c['alt_bg']};
+            color: {c['fg']};
+            border: 1px solid {c['border']};
+            outline: 0;
+        }}
+        QTreeWidget::item {{
+            padding: 2px 0px;
+            border: 0px;
+        }}
+        QTreeWidget::item:hover {{
+            background-color: {c['hover_bg']};
+        }}
+        QTreeWidget::item:selected {{
+            background-color: {c['sel_bg']};
+            color: {c['sel_fg']};
+        }}
+        QHeaderView::section {{
+            background-color: {c['alt_bg']};
+            color: {c['fg']};
+            padding: 3px 6px;
+            border: 0px;
+            border-bottom: 1px solid {c['border']};
+            font-weight: bold;
+        }}
+    """
 
 
 class FindResultPanel(QWidget):
@@ -80,7 +138,10 @@ class FindResultPanel(QWidget):
         self._tree.setColumnWidth(0, 200)
         self._tree.setAlternatingRowColors(True)
         self._tree.setRootIsDecorated(True)
+        # Click singolo apre/evidenzia subito il risultato (oltre a doppio click
+        # / Invio gestiti da itemActivated): più reattivo e user-friendly.
         self._tree.itemActivated.connect(self._on_item_activated)
+        self._tree.itemClicked.connect(self._on_item_activated)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         vl.addWidget(self._tree, 1)
@@ -95,6 +156,20 @@ class FindResultPanel(QWidget):
         self._mono = QFont("Monospace")
         self._mono.setStyleHint(QFont.StyleHint.Monospace)
         self._mono.setPointSize(9)
+
+        # Applica lo stile a tema (leggibilità lista + selezione marcata).
+        self.apply_theme()
+
+    # ── Tema ───────────────────────────────────────────────────────────────────
+
+    def apply_theme(self) -> None:
+        """(Ri)applica i colori del tema attivo alla lista e all'intestazione.
+        Chiamabile anche dopo un cambio tema per aggiornare l'aspetto."""
+        self._colors = _theme_colors()
+        self._tree.setStyleSheet(_tree_stylesheet(self._colors))
+        self._lbl_summary.setStyleSheet(
+            f"font-weight: bold; color: {self._colors['header']};"
+        )
 
     # ── API pubblica ──────────────────────────────────────────────────────────
 
@@ -249,6 +324,16 @@ class FindResultPanel(QWidget):
                     start, end = m.start(), m.end()
         if start is None:
             start, end = 0, len(line_text)
+
+        # `start`/`end` sono offset di CARATTERE (calcolati con re su line_text).
+        # QScintilla lavora in byte: su righe con accenti vanno convertiti, o la
+        # selezione/indicatore finisce sulla parola sbagliata.
+        if hasattr(editor, "char_col_to_byte_col"):
+            try:
+                start = editor.char_col_to_byte_col(line, start)
+                end   = editor.char_col_to_byte_col(line, end)
+            except Exception:
+                pass
 
         # Evidenziazione robusta: oltre alla selezione (attenuata da QScintilla
         # quando l'editor non ha il focus), applica l'indicatore persistente

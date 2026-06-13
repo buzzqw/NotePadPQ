@@ -20,12 +20,14 @@ from PyQt6.QtWidgets import (
     QGridLayout, QLabel, QLineEdit, QCheckBox, QPushButton,
     QPlainTextEdit, QTreeWidget, QTreeWidgetItem, QComboBox,
     QGroupBox, QSplitter, QFileDialog, QApplication,
-    QRadioButton, QButtonGroup, QSpinBox,
+    QRadioButton, QButtonGroup, QSpinBox, QSlider,
 )
 from PyQt6.Qsci import QsciScintilla
 
 from i18n.i18n import tr
-from editor.editor_widget import EditorWidget, INDICATOR_FIND, INDICATOR_MARK1
+from editor.editor_widget import (
+    EditorWidget, INDICATOR_FIND, INDICATOR_MARK1, INDICATOR_FIND_LINE,
+)
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -36,21 +38,68 @@ _last_replace_text= ""
 _last_flags: dict = {}
 _instance: Optional["FindReplaceDialog"] = None
 
-# Stile condiviso per i pannelli risultati embedded
-_RESULTS_STYLE = """
-    QTreeWidget {
-        background-color: #1e1e1e; color: #d4d4d4;
+def _results_colors() -> dict:
+    """Colori della lista risultati derivati dal tema attivo, così l'elenco
+    resta leggibile su qualunque tema (prima era hardcoded a sfondo scuro,
+    quindi testo poco leggibile sui temi chiari)."""
+    try:
+        from config.themes import ThemeManager
+        tm      = ThemeManager.instance()
+        theme   = tm.get_theme(tm._active_name) or {}
+        ui      = theme.get("ui", {}) or {}
+        is_dark = bool(theme.get("meta", {}).get("dark", True))
+    except Exception:
+        ui, is_dark = {}, True
+
+    def _ui(name: str, default: str) -> str:
+        v = ui.get(name)
+        return v if isinstance(v, str) and v else default
+
+    if is_dark:
+        return {
+            "bg":       _ui("editor_bg", "#1e1e1e"),
+            "fg":       _ui("editor_fg", "#d4d4d4"),
+            "alt_bg":   _ui("caret_line_bg", "#252526"),
+            "sel_bg":   _ui("selection_bg", "#264f78"),
+            "sel_fg":   "#ffffff",
+            "border":   _ui("fold_bg", "#444444"),
+            "hover_bg": _ui("caret_line_bg", "#2a2d2e"),
+            "hdr_bg":   "#333333",
+            "hdr_fg":   "#cccccc",
+        }
+    return {
+        "bg":       _ui("editor_bg", "#ffffff"),
+        "fg":       _ui("editor_fg", "#1e1e1e"),
+        "alt_bg":   "#f1f3f5",
+        "sel_bg":   "#cfe3ff",
+        "sel_fg":   "#0a2b4a",
+        "border":   "#c8cdd2",
+        "hover_bg": "#e6f0fb",
+        "hdr_bg":   "#e9edf1",
+        "hdr_fg":   "#1e1e1e",
+    }
+
+
+def _results_stylesheet() -> str:
+    """Foglio di stile a tema per i QTreeWidget dei risultati (lista occorrenze,
+    cerca nei file, tutti i documenti). Leggibile su temi chiari e scuri, con
+    riga selezionata ben evidente."""
+    c = _results_colors()
+    return f"""
+    QTreeWidget {{
+        background-color: {c['bg']}; color: {c['fg']};
         font-family: monospace; font-size: 12px;
-        border: 1px solid #444; border-radius: 3px;
-    }
-    QTreeWidget::item { padding: 2px 4px; }
-    QTreeWidget::item:alternate { background-color: #252526; }
-    QTreeWidget::item:selected { background-color: #264f78; color: #ffffff; }
-    QTreeWidget::item:hover { background-color: #2a2d2e; }
-    QHeaderView::section {
-        background-color: #333333; color: #cccccc;
-        padding: 4px; border: 1px solid #444; font-weight: bold;
-    }
+        border: 1px solid {c['border']}; border-radius: 3px;
+        outline: 0;
+    }}
+    QTreeWidget::item {{ padding: 2px 4px; }}
+    QTreeWidget::item:alternate {{ background-color: {c['alt_bg']}; }}
+    QTreeWidget::item:selected {{ background-color: {c['sel_bg']}; color: {c['sel_fg']}; }}
+    QTreeWidget::item:hover {{ background-color: {c['hover_bg']}; }}
+    QHeaderView::section {{
+        background-color: {c['hdr_bg']}; color: {c['hdr_fg']};
+        padding: 4px; border: 1px solid {c['border']}; font-weight: bold;
+    }}
 """
 
 
@@ -81,6 +130,104 @@ class FindReplaceDialog(QDialog):
         self._tabs.addTab(self._build_find_in_files_tab(),  tr("action.find_in_files"))
         self._tabs.addTab(self._build_all_docs_tab(),       tr("action.find_in_all_docs"))
         layout.addWidget(self._tabs)
+
+        layout.addLayout(self._build_transparency_bar())
+
+    def _build_transparency_bar(self) -> QHBoxLayout:
+        """Barra in fondo al dialog per rendere la finestra Cerca trasparente.
+
+        Come negli editor PRO (es. la mini-toolbar "always on top" di vari
+        IDE): un check attiva la trasparenza e uno slider regola il livello,
+        così il pannello non copre completamente il testo sottostante. Lo stato
+        è persistito nei Settings.
+
+        Comportamento "smart": quando il mouse entra nel dialog la finestra
+        torna piena opacità (per non disturbare la digitazione), e quando esce
+        riapplica il livello trasparente scelto — vedi enterEvent/leaveEvent.
+        """
+        bar = QHBoxLayout()
+        bar.setContentsMargins(4, 0, 4, 2)
+
+        self._chk_transparent = QCheckBox(tr("label.transparent"))
+        self._chk_transparent.setToolTip(tr("tooltip.find_transparent"))
+        self._chk_transparent.toggled.connect(self._on_transparency_toggled)
+        bar.addWidget(self._chk_transparent)
+
+        self._opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self._opacity_slider.setMinimum(20)   # mai sotto il 20%: resta usabile
+        self._opacity_slider.setMaximum(100)
+        self._opacity_slider.setValue(70)
+        self._opacity_slider.setFixedWidth(160)
+        self._opacity_slider.setToolTip(tr("tooltip.find_opacity"))
+        self._opacity_slider.valueChanged.connect(self._on_opacity_changed)
+        bar.addWidget(self._opacity_slider)
+
+        self._opacity_label = QLabel("70%")
+        self._opacity_label.setMinimumWidth(40)
+        bar.addWidget(self._opacity_label)
+
+        bar.addStretch()
+        return bar
+
+    # ── Trasparenza finestra ───────────────────────────────────────────────────
+
+    def _current_opacity(self) -> float:
+        """Opacità (0.2–1.0) corrispondente al valore dello slider."""
+        try:
+            return max(20, min(100, self._opacity_slider.value())) / 100.0
+        except Exception:
+            return 1.0
+
+    def _apply_transparency(self) -> None:
+        """Applica l'opacità in base al check: piena opacità se disattivato,
+        altrimenti il livello scelto dallo slider."""
+        try:
+            if self._chk_transparent.isChecked():
+                self.setWindowOpacity(self._current_opacity())
+            else:
+                self.setWindowOpacity(1.0)
+        except Exception:
+            pass
+
+    def _on_transparency_toggled(self, checked: bool) -> None:
+        try:
+            self._opacity_slider.setEnabled(checked)
+            self._opacity_label.setEnabled(checked)
+        except Exception:
+            pass
+        self._apply_transparency()
+        try:
+            from config.settings import Settings
+            Settings.instance().set("find/transparent_enabled", bool(checked))
+        except Exception:
+            pass
+
+    def _on_opacity_changed(self, value: int) -> None:
+        try:
+            self._opacity_label.setText(f"{int(value)}%")
+        except Exception:
+            pass
+        self._apply_transparency()
+        try:
+            from config.settings import Settings
+            Settings.instance().set("find/opacity", int(value))
+        except Exception:
+            pass
+
+    def enterEvent(self, event) -> None:
+        """Mouse sopra il dialog → piena opacità, così digiti/leggi senza
+        disturbo (comportamento "smart" da editor PRO)."""
+        try:
+            self.setWindowOpacity(1.0)
+        except Exception:
+            pass
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        """Mouse fuori dal dialog → riapplica il livello trasparente scelto,
+        così la finestra non copre il testo mentre lavori nell'editor."""
+        self._apply_transparency()
+        super().leaveEvent(event)
 
     def _build_find_tab(self) -> QWidget:
         """
@@ -224,7 +371,7 @@ ESEMPI
         self._find_occurrences.setHeaderLabels([tr("label.col_line"), tr("label.col_text")])
         self._find_occurrences.setRootIsDecorated(False)
         self._find_occurrences.setAlternatingRowColors(True)
-        self._find_occurrences.setStyleSheet(_RESULTS_STYLE)
+        self._find_occurrences.setStyleSheet(_results_stylesheet())
         self._find_occurrences.header().setStretchLastSection(True)
         # Colonna Riga: larghezza fissa, testo allineato a destra
         self._find_occurrences.header().setSectionResizeMode(
@@ -232,6 +379,8 @@ ESEMPI
         )
         self._find_occurrences.setColumnWidth(0, 58)  # abbastanza per 5 cifre senza troncamento
         self._find_occurrences.itemDoubleClicked.connect(self._goto_occurrence)
+        # Click singolo: naviga ed evidenzia subito (più reattivo/user-friendly).
+        self._find_occurrences.itemClicked.connect(self._goto_occurrence)
         outer_lay.addWidget(self._find_occurrences, 1)  # stretch=1 → prende spazio residuo
 
         # ── Connessioni ───────────────────────────────────────────────────
@@ -378,7 +527,7 @@ ESEMPI
         self._fif_results.setRootIsDecorated(True)
         self._fif_results.setAlternatingRowColors(True)
         self._fif_results.setMinimumHeight(200)
-        self._fif_results.setStyleSheet(_RESULTS_STYLE)
+        self._fif_results.setStyleSheet(_results_stylesheet())
         self._fif_results.itemDoubleClicked.connect(self._open_fif_result)
         hdr = self._fif_results.header()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
@@ -438,7 +587,7 @@ ESEMPI
         self._all_results.setRootIsDecorated(True)
         self._all_results.setAlternatingRowColors(True)
         self._all_results.setMinimumHeight(200)
-        self._all_results.setStyleSheet(_RESULTS_STYLE)
+        self._all_results.setStyleSheet(_results_stylesheet())
         self._all_results.itemDoubleClicked.connect(self._open_all_result)
         layout.addWidget(self._all_results)
 
@@ -463,7 +612,8 @@ ESEMPI
     def _do_find_prev(self) -> None:
         self._do_find(self._find_edit, forward=False)
 
-    def _do_find(self, edit_widget, forward: bool = True) -> bool:
+    def _do_find(self, edit_widget, forward: bool = True,
+                 highlight_all: bool = True) -> bool:
         editor = self._current_editor()
         if not editor:
             return False
@@ -472,6 +622,12 @@ ESEMPI
             return False
 
         flags = self._get_flags()
+        # Comportamento "PRO editor": mantieni evidenziate TUTTE le occorrenze
+        # mentre navighi (Find Next/Prev). Le riapplichiamo ad ogni ricerca così
+        # da ripulire eventuali residui di pattern precedenti.
+        if highlight_all:
+            editor.clear_indicator(INDICATOR_MARK1)
+            self._highlight_all(editor, text, flags, INDICATOR_MARK1)
         found = editor.findFirst(
             text,
             flags["regex"],
@@ -511,6 +667,113 @@ ESEMPI
         except Exception:
             pass
 
+    def _clear_find_highlights(self, editor) -> None:
+        """Rimuove TUTTE le evidenziazioni della ricerca (match corrente, riga e
+        occorrenze "tutte"). Chiamato prima di ogni nuova ricerca e alla chiusura
+        del dialog, così non restano marcature "fantasma" di ricerche precedenti
+        — comportamento dei comuni editor PRO (VS Code, Sublime, Notepad++)."""
+        if not editor:
+            return
+        for ind in (INDICATOR_FIND, INDICATOR_FIND_LINE, INDICATOR_MARK1):
+            try:
+                editor.clear_indicator(ind)
+            except Exception:
+                pass
+
+    def _suspend_smart_highlight(self) -> None:
+        """Sospende temporaneamente l'"Evidenziazione automatica parola" (smart
+        highlight della parola sotto il cursore) mentre il pannello Cerca è
+        aperto. È il comportamento di VS Code / Sublime: durante una ricerca
+        l'unica evidenziazione che deve restare è quella dei risultati cercati,
+        senza il "rumore" della parola sotto il cursore — che usa colori simili
+        e confonde l'utente.
+
+        NB: non tocca le impostazioni persistenti (Settings); è una sospensione
+        volatile, ripristinata alla chiusura del dialog.
+        """
+        # 1) Smart highlight INTERNO dell'editor (INDICATOR_SMART_HL): sospendi
+        #    su tutti gli editor aperti e ripulisci i residui.
+        try:
+            editors = self._mw._tab_manager.all_editors()
+        except Exception:
+            editors = []
+        for ed in editors:
+            try:
+                if getattr(ed, "_smart_highlight_enabled", False):
+                    ed.set_smart_highlight_enabled(False)
+            except Exception:
+                pass
+
+        # 2) Smart highlight ESTERNO (SmartHighlighter, ui/smart_highlight.py):
+        #    disabilita e pulisci. Manteniamo lo stato precedente per ripristino.
+        hl = getattr(self._mw, "_smart_highlighter", None)
+        self._sh_was_enabled = bool(getattr(hl, "_enabled", False)) if hl else False
+        if hl is not None:
+            try:
+                # set_enabled propaga anche agli editor (e salverebbe nei Settings):
+                # evitiamo di persistere, agiamo direttamente sullo stato volatile.
+                hl._enabled = False
+                hl.clear()
+                if hasattr(hl, "_timer"):
+                    hl._timer.stop()
+                hl._last_word = ""
+            except Exception:
+                pass
+
+    def _resume_smart_highlight(self) -> None:
+        """Ripristina l'"Evidenziazione automatica parola" allo stato che aveva
+        prima dell'apertura del dialog Cerca (rispettando le impostazioni)."""
+        from config.settings import Settings
+        # Stato persistente "vero" dello smart highlight (impostazioni utente).
+        try:
+            enabled = bool(Settings.instance().get(
+                "editor/smart_highlight_enabled", True))
+        except Exception:
+            enabled = True
+
+        # 1) Editor interni: ripristina secondo le impostazioni.
+        try:
+            editors = self._mw._tab_manager.all_editors()
+        except Exception:
+            editors = []
+        for ed in editors:
+            try:
+                ed.set_smart_highlight_enabled(enabled)
+            except Exception:
+                pass
+
+        # 2) SmartHighlighter esterno: ripristina lo stato che aveva prima.
+        hl = getattr(self._mw, "_smart_highlighter", None)
+        if hl is not None:
+            try:
+                hl._enabled = bool(getattr(self, "_sh_was_enabled", enabled))
+            except Exception:
+                pass
+
+    def showEvent(self, event) -> None:
+        """All'apertura del dialog Cerca sospendi lo smart highlight, così
+        durante la ricerca restano visibili solo i risultati (riga corrente +
+        match corrente + tutte le occorrenze), come negli editor PRO."""
+        super().showEvent(event)
+        try:
+            self._suspend_smart_highlight()
+        except Exception:
+            pass
+
+    def closeEvent(self, event) -> None:
+        """Alla chiusura del dialog rimuovi le evidenziazioni della ricerca e
+        ripristina lo smart highlight: chiuso il pannello Trova, l'editor torna
+        al suo stato normale senza marcature residue (come negli editor PRO)."""
+        try:
+            self._clear_find_highlights(self._current_editor())
+        except Exception:
+            pass
+        try:
+            self._resume_smart_highlight()
+        except Exception:
+            pass
+        super().closeEvent(event)
+
     def _do_incremental(self) -> None:
         """Cerca mentre si digita e aggiorna la lista occorrenze."""
         editor = self._current_editor()
@@ -518,14 +781,21 @@ ESEMPI
             return
         text = self._find_edit.currentText()
         if len(text) < 1:
-            editor.clear_indicator(INDICATOR_FIND)
+            # Query svuotata → via tutte le evidenziazioni (niente fantasmi).
+            self._clear_find_highlights(editor)
             self._find_occurrences.clear()
             self._lbl_status.setText("")
             return
-        self._do_find(self._find_edit, forward=True)
+        flags = self._get_flags()
+        # Comportamento "PRO editor": ogni nuova ricerca azzera le evidenziazioni
+        # precedenti (niente fantasmi), poi evidenzia TUTTE le occorrenze
+        # (highlight secondario) e marca il match corrente in modo distinto
+        # (highlight forte). La pulizia di riga/match la fa highlight_find_match.
+        editor.clear_indicator(INDICATOR_FIND_LINE)
+        self._do_find(self._find_edit, forward=True, highlight_all=True)
         # Aggiorna lista occorrenze con un minimo di 2 caratteri
         if len(text) >= 2:
-            self._populate_occurrences(editor, text, self._get_flags())
+            self._populate_occurrences(editor, text, flags)
 
     def _do_mark_all(self) -> None:
         editor = self._current_editor()
@@ -581,9 +851,15 @@ ESEMPI
                     line_text.strip()[:120]
                 ])
                 item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                item.setForeground(0, Qt.GlobalColor.white)
-                item.setForeground(1, Qt.GlobalColor.white)
-                item.setData(0, _ROLE, {"line": line_idx + 1, "col": m.start()})
+                # Niente foreground forzato: il colore del testo è gestito dallo
+                # stylesheet a tema (prima era bianco fisso → invisibile sui temi
+                # chiari). Salviamo anche la lunghezza del match per evidenziare
+                # esattamente la parola trovata alla navigazione.
+                item.setData(0, _ROLE, {
+                    "line": line_idx + 1,
+                    "col":  m.start(),
+                    "len":  m.end() - m.start(),
+                })
                 self._find_occurrences.addTopLevelItem(item)
                 panel_results.append({
                     "file": file_path,
@@ -601,14 +877,43 @@ ESEMPI
             self._lbl_status.setText(tr("msg.no_results_query", query=pattern_text))
 
     def _goto_occurrence(self, item: QTreeWidgetItem) -> None:
-        """Vai alla riga dell'occorrenza cliccata."""
+        """Vai alla riga dell'occorrenza cliccata, evidenziando in modo marcato
+        sia la riga di destinazione sia la parola trovata (visibile anche sui
+        temi chiari, dove il caret-line del tema è spesso troppo tenue)."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if not data:
             return
         editor = self._current_editor()
-        if editor:
-            editor.go_to_line(data["line"])
-            editor.setFocus()
+        if not editor:
+            return
+
+        line0 = max(0, data["line"] - 1)   # numero riga 0-based
+        # `col`/`len` salvati da _populate_occurrences sono offset di CARATTERE
+        # (da re.finditer sulla riga). QScintilla lavora in byte: su righe con
+        # accenti vanno convertiti, altrimenti la selezione/indicatore finisce
+        # sulla parola sbagliata.
+        char_col = data.get("col", 0)
+        char_len = data.get("len", 0)
+        try:
+            byte_start = editor.char_col_to_byte_col(line0, char_col)
+            byte_end   = editor.char_col_to_byte_col(line0, char_col + char_len)
+        except Exception:
+            byte_start, byte_end = char_col, char_col + char_len
+
+        editor.go_to_line(data["line"])
+        # Evidenzia riga intera + parola trovata con gli indicatori marcati.
+        if hasattr(editor, "highlight_find_match"):
+            try:
+                editor.highlight_find_match(line0, byte_start, byte_end)
+            except Exception:
+                pass
+        # Seleziona anche la parola, così resta evidente dopo il focus.
+        try:
+            if byte_end > byte_start:
+                editor.setSelection(line0, byte_start, line0, byte_end)
+        except Exception:
+            pass
+        editor.setFocus()
 
     def _highlight_all(self, editor: EditorWidget, pattern: str,
                        flags: dict, indicator: int) -> int:
@@ -1102,6 +1407,35 @@ ESEMPI
         if _last_find_text:
             self._find_edit.setCurrentText(_last_find_text)
             self._find_edit2.setCurrentText(_last_find_text)
+        self._restore_transparency_state()
+
+    def _restore_transparency_state(self) -> None:
+        """Ripristina lo stato del controllo trasparenza dai Settings (livello
+        opacità e attivazione), così la scelta dell'utente persiste tra le
+        sessioni."""
+        try:
+            from config.settings import Settings
+            s = Settings.instance()
+            opacity = int(s.get("find/opacity", 70))
+            enabled = bool(s.get("find/transparent_enabled", False))
+        except Exception:
+            opacity, enabled = 70, False
+
+        opacity = max(20, min(100, opacity))
+        # blockSignals: impostiamo i valori senza ri-salvare nei Settings.
+        try:
+            self._opacity_slider.blockSignals(True)
+            self._opacity_slider.setValue(opacity)
+            self._opacity_slider.blockSignals(False)
+            self._opacity_label.setText(f"{opacity}%")
+            self._chk_transparent.blockSignals(True)
+            self._chk_transparent.setChecked(enabled)
+            self._chk_transparent.blockSignals(False)
+            self._opacity_slider.setEnabled(enabled)
+            self._opacity_label.setEnabled(enabled)
+        except Exception:
+            pass
+        self._apply_transparency()
 
     # ── API pubblica (chiamata da MainWindow) ─────────────────────────────────
 

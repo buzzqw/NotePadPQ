@@ -56,25 +56,78 @@ def _theme_colors() -> dict:
         tm     = ThemeManager.instance()
         theme  = tm.get_theme(tm._active_name) or {}
         tokens = theme.get("tokens", {}) or {}
+        ui     = theme.get("ui", {}) or {}
         is_dark = bool(theme.get("meta", {}).get("dark", True))
     except Exception:
-        tokens, is_dark = {}, True
+        tokens, ui, is_dark = {}, {}, True
 
     def _tok(name: str, default: str) -> str:
         v = tokens.get(name, {})
         return (v.get("fg") if isinstance(v, dict) else None) or default
+
+    def _ui(name: str, default: str) -> str:
+        v = ui.get(name)
+        return v if isinstance(v, str) and v else default
 
     if is_dark:
         return {
             "header":  _tok("keyword", "#4fa3e0"),    # intestazioni sezione / root
             "section": _tok("function", "#7bb86f"),   # intestazione "Filtra"
             "file":    _tok("string", "#9bc36f"),      # nodo file
+            "bg":      _ui("editor_bg", "#1e1e1e"),
+            "fg":      _ui("editor_fg", "#d4d4d4"),
+            "alt_bg":  _ui("caret_line_bg", "#262a2d"),
+            "sel_bg":  _ui("selection_bg", "#264f78"),
+            "sel_fg":  "#ffffff",
+            "border":  _ui("fold_bg", "#3a3d41"),
+            "hover_bg": _ui("caret_line_bg", "#2d3338"),
         }
     return {
         "header":  _tok("keyword", "#2060a0"),
         "section": _tok("function", "#206040"),
         "file":    _tok("string", "#206020"),
+        "bg":      _ui("editor_bg", "#ffffff"),
+        "fg":      _ui("editor_fg", "#1e1e1e"),
+        "alt_bg":  "#f1f3f5",
+        "sel_bg":  "#cfe3ff",
+        "sel_fg":  "#0a2b4a",
+        "border":  "#c8cdd2",
+        "hover_bg": "#e6f0fb",
     }
+
+
+def _tree_stylesheet(c: dict) -> str:
+    """Foglio di stile leggibile per il QTreeWidget dei risultati, derivato dai
+    colori del tema attivo: niente più testo poco leggibile su sfondo nero, e
+    riga selezionata ben evidente su qualunque tema."""
+    return f"""
+        QTreeWidget {{
+            background-color: {c.get('bg', '#1e1e1e')};
+            alternate-background-color: {c.get('alt_bg', '#262a2d')};
+            color: {c.get('fg', '#d4d4d4')};
+            border: 1px solid {c.get('border', '#3a3d41')};
+            outline: 0;
+        }}
+        QTreeWidget::item {{
+            padding: 2px 0px;
+            border: 0px;
+        }}
+        QTreeWidget::item:hover {{
+            background-color: {c.get('hover_bg', '#2d3338')};
+        }}
+        QTreeWidget::item:selected {{
+            background-color: {c.get('sel_bg', '#264f78')};
+            color: {c.get('sel_fg', '#ffffff')};
+        }}
+        QHeaderView::section {{
+            background-color: {c.get('alt_bg', '#262a2d')};
+            color: {c.get('fg', '#d4d4d4')};
+            padding: 3px 6px;
+            border: 0px;
+            border-bottom: 1px solid {c.get('border', '#3a3d41')};
+            font-weight: bold;
+        }}
+    """
 
 
 class _SearchResultsPanel(QWidget):
@@ -276,6 +329,8 @@ class _SearchResultsPanel(QWidget):
         self._tree.setAlternatingRowColors(True)
         self._tree.setRootIsDecorated(True)
         self._tree.itemClicked.connect(self._on_item_activated)
+        # Anche doppio click / Invio aprono il risultato (più user-friendly).
+        self._tree.itemActivated.connect(self._on_item_activated)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
         vl.addWidget(self._tree, 1)
@@ -284,6 +339,22 @@ class _SearchResultsPanel(QWidget):
         self._mono = QFont("Monospace")
         self._mono.setStyleHint(QFont.StyleHint.Monospace)
         self._mono.setPointSize(9)
+
+        # Stile a tema della lista (leggibilità + selezione marcata).
+        self.apply_theme()
+
+    # ── Tema ───────────────────────────────────────────────────────────────────
+
+    def apply_theme(self) -> None:
+        """(Ri)applica i colori del tema attivo alla lista risultati. Può essere
+        richiamata dopo un cambio tema per aggiornare l'aspetto."""
+        self._colors = _theme_colors()
+        if hasattr(self, "_tree"):
+            self._tree.setStyleSheet(_tree_stylesheet(self._colors))
+        if hasattr(self, "_lbl_summary"):
+            self._lbl_summary.setStyleSheet(
+                f"font-weight: bold; color: {self._colors['header']};"
+            )
 
     # ── API pubblica ──────────────────────────────────────────────────────────
 
@@ -448,6 +519,16 @@ class _SearchResultsPanel(QWidget):
         if start is None:
             # Fallback: seleziona tutta la riga per dare comunque evidenza visiva.
             start, end = 0, len(line_text)
+
+        # `start`/`end` sono offset di CARATTERE (calcolati con re su line_text).
+        # QScintilla lavora in byte: su righe con accenti vanno convertiti, o la
+        # selezione/indicatore finisce sulla parola sbagliata.
+        if hasattr(editor, "char_col_to_byte_col"):
+            try:
+                start = editor.char_col_to_byte_col(line, start)
+                end   = editor.char_col_to_byte_col(line, end)
+            except Exception:
+                pass
 
         # Evidenziazione robusta: oltre alla selezione (attenuata da QScintilla
         # quando l'editor non ha il focus), applica l'indicatore persistente
@@ -906,6 +987,16 @@ class SearchResultsPlugin(BasePlugin):
 
         # Espone il pannello su main_window per compatibilità con find_replace.py
         main_window._find_result_panel = self._panel
+
+        # Aggiorna lo stile della lista risultati ad ogni cambio tema, così la
+        # leggibilità resta coerente con il tema attivo (chiaro/scuro).
+        try:
+            from config.themes import ThemeManager
+            ThemeManager.instance().theme_changed.connect(
+                lambda _=None: self._panel.apply_theme()
+            )
+        except Exception:
+            pass
 
         self.add_menu_action(
             main_window,

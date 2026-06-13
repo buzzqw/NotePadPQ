@@ -232,6 +232,7 @@ INDICATOR_MARK3     = 3
 INDICATOR_MARK4     = 4
 INDICATOR_SMART_HL  = 5   # Smart Highlight: parola sotto cursore
 INDICATOR_SPELL     = 6   # Sottolineatura a zig-zag rossa per errori ortografici
+INDICATOR_FIND_LINE = 7   # Evidenziazione riga intera durante la navigazione risultati
 
 # ─── EditorWidget ─────────────────────────────────────────────────────────────
 
@@ -424,17 +425,18 @@ class EditorWidget(QsciScintilla):
             pass
         self.setIndicatorDrawUnder(True, INDICATOR_FIND)
 
-        # INDICATOR_MARK1 è usato dal Trova per "evidenzia/marca tutte le
-        # occorrenze". Il vecchio giallo tenue (255,220,0,180) era pressoché
-        # invisibile sui temi chiari (giallo su sfondo bianco). Lo rendiamo un
-        # box arancione/ambra pieno e marcato con bordo opaco, coerente con
-        # l'arancione di INDICATOR_FIND e ben visibile su qualunque tema.
+        # INDICATOR_MARK1 è usato dal Trova per evidenziare TUTTE le occorrenze
+        # (highlight "secondario"), come fanno gli editor PRO (VS Code, Sublime,
+        # Notepad++): tutte le occorrenze sono marcate, ma il match corrente
+        # (INDICATOR_FIND, arancione pieno marcato) deve restare ben distinto.
+        # Per questo MARK1 è un giallo più tenue con bordo definito: leggibile su
+        # temi chiari e scuri, ma chiaramente "secondario" rispetto al corrente.
         self.indicatorDefine(
-            QsciScintilla.IndicatorStyle.FullBoxIndicator, INDICATOR_MARK1
+            QsciScintilla.IndicatorStyle.StraightBoxIndicator, INDICATOR_MARK1
         )
-        self.setIndicatorForegroundColor(QColor(255, 170, 0, 200), INDICATOR_MARK1)
+        self.setIndicatorForegroundColor(QColor(255, 215, 70, 140), INDICATOR_MARK1)
         try:
-            self.setIndicatorOutlineColor(QColor(220, 120, 0, 255), INDICATOR_MARK1)
+            self.setIndicatorOutlineColor(QColor(210, 160, 0, 200), INDICATOR_MARK1)
         except Exception:
             pass
         self.setIndicatorDrawUnder(True, INDICATOR_MARK1)
@@ -453,14 +455,10 @@ class EditorWidget(QsciScintilla):
             self.setIndicatorForegroundColor(color, idx)
             self.setIndicatorDrawUnder(True, idx)
 
-        # Indicatore Smart Highlight: box arrotondato tenue sotto il testo
-        self.indicatorDefine(
-            QsciScintilla.IndicatorStyle.RoundBoxIndicator, INDICATOR_SMART_HL
-        )
-        self.setIndicatorForegroundColor(QColor(100, 180, 255, 100), INDICATOR_SMART_HL)
-        self.setIndicatorDrawUnder(True, INDICATOR_SMART_HL)
-        
-        # Indicatore Smart Highlight: box arrotondato tenue sotto il testo
+        # Indicatore Smart Highlight: box arrotondato tenue (azzurro) sotto il
+        # testo. Colore volutamente diverso dal giallo/arancione del Trova così
+        # da NON confondere l'evidenziazione della parola sotto il cursore con i
+        # risultati di ricerca.
         self.indicatorDefine(
             QsciScintilla.IndicatorStyle.RoundBoxIndicator, INDICATOR_SMART_HL
         )
@@ -475,6 +473,21 @@ class EditorWidget(QsciScintilla):
         self.setIndicatorForegroundColor(QColor(255, 0, 0), INDICATOR_SPELL)
         self.setIndicatorDrawUnder(True, INDICATOR_SPELL)
         # --- FINE SPELL CHECKER ---
+
+        # Indicatore "riga del risultato" — usato quando si naviga un risultato
+        # dal pannello Trova. Evidenzia l'INTERA riga con una fascia ambra tenue
+        # ma ben visibile su qualunque tema (chiaro o scuro), così la riga di
+        # destinazione salta all'occhio anche quando il caret-line del tema è
+        # troppo leggero. Disegnata SOTTO il testo per non coprirlo.
+        self.indicatorDefine(
+            QsciScintilla.IndicatorStyle.StraightBoxIndicator, INDICATOR_FIND_LINE
+        )
+        self.setIndicatorForegroundColor(QColor(255, 200, 60, 70), INDICATOR_FIND_LINE)
+        try:
+            self.setIndicatorOutlineColor(QColor(255, 160, 0, 120), INDICATOR_FIND_LINE)
+        except Exception:
+            pass
+        self.setIndicatorDrawUnder(True, INDICATOR_FIND_LINE)
 
     def _setup_caret(self) -> None:
         """Configura il cursore (caret)."""
@@ -986,13 +999,59 @@ class EditorWidget(QsciScintilla):
 
     def set_indicator_range(self, indicator: int,
                             start: int, length: int) -> None:
-        """Applica un indicatore su un intervallo di caratteri (offset assoluto)."""
-        line_s, col_s = self._offset_to_line_col(start)
-        line_e, col_e = self._offset_to_line_col(start + length)
+        """Applica un indicatore su un intervallo di **caratteri** (offset
+        assoluto sulla stringa Python, come restituito da `re`/`str`).
+
+        IMPORTANTE: QScintilla lavora internamente con offset/colonne in **byte**
+        UTF-8, non in caratteri. Su testo con accenti o caratteri non-ASCII
+        (es. italiano: `città`, `può`, `perché`) un carattere occupa più byte e
+        i due offset divergono. Passare l'offset di carattere direttamente a
+        Scintilla sposta l'indicatore su una parola sbagliata. Per questo
+        convertiamo qui gli offset di carattere in (riga, colonna-byte) corrette.
+        """
+        line_s, col_s = self._char_offset_to_line_bytecol(start)
+        line_e, col_e = self._char_offset_to_line_bytecol(start + length)
         self.fillIndicatorRange(line_s, col_s, line_e, col_e, indicator)
 
+    def _char_offset_to_line_bytecol(self, char_offset: int) -> tuple[int, int]:
+        """Converte un offset di **carattere** (sulla stringa Python dell'intero
+        documento) in `(riga, colonna_byte)` come richiesto da QScintilla.
+
+        La colonna è espressa in byte UTF-8 dall'inizio della riga, così gli
+        indicatori cadono sempre sulla porzione di testo corretta anche in
+        presenza di caratteri multibyte.
+        """
+        text = self.text()
+        char_offset = max(0, min(char_offset, len(text)))
+        prefix = text[:char_offset]
+        line = prefix.count("\n")
+        last_nl = prefix.rfind("\n")
+        line_start = last_nl + 1  # 0 se nessun newline
+        col_bytes = len(text[line_start:char_offset].encode("utf-8"))
+        return line, col_bytes
+
+    def char_col_to_byte_col(self, line: int, char_col: int) -> int:
+        """Converte una colonna espressa in **caratteri** (es. l'offset
+        `re.match.start()` calcolato sulla stringa Python della riga) nella
+        colonna in **byte** UTF-8 richiesta da QScintilla.
+
+        Necessario per `highlight_find_match`, `setSelection`, ecc.: su righe con
+        caratteri accentati/multibyte (italiano: `città`, `perché`…) la colonna
+        in caratteri e quella in byte divergono, e usare quella in caratteri
+        sposterebbe la selezione/indicatore sulla parola sbagliata.
+        """
+        try:
+            line_text = self.text(line)
+        except Exception:
+            return char_col
+        if char_col <= 0:
+            return 0
+        char_col = min(char_col, len(line_text))
+        return len(line_text[:char_col].encode("utf-8"))
+
     def _offset_to_line_col(self, offset: int) -> tuple[int, int]:
-        """Converte un offset assoluto in (riga, colonna) 0-based."""
+        """Converte un offset **byte** assoluto Scintilla in (riga, colonna-byte)
+        0-based. Usa le API native, che ragionano in byte."""
         line = self.SendScintilla(QsciScintilla.SCI_LINEFROMPOSITION, offset)
         col  = offset - self.SendScintilla(
             QsciScintilla.SCI_POSITIONFROMLINE, line
@@ -1019,7 +1078,15 @@ class EditorWidget(QsciScintilla):
         start_col = max(0, min(start_col, line_len))
         end_col   = max(start_col, min(end_col, line_len))
 
-        # Indicatore persistente sulla parola (visibile anche senza focus).
+        # 1) Evidenziazione dell'INTERA riga (fascia ambra): rende la riga di
+        #    destinazione immediatamente individuabile anche sui temi chiari, dove
+        #    il caret-line del tema è spesso troppo tenue per essere notato.
+        self.clear_indicator(INDICATOR_FIND_LINE)
+        if line_len > 0:
+            self.fillIndicatorRange(line, 0, line, line_len, INDICATOR_FIND_LINE)
+
+        # 2) Indicatore persistente sulla PAROLA (visibile anche senza focus):
+        #    box arancione pieno e marcato, ben distinto dalla fascia di riga.
         self.clear_indicator(INDICATOR_FIND)
         if end_col > start_col:
             self.fillIndicatorRange(line, start_col, line, end_col,

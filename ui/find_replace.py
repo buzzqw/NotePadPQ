@@ -9,6 +9,7 @@ Supporta: testo semplice, regex PCRE, maiuscole/minuscole, parola intera,
 
 from __future__ import annotations
 
+import bisect
 import re
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -843,31 +844,37 @@ ESEMPI
         lines = editor.text().split("\n")
         count = 0
         panel_results = []
+        items_to_add = []
         file_path = str(editor.file_path) if editor.file_path else ""
+        _MAX_ITEMS = 2_000
         for line_idx, line_text in enumerate(lines):
             for m in compiled.finditer(line_text):
-                item = QTreeWidgetItem([
-                    str(line_idx + 1),
-                    line_text.strip()[:120]
-                ])
-                item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                # Niente foreground forzato: il colore del testo è gestito dallo
-                # stylesheet a tema (prima era bianco fisso → invisibile sui temi
-                # chiari). Salviamo anche la lunghezza del match per evidenziare
-                # esattamente la parola trovata alla navigazione.
-                item.setData(0, _ROLE, {
-                    "line": line_idx + 1,
-                    "col":  m.start(),
-                    "len":  m.end() - m.start(),
-                })
-                self._find_occurrences.addTopLevelItem(item)
-                panel_results.append({
-                    "file": file_path,
-                    "line": line_idx,
-                    "text": line_text,
-                    "col":  m.start(),
-                })
                 count += 1
+                if len(items_to_add) < _MAX_ITEMS:
+                    item = QTreeWidgetItem([
+                        str(line_idx + 1),
+                        line_text.strip()[:120]
+                    ])
+                    item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                    item.setData(0, _ROLE, {
+                        "line": line_idx + 1,
+                        "col":  m.start(),
+                        "len":  m.end() - m.start(),
+                    })
+                    items_to_add.append(item)
+                    panel_results.append({
+                        "file": file_path,
+                        "line": line_idx,
+                        "text": line_text,
+                        "col":  m.start(),
+                    })
+
+        # Inserimento batch per evitare repaint per ogni riga
+        self._find_occurrences.setUpdatesEnabled(False)
+        for item in items_to_add:
+            self._find_occurrences.addTopLevelItem(item)
+        self._find_occurrences.setUpdatesEnabled(True)
+
         if count:
             self._lbl_status.setText(tr("msg.occurrences_n", count=count))
             panel = getattr(self._mw, "_find_result_panel", None)
@@ -927,11 +934,31 @@ ESEMPI
             elif not flags["regex"]:
                 pattern = re.escape(pattern)
             compiled = re.compile(pattern, re_flags)
-            count = 0
-            for m in compiled.finditer(text):
-                editor.set_indicator_range(indicator, m.start(), m.end() - m.start())
-                count += 1
-            return count
+            matches = list(compiled.finditer(text))
+            if not matches:
+                return 0
+
+            # Costruisce la tabella degli offset di inizio riga (in caratteri)
+            # una sola volta, invece di richiamare self.text() per ogni match.
+            line_starts = [0]
+            for i, ch in enumerate(text):
+                if ch == '\n':
+                    line_starts.append(i + 1)
+
+            def char_to_line_bytecol(char_off: int) -> tuple[int, int]:
+                char_off = max(0, min(char_off, len(text)))
+                line = bisect.bisect_right(line_starts, char_off) - 1
+                ls = line_starts[line]
+                col_bytes = len(text[ls:char_off].encode("utf-8"))
+                return line, col_bytes
+
+            # Cap: non evidenziare più di 10 000 occorrenze per non bloccare l'UI
+            _MAX = 10_000
+            for m in matches[:_MAX]:
+                ls, cs = char_to_line_bytecol(m.start())
+                le, ce = char_to_line_bytecol(m.end())
+                editor.fillIndicatorRange(ls, cs, le, ce, indicator)
+            return len(matches)
         except re.error:
             return 0
 

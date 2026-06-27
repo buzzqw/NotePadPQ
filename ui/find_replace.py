@@ -848,26 +848,31 @@ ESEMPI
         file_path = str(editor.file_path) if editor.file_path else ""
         _MAX_ITEMS = 2_000
         for line_idx, line_text in enumerate(lines):
-            for m in compiled.finditer(line_text):
-                count += 1
-                if len(items_to_add) < _MAX_ITEMS:
-                    item = QTreeWidgetItem([
-                        str(line_idx + 1),
-                        line_text.strip()[:120]
-                    ])
-                    item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                    item.setData(0, _ROLE, {
-                        "line": line_idx + 1,
-                        "col":  m.start(),
-                        "len":  m.end() - m.start(),
-                    })
-                    items_to_add.append(item)
-                    panel_results.append({
-                        "file": file_path,
-                        "line": line_idx,
-                        "text": line_text,
-                        "col":  m.start(),
-                    })
+            line_matches = list(compiled.finditer(line_text))
+            if not line_matches:
+                continue
+            # Count all occurrences but add only one list entry per line
+            # (standard behaviour: Notepad++, VS Code, Sublime Text).
+            count += len(line_matches)
+            if len(items_to_add) < _MAX_ITEMS:
+                m = line_matches[0]
+                item = QTreeWidgetItem([
+                    str(line_idx + 1),
+                    line_text.strip()[:120]
+                ])
+                item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                item.setData(0, _ROLE, {
+                    "line": line_idx + 1,
+                    "col":  m.start(),
+                    "len":  m.end() - m.start(),
+                })
+                items_to_add.append(item)
+                panel_results.append({
+                    "file": file_path,
+                    "line": line_idx,
+                    "text": line_text,
+                    "col":  m.start(),
+                })
 
         # Inserimento batch per evitare repaint per ogni riga
         self._find_occurrences.setUpdatesEnabled(False)
@@ -1068,23 +1073,26 @@ ESEMPI
                 except Exception:
                     continue
                 lines = text.split("\n")
-                # Una voce per corrispondenza (non per riga)
-                file_matches = [
-                    (i + 1, line, m.start(), m.end())
-                    for i, line in enumerate(lines)
-                    for m in pattern.finditer(line)
-                ]
-                if not file_matches:
+                # One list entry per line; count all occurrences for the header
+                # (Notepad++ / VS Code style: no duplicate rows for same line).
+                file_match_count = 0
+                file_line_entries = []
+                for i, line in enumerate(lines):
+                    lm = list(pattern.finditer(line))
+                    if lm:
+                        file_match_count += len(lm)
+                        file_line_entries.append((i + 1, line, lm[0].start(), lm[0].end()))
+                if not file_line_entries:
                     continue
                 total_files   += 1
-                total_matches += len(file_matches)
+                total_matches += file_match_count
                 try:
                     rel = str(fpath.relative_to(base_dir))
                 except ValueError:
                     rel = str(fpath)
                 file_item = QTreeWidgetItem(
                     self._fif_results,
-                    [f"📄 {rel}  (" + tr("msg.file_matches", matches=len(file_matches)) + ")", "", ""]
+                    [f"📄 {rel}  (" + tr("msg.file_matches", matches=file_match_count) + ")", "", ""]
                 )
                 file_item.setData(0, _ROLE, {"path": str(fpath)})
                 btn_f = QPushButton(tr("button.replace"))
@@ -1093,7 +1101,7 @@ ESEMPI
                 btn_f.clicked.connect(lambda _checked, fi=file_item: self._replace_fif_file(fi))
                 self._fif_results.setItemWidget(file_item, 2, btn_f)
 
-                for line_num, line_text, col_s, col_e in file_matches:
+                for line_num, line_text, col_s, col_e in file_line_entries:
                     child = QTreeWidgetItem([
                         "  " + tr("msg.row_n", n=line_num), line_text.strip()[:140], ""
                     ])

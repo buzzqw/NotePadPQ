@@ -25,7 +25,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
 from PyQt6.QtGui import QColor, QFont, QKeySequence
 from PyQt6.QtWidgets import QWidget, QApplication, QMenu
 
@@ -45,6 +45,76 @@ _HAS_MATPLOTLIB: bool | None = None
 
 # Pattern per spell check — Unicode, copre IT/EN/DE/FR/ES e qualsiasi alfabeto latino esteso
 _RE_SPELL = re.compile(r"(?<![\\])\b[^\W\d_]+\b", re.UNICODE)
+
+
+class _SpellWorker(QThread):
+    """Calcola le posizioni delle parole sconosciute in un thread separato."""
+
+    done = pyqtSignal(int, list)   # (generation, list[tuple[int,int,int,int]])
+
+    def __init__(self, text: str, spell_checker, personal: frozenset, generation: int):
+        super().__init__(None)
+        self._text       = text
+        self._checker    = spell_checker
+        self._personal   = personal
+        self._generation = generation
+        self._cancelled  = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        import bisect
+        text = self._text
+
+        positions: list[tuple[int, int, str]] = []
+        words_found: list[str] = []
+        seen_words: set[str] = set()
+        for m in _RE_SPELL.finditer(text):
+            if self._cancelled:
+                return
+            word = m.group(0)
+            if len(word) > 2 and not word.isupper() and not word.isdigit():
+                positions.append((m.start(), m.end(), word))
+                if word not in seen_words:
+                    seen_words.add(word)
+                    words_found.append(word)
+
+        if not words_found or self._cancelled:
+            self.done.emit(self._generation, [])
+            return
+
+        check_list = [w for w in words_found if w not in self._personal]
+        unknown = self._checker.unknown(check_list)
+        if not unknown or self._cancelled:
+            self.done.emit(self._generation, [])
+            return
+
+        newlines: list[int] = []
+        pos = 0
+        lines_list = text.split('\n')
+        last_idx = len(lines_list) - 1
+        for i, line in enumerate(lines_list):
+            pos += len(line)
+            if i < last_idx:
+                newlines.append(pos)
+            pos += 1
+
+        result: list[tuple[int, int, int, int]] = []
+        for start, end, word in positions:
+            if self._cancelled:
+                return
+            if word not in unknown:
+                continue
+            line_s = bisect.bisect_right(newlines, start)
+            col_s  = start - (newlines[line_s - 1] + 1 if line_s > 0 else 0)
+            line_e = bisect.bisect_right(newlines, end)
+            col_e  = end - (newlines[line_e - 1] + 1 if line_e > 0 else 0)
+            result.append((line_s, col_s, line_e, col_e))
+
+        if not self._cancelled:
+            self.done.emit(self._generation, result)
+
 
 # ─── Utilità conversione testo → tabella ──────────────────────────────────────
 
@@ -293,6 +363,8 @@ class EditorWidget(QsciScintilla):
         self._spell_timer.setInterval(1000)
         self._spell_timer.timeout.connect(self._do_spell_check)
         self._spell_text_hash: int = 0
+        self._spell_worker: Optional[_SpellWorker] = None
+        self._spell_gen: int = 0
         self.textChanged.connect(self._spell_timer.start)
         # --- FINE SPELL CHECKER ---
 
@@ -1442,20 +1514,11 @@ class EditorWidget(QsciScintilla):
             pass
 
     def _do_spell_check(self) -> None:
-        """Trova le parole sconosciute e disegna l'ondina rossa.
-
-        Ottimizzazioni applicate:
-        - early-exit se il testo è vuoto o invariato (hash cache)
-        - indice newline costruito con str.split() invece di enumerate()
-        - unknown lookup deduplicato: ogni parola distinta è verificata una sola volta
-        """
+        """Avvia il controllo ortografico in un thread separato (non blocca la UI)."""
         if not self._spell_checker:
             return
 
-        import bisect
         text = self.text()
-
-        # Early-exit: testo vuoto
         if not text:
             self._spell_text_hash = 0
             return
@@ -1465,50 +1528,27 @@ class EditorWidget(QsciScintilla):
             return
         self._spell_text_hash = h
 
+        if self._spell_worker is not None:
+            self._spell_worker.cancel()
+
+        self._spell_gen += 1
+        worker = _SpellWorker(
+            text,
+            self._spell_checker,
+            frozenset(self._spell_personal),
+            self._spell_gen,
+        )
+        worker.done.connect(self._on_spell_check_done)
+        worker.finished.connect(worker.deleteLater)
+        self._spell_worker = worker
+        worker.start()
+
+    def _on_spell_check_done(self, gen: int, positions: list) -> None:
+        if gen != self._spell_gen:
+            return
+        self._spell_worker = None
         self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SPELL)
-
-        # Raccoglie tuple (start, end, word) invece di re.Match objects:
-        # tuple leggere occupano meno RAM (~40% risparmio per elemento) e sono
-        # sufficienti perché ci servono solo la posizione e il testo della parola.
-        positions: list[tuple[int, int, str]] = []
-        words_found: list[str] = []
-        seen_words: set[str] = set()          # deduplicazione per il lookup
-        for m in _RE_SPELL.finditer(text):
-            word = m.group(0)
-            # Salta: meno di 3 lettere, tutto maiuscolo (acronimi), sole cifre
-            if len(word) > 2 and not word.isupper() and not word.isdigit():
-                positions.append((m.start(), m.end(), word))
-                if word not in seen_words:
-                    seen_words.add(word)
-                    words_found.append(word)
-
-        if not words_found:
-            return
-
-        unknown = self._spell_checker.unknown(words_found)
-        if not unknown:
-            return
-
-        # Offset delle newline per conversione posizione→(riga,col) in O(log n).
-        # str.split() è implementato in C ed è più veloce di enumerate() su testi grandi.
-        # NOTA: l'ultima entry viene scartata (non corrisponde a un '\n' reale).
-        newlines: list[int] = []
-        pos = 0
-        lines_list = text.split('\n')
-        last_idx = len(lines_list) - 1
-        for i, line in enumerate(lines_list):
-            pos += len(line)
-            if i < last_idx:       # salta l'entry finale (non è un '\n' reale)
-                newlines.append(pos)
-            pos += 1               # salta il '\n' stesso
-
-        for start, end, word in positions:
-            if word not in unknown:
-                continue
-            line_s = bisect.bisect_right(newlines, start)
-            col_s  = start - (newlines[line_s - 1] + 1 if line_s > 0 else 0)
-            line_e = bisect.bisect_right(newlines, end)
-            col_e  = end - (newlines[line_e - 1] + 1 if line_e > 0 else 0)
+        for line_s, col_s, line_e, col_e in positions:
             self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SPELL)
 
     def contextMenuEvent(self, event) -> None:

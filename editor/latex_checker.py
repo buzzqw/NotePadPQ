@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal, Qt
+from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.Qsci import QsciScintilla
 
@@ -37,6 +37,100 @@ _MARKER_ERROR_SYM   = QsciScintilla.MarkerSymbol.Circle
 _MARKER_WARNING_SYM = QsciScintilla.MarkerSymbol.SmallArrow
 
 
+class _CheckWorker(QThread):
+    """Esegue i tre controlli LaTeX in un thread separato per non bloccare la UI."""
+
+    done = pyqtSignal(int, list)   # (generation, list[dict])
+
+    def __init__(self, text: str, file_path, generation: int):
+        super().__init__(None)
+        self._text       = text
+        self._file_path  = file_path
+        self._generation = generation
+        self._cancelled  = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        issues: list[dict] = []
+        if self._cancelled:
+            return
+        issues.extend(self._check_balance())
+        if self._cancelled:
+            return
+        issues.extend(self._check_undefined_labels())
+        if self._cancelled:
+            return
+        issues.extend(self._check_undefined_citations())
+        if not self._cancelled:
+            self.done.emit(self._generation, issues)
+
+    def _check_balance(self) -> list[dict]:
+        from editor.latex_support import LaTeXSupport
+        raw = LaTeXSupport.check_environment_balance(self._text)
+        return [
+            {"line": e["line"], "severity": "error", "msg": e["msg"]}
+            for e in raw
+        ]
+
+    def _check_undefined_labels(self) -> list[dict]:
+        from editor.latex_support import LaTeXSupport
+        fp = self._file_path
+        if fp:
+            defined = set(LaTeXSupport.extract_labels_multifile(fp))
+        else:
+            defined = set(LaTeXSupport.extract_labels(self._text))
+
+        issues: list[dict] = []
+        for lineno, line in enumerate(self._text.split("\n")):
+            if self._cancelled:
+                return []
+            stripped = re.sub(r'(?<!\\)%.*', '', line)
+            for m in re.finditer(
+                r'\\(?:ref|eqref|pageref|cref|Cref|autoref|nameref|vref)\{([^}]+)\}',
+                stripped
+            ):
+                key = m.group(1).strip()
+                if key and key not in defined:
+                    issues.append({
+                        "line":     lineno,
+                        "severity": "warning",
+                        "msg":      f"Label non definita: '{key}'",
+                    })
+        return issues
+
+    def _check_undefined_citations(self) -> list[dict]:
+        from editor.latex_support import LaTeXSupport
+        fp = self._file_path
+        if fp:
+            known = set(LaTeXSupport.extract_bibtex_keys_multifile(fp))
+        else:
+            known = set(LaTeXSupport.extract_bibtex_keys(self._text, fp))
+
+        if not known:
+            return []
+
+        issues: list[dict] = []
+        cite_pat = re.compile(
+            r'\\(?:cite[a-zA-Z]*|parencite|footcite|textcite|autocite)\{([^}]+)\}'
+        )
+        for lineno, line in enumerate(self._text.split("\n")):
+            if self._cancelled:
+                return []
+            stripped = re.sub(r'(?<!\\)%.*', '', line)
+            for m in cite_pat.finditer(stripped):
+                for key in m.group(1).split(","):
+                    key = key.strip()
+                    if key and key not in known:
+                        issues.append({
+                            "line":     lineno,
+                            "severity": "warning",
+                            "msg":      f"Chiave BibTeX non trovata: '{key}'",
+                        })
+        return issues
+
+
 class LaTeXChecker(QObject):
     """
     Checker LaTeX asincrono per un EditorWidget.
@@ -47,8 +141,10 @@ class LaTeXChecker(QObject):
 
     def __init__(self, editor: "EditorWidget", parent: QObject = None):
         super().__init__(parent)
-        self._editor = editor
+        self._editor  = editor
         self._enabled = True
+        self._worker: Optional[_CheckWorker] = None
+        self._gen: int = 0
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -81,6 +177,9 @@ class LaTeXChecker(QObject):
         except Exception:
             pass
         self._timer.stop()
+        if self._worker is not None:
+            self._worker.cancel()
+            self._worker = None
         self._clear_markers()
 
     def set_enabled(self, enabled: bool) -> None:
@@ -100,81 +199,28 @@ class LaTeXChecker(QObject):
         self._timer.stop()
         self._run_check()
 
-    # ── Controllo ─────────────────────────────────────────────────────────────
+    # ── Controllo (asincrono) ──────────────────────────────────────────────────
 
     def _run_check(self) -> None:
+        if self._worker is not None:
+            self._worker.cancel()
+
+        self._gen += 1
         text = self._editor.text()
-        issues: list[dict] = []
+        fp   = getattr(self._editor, "file_path", None)
 
-        issues.extend(self._check_balance(text))
-        issues.extend(self._check_undefined_labels(text))
-        issues.extend(self._check_undefined_citations(text))
+        worker = _CheckWorker(text, fp, self._gen)
+        worker.done.connect(self._on_check_done)
+        worker.finished.connect(worker.deleteLater)
+        self._worker = worker
+        worker.start()
 
+    def _on_check_done(self, gen: int, issues: list[dict]) -> None:
+        if gen != self._gen:
+            return
+        self._worker = None
         self._apply_markers(issues)
         self.issues_found.emit(issues)
-
-    def _check_balance(self, text: str) -> list[dict]:
-        """Rileva \\begin{}/\\end{} sbilanciati."""
-        from editor.latex_support import LaTeXSupport
-        raw = LaTeXSupport.check_environment_balance(text)
-        return [
-            {"line": e["line"], "severity": "error", "msg": e["msg"]}
-            for e in raw
-        ]
-
-    def _check_undefined_labels(self, text: str) -> list[dict]:
-        """Rileva \\ref{} che puntano a label non definite nel documento."""
-        from editor.latex_support import LaTeXSupport
-        fp = getattr(self._editor, "file_path", None)
-        if fp:
-            defined = set(LaTeXSupport.extract_labels_multifile(fp))
-        else:
-            defined = set(LaTeXSupport.extract_labels(text))
-
-        issues: list[dict] = []
-        for lineno, line in enumerate(text.split("\n")):
-            stripped = re.sub(r'(?<!\\)%.*', '', line)
-            for m in re.finditer(
-                r'\\(?:ref|eqref|pageref|cref|Cref|autoref|nameref|vref)\{([^}]+)\}',
-                stripped
-            ):
-                key = m.group(1).strip()
-                if key and key not in defined:
-                    issues.append({
-                        "line":     lineno,
-                        "severity": "warning",
-                        "msg":      f"Label non definita: '{key}'",
-                    })
-        return issues
-
-    def _check_undefined_citations(self, text: str) -> list[dict]:
-        """Rileva \\cite{} a chiavi BibTeX non trovate."""
-        from editor.latex_support import LaTeXSupport
-        fp = getattr(self._editor, "file_path", None)
-        if fp:
-            known = set(LaTeXSupport.extract_bibtex_keys_multifile(fp))
-        else:
-            known = set(LaTeXSupport.extract_bibtex_keys(text, fp))
-
-        if not known:
-            return []   # nessun .bib trovato, non segnalare falsi positivi
-
-        issues: list[dict] = []
-        cite_pat = re.compile(
-            r'\\(?:cite[a-zA-Z]*|parencite|footcite|textcite|autocite)\{([^}]+)\}'
-        )
-        for lineno, line in enumerate(text.split("\n")):
-            stripped = re.sub(r'(?<!\\)%.*', '', line)
-            for m in cite_pat.finditer(stripped):
-                for key in m.group(1).split(","):
-                    key = key.strip()
-                    if key and key not in known:
-                        issues.append({
-                            "line":     lineno,
-                            "severity": "warning",
-                            "msg":      f"Chiave BibTeX non trovata: '{key}'",
-                        })
-        return issues
 
     # ── Marcatori gutter ─────────────────────────────────────────────────────
 

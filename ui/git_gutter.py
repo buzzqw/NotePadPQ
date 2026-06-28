@@ -20,11 +20,36 @@ import re
 import subprocess
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import QTimer, QObject
+from PyQt6.QtCore import QTimer, QObject, QThread, pyqtSignal
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+
+
+class _GitDiffWorker(QThread):
+    """Esegue 'git diff HEAD' in un thread separato per non bloccare la UI."""
+
+    done = pyqtSignal(object, object, object)   # (added, modified, deleted) set[int]
+
+    def __init__(self, file_path):
+        super().__init__(None)
+        self._file_path  = file_path
+        self._cancelled  = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        diff = _run_git_diff(self._file_path)
+        if self._cancelled or diff is None:
+            return
+        if not diff.strip():
+            self.done.emit(set(), set(), set())
+        else:
+            added, modified, deleted = _parse_diff(diff)
+            if not self._cancelled:
+                self.done.emit(added, modified, deleted)
 
 
 def _parse_diff(diff_output: str) -> tuple[set[int], set[int], set[int]]:
@@ -100,7 +125,9 @@ class GitGutter(QObject):
         super().__init__(main_window)
         self._mw = main_window
         self._active_editor: Optional["EditorWidget"] = None
-        
+        self._worker: Optional[_GitDiffWorker] = None
+        self._old_workers: list = []
+
         from config.settings import Settings
         self._enabled = Settings.instance().get("editor/git_gutter", True)
 
@@ -121,7 +148,7 @@ class GitGutter(QObject):
         self._enabled = enabled
         if not enabled:
             self._timer.stop()
-            # Pulisce i margini di tutti gli editor aperti
+            self._cancel_worker()
             for ed in self._mw._tab_manager.all_editors():
                 if hasattr(ed, "update_git_gutter"):
                     ed.update_git_gutter(set(), set(), set())
@@ -134,6 +161,7 @@ class GitGutter(QObject):
                 self._active_editor.textChanged.disconnect(self._schedule)
             except Exception:
                 pass
+        self._cancel_worker()
         self._active_editor = editor
         if editor:
             editor.textChanged.connect(self._schedule)
@@ -143,18 +171,45 @@ class GitGutter(QObject):
         if self._enabled:
             self._timer.start()
 
+    def _cancel_worker(self) -> None:
+        if self._worker is not None:
+            self._worker.cancel()
+            self._old_workers.append(self._worker)
+            old = self._worker
+            def _cleanup(w=old):
+                try:
+                    self._old_workers.remove(w)
+                except ValueError:
+                    pass
+            old.finished.connect(_cleanup)
+            self._worker = None
+
     def _refresh(self) -> None:
         if not self._enabled:
             return
-            
         editor = self._active_editor
         if not editor or not editor.file_path:
             return
-        diff = _run_git_diff(editor.file_path)
-        if diff is None:
+
+        self._cancel_worker()
+        worker = _GitDiffWorker(editor.file_path)
+        worker.done.connect(lambda a, m, d, ed=editor: self._on_diff_done(a, m, d, ed))
+        self._worker = worker
+        self._old_workers.append(worker)
+        def _cleanup(w=worker):
+            try:
+                self._old_workers.remove(w)
+            except ValueError:
+                pass
+        worker.finished.connect(_cleanup)
+        worker.start()
+
+    def _on_diff_done(self, added: set, modified: set, deleted: set,
+                      editor: "EditorWidget") -> None:
+        if editor is not self._active_editor:
             return
-        if not diff.strip():
-            editor.update_git_gutter(set(), set(), set())
-        else:
-            added, modified, deleted = _parse_diff(diff)
+        self._worker = None
+        try:
             editor.update_git_gutter(added, modified, deleted)
+        except Exception:
+            pass

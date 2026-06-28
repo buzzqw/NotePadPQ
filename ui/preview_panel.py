@@ -246,6 +246,155 @@ class _MarkdownWorker(QThread):
 
 # ─── PreviewPanel ─────────────────────────────────────────────────────────────
 
+class _SyncTeXFwdWorker(QThread):
+    """Esegue `synctex view` in background per non bloccare la UI."""
+
+    done = pyqtSignal(int, object)  # (generation, result_dict or None)
+
+    def __init__(self, tex_path, pdf_path, line: int, generation: int):
+        super().__init__(None)
+        self._tex_path  = tex_path
+        self._pdf_path  = pdf_path
+        self._line      = line
+        self._gen       = generation
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        try:
+            from editor.synctex import SyncTeX
+            sx     = SyncTeX(self._tex_path, self._pdf_path)
+            result = sx.tex_to_pdf(self._line, col=1)
+            if not self._cancelled:
+                self.done.emit(self._gen, result)
+        except Exception:
+            if not self._cancelled:
+                self.done.emit(self._gen, None)
+
+
+class _PdfRenderWorker(QThread):
+    """Rasterizza una pagina PDF con fitz in background.
+    Emette done(gen, QImage_or_None, clip_rect, links)."""
+
+    done = pyqtSignal(int, object, object, list)
+
+    def __init__(self, pdf_path: str, page_idx: int, zoom: float,
+                 crop_params: dict, cursor_hl, selection_hl,
+                 show_links: bool, generation: int):
+        super().__init__(None)
+        self._path         = pdf_path
+        self._page_idx     = page_idx
+        self._zoom         = zoom
+        self._crop_params  = crop_params
+        self._cursor_hl    = cursor_hl
+        self._selection_hl = selection_hl
+        self._show_links   = show_links
+        self._gen          = generation
+        self._cancelled    = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        try:
+            import fitz as _fitz
+            from PyQt6.QtGui import QImage, QPainter, QPen, QBrush, QColor
+
+            doc  = _fitz.open(self._path)
+            page = doc[self._page_idx]
+
+            clip_rect = page.rect
+            cp = self._crop_params
+            if cp.get("enabled"):
+                c_t, c_b = cp["t"], cp["b"]
+                c_l, c_r = cp["l"], cp["r"]
+                if c_t == 0 and c_b == 0 and c_l == 0 and c_r == 0:
+                    blocks = page.get_text("blocks")
+                    if blocks:
+                        x0 = min(b[0] for b in blocks); y0 = min(b[1] for b in blocks)
+                        x1 = max(b[2] for b in blocks); y1 = max(b[3] for b in blocks)
+                        clip_rect = _fitz.Rect(
+                            max(0, x0-15), max(0, y0-15),
+                            min(page.rect.width, x1+15), min(page.rect.height, y1+15))
+                else:
+                    clip_rect = _fitz.Rect(
+                        page.rect.x0+c_l, page.rect.y0+c_t,
+                        page.rect.x1-c_r, page.rect.y1-c_b)
+
+            mat = _fitz.Matrix(self._zoom, self._zoom)
+            pix = page.get_pixmap(matrix=mat, alpha=False, clip=clip_rect)
+            # bytes() copia i samples prima che doc.close() li liberi
+            img = QImage(bytes(pix.samples), pix.width, pix.height,
+                         pix.stride, QImage.Format.Format_RGB888)
+
+            links = page.get_links()
+            doc.close()
+
+            if self._cancelled:
+                return
+
+            ox, oy, z = clip_rect.x0, clip_rect.y0, self._zoom
+
+            # Cursor indicator (forward SyncTeX)
+            if self._cursor_hl is not None:
+                c_page, c_y, c_h, c_W = self._cursor_hl
+                if c_page == self._page_idx and c_y is not None:
+                    cy = int((c_y - oy) * z)
+                    if c_h is not None and c_W is not None and c_W > 2:
+                        cx0 = max(0, int((c_h - ox) * z))
+                        cw  = max(4, int(c_W * z))
+                    else:
+                        cx0, cw = 0, img.width()
+                    p = QPainter(img)
+                    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    p.setPen(QPen(QColor(255, 80, 0, 180), 2))
+                    p.setBrush(QBrush(QColor(255, 120, 0, 30)))
+                    p.drawRect(cx0, max(0, cy-9), cw, 18)
+                    p.end()
+
+            # Selection highlight
+            if self._selection_hl is not None:
+                h_page, h_y0, h_y1, h_x0_pt, h_x1_pt = self._selection_hl
+                if h_page == self._page_idx:
+                    ry0    = int((h_y0 - oy) * z)
+                    ry1    = int((h_y1 - oy) * z)
+                    band_h = max(4, ry1 - ry0)
+                    if h_x0_pt is not None and h_x1_pt is not None:
+                        rx0    = int((h_x0_pt - ox) * z)
+                        band_w = max(4, int((h_x1_pt - ox) * z) - rx0)
+                    else:
+                        rx0, band_w = 0, img.width()
+                    p = QPainter(img)
+                    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    p.setPen(QPen(QColor(255, 200, 0, 200), 1))
+                    p.setBrush(QBrush(QColor(255, 220, 0, 70)))
+                    p.drawRect(rx0, ry0, band_w, band_h)
+                    p.end()
+
+            # Links overlay
+            if self._show_links and links:
+                p = QPainter(img)
+                p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                for lnk in links:
+                    r   = lnk["from"]
+                    px0 = (r.x0 - ox) * z; py0 = (r.y0 - oy) * z
+                    pw2 = (r.x1 - r.x0) * z; ph2 = (r.y1 - r.y0) * z
+                    if pw2 < 2 or ph2 < 2:
+                        continue
+                    p.setPen(QPen(QColor(30, 120, 255, 210), 1))
+                    p.setBrush(QBrush(QColor(30, 120, 255, 40)))
+                    p.drawRoundedRect(int(px0), int(py0), int(pw2), int(ph2), 2, 2)
+                p.end()
+
+            if not self._cancelled:
+                self.done.emit(self._gen, img, clip_rect, links)
+        except Exception:
+            if not self._cancelled:
+                self.done.emit(self._gen, None, None, [])
+
+
 class PreviewPanel(QWidget):
     """
     Pannello di anteprima laterale.
@@ -279,6 +428,24 @@ class PreviewPanel(QWidget):
         self._selection_sync_timer.timeout.connect(self._do_selection_sync)
         # (page_0based, y0_pt, y1_pt) in PDF points, o None
         self._pdf_selection_highlight: Optional[tuple] = None
+
+        # Debounce scroll continuo: aggiorna il numero di pagina corrente
+        # senza bloccare ogni pixel di drag
+        self._cont_scroll_timer = QTimer(self)
+        self._cont_scroll_timer.setSingleShot(True)
+        self._cont_scroll_timer.setInterval(80)
+        self._cont_scroll_timer.timeout.connect(self._pdf_on_cont_scroll)
+
+        # Worker asincrono per rasterizzazione pagina PDF
+        self._render_worker: Optional[_PdfRenderWorker] = None
+        self._old_render_workers: list = []   # tenuti vivi fino a finished
+        self._render_gen: int = 0
+        self._synctex_scroll_y_pt: Optional[float] = None  # scroll da applicare dopo render
+
+        # Worker asincrono per SyncTeX forward (tex→pdf)
+        self._synctex_fwd_worker: Optional[_SyncTeXFwdWorker] = None
+        self._old_synctex_fwd_workers: list = []   # tenuti vivi fino a finished
+        self._synctex_fwd_gen: int = 0
 
         self._md_worker = None             # thread markdown corrente
         self._md_old_workers: list = []    # worker superati: tenuti vivi fino al termine
@@ -488,7 +655,7 @@ class PreviewPanel(QWidget):
         self._pdf_cont_layout.setSpacing(8)
         self._pdf_scroll_cont.setWidget(self._pdf_cont_container)
         self._pdf_scroll_cont.verticalScrollBar().valueChanged.connect(
-            self._pdf_on_cont_scroll)
+            self._cont_scroll_timer.start)
         pdf_vl.addWidget(self._pdf_scroll_cont, 1)
         self._pdf_scroll_cont.setVisible(False)
 
@@ -1250,7 +1417,7 @@ class PreviewPanel(QWidget):
             return None, None
 
     def _pdf_show_page(self) -> None:
-        """Rasterizza e mostra la pagina corrente, applicando eventuali ritagli."""
+        """Avvia la rasterizzazione asincrona della pagina corrente."""
         if self._pdf_doc is None:
             return
         try:
@@ -1274,17 +1441,82 @@ class PreviewPanel(QWidget):
         self._pdf_btn_prev.setEnabled(self._pdf_page_num > 0)
         self._pdf_btn_next.setEnabled(self._pdf_page_num < total - 1)
 
-        pm, clip_rect = self._render_page_pixmap(self._pdf_page_num)
-        if pm is None:
+        if self._render_worker is not None:
+            self._render_worker.cancel()
+            self._park_worker(self._render_worker, self._old_render_workers)
+            self._render_worker = None
+
+        self._render_gen += 1
+        worker = _PdfRenderWorker(
+            self._pdf_path,
+            self._pdf_page_num,
+            self._pdf_zoom,
+            self._get_crop_params(),
+            self._pdf_cursor_highlight,
+            self._pdf_selection_highlight,
+            self._pdf_show_links,
+            self._render_gen,
+        )
+        worker.done.connect(self._on_pdf_page_rendered)
+        self._render_worker = worker
+        self._old_render_workers.append(worker)
+        def _cleanup_render(w=worker):
+            try:
+                self._old_render_workers.remove(w)
+            except ValueError:
+                pass
+        worker.finished.connect(_cleanup_render)
+        worker.start()
+        self._stack.setCurrentIndex(3)
+
+    def _park_worker(self, worker, old_list: list) -> None:
+        """Sposta un worker nella lista di quelli in attesa di terminare.
+        Mantiene il riferimento Python vivo finché il thread C++ non termina,
+        evitando il crash 'QThread: Destroyed while still running'."""
+        old_list.append(worker)
+        def _cleanup(w=worker, lst=old_list):
+            try:
+                lst.remove(w)
+            except ValueError:
+                pass
+        worker.finished.connect(_cleanup)
+
+    def _get_crop_params(self) -> dict:
+        if not getattr(self, "_pdf_crop_margins", False):
+            return {"enabled": False}
+        return {
+            "enabled": True,
+            "t": self._crop_t.value(),
+            "b": self._crop_b.value(),
+            "l": self._crop_l.value(),
+            "r": self._crop_r.value(),
+        }
+
+    def _on_pdf_page_rendered(self, gen: int, img, clip_rect, links: list) -> None:
+        if gen != self._render_gen:
+            return
+        if self._render_worker is not None:
+            self._render_worker = None   # il cleanup dalla old_list avviene su finished
+        if img is None:
             self._stack.setCurrentIndex(2)
             self._text_fallback.setPlainText("Errore rendering pagina")
             return
-
+        from PyQt6.QtGui import QPixmap
+        pm = QPixmap.fromImage(img)
         self._pdf_page_size    = (clip_rect.width, clip_rect.height)
         self._pdf_current_clip = clip_rect
-        self._pdf_links        = self._pdf_doc[self._pdf_page_num].get_links()
+        self._pdf_links        = links
         self._pdf_lbl_img.setPixmap(pm)
         self._stack.setCurrentIndex(3)
+        # scroll richiesto da forward SyncTeX (applicato dopo che la pagina è pronta)
+        y_pt = self._synctex_scroll_y_pt
+        if y_pt is not None:
+            self._synctex_scroll_y_pt = None
+            oy_val = clip_rect.y0 if clip_rect else 0.0
+            cy     = int((y_pt - oy_val) * self._pdf_zoom)
+            vbar   = self._pdf_scroll.verticalScrollBar()
+            QTimer.singleShot(0, lambda: vbar.setValue(
+                max(0, cy - self._pdf_scroll.viewport().height() // 2)))
 
     
 
@@ -1519,34 +1751,29 @@ class PreviewPanel(QWidget):
         except Exception:
             pass
 
-    def _pdf_on_cont_scroll(self, _value: int = 0) -> None:
-        """Aggiorna l'indicatore di pagina corrente durante lo scroll continuo."""
+    def _pdf_on_cont_scroll(self) -> None:
+        """Aggiorna l'indicatore di pagina corrente durante lo scroll continuo.
+        Chiamato con debounce di 80 ms dal timer per non bloccare ogni pixel di drag."""
         if not self._pdf_doc or not self._pdf_continuous:
             return
-        # calcola quale pagina ha la maggiore sovrapposizione col viewport
-        vp_h = self._pdf_scroll_cont.viewport().height()
+        from PyQt6.QtWidgets import QFrame as _QF2
+        vp_h   = self._pdf_scroll_cont.viewport().height()
         vp_top = self._pdf_scroll_cont.verticalScrollBar().value()
         vp_bot = vp_top + vp_h
-        best_idx = 0
+        best_idx    = 0
         best_overlap = -1
-        # le label delle pagine sono nei widget del layout (a indici pari: 0,2,4,...
-        # perché i separatori occupano gli indici dispari)
-        page_idx = 0
+        page_idx    = 0
         for j in range(self._pdf_cont_layout.count()):
             item = self._pdf_cont_layout.itemAt(j)
-            w = item.widget() if item else None
-            if w is None:
-                continue
-            # i separatori QFrame non sono pagine
-            from PyQt6.QtWidgets import QFrame as _QF2
-            if isinstance(w, _QF2):
+            w    = item.widget() if item else None
+            if w is None or isinstance(w, _QF2):
                 continue
             lbl_top = w.pos().y()
             lbl_bot = lbl_top + w.height()
             overlap = max(0, min(lbl_bot, vp_bot) - max(lbl_top, vp_top))
             if overlap > best_overlap:
                 best_overlap = overlap
-                best_idx = page_idx
+                best_idx     = page_idx
             page_idx += 1
         total = len(self._pdf_doc)
         self._pdf_lbl_page.setText(f"  {best_idx + 1} / {total}  ")
@@ -1648,50 +1875,66 @@ class PreviewPanel(QWidget):
         """
         Pubblico: dato una riga nel .tex, scrolla il PDF alla pagina e posizione corrispondente.
         Chiamato dall'editor quando il cursore si sposta (integrazione tex->pdf).
+        Il subprocess synctex viene eseguito in background per non bloccare la UI.
         """
         if self._mode != "pdf" or not self._pdf_path:
             return
         editor = self._editor
         if not editor or not getattr(editor, "file_path", None):
             return
-        try:
-            from editor.synctex import SyncTeX
-            from pathlib import Path as _Path
-            pdf_p  = _Path(self._pdf_path)
-            tex_p  = editor.file_path
-            sx     = SyncTeX(tex_p, pdf_p)
-            result = sx.tex_to_pdf(line, col=1)
-            if result and "page" in result:
-                new_page = result["page"] - 1
-                y_pt     = result.get("y") or result.get("v")
-                h_pt     = result.get("h")
-                W_pt     = result.get("W")
-                old_page = self._pdf_cursor_highlight[0] if self._pdf_cursor_highlight else None
-                self._pdf_cursor_highlight = (new_page, y_pt, h_pt, W_pt)
-                self._pdf_page_num = new_page
+
+        if self._synctex_fwd_worker is not None:
+            self._synctex_fwd_worker.cancel()
+            self._park_worker(self._synctex_fwd_worker, self._old_synctex_fwd_workers)
+            self._synctex_fwd_worker = None
+
+        from pathlib import Path as _Path
+        self._synctex_fwd_gen += 1
+        worker = _SyncTeXFwdWorker(
+            editor.file_path,
+            _Path(self._pdf_path),
+            line,
+            self._synctex_fwd_gen,
+        )
+        worker.done.connect(self._on_synctex_fwd_done)
+        self._synctex_fwd_worker = worker
+        self._old_synctex_fwd_workers.append(worker)
+        def _cleanup_stx(w=worker):
+            try:
+                self._old_synctex_fwd_workers.remove(w)
+            except ValueError:
+                pass
+        worker.finished.connect(_cleanup_stx)
+        worker.start()
+
+    def _on_synctex_fwd_done(self, gen: int, result) -> None:
+        if gen != self._synctex_fwd_gen:
+            return
+        if self._synctex_fwd_worker is not None:
+            self._synctex_fwd_worker = None   # cleanup dalla old_list avviene su finished
+        if result and "page" in result:
+            new_page = result["page"] - 1
+            y_pt     = result.get("y") or result.get("v")
+            h_pt     = result.get("h")
+            W_pt     = result.get("W")
+            old_page = self._pdf_cursor_highlight[0] if self._pdf_cursor_highlight else None
+            self._pdf_cursor_highlight = (new_page, y_pt, h_pt, W_pt)
+            self._pdf_page_num         = new_page
+            if self._pdf_continuous:
+                self._pdf_update_cont_highlight(new_page, old_page)
+                if y_pt is not None:
+                    QTimer.singleShot(0, lambda: self._scroll_cont_to_page_y(new_page, y_pt))
+            else:
+                self._synctex_scroll_y_pt = y_pt   # applicato in _on_pdf_page_rendered
+                self._pdf_show_page()
+        else:
+            if self._pdf_cursor_highlight is not None:
+                old_page = self._pdf_cursor_highlight[0]
+                self._pdf_cursor_highlight = None
                 if self._pdf_continuous:
-                    self._pdf_update_cont_highlight(new_page, old_page)
-                    if y_pt is not None:
-                        QTimer.singleShot(0, lambda: self._scroll_cont_to_page_y(new_page, y_pt))
+                    self._pdf_update_cont_highlight(None, old_page)
                 else:
                     self._pdf_show_page()
-                    if y_pt is not None:
-                        def _scroll():
-                            oy_val = self._pdf_current_clip.y0 if hasattr(self, "_pdf_current_clip") else 0.0
-                            cy   = int((y_pt - oy_val) * self._pdf_zoom)
-                            vbar = self._pdf_scroll.verticalScrollBar()
-                            vbar.setValue(max(0, cy - self._pdf_scroll.viewport().height() // 2))
-                        QTimer.singleShot(0, _scroll)
-            else:
-                if self._pdf_cursor_highlight is not None:
-                    old_page = self._pdf_cursor_highlight[0]
-                    self._pdf_cursor_highlight = None
-                    if self._pdf_continuous:
-                        self._pdf_update_cont_highlight(None, old_page)
-                    else:
-                        self._pdf_show_page()
-        except Exception:
-            pass
             
     def wheelEvent(self, event) -> None:
         """Gestisce lo scroll con la rotella: cambio pagina e zoom."""
@@ -1751,6 +1994,23 @@ class PreviewPanel(QWidget):
             except Exception:
                 pass
             self._md_worker = None
+        # Ferma worker PDF e SyncTeX, attendi che tutti terminino
+        for w in list(self._old_render_workers):
+            w.cancel()
+            try:
+                w.wait(300)
+            except Exception:
+                pass
+        self._old_render_workers.clear()
+        for w in list(self._old_synctex_fwd_workers):
+            w.cancel()
+            try:
+                w.wait(300)
+            except Exception:
+                pass
+        self._old_synctex_fwd_workers.clear()
+        self._render_worker       = None
+        self._synctex_fwd_worker  = None
         # Chiudi documento PDF
         if self._pdf_doc is not None:
             try:

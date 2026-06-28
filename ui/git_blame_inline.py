@@ -14,11 +14,31 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import QTimer
+from PyQt6.QtCore import QTimer, QThread, pyqtSignal
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+
+
+class _BlameWorker(QThread):
+    """Esegue 'git blame' in un thread separato per non bloccare la UI."""
+
+    done = pyqtSignal(str)   # testo formattato (vuoto se non disponibile)
+
+    def __init__(self, path: Path, lineno: int):
+        super().__init__(None)
+        self._path    = path
+        self._lineno  = lineno
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        text = GitBlameManager._run_blame(self._path, self._lineno)
+        if not self._cancelled:
+            self.done.emit(text)
 
 
 class GitBlameManager:
@@ -29,6 +49,9 @@ class GitBlameManager:
         self._enabled = False
         self._cache: dict[tuple, str] = {}
         self._last_line = -1
+
+        self._blame_worker: Optional[_BlameWorker] = None
+        self._old_blame_workers: list = []
 
         self._timer = QTimer()
         self._timer.setSingleShot(True)
@@ -44,6 +67,7 @@ class GitBlameManager:
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
         if not enabled:
+            self._cancel_blame_worker()
             self._clear()
         elif self._editor:
             self._timer.start()
@@ -57,6 +81,7 @@ class GitBlameManager:
                 self._editor.textChanged.disconnect(self._on_text_changed)
             except (RuntimeError, TypeError):
                 pass
+        self._cancel_blame_worker()
         self._clear()
         self._editor = editor
         self._last_line = -1
@@ -74,6 +99,19 @@ class GitBlameManager:
             self._cache = {k: v for k, v in self._cache.items() if k[0] != p}
 
     # ── Aggiornamento blame ───────────────────────────────────────────────────
+
+    def _cancel_blame_worker(self) -> None:
+        if self._blame_worker is not None:
+            self._blame_worker.cancel()
+            old = self._blame_worker
+            self._old_blame_workers.append(old)
+            def _cleanup(w=old):
+                try:
+                    self._old_blame_workers.remove(w)
+                except ValueError:
+                    pass
+            old.finished.connect(_cleanup)
+            self._blame_worker = None
 
     def _update(self) -> None:
         if not self._enabled or not self._editor:
@@ -93,12 +131,41 @@ class GitBlameManager:
 
         key = (str(path), line1)
         text = self._cache.get(key)
-        if text is None:
-            text = self._run_blame(path, line1)
-            self._cache[key] = text
+        if text is not None:
+            if text:
+                self._annotate(editor, line0, text)
+            return
 
+        # Non in cache: avvia worker asincrono
+        self._cancel_blame_worker()
+        worker = _BlameWorker(path, line1)
+        worker.done.connect(
+            lambda txt, k=key, ln0=line0, ln1=line1, ed=editor:
+                self._on_blame_done(txt, k, ln0, ln1, ed)
+        )
+        self._blame_worker = worker
+        self._old_blame_workers.append(worker)
+        def _cleanup(w=worker):
+            try:
+                self._old_blame_workers.remove(w)
+            except ValueError:
+                pass
+        worker.finished.connect(_cleanup)
+        worker.start()
+
+    def _on_blame_done(self, text: str, key: tuple, line0: int,
+                       line1: int, editor: "EditorWidget") -> None:
+        self._cache[key] = text
+        self._blame_worker = None
+        if editor is not self._editor:
+            return
+        if line1 != self._last_line:
+            return
         if text:
-            self._annotate(editor, line0, text)
+            try:
+                self._annotate(editor, line0, text)
+            except Exception:
+                pass
 
     # ── Annotation ───────────────────────────────────────────────────────────
 

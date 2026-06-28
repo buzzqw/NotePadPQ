@@ -22,7 +22,7 @@ import re
 from enum import IntFlag, auto
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.Qsci import QsciScintilla, QsciAPIs
 
@@ -580,6 +580,69 @@ _LANGUAGE_APIS: dict[str, list[str]] = {
     "json":       _API_JSON_KW,
 }
 
+# ─── Worker asincrono per il rebuild delle API ────────────────────────────────
+
+class _ApiRebuildWorker(QThread):
+    """Calcola i termini di autocompletamento in background per non bloccare la UI.
+    L'I/O su disco (build_dynamic_api → multifile) e il parsing regex vengono
+    eseguiti qui; solo api.prepare() rimane sul main thread."""
+
+    done = pyqtSignal(list)   # list[str] — tutti i termini da aggiungere
+
+    def __init__(self, language: str, levels, text: str, file_path,
+                 all_docs_words: list, generation: int):
+        super().__init__(None)
+        self._language       = language
+        self._levels         = levels
+        self._text           = text
+        self._file_path      = file_path
+        self._all_docs_words = all_docs_words
+        self._gen            = generation
+        self._cancelled      = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        terms: list[str] = []
+
+        if self._levels & AutoCompleteLevel.API_DICT:
+            terms.extend(_LANGUAGE_APIS.get(self._language, []))
+
+        if self._cancelled:
+            return
+
+        if self._levels & AutoCompleteLevel.SNIPPETS:
+            try:
+                from editor.snippets import SnippetManager
+                triggers = SnippetManager.instance().get_triggers(self._language)
+                for trigger, description in triggers.items():
+                    terms.append(f"{trigger}?5\n{description}")
+            except Exception:
+                pass
+
+        if self._cancelled:
+            return
+
+        if self._levels & AutoCompleteLevel.ALL_DOCS:
+            terms.extend(self._all_docs_words)
+
+        if self._cancelled:
+            return
+
+        # I/O su disco — parte lenta (legge tutti i file \input{} collegati)
+        if self._language in ("latex", "bibtex"):
+            try:
+                from editor.latex_support import LaTeXSupport
+                dynamic = LaTeXSupport.build_dynamic_api(self._text, self._file_path)
+                terms.extend(dynamic)
+            except Exception:
+                pass
+
+        if not self._cancelled:
+            self.done.emit(terms)
+
+
 # ─── AutoCompleteManager ──────────────────────────────────────────────────────
 
 class AutoCompleteManager(QObject):
@@ -596,6 +659,10 @@ class AutoCompleteManager(QObject):
         self._levels   = AutoCompleteLevel.DOCUMENT | AutoCompleteLevel.API_DICT
         self._api: Optional[QsciAPIs] = None
         self._tab_manager_ref = None   # impostato da TabManager
+
+        self._api_worker: Optional[_ApiRebuildWorker] = None
+        self._old_api_workers: list = []
+        self._api_gen: int = 0
 
         # Timer per aggiornamento cross-tab (evita refresh ad ogni keystroke)
         self._cross_tab_timer = QTimer(self)
@@ -686,57 +753,78 @@ class AutoCompleteManager(QObject):
         self._rebuild_api()
 
     def _rebuild_api(self) -> None:
-        """Ricostruisce il QsciAPIs con i termini del linguaggio corrente."""
+        """Avvia un worker asincrono per ricostruire le API di autocompletamento.
+        Snapshot di testo e parole cross-tab presi qui sul main thread;
+        il parsing I/O (build_dynamic_api) gira in background."""
         lexer = self._editor.lexer()
         if lexer is None:
-            # Lexer non ancora impostato: riprova tra poco
-            # (accade quando set_language viene chiamato prima del lexer)
-            from PyQt6.QtCore import QTimer
             QTimer.singleShot(100, self._rebuild_api)
             return
 
-        self._api = QsciAPIs(lexer)
+        # Snapshot sul main thread (QScintilla non è thread-safe)
+        text = self._editor.text()
+        fp   = getattr(self._editor, "file_path", None)
+        all_docs_words = self._collect_all_docs_words()
 
-        # Dizionario API statici
-        if self._levels & AutoCompleteLevel.API_DICT:
-            api_list = _LANGUAGE_APIS.get(self._language, [])
-            for term in api_list:
-                self._api.add(term)
+        # Annulla worker precedente senza distruggerlo (pattern old_workers)
+        if self._api_worker is not None:
+            self._api_worker.cancel()
+            old = self._api_worker
+            self._old_api_workers.append(old)
+            def _cleanup_old(w=old):
+                try:
+                    self._old_api_workers.remove(w)
+                except ValueError:
+                    pass
+            old.finished.connect(_cleanup_old)
+            self._api_worker = None
 
-        # Snippet (delegato a snippets.py)
-        if self._levels & AutoCompleteLevel.SNIPPETS:
-            self._add_snippet_triggers()
-
-        # Parole cross-tab
-        if self._levels & AutoCompleteLevel.ALL_DOCS:
-            self._add_all_docs_words()
-
-        # Per LaTeX: aggiungi API dinamica dal documento corrente
-        # (comandi custom, ambienti custom, comandi dei pacchetti caricati)
-        if self._language in ("latex", "bibtex"):
+        self._api_gen += 1
+        gen    = self._api_gen
+        worker = _ApiRebuildWorker(
+            self._language, self._levels, text, fp, all_docs_words, gen
+        )
+        worker.done.connect(lambda terms, g=gen: self._on_api_ready(terms, g))
+        self._api_worker = worker
+        self._old_api_workers.append(worker)
+        def _cleanup(w=worker):
             try:
-                from editor.latex_support import LaTeXSupport
-                dynamic = LaTeXSupport.build_dynamic_api(
-                    self._editor.text(),
-                    getattr(self._editor, "file_path", None)
-                )
-                for term in dynamic:
-                    self._api.add(term)
-            except Exception:
+                self._old_api_workers.remove(w)
+            except ValueError:
                 pass
+        worker.finished.connect(_cleanup)
+        worker.start()
 
-        self._api.prepare()
-        lexer.setAPIs(self._api)
+    def _on_api_ready(self, terms: list, gen: int) -> None:
+        """Chiamato dal worker quando i termini sono pronti. Esegue solo le
+        operazioni Qt (add + prepare) che devono stare sul main thread."""
+        if gen != self._api_gen:
+            return
+        self._api_worker = None
+        lexer = self._editor.lexer()
+        if lexer is None:
+            return
+        api = QsciAPIs(lexer)
+        for term in terms:
+            api.add(term)
+        api.prepare()
+        lexer.setAPIs(api)
+        self._api = api
 
-    def _add_snippet_triggers(self) -> None:
-        """Aggiunge i trigger degli snippet al dizionario."""
-        try:
-            from editor.snippets import SnippetManager
-            triggers = SnippetManager.instance().get_triggers(self._language)
-            for trigger, description in triggers.items():
-                self._api.add(f"{trigger}?5\n{description}")
-        except Exception:
-            pass
+    def _collect_all_docs_words(self) -> list:
+        """Estrae le parole da tutti gli altri tab (main thread, snapshot)."""
+        if not (self._levels & AutoCompleteLevel.ALL_DOCS) or not self._tab_manager_ref:
+            return []
+        seen:  set[str]  = set()
+        words: list[str] = []
+        for editor in self._tab_manager_ref.all_editors():
+            if editor is self._editor:
+                continue
+            for w in re.findall(r'\b[a-zA-Z_]\w{2,}\b', editor.text()):
+                if w not in seen:
+                    seen.add(w)
+                    words.append(w)
+        return words
 
     # ── Cross-tab ─────────────────────────────────────────────────────────────
 
@@ -744,23 +832,7 @@ class AutoCompleteManager(QObject):
         """Collega il tab manager per il completamento cross-documento."""
         self._tab_manager_ref = tab_manager
         if self._tab_manager_ref:
-            # Quando un altro editor cambia, scheduliamo il rebuild
             self._editor.textChanged.connect(self._cross_tab_timer.start)
-
-    def _add_all_docs_words(self) -> None:
-        """Aggiunge al dizionario le parole da tutti i tab aperti."""
-        if not self._tab_manager_ref:
-            return
-        seen = set()
-        for editor in self._tab_manager_ref.all_editors():
-            if editor is self._editor:
-                continue
-            text = editor.text()
-            words = re.findall(r'\b[a-zA-Z_]\w{2,}\b', text)
-            for w in words:
-                if w not in seen:
-                    seen.add(w)
-                    self._api.add(w)
 
     def _rebuild_all_docs_words(self) -> None:
         """Ricostruisce il dizionario includendo parole aggiornate degli altri tab."""

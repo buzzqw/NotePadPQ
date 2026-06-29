@@ -12,10 +12,10 @@ from __future__ import annotations
 import re
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QRect, QTimer, QPoint, pyqtSlot
+from PyQt6.QtCore import Qt, QRect, QTimer, QThread, QPoint, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import (
     QColor, QPainter, QPen, QBrush, QFont,
-    QFontMetrics, QPixmap,
+    QFontMetrics, QPixmap, QImage,
 )
 from PyQt6.QtWidgets import QWidget, QAbstractScrollArea, QLabel
 if TYPE_CHECKING:
@@ -26,7 +26,7 @@ MINIMAP_WIDTH   = 100    # px larghezza widget
 CHAR_WIDTH      = 1      # px per carattere
 LINE_HEIGHT     = 2      # px per riga
 MAX_LINES       = 3000   # limite righe renderizzate
-UPDATE_DELAY_MS = 300    # ms debounce aggiornamento
+UPDATE_DELAY_MS = 500    # ms debounce aggiornamento (era 300 — ridotto carico main thread)
 
 # Regex compilate una volta sola a livello modulo
 _RE_COMMENT = re.compile(r'^\s*(#|//|--|%|;)')
@@ -35,6 +35,60 @@ _RE_KEYWORD = re.compile(
     r'\b(def|class|import|from|if|else|elif|for|while|return|'
     r'function|var|let|const|public|private|void|int|str)\b'
 )
+
+
+class _MinimapWorker(QThread):
+    """Disegna la minimap su QImage in un thread separato per non bloccare la UI.
+    QPainter su QImage è thread-safe; QPixmap.fromImage() viene fatto sul main thread."""
+
+    done = pyqtSignal(object)   # emette QImage quando il rendering è completo
+
+    def __init__(self, lines: list, height: int,
+                 bg: str, fg: str, kw: str, st: str, cm: str):
+        super().__init__(None)
+        self._lines     = lines
+        self._height    = height
+        self._bg        = bg
+        self._fg        = fg
+        self._kw        = kw
+        self._st        = st
+        self._cm        = cm
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        img = QImage(MINIMAP_WIDTH, self._height, QImage.Format.Format_RGB32)
+        img.fill(QColor(self._bg))
+        painter = QPainter(img)
+        fg_c  = QColor(self._fg)
+        kw_c  = QColor(self._kw)
+        st_c  = QColor(self._st)
+        cm_c  = QColor(self._cm)
+        for i, line in enumerate(self._lines):
+            if self._cancelled:
+                break
+            stripped = line.rstrip()
+            if not stripped:
+                continue
+            if _RE_COMMENT.match(stripped):
+                col = cm_c
+            elif _RE_STRING.search(stripped):
+                col = st_c
+            elif _RE_KEYWORD.search(stripped):
+                col = kw_c
+            else:
+                col = fg_c
+            y      = i * LINE_HEIGHT
+            indent = len(line) - len(line.lstrip())
+            x      = min(indent * CHAR_WIDTH, MINIMAP_WIDTH - 2)
+            w      = min(len(stripped) * CHAR_WIDTH, MINIMAP_WIDTH - x - 1)
+            if w > 0:
+                painter.fillRect(x, y, w, max(LINE_HEIGHT - 1, 1), col)
+        painter.end()
+        if not self._cancelled:
+            self.done.emit(img)
 
 
 class MinimapWidget(QWidget):
@@ -49,6 +103,9 @@ class MinimapWidget(QWidget):
         self._pixmap: Optional[QPixmap] = None
         self._dirty  = True
         self._needs_refresh = False
+
+        self._worker: Optional[_MinimapWorker] = None
+        self._old_workers: list = []
 
         self._popup: QLabel | None = None
         self._popup_y: float = 0.0
@@ -114,64 +171,53 @@ class MinimapWidget(QWidget):
 
     @pyqtSlot()
     def _rebuild(self) -> None:
-        """Ridisegna il pixmap della minimap."""
+        """Avvia il worker di rendering in background (non blocca il main thread)."""
+        # Snapshot testo e dimensioni sul main thread (QScintilla non è thread-safe)
         text   = self._editor.text()
         lines  = text.split("\n")[:MAX_LINES]
         height = max(len(lines) * LINE_HEIGHT, self.height())
 
-        self._pixmap = QPixmap(MINIMAP_WIDTH, height)
-
-        # Determina i colori dal tema corrente
+        # Colori dal tema: letti sul main thread, passati come stringe hex al worker
         try:
             from config.themes import ThemeManager
-            tm     = ThemeManager.instance()
-            theme  = tm.get_theme(tm.active_name()) or {}
-            ui     = theme.get("ui", {})
-            bg     = QColor(ui.get("editor_bg", "#1e1e1e"))
-            fg     = QColor(ui.get("editor_fg", "#d4d4d4"))
-            kw_col = QColor(
-                theme.get("tokens", {}).get("keyword", {}).get("fg", "#569cd6")
-            )
-            str_col = QColor(
-                theme.get("tokens", {}).get("string", {}).get("fg", "#ce9178")
-            )
-            cmt_col = QColor(
-                theme.get("tokens", {}).get("comment", {}).get("fg", "#6a9955")
-            )
+            tm    = ThemeManager.instance()
+            theme = tm.get_theme(tm.active_name()) or {}
+            ui    = theme.get("ui", {})
+            bg  = ui.get("editor_bg", "#1e1e1e")
+            fg  = ui.get("editor_fg", "#d4d4d4")
+            kw  = theme.get("tokens", {}).get("keyword", {}).get("fg", "#569cd6")
+            st  = theme.get("tokens", {}).get("string",  {}).get("fg", "#ce9178")
+            cm  = theme.get("tokens", {}).get("comment", {}).get("fg", "#6a9955")
         except Exception:
-            bg      = QColor("#1e1e1e")
-            fg      = QColor("#d4d4d4")
-            kw_col  = QColor("#569cd6")
-            str_col = QColor("#ce9178")
-            cmt_col = QColor("#6a9955")
+            bg, fg, kw, st, cm = "#1e1e1e", "#d4d4d4", "#569cd6", "#ce9178", "#6a9955"
 
-        self._pixmap.fill(bg)
-        painter = QPainter(self._pixmap)
+        # Annulla worker precedente senza distruggerlo (può essere ancora in run())
+        if self._worker is not None:
+            self._worker.cancel()
+            old = self._worker
+            self._old_workers.append(old)
+            def _clean(w=old):
+                try: self._old_workers.remove(w)
+                except ValueError: pass
+            old.finished.connect(_clean)
+            self._worker = None
 
-        for i, line in enumerate(lines):
-            y = i * LINE_HEIGHT
-            stripped = line.rstrip()
-            if not stripped:
-                continue
+        worker = _MinimapWorker(lines, height, bg, fg, kw, st, cm)
+        worker.done.connect(self._on_image_ready)
+        self._worker = worker
+        self._old_workers.append(worker)
+        def _clean2(w=worker):
+            try: self._old_workers.remove(w)
+            except ValueError: pass
+        worker.finished.connect(_clean2)
+        worker.start()
 
-            if _RE_COMMENT.match(stripped):
-                col = cmt_col
-            elif _RE_STRING.search(stripped):
-                col = str_col
-            elif _RE_KEYWORD.search(stripped):
-                col = kw_col
-            else:
-                col = fg
-
-            # Disegna la riga come barra orizzontale
-            indent = len(line) - len(line.lstrip())
-            x = min(indent * CHAR_WIDTH, MINIMAP_WIDTH - 2)
-            w = min(len(stripped) * CHAR_WIDTH, MINIMAP_WIDTH - x - 1)
-            if w > 0:
-                painter.fillRect(x, y, w, max(LINE_HEIGHT - 1, 1), col)
-
-        painter.end()
-        self._dirty = False
+    @pyqtSlot(object)
+    def _on_image_ready(self, img: "QImage") -> None:
+        """Riceve il QImage dal worker e lo converte in QPixmap (main thread)."""
+        self._worker = None
+        self._pixmap = QPixmap.fromImage(img)
+        self._dirty  = False
         self.update()
 
     def paintEvent(self, event) -> None:

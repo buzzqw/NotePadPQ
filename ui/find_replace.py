@@ -1501,6 +1501,7 @@ ESEMPI
         dlg.show()
         dlg.raise_()
         dlg._find_edit.setFocus()
+        dlg._find_edit.lineEdit().selectAll()
 
     def _send_to_result_panel(self, query: str, tree: "QTreeWidget",
                               in_docs: bool = False) -> None:
@@ -1546,6 +1547,7 @@ ESEMPI
         dlg.show()
         dlg.raise_()
         dlg._find_edit2.setFocus()
+        dlg._find_edit2.lineEdit().selectAll()
 
     @classmethod
     def show_find_in_files(cls, main_window: "MainWindow") -> None:

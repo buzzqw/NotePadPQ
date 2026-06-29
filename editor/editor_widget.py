@@ -687,16 +687,17 @@ class EditorWidget(QsciScintilla):
                 self._smart_hl_text_len = 0
             return
 
-        text = self.text()
-        text_len = len(text)
-
-        # Skip su file grandi: > 200 KB la regex può bloccare il thread UI
-        if text_len > 200_000:
+        # Controlla lunghezza PRIMA di copiare il testo (SCI_GETLENGTH è O(1), self.text() è O(n))
+        doc_len = self.SendScintilla(self.SCI_GETLENGTH)
+        if doc_len > 200_000:
             if self._smart_hl_word:
                 self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
                 self._smart_hl_word = ""
                 self._smart_hl_text_len = 0
             return
+
+        text = self.text()
+        text_len = len(text)
 
         # Salta il ricalcolo se parola E lunghezza del testo sono invariate
         if word == self._smart_hl_word and text_len == self._smart_hl_text_len:

@@ -98,6 +98,13 @@ _B_NEWLINE   = ord('\n')
 
 _RE_SPECIAL_BYTES = re.compile(rb'[%\\${}[\]]')
 
+# Bytes massimi per ogni singola chiamata styleText.
+# Con SC_IDLESTYLING_TOVISIBLE, Scintilla chiama styleText per la zona visibile
+# immediatamente, poi chiama di nuovo per il resto all'idle (main thread).
+# Limitando ogni chiamata a _MAX_STYLE_BYTES, il lavoro idle si distribuisce
+# in micro-step da ~10ms invece di un blocco unico da 1-2 secondi.
+_MAX_STYLE_BYTES = 8000  # ~100 righe × 80 char
+
 
 class LaTeXLexer(QsciLexerCustom):
     """Custom LaTeX lexer con highlighting stile TeXstudio."""
@@ -124,7 +131,15 @@ class LaTeXLexer(QsciLexerCustom):
     def styleText(self, start: int, end: int) -> None:
         # Ottieni bytes (con cache): evita encode O(n) ad ogni chiamata.
         if self._bytes_cache is None:
-            self._bytes_cache = self.parent().text().encode('utf-8')
+            p = self.parent()
+            try:
+                # Lettura diretta byte UTF-8 da Scintilla (evita str→encode, ~3-5ms vs ~18ms)
+                n = p.SendScintilla(p.SCI_GETLENGTH)
+                buf = bytearray(n + 1)
+                p.SendScintilla(p.SCI_GETTEXT, n + 1, buf)
+                self._bytes_cache = bytes(buf[:n])
+            except Exception:
+                self._bytes_cache = p.text().encode('utf-8')
         text_b = self._bytes_cache
         tlen = len(text_b)
         if tlen == 0 or start >= tlen:
@@ -135,6 +150,9 @@ class LaTeXLexer(QsciLexerCustom):
         nl = text_b.rfind(b'\n', 0, start)
         safe = 0 if nl == -1 else nl + 1
         end = min(end, tlen)
+        # Limita il range per evitare freeze: Scintilla richiama per il resto al prossimo idle.
+        # Con _MAX_STYLE_BYTES = 8000 ogni call dura ~10ms invece di 1-2s per documenti grandi.
+        end = min(end, safe + _MAX_STYLE_BYTES)
         if safe >= end:
             return
 

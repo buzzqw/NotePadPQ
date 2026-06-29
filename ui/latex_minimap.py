@@ -12,14 +12,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Dict, Any, Optional
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
     QLabel, QSizePolicy,
 )
-
-from editor.latex_support import extract_structure
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -36,6 +34,29 @@ _SECTION_ICONS: Dict[str, str] = {
 }
 
 
+class _StructureWorker(QThread):
+    """Estrae la struttura del documento LaTeX in background (regex pura, nessun Qt)."""
+
+    done = pyqtSignal(list)
+
+    def __init__(self, text: str):
+        super().__init__(None)
+        self._text      = text
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        from editor.latex_support import extract_structure
+        try:
+            structure = extract_structure(self._text)
+        except Exception:
+            structure = []
+        if not self._cancelled:
+            self.done.emit(structure)
+
+
 class LaTeXMinimapWidget(QWidget):
     """
     Pannello struttura documento LaTeX.
@@ -47,6 +68,9 @@ class LaTeXMinimapWidget(QWidget):
         super().__init__(parent)
         self._editor = editor
         self._needs_refresh = False
+
+        self._worker: Optional[_StructureWorker] = None
+        self._old_workers: list = []
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -113,10 +137,32 @@ class LaTeXMinimapWidget(QWidget):
             self._timer.start()
 
     def _rebuild(self) -> None:
-        """Ricostruisce l'albero dalla struttura del documento."""
+        """Avvia il worker di parsing in background (non blocca il main thread)."""
         text = self._editor.text()
-        structure = extract_structure(text)
 
+        if self._worker is not None:
+            self._worker.cancel()
+            old = self._worker
+            self._old_workers.append(old)
+            def _clean(w=old):
+                try: self._old_workers.remove(w)
+                except ValueError: pass
+            old.finished.connect(_clean)
+            self._worker = None
+
+        worker = _StructureWorker(text)
+        worker.done.connect(self._on_structure_ready)
+        self._worker = worker
+        self._old_workers.append(worker)
+        def _clean2(w=worker):
+            try: self._old_workers.remove(w)
+            except ValueError: pass
+        worker.finished.connect(_clean2)
+        worker.start()
+
+    def _on_structure_ready(self, structure: list) -> None:
+        """Riceve la struttura dal worker e ricostruisce il QTreeWidget (main thread)."""
+        self._worker = None
         self._tree.blockSignals(True)
         self._tree.clear()
 
@@ -128,33 +174,23 @@ class LaTeXMinimapWidget(QWidget):
             self._tree.blockSignals(False)
             return
 
-        # Costruisce l'albero rispettando la gerarchia
-        # stack: lista di (depth, QTreeWidgetItem)
         stack: List[tuple] = []
-
         for entry in structure:
-            depth = entry["depth"]
+            depth    = entry["depth"]
             sec_type = entry["type"]
-            title = entry["title"] or f"\\{sec_type}"
-            line = entry["line"]
-
-            icon = _SECTION_ICONS.get(sec_type, "•")
-            label = f"{icon}  {title}"
-
-            item = QTreeWidgetItem([label])
+            title    = entry["title"] or f"\\{sec_type}"
+            line     = entry["line"]
+            icon     = _SECTION_ICONS.get(sec_type, "•")
+            item     = QTreeWidgetItem([f"{icon}  {title}"])
             item.setData(0, Qt.ItemDataRole.UserRole, line)
             item.setToolTip(0, f"\\{sec_type}{{{title}}}  —  riga {line}")
             item.setForeground(0, _level_color(sec_type))
-
-            # Trova il genitore corretto nello stack
             while stack and stack[-1][0] >= depth:
                 stack.pop()
-
             if stack:
                 stack[-1][1].addChild(item)
             else:
                 self._tree.addTopLevelItem(item)
-
             stack.append((depth, item))
 
         self._tree.expandAll()

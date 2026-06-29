@@ -587,7 +587,8 @@ class _ApiRebuildWorker(QThread):
     L'I/O su disco (build_dynamic_api → multifile) e il parsing regex vengono
     eseguiti qui; solo api.prepare() rimane sul main thread."""
 
-    done = pyqtSignal(list)   # list[str] — tutti i termini da aggiungere
+    done        = pyqtSignal(list)         # list[str] — termini autocomplete
+    latex_cache = pyqtSignal(list, list, list)  # (label_pairs, bibtex_keys, hypertarget_names)
 
     def __init__(self, language: str, levels, text: str, file_path,
                  all_docs_words: list, generation: int):
@@ -639,6 +640,42 @@ class _ApiRebuildWorker(QThread):
             except Exception:
                 pass
 
+        if self._cancelled:
+            return
+
+        # Per LaTeX: pre-calcola label/bibtex/hypertarget in background così i popup
+        # su '{' sono istantanei (usano la cache invece di fare I/O sul main thread).
+        if self._language == "latex":
+            labels = bibtex = hypertargets = []
+            try:
+                from editor.latex_support import LaTeXSupport
+                if self._file_path:
+                    labels = LaTeXSupport.extract_labels_with_context_multifile(self._file_path)
+                else:
+                    labels = LaTeXSupport.extract_labels_with_context(self._text)
+            except Exception:
+                pass
+            if not self._cancelled:
+                try:
+                    from editor.latex_support import LaTeXSupport
+                    if self._file_path:
+                        bibtex = LaTeXSupport.extract_bibtex_keys_multifile(self._file_path)
+                    else:
+                        bibtex = LaTeXSupport.extract_bibtex_keys(self._text, None)
+                except Exception:
+                    pass
+            if not self._cancelled:
+                try:
+                    from editor.latex_support import LaTeXSupport
+                    if self._file_path:
+                        hypertargets = LaTeXSupport.extract_hypertargets_multifile(self._file_path)
+                    else:
+                        hypertargets = LaTeXSupport.extract_hypertargets(self._text)
+                except Exception:
+                    pass
+            if not self._cancelled:
+                self.latex_cache.emit(labels, bibtex, hypertargets)
+
         if not self._cancelled:
             self.done.emit(terms)
 
@@ -663,6 +700,12 @@ class AutoCompleteManager(QObject):
         self._api_worker: Optional[_ApiRebuildWorker] = None
         self._old_api_workers: list = []
         self._api_gen: int = 0
+
+        # Cache label/bibtex/hypertarget precalcolate in background dal worker.
+        # Usate dai popup '{' per evitare I/O sincrono su Dropbox.
+        self._labels_cache:      list = []
+        self._bibtex_cache:      list = []
+        self._hypertargets_cache: list = []
 
         # Timer per aggiornamento cross-tab (evita refresh ad ogni keystroke)
         self._cross_tab_timer = QTimer(self)
@@ -713,10 +756,19 @@ class AutoCompleteManager(QObject):
         """Aggiorna la sorgente QScintilla in base ai livelli attivi."""
         ed = self._editor
         if self._levels & AutoCompleteLevel.API_DICT:
-            # AcsAll = documento + API list
-            ed.setAutoCompletionSource(
-                QsciScintilla.AutoCompletionSource.AcsAll
-            )
+            if self._language in ("latex", "bibtex"):
+                # Per LaTeX usa solo la lista API: i comandi custom sono già
+                # estratti da build_dynamic_api e aggiunti all'API list.
+                # AcsAll includerebbe anche le parole del documento (nomi propri,
+                # numeri, parole italiane) generando suggerimenti non-LaTeX.
+                ed.setAutoCompletionSource(
+                    QsciScintilla.AutoCompletionSource.AcsAPIs
+                )
+            else:
+                # AcsAll = documento + API list
+                ed.setAutoCompletionSource(
+                    QsciScintilla.AutoCompletionSource.AcsAll
+                )
         elif self._levels & AutoCompleteLevel.DOCUMENT:
             ed.setAutoCompletionSource(
                 QsciScintilla.AutoCompletionSource.AcsDocument
@@ -750,7 +802,44 @@ class AutoCompleteManager(QObject):
                 b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
             )
         self._editor.setAutoCompletionWordSeparators([])
+        # Per LaTeX/BibTeX: carica subito l'API statica (735 comandi in memoria)
+        # senza aspettare il worker I/O. L'API dinamica (comandi custom, pacchetti)
+        # viene aggiunta quando il worker asincrono finisce.
+        if self._language in ("latex", "bibtex"):
+            self._load_static_api_now()
+            # LaTeX: rebuild più raro (I/O Dropbox pesante) — cache label/bibtex inclusa
+            self._doc_change_timer.setInterval(3000)
+            # Invalida la cache del cambio linguaggio precedente
+            self._labels_cache = []
+            self._bibtex_cache = []
+            self._hypertargets_cache = []
+        else:
+            self._doc_change_timer.setInterval(2000)
         self._rebuild_api()
+
+    def _load_static_api_now(self) -> None:
+        """Carica immediatamente l'API statica del linguaggio corrente sul main thread.
+        Usato per LaTeX/BibTeX: rende disponibili i 735 comandi istantaneamente,
+        senza aspettare che il worker asincrono finisca il I/O su disco."""
+        lexer = self._editor.lexer()
+        if lexer is None:
+            return
+        terms: list[str] = list(_LANGUAGE_APIS.get(self._language, []))
+        try:
+            from editor.snippets import SnippetManager
+            triggers = SnippetManager.instance().get_triggers(self._language)
+            for trigger, description in triggers.items():
+                terms.append(f"{trigger}?5\n{description}")
+        except Exception:
+            pass
+        if not terms:
+            return
+        api = QsciAPIs(lexer)
+        for term in terms:
+            api.add(term)
+        api.prepare()
+        lexer.setAPIs(api)
+        self._api = api
 
     def _rebuild_api(self) -> None:
         """Avvia un worker asincrono per ricostruire le API di autocompletamento.
@@ -785,6 +874,9 @@ class AutoCompleteManager(QObject):
             self._language, self._levels, text, fp, all_docs_words, gen
         )
         worker.done.connect(lambda terms, g=gen: self._on_api_ready(terms, g))
+        worker.latex_cache.connect(
+            lambda lbl, bib, ht, g=gen: self._on_latex_cache(lbl, bib, ht, g)
+        )
         self._api_worker = worker
         self._old_api_workers.append(worker)
         def _cleanup(w=worker):
@@ -810,6 +902,14 @@ class AutoCompleteManager(QObject):
         api.prepare()
         lexer.setAPIs(api)
         self._api = api
+
+    def _on_latex_cache(self, labels: list, bibtex: list, hypertargets: list, gen: int) -> None:
+        """Aggiorna la cache label/bibtex/hypertarget precalcolata dal worker."""
+        if gen != self._api_gen:
+            return
+        self._labels_cache       = labels
+        self._bibtex_cache       = bibtex
+        self._hypertargets_cache = hypertargets
 
     def _collect_all_docs_words(self) -> list:
         """Estrae le parole da tutti gli altri tab (main thread, snapshot)."""
@@ -1020,39 +1120,23 @@ class AutoCompleteManager(QObject):
             return []
 
     def _complete_labels(self) -> None:
-        """Popup con tutte le \\label{} del progetto con tipo rilevato."""
-        from editor.latex_support import LaTeXSupport
-        fp = getattr(self._editor, "file_path", None)
-        if fp:
-            pairs = LaTeXSupport.extract_labels_with_context_multifile(fp)
-        else:
-            pairs = LaTeXSupport.extract_labels_with_context(self._editor.text())
+        """Popup con tutte le \\label{} del progetto con tipo rilevato.
+        Usa la cache precalcolata dal worker in background (nessun I/O sul main thread)."""
+        pairs = self._labels_cache
         if pairs:
             items = [f"{key}  [{hint}]" if hint and hint != "label" else key
                      for key, hint in pairs]
             self._editor.showUserList(5, sorted(items))
 
     def _complete_hypertargets(self) -> None:
-        """Popup con i nomi \\hypertarget definiti nel progetto."""
-        from editor.latex_support import LaTeXSupport
-        fp = getattr(self._editor, "file_path", None)
-        if fp:
-            names = LaTeXSupport.extract_hypertargets_multifile(fp)
-        else:
-            names = LaTeXSupport.extract_hypertargets(self._editor.text())
+        """Popup con i nomi \\hypertarget definiti nel progetto (da cache background)."""
+        names = self._hypertargets_cache
         if names:
             self._editor.showUserList(6, names)
 
     def _complete_cite_keys(self) -> None:
-        """Popup con le chiavi BibTeX (supporto multi-file)."""
-        from editor.latex_support import LaTeXSupport
-        fp = getattr(self._editor, "file_path", None)
-        if fp:
-            keys = LaTeXSupport.extract_bibtex_keys_multifile(fp)
-        else:
-            keys = LaTeXSupport.extract_bibtex_keys(
-                self._editor.text(), fp
-            )
+        """Popup con le chiavi BibTeX (da cache background, nessun I/O sul main thread)."""
+        keys = self._bibtex_cache
         if keys:
             self._editor.showUserList(2, keys)
 

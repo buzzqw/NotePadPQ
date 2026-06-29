@@ -1591,7 +1591,6 @@ class PreviewPanel(QWidget):
         self._pdf_continuous = checked
         self._pdf_btn_prev.setVisible(not checked)
         self._pdf_btn_next.setVisible(not checked)
-        self._pdf_lbl_page.setVisible(not checked)
         if checked:
             page_to_restore = self._pdf_page_num
             y_pt_restore = (

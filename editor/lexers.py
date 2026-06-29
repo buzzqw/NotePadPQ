@@ -366,6 +366,8 @@ def _apply_lexer(editor: "EditorWidget",
     if lexer_class is None:
         editor.setLexer(None)
         editor._current_language = lang_name
+        # Ripristina lo styling sincrono completo (nessun lexer custom Python attivo)
+        editor.SendScintilla(editor.SCI_SETIDLESTYLING, 0)
         return False
 
     font = editor.font()
@@ -379,6 +381,15 @@ def _apply_lexer(editor: "EditorWidget",
     editor.setLexer(lexer)
     # Memorizza il nome linguaggio sull'editor per _update_file_type_menu
     editor._current_language = lang_name
+
+    # Per i lexer Python custom (es. LaTeX), ogni modifica del testo fa chiamare
+    # styleText(start, document_length): con documenti grandi questo blocca la UI
+    # per centinaia di ms per ogni tasto. SC_IDLESTYLING_TOVISIBLE (1) limita la
+    # chiamata sincrona all'area visibile e differisce il resto all'idle time.
+    if isinstance(lexer, LaTeXLexer):
+        editor.SendScintilla(editor.SCI_SETIDLESTYLING, 1)
+    else:
+        editor.SendScintilla(editor.SCI_SETIDLESTYLING, 0)
 
     # Forza il refresh dell'highlighting di Scintilla
     editor.SendScintilla(editor.SCI_COLOURISE, 0, -1)

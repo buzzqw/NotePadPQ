@@ -28,7 +28,7 @@ from pathlib import Path as _Path
 from typing import Optional, List, Dict, TYPE_CHECKING
 from dataclasses import dataclass, field
 
-from PyQt6.QtCore import Qt, QTimer, QSortFilterProxyModel, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QThread, QSortFilterProxyModel, pyqtSignal
 from PyQt6.QtGui import QStandardItemModel, QStandardItem, QColor, QFont, QIcon, QKeySequence, QAction
 from PyQt6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
@@ -441,6 +441,31 @@ def _get_parser(editor: "EditorWidget") -> Optional[_Parser]:
     return _PARSERS.get(lang)
 
 
+# ─── Worker asincrono parse ───────────────────────────────────────────────────
+
+class _ParseWorker(QThread):
+    """Esegue parser.parse(text) in background per non bloccare la UI."""
+
+    done = pyqtSignal(list, int, bool)  # (symbols, generation, is_hierarchical)
+
+    def __init__(self, parser: "_Parser", text: str, generation: int,
+                 is_hierarchical: bool):
+        super().__init__(None)
+        self._parser        = parser
+        self._text          = text
+        self._generation    = generation
+        self._is_hier       = is_hierarchical
+        self._cancelled     = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        symbols = self._parser.parse(self._text)
+        if not self._cancelled:
+            self.done.emit(symbols, self._generation, self._is_hier)
+
+
 # ─── Pannello ─────────────────────────────────────────────────────────────────
 
 class _FunctionListPanel(QWidget):
@@ -451,6 +476,9 @@ class _FunctionListPanel(QWidget):
         self._editor: Optional["EditorWidget"] = None
         self._symbols: List[FuncSymbol] = []
         self._needs_refresh = True
+        self._parse_worker: "_ParseWorker | None" = None
+        self._old_parse_workers: list = []
+        self._parse_gen: int = 0
 
         self._build_ui()
 
@@ -600,15 +628,29 @@ class _FunctionListPanel(QWidget):
                 groups[kind] = g
             groups[kind].appendRow(self._make_sym_item(sym))
 
+    def _cancel_parse_worker(self) -> None:
+        if self._parse_worker is not None:
+            self._parse_worker.cancel()
+            old = self._parse_worker
+            self._old_parse_workers.append(old)
+            def _cleanup(w=old):
+                try:
+                    self._old_parse_workers.remove(w)
+                except ValueError:
+                    pass
+            old.finished.connect(_cleanup)
+            self._parse_worker = None
+
     def _refresh(self) -> None:
-        self._model.clear()
         editor = self._editor
         if not editor:
+            self._model.clear()
             self._info.setText(tr("function_list.no_editor"))
             return
 
         parser = _get_parser(editor)
         if not parser:
+            self._model.clear()
             self._info.setText("Linguaggio non supportato")
             item = QStandardItem("(nessun parser disponibile)")
             item.setEnabled(False)
@@ -616,24 +658,46 @@ class _FunctionListPanel(QWidget):
             return
 
         text = editor.get_content() if hasattr(editor, "get_content") else editor.text()
-        self._symbols = parser.parse(text)
+        is_hier = (isinstance(parser, _JsonParser) and parser._hierarchical) \
+                  or isinstance(parser, self._HIERARCHICAL_PARSERS)
 
-        if not self._symbols:
+        self._cancel_parse_worker()
+        self._parse_gen += 1
+        gen = self._parse_gen
+        worker = _ParseWorker(parser, text, gen, is_hier)
+        worker.done.connect(self._on_parse_done)
+        self._parse_worker = worker
+        self._old_parse_workers.append(worker)
+        def _cleanup(w=worker):
+            try:
+                self._old_parse_workers.remove(w)
+            except ValueError:
+                pass
+        worker.finished.connect(_cleanup)
+        worker.start()
+
+    def _on_parse_done(self, symbols: list, gen: int, is_hier: bool) -> None:
+        if gen != self._parse_gen:
+            return
+        self._parse_worker = None
+        self._symbols = symbols
+        self._model.clear()
+
+        if not symbols:
             self._info.setText(tr("function_list.no_functions"))
             return
 
-        is_hier = (isinstance(parser, _JsonParser) and parser._hierarchical) \
-                  or isinstance(parser, self._HIERARCHICAL_PARSERS)
         if is_hier:
-            self._build_hierarchical(self._symbols)
+            self._build_hierarchical(symbols)
         else:
-            self._build_grouped(self._symbols)
+            self._build_grouped(symbols)
 
         self._tree.expandAll()
         self._apply_filter(self._filter.text())
 
-        count = len(self._symbols)
-        lang  = editor.file_path.suffix if editor.file_path else ""
+        editor = self._editor
+        count = len(symbols)
+        lang  = editor.file_path.suffix if editor and editor.file_path else ""
         self._info.setText(tr("function_list.symbols_found", count=count, lang=lang))
 
     # ── Filtro e ordinamento ──────────────────────────────────────────────────

@@ -123,6 +123,10 @@ class LaTeXLexer(QsciLexerCustom):
     def language(self) -> str:
         return "LaTeX"
 
+    def wordCharacters(self) -> str:
+        # Includi '\' così QsciScintilla trova '\med', '\inc' ecc. nelle API
+        return r"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_\@"
+
     def description(self, style: int) -> str:
         return _STYLE_NAMES.get(style, "")
 

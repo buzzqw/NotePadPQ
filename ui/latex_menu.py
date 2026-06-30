@@ -154,6 +154,13 @@ class LatexMenuManager:
         self._act(m, "\\tableofcontents", lambda: self._insert("\\tableofcontents\n"))
         m.addSeparator()
 
+        # Azioni rapide di inserimento
+        self._act(m, tr("latex_menu.insert_image", default="Inserisci immagine…"),
+                  self._open_image_dialog)
+        self._act(m, tr("latex_menu.insert_table_quick", default="Inserisci tabella…"),
+                  self._insert_table_env)
+        m.addSeparator()
+
         # Submenus — ogni _build_X() restituisce un QMenu già pronto
         m.addMenu(self._build_sezionamento())
         m.addMenu(self._build_ambienti())

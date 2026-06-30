@@ -301,7 +301,8 @@
     "toggle_checklist": "Toggle task",
     "smart_typography": "Smart typography",
     "sentence_focus": "Paragraph focus",
-    "spell_check_dialog": "Spelling Review..."
+    "spell_check_dialog": "Spelling Review...",
+    "view_include_list": "Include List"
   },
   "color": {
     "red": "Red",
@@ -1134,7 +1135,9 @@
     "pref_sentence_focus": "Dim text outside the current paragraph. Can be toggled from the Document menu.",
     "pref_typewriter_deadzone": "Number of lines around the center within which the cursor does not trigger auto-scroll in typewriter mode.",
     "fif_replace_in_file": "Replace all matches in this file",
-    "fif_replace_match": "Replace this match"
+    "fif_replace_match": "Replace this match",
+    "include_list_sort": "Sort A-Z / by line",
+    "include_list_refresh": "Refresh"
   },
   "websearch": {
     "submenu_title": "Web Search",
@@ -1693,7 +1696,8 @@
     "ref_next": "Insert Reference to Next Label",
     "ref_prev": "Insert Reference to Previous Label",
     "edit_tables": "Edit Tables",
-    "magic_comments": "Add Magic Comments…"
+    "magic_comments": "Add Magic Comments…",
+    "insert_table_quick": "Insert table…"
   },
   "latex_toolbar": {
     "part": "part",
@@ -1704,5 +1708,24 @@
     "paragraph": "paragraph",
     "subparagraph": "subparagraph",
     "size_small": "small"
+  },
+  "include_list": {
+    "no_editor": "No editor open",
+    "unsupported": "(LaTeX and Markdown only)",
+    "no_includes": "No includes found",
+    "not_included": "Not included from folder",
+    "no_ref_folder": "No folder set",
+    "placeholder_filter": "Filter…",
+    "choose_folder": "Choose comparison folder",
+    "ctx_goto": "Go to line",
+    "ctx_open": "Open file",
+    "ctx_refresh": "Refresh",
+    "tooltip_set_folder": "Set comparison folder",
+    "tooltip_clear_folder": "Remove folder",
+    "tooltip_refresh": "Refresh list",
+    "ctx_insert_image": "Insert image…",
+    "ctx_insert_tex": "Insert file…",
+    "ctx_insert_bib": "Insert \\bibliography{…}",
+    "ctx_insert_link": "Insert link"
   }
 }

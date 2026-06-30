@@ -301,7 +301,8 @@
     "toggle_checklist": "Segna/desegna attività",
     "smart_typography": "Tipografia intelligente",
     "sentence_focus": "Focus paragrafo",
-    "spell_check_dialog": "Revisione ortografica..."
+    "spell_check_dialog": "Revisione ortografica...",
+    "view_include_list": "Lista degli include"
   },
   "color": {
     "red": "Rosso",
@@ -1134,7 +1135,9 @@
     "pref_sentence_focus": "Attenua il testo fuori dal paragrafo corrente. Attivabile dal menu Documento.",
     "pref_typewriter_deadzone": "Numero di righe entro cui il cursore non provoca uno scorrimento automatico in modalità dattilografo.",
     "fif_replace_in_file": "Sostituisci tutte le corrispondenze in questo file",
-    "fif_replace_match": "Sostituisci questa corrispondenza"
+    "fif_replace_match": "Sostituisci questa corrispondenza",
+    "include_list_sort": "Ordina A-Z / per riga",
+    "include_list_refresh": "Aggiorna"
   },
   "websearch": {
     "submenu_title": "Ricerca Web",
@@ -1693,7 +1696,8 @@
     "ref_next": "Inserisci riferimento all'etichetta successiva",
     "ref_prev": "Inserisci riferimento all'etichetta precedente",
     "edit_tables": "Modifica tabelle",
-    "magic_comments": "Aggiungi commenti magici…"
+    "magic_comments": "Aggiungi commenti magici…",
+    "insert_table_quick": "Inserisci tabella…"
   },
   "latex_toolbar": {
     "part": "parte",
@@ -1704,5 +1708,24 @@
     "paragraph": "paragrafo",
     "subparagraph": "sottoparagrafo",
     "size_small": "piccola"
+  },
+  "include_list": {
+    "no_editor": "Nessun editor aperto",
+    "unsupported": "(solo LaTeX e Markdown)",
+    "no_includes": "Nessun include trovato",
+    "not_included": "Non inclusi dalla cartella",
+    "no_ref_folder": "Nessuna cartella",
+    "placeholder_filter": "Filtra…",
+    "choose_folder": "Scegli cartella di confronto",
+    "ctx_goto": "Vai alla riga",
+    "ctx_open": "Apri file",
+    "ctx_refresh": "Aggiorna",
+    "tooltip_set_folder": "Imposta cartella di confronto",
+    "tooltip_clear_folder": "Rimuovi cartella",
+    "tooltip_refresh": "Aggiorna lista",
+    "ctx_insert_image": "Inserisci immagine…",
+    "ctx_insert_tex": "Inserisci file…",
+    "ctx_insert_bib": "Inserisci \\bibliography{…}",
+    "ctx_insert_link": "Inserisci link"
   }
 }

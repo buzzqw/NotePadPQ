@@ -293,6 +293,12 @@ def main():
             print(f"[main] FunctionList: {e}")
 
         try:
+            from ui.include_list import install as install_include_list
+            install_include_list(win)
+        except Exception as e:
+            print(f"[main] IncludeList: {e}")
+
+        try:
             from ui.json_xml_panel import install as install_json_xml
             install_json_xml(win)
         except Exception as e:

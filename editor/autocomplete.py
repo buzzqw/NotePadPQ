@@ -87,10 +87,14 @@ _API_LATEX: list[str] = [
     "\\tableofcontents", "\\listoffigures", "\\listoftables",
     "\\appendix", "\\frontmatter", "\\mainmatter", "\\backmatter",
     "\\newpage", "\\clearpage", "\\cleardoublepage",
+    "\\pagebreak", "\\pagebreak[4]", "\\nopagebreak", "\\nopagebreak[4]",
+    "\\linebreak", "\\nolinebreak", "\\newline",
     "\\thispagestyle{}", "\\pagestyle{}",
     "\\pagenumbering{arabic}", "\\pagenumbering{roman}",
     "\\setcounter{}{}", "\\addtocounter{}{}", "\\value{}",
     "\\stepcounter{}", "\\refstepcounter{}",
+    "\\centering", "\\raggedright", "\\raggedleft",
+    "\\par", "\\samepage",
     # ── Sezionamento ──────────────────────────────────────────────────────────
     "\\part{}", "\\part*{}", "\\chapter{}", "\\chapter*{}",
     "\\section{}", "\\section*{}", "\\subsection{}", "\\subsection*{}",
@@ -183,6 +187,28 @@ _API_LATEX: list[str] = [
     "\\mbox{}", "\\makebox[]{}", "\\fbox{}", "\\framebox[]{}",
     "\\parbox[]{}{}", "\\raisebox{}{}",
     "\\phantom{}", "\\hphantom{}", "\\vphantom{}",
+    # ── Dimensioni font ───────────────────────────────────────────────────────
+    "\\tiny", "\\scriptsize", "\\footnotesize", "\\small", "\\normalsize",
+    "\\large", "\\Large", "\\LARGE", "\\huge", "\\Huge",
+    # ── Font shape/series/family ──────────────────────────────────────────────
+    "\\normalfont", "\\itshape", "\\bfseries", "\\upshape",
+    "\\scshape", "\\slshape", "\\mdseries",
+    "\\rmfamily", "\\sffamily", "\\ttfamily",
+    # ── Colori (xcolor / color) ───────────────────────────────────────────────
+    "\\color{}", "\\textcolor{}{}", "\\colorbox{}{}",
+    "\\fcolorbox{}{}{}", "\\definecolor{}{}{}", "\\pagecolor{}",
+    # ── Didascalie ────────────────────────────────────────────────────────────
+    "\\caption{}", "\\caption[]{}",
+    "\\captionof{}{}", "\\subcaption{}",
+    "\\listoflistings",
+    "\\addcontentsline{}{}{}",
+    # ── Include avanzato ─────────────────────────────────────────────────────
+    "\\import{}{}", "\\subimport{}{}", "\\inputfrom{}{}",
+    # ── Bibliografia ─────────────────────────────────────────────────────────
+    "\\nocite{}", "\\nocite{*}",
+    "\\bibliographystyle{}", "\\bibliography{}",
+    "\\printbibliography", "\\printbibliography[heading=bibintoc]",
+    "\\addbibresource{}",
     # ── Spazi e lunghezze ─────────────────────────────────────────────────────
     "\\hspace{}", "\\hspace*{}", "\\vspace{}", "\\vspace*{}",
     "\\hfill", "\\vfill", "\\hfil", "\\vfil",
@@ -314,37 +340,10 @@ _API_LATEX: list[str] = [
     "\\If{}{}", "\\ElseIf{}{}", "\\Else{}",
     "\\For{}{}", "\\ForEach{}{}", "\\While{}{}",
     "\\Repeat{}{}", "\\Until{}", "\\SetAlgoLined",
-    # ── Pacchetti (completamento dopo \usepackage{) ────────────────────────────
-    "geometry", "hyperref", "graphicx", "amsmath", "amssymb", "amsthm",
-    "booktabs", "tabularx", "tabulary", "longtable", "multirow", "multicol", "array", "makecell",
-    "xcolor", "color", "tikz", "pgfplots", "pgfplotstable",
-    "babel", "inputenc", "fontenc", "lmodern", "microtype",
-    "listings", "minted", "verbatim", "fancyvrb",
-    "natbib", "biblatex", "cite",
-    "fancyhdr", "titlesec", "tocloft", "tocbibind",
-    "caption", "subcaption", "float", "wrapfig", "rotating",
-    "enumitem", "paralist", "tasks",
-    "mdframed", "tcolorbox", "framed", "mdframed",
-    "siunitx", "mathtools", "physics", "braket", "tensor", "cancel",
-    "algorithm2e", "algorithmicx", "algpseudocode",
-    "imakeidx", "makeidx", "index",
-    "glossaries", "nomencl", "acronym", "acro",
-    "todonotes", "changes", "ulem", "soul",
-    "parskip", "setspace", "leading",
-    "csquotes", "epigraph", "cleveref", "varioref",
-    "pdfpages", "pdflscape", "rotating", "lscape",
-    "datetime2", "datenumber",
-    "xparse", "expl3", "etoolbox", "ifthen", "calc",
-    "fontspec", "unicode-math", "polyglossia",
-    "empheq", "commath", "mathrsfs", "eufrak", "bbm",
-    "beamer", "standalone", "subfiles",
-    "appendix", "afterpage", "placeins",
-    "wrapfig", "subfig", "subcaption",
-    "fontawesome5", "pifont", "wasysym",
-    "mhchem", "chemformula", "circuitikz",
-    "svg", "epstopdf", "pdfpages",
-    "lastpage", "lineno",
-    "stmaryrd", "dsfont", "tabularray",
+    # Nota: i nomi dei pacchetti LaTeX (geometry, hyperref, multicol, …) NON vanno
+    # qui: sono bare words senza '\' e matcherebbero qualsiasi prefisso dentro
+    # \begin{…}, \end{…} e altri contesti errati.
+    # Il completamento dopo \usepackage{ è gestito da _complete_packages() → showUserList.
 ]
 
 _API_HTML: list[str] = [
@@ -706,6 +705,7 @@ class AutoCompleteManager(QObject):
         self._labels_cache:      list = []
         self._bibtex_cache:      list = []
         self._hypertargets_cache: list = []
+        self._env_cache:         list = []   # cache ambienti per refresh_env_popup
 
         # Timer per aggiornamento cross-tab (evita refresh ad ogni keystroke)
         self._cross_tab_timer = QTimer(self)
@@ -815,6 +815,10 @@ class AutoCompleteManager(QObject):
             self._hypertargets_cache = []
         else:
             self._doc_change_timer.setInterval(2000)
+        # Aggiorna subito la sorgente QScintilla (AcsAPIs per LaTeX, AcsAll per gli altri).
+        # _setup_base() imposta AcsAll come default; senza questa chiamata la sorgente
+        # resterebe AcsAll anche per LaTeX, causando la comparsa di parole del documento.
+        self._apply_levels()
         self._rebuild_api()
 
     def _load_static_api_now(self) -> None:
@@ -1155,7 +1159,23 @@ class AutoCompleteManager(QObject):
         except Exception:
             from editor.latex_support import STANDARD_ENVIRONMENTS
             envs = STANDARD_ENVIRONMENTS
-        self._editor.showUserList(3, sorted(envs))
+        self._env_cache = sorted(envs)   # usato da refresh_env_popup
+        self._editor.showUserList(3, self._env_cache)
+
+    def refresh_env_popup(self, prefix: str) -> None:
+        """Aggiorna il popup ambienti filtrando per prefix (chiamato su ogni keystroke)."""
+        if not self._env_cache:
+            return
+        lp = prefix.lower()
+        filtered = [e for e in self._env_cache if e.lower().startswith(lp)]
+        if filtered:
+            self._editor.showUserList(3, filtered)
+        else:
+            try:
+                from PyQt6.Qsci import QsciScintilla as _QSci
+                self._editor.SendScintilla(_QSci.SCI_AUTOCCANCEL)
+            except Exception:
+                pass
 
     def _complete_file_paths(self, cmd: str) -> None:
         """Popup con i file nella directory del documento corrente."""

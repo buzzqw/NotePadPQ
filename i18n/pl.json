@@ -301,7 +301,8 @@
     "toggle_checklist": "Przełącz zadanie",
     "smart_typography": "Inteligentna typografia",
     "sentence_focus": "Fokus akapitu",
-    "spell_check_dialog": "Korekta pisowni..."
+    "spell_check_dialog": "Korekta pisowni...",
+    "view_include_list": "Include List"
   },
   "color": {
     "red": "Czerwony",
@@ -1693,7 +1694,8 @@
     "ref_next": "Wstaw odniesienie do następnej etykiety",
     "ref_prev": "Wstaw odniesienie do poprzedniej etykiety",
     "edit_tables": "Edytuj tabele",
-    "magic_comments": "Dodaj komentarze magiczne…"
+    "magic_comments": "Dodaj komentarze magiczne…",
+    "insert_table_quick": "Wstaw tabelę…"
   },
   "latex_toolbar": {
     "part": "część",
@@ -1704,5 +1706,24 @@
     "paragraph": "paragraf",
     "subparagraph": "podparagraf",
     "size_small": "mała"
+  },
+  "include_list": {
+    "no_editor": "No editor open",
+    "unsupported": "(LaTeX and Markdown only)",
+    "no_includes": "No includes found",
+    "not_included": "Not included from folder",
+    "no_ref_folder": "No folder set",
+    "placeholder_filter": "Filter…",
+    "choose_folder": "Choose comparison folder",
+    "ctx_goto": "Go to line",
+    "ctx_open": "Open file",
+    "ctx_refresh": "Refresh",
+    "tooltip_set_folder": "Set comparison folder",
+    "tooltip_clear_folder": "Remove folder",
+    "tooltip_refresh": "Refresh list",
+    "ctx_insert_image": "Insert image…",
+    "ctx_insert_tex": "Insert file…",
+    "ctx_insert_bib": "Insert \\bibliography{…}",
+    "ctx_insert_link": "Insert link"
   }
 }

@@ -915,6 +915,8 @@ class LaTeXSupport:
             LaTeXSupport._handle_dollar(editor)
         elif char == "\\":
             pass  # il completamento parte dall'autocomplete standard
+        elif char.isalpha() or char == "*":
+            LaTeXSupport._handle_env_prefix(editor)
 
     @staticmethod
     def _handle_newline(editor: "EditorWidget") -> None:
@@ -984,6 +986,25 @@ class LaTeXSupport:
         handled = ac.handle_latex_special("{") if ac else False
         if not handled:
             LaTeXSupport._auto_close_generic_brace(editor)
+
+    # Pattern compilato una volta sola (nessun costo per keystroke)
+    _BEGIN_END_PREFIX = re.compile(r'\\(?:begin|end)\{([\w*]*)$')
+
+    @staticmethod
+    def _handle_env_prefix(editor: "EditorWidget") -> None:
+        """
+        Dopo ogni lettera/asterisco: se il cursore è dentro \\begin{prefix} o
+        \\end{prefix}, aggiorna il popup degli ambienti filtrandolo per prefix.
+        Solo una list-comprehension su cache in-memory — nessun I/O.
+        """
+        ac = getattr(editor, "_autocomplete", None)
+        if not ac or not ac._env_cache:
+            return
+        line, col = editor.getCursorPosition()
+        text_before = editor.text(line)[:col]
+        m = LaTeXSupport._BEGIN_END_PREFIX.search(text_before)
+        if m:
+            ac.refresh_env_popup(m.group(1))
 
     @staticmethod
     def _auto_close_generic_brace(editor: "EditorWidget") -> None:

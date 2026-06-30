@@ -409,10 +409,25 @@ class _LanguageToolbarWidget(QWidget):
 
     def _add_separator(self) -> None:
         sep = QFrame(self)
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setFrameShadow(QFrame.Shadow.Sunken)
-        sep.setFixedWidth(6)
+        sep.setFrameShape(QFrame.Shape.NoFrame)
+        sep.setFixedWidth(13)
         self._layout.insertWidget(self._layout.count() - 1, sep)
+        self._update_sep_color(sep)
+
+    def _update_sep_color(self, sep: "QFrame") -> None:
+        from PyQt6.QtGui import QPalette
+        pal = self.palette()
+        bg  = pal.color(QPalette.ColorRole.Window)
+        fg  = pal.color(QPalette.ColorRole.WindowText)
+        # Mix 60% bg + 40% fg → visibile su temi chiari e scuri
+        r = int(bg.red()   * 0.60 + fg.red()   * 0.40)
+        g = int(bg.green() * 0.60 + fg.green() * 0.40)
+        b = int(bg.blue()  * 0.60 + fg.blue()  * 0.40)
+        sep.setStyleSheet(
+            f"QFrame {{ background: transparent; "
+            f"border-left: 1px solid rgb({r},{g},{b}); "
+            f"margin: 3px 5px; }}"
+        )
 
     def _add_action_button(self, action: QAction) -> QToolButton:
         """Bottone da QAction esistente — sempre icon-only con tooltip automatico."""

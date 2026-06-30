@@ -301,7 +301,8 @@
     "toggle_checklist": "Aufgabe umschalten",
     "smart_typography": "Intelligente Typografie",
     "sentence_focus": "Absatz-Fokus",
-    "spell_check_dialog": "Rechtschreibkorrektur..."
+    "spell_check_dialog": "Rechtschreibkorrektur...",
+    "view_include_list": "Include List"
   },
   "color": {
     "red": "Rot",
@@ -1693,7 +1694,8 @@
     "ref_next": "Verweis auf nächste Marke einfügen",
     "ref_prev": "Verweis auf vorherige Marke einfügen",
     "edit_tables": "Tabellen bearbeiten",
-    "magic_comments": "Magische Kommentare hinzufügen…"
+    "magic_comments": "Magische Kommentare hinzufügen…",
+    "insert_table_quick": "Tabelle einfügen…"
   },
   "latex_toolbar": {
     "part": "Teil",
@@ -1704,5 +1706,24 @@
     "paragraph": "Absatz",
     "subparagraph": "Unterabsatz",
     "size_small": "klein"
+  },
+  "include_list": {
+    "no_editor": "No editor open",
+    "unsupported": "(LaTeX and Markdown only)",
+    "no_includes": "No includes found",
+    "not_included": "Not included from folder",
+    "no_ref_folder": "No folder set",
+    "placeholder_filter": "Filter…",
+    "choose_folder": "Choose comparison folder",
+    "ctx_goto": "Go to line",
+    "ctx_open": "Open file",
+    "ctx_refresh": "Refresh",
+    "tooltip_set_folder": "Set comparison folder",
+    "tooltip_clear_folder": "Remove folder",
+    "tooltip_refresh": "Refresh list",
+    "ctx_insert_image": "Insert image…",
+    "ctx_insert_tex": "Insert file…",
+    "ctx_insert_bib": "Insert \\bibliography{…}",
+    "ctx_insert_link": "Insert link"
   }
 }

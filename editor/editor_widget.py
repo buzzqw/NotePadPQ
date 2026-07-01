@@ -365,6 +365,7 @@ class EditorWidget(QsciScintilla):
         self._spell_text_hash: int = 0
         self._spell_worker: Optional[_SpellWorker] = None
         self._spell_gen: int = 0
+        self._old_spell_workers: set = set()
         self.textChanged.connect(self._spell_timer.start)
         # --- FINE SPELL CHECKER ---
 
@@ -1530,7 +1531,10 @@ class EditorWidget(QsciScintilla):
         self._spell_text_hash = h
 
         if self._spell_worker is not None:
-            self._spell_worker.cancel()
+            old = self._spell_worker
+            old.cancel()
+            self._old_spell_workers.add(old)
+            old.finished.connect(lambda w=old: self._old_spell_workers.discard(w))
 
         self._spell_gen += 1
         worker = _SpellWorker(
@@ -1547,7 +1551,6 @@ class EditorWidget(QsciScintilla):
     def _on_spell_check_done(self, gen: int, positions: list) -> None:
         if gen != self._spell_gen:
             return
-        self._spell_worker = None
         self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SPELL)
         for line_s, col_s, line_e, col_e in positions:
             self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SPELL)

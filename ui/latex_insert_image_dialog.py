@@ -295,7 +295,7 @@ class LatexInsertImageDialog(QDialog):
 
         if not self._figure_gb.isChecked():
             if self._center_chk.isChecked():
-                return f"{{\\centering\n{include}\n}}"
+                return f"\\begin{{center}}\n{include}\n\\end{{center}}"
             return include
 
         # Ambiente figure

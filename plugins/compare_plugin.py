@@ -314,7 +314,7 @@ class ComparePlugin(BasePlugin):
             main_window, "plugins",
             tr("plugin.compare.menu"),
             self._open_compare,
-            shortcut="F7",
+            shortcut="F9",
             icon_key="plugin_compare"
         )
 

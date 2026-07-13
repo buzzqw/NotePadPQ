@@ -279,6 +279,14 @@ class MainWindow(QMainWindow):
         from ui.file_browser import FileBrowser
         from PyQt6.QtWidgets import QTabWidget as _QTabWidget, QTreeWidget as _QTreeWidget, QTreeWidgetItem as _QTreeWidgetItem
 
+        # Lascia che i dock laterali (file browser/progetti a sinistra,
+        # anteprima/caratteri/minimap a destra) occupino tutta l'altezza
+        # della finestra, come in TeXstudio: il pannello inferiore (output
+        # di compilazione) resta confinato sotto il solo editor centrale
+        # invece di allargarsi sotto l'anteprima.
+        self.setCorner(Qt.Corner.BottomLeftCorner, Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.setCorner(Qt.Corner.BottomRightCorner, Qt.DockWidgetArea.RightDockWidgetArea)
+
         # ── Dock sinistro: File Browser ───────────────────────────────────────
         self._file_browser = FileBrowser(self)
         self._file_browser.file_open_requested.connect(

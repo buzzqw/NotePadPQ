@@ -25,6 +25,12 @@ class Session:
 
     _instance: Optional["Session"] = None
 
+    # Incrementare quando cambia la disposizione predefinita dei dock
+    # (es. angoli/corner di QMainWindow) in modo che un layout salvato
+    # con una versione precedente venga ignorato e si riparta dal nuovo
+    # default, invece di riprodurre per sempre la vecchia disposizione.
+    _DOCK_LAYOUT_VERSION = 2
+
     def __init__(self):
         self._path = get_config_dir() / "session.json"
 
@@ -215,6 +221,7 @@ class Session:
                                    main_window._build_dock.isVisible(),
                 "minimap_side":    Settings.instance().get("editor/minimap_side", "right"),
                 "show_preview":    Settings.instance().get("editor/show_preview", False),
+                "layout_version":  self._DOCK_LAYOUT_VERSION,
             }
 
             ui_path = self._path.parent / "ui_state.json"
@@ -331,7 +338,11 @@ class Session:
                 geom_bytes = QByteArray(geom_path.read_bytes())
                 main_window.restoreGeometry(geom_bytes)
 
-            if layout_path.exists():
+            # Un layout salvato da una versione precedente (corner dock
+            # diversi) va ignorato: riprodurrebbe la vecchia disposizione
+            # anche dopo un aggiornamento che cambia i default.
+            saved_layout_version = state.get("layout_version", 1)
+            if layout_path.exists() and saved_layout_version >= self._DOCK_LAYOUT_VERSION:
                 layout_bytes = QByteArray(layout_path.read_bytes())
                 main_window.restoreState(layout_bytes)
                 # Sincronizza i checkmark del menu con lo stato reale dei dock

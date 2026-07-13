@@ -836,6 +836,14 @@ class PreviewPanel(QWidget):
 
     @pyqtSlot()
     def _on_text_changed(self) -> None:
+        if self._mode == "pdf":
+            # L'anteprima PDF riflette il file compilato su disco, non il
+            # buffer dell'editor: BuildPanel la aggiorna esplicitamente via
+            # set_pdf_path() dopo ogni compilazione riuscita. Rilanciare qui
+            # il render (che in modo continuo ridisegna TUTTE le pagine, una
+            # per una, in modo sincrono) ad ogni tasto premuto è inutile e
+            # rallenta pesantemente l'editing sui documenti con molte pagine.
+            return
         if self.isVisible():
             self._timer.start(self._delay_ms)
         else:
@@ -1543,12 +1551,19 @@ class PreviewPanel(QWidget):
         self._pdf_zoom = 1.0
         self._pdf_refresh()
 
+    def _active_pdf_scroll(self) -> "QScrollArea":
+        """Scroll area effettivamente visibile: pagina singola o scroll continuo."""
+        return self._pdf_scroll_cont if self._pdf_continuous else self._pdf_scroll
+
     def _pdf_fit_width(self) -> None:
         """Adatta lo zoom alla larghezza del pannello."""
         if self._pdf_doc is None:
             return
-        # Rimuoviamo 20 pixel per far respirare i bordi e la scrollbar
-        panel_w = self._pdf_scroll.viewport().width() - 20
+        # Rimuoviamo 20 pixel per far respirare i bordi e la scrollbar.
+        # Usa la scroll area realmente visibile (in modo continuo
+        # self._pdf_scroll è nascosta e la sua viewport resta ferma
+        # all'ultima larghezza nota, causando uno zoom scorretto).
+        panel_w = self._active_pdf_scroll().viewport().width() - 20
         pw, ph = self._pdf_page_size
         if pw <= 0:
             return
@@ -1562,7 +1577,7 @@ class PreviewPanel(QWidget):
         """Adatta lo zoom per mostrare l'intera pagina nel pannello."""
         if self._pdf_doc is None:
             return
-        vp = self._pdf_scroll.viewport()
+        vp = self._active_pdf_scroll().viewport()
         # Togliamo 20 pixel per non appiccicare il foglio ai bordi del pannello
         panel_w = vp.width() - 20
         panel_h = vp.height() - 20

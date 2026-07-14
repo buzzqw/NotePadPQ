@@ -150,6 +150,22 @@ class SplitViewManager(QWidget):
         """TabManager del pannello attualmente attivo (usato dal popup Ctrl+Tab)."""
         return self._active.tab_manager
 
+    def notify_editor_focus(self, editor) -> None:
+        """
+        Aggiorna il pannello attivo quando un editor riceve il focus, anche
+        senza cambiare tab (es. click diretto nell'editor del pannello
+        secondario in split view). Senza questo, azioni come "chiudi tab
+        corrente", "sposta nell'altro pannello" o il popup Ctrl+Tab restano
+        agganciate all'ultimo pannello che ha cambiato tab, non a quello
+        realmente a fuoco. Chiamata da MainWindow.eventFilter su FocusIn.
+        """
+        if self._secondary is None:
+            return  # vista singola: non c'è ambiguità da risolvere
+        for panel in self._panels():
+            if editor in panel.tab_manager.all_editors():
+                self._active = panel
+                return
+
     def new_tab(self, **kwargs):
         return self._active.tab_manager.new_tab(**kwargs)
 

@@ -34,7 +34,7 @@ _MARKER_WARNING = 23
 
 # Simbolo nel margine: cerchio rosso per errori, triangolo giallo per warning
 _MARKER_ERROR_SYM   = QsciScintilla.MarkerSymbol.Circle
-_MARKER_WARNING_SYM = QsciScintilla.MarkerSymbol.SmallArrow
+_MARKER_WARNING_SYM = QsciScintilla.MarkerSymbol.RightTriangle
 
 
 class _CheckWorker(QThread):

@@ -1536,6 +1536,13 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("build_next_error", "Alt+Down", self.action_build_next_error))
         m.addAction(self._act("build_prev_error", "Alt+Up",   self.action_build_prev_error))
         self._sep(m)
+        from config.settings import Settings
+        clean_checked = Settings.instance().get("build/clean_aux_after_compile", False)
+        clean_act = self._act("build_clean_aux_toggle", "", self._toggle_clean_aux,
+                               checkable=True, checked=clean_checked)
+        clean_act.setToolTip(tr("tooltip.build_clean_aux_toggle"))
+        m.addAction(clean_act)
+        self._sep(m)
         self._menus["lsp"] = m
         m.addSection("⚡  LSP")
         m.addAction(self._act("lsp_goto_def", "Ctrl+F12",    self.action_lsp_goto_definition))
@@ -1844,6 +1851,25 @@ class MainWindow(QMainWindow):
             act = self._actions["view_plain_text_mode"]
             act.blockSignals(True)
             act.setChecked(getattr(editor, "_plain_text_mode", False))
+            act.blockSignals(False)
+
+        # Sincronizza gli altri stati per-tab (sola lettura, BOM, segui il
+        # file): senza questo il checkmark nel menu resta quello del tab
+        # precedente finché non lo tocchi manualmente.
+        if "read_only" in self._actions:
+            act = self._actions["read_only"]
+            act.blockSignals(True)
+            act.setChecked(editor.is_read_only())
+            act.blockSignals(False)
+        if "write_bom" in self._actions:
+            act = self._actions["write_bom"]
+            act.blockSignals(True)
+            act.setChecked(getattr(editor, "_write_bom", False))
+            act.blockSignals(False)
+        if "tail_mode_toggle" in self._actions:
+            act = self._actions["tail_mode_toggle"]
+            act.blockSignals(True)
+            act.setChecked(getattr(editor, "_tail_mode", False))
             act.blockSignals(False)
 
         # Aggiorna dock anteprima se visibile
@@ -2688,20 +2714,13 @@ class MainWindow(QMainWindow):
 
     def action_go_to_matching(self) -> None:
         editor = self._current_editor()
-        if editor:
-            pos = editor.SendScintilla(editor.SCI_GETCURRENTPOS)
-            match_pos = editor.SendScintilla(editor.SCI_BRACEMATCH, pos, 0)
-            if match_pos == -1:
-                # Prova anche il carattere precedente
-                if pos > 0:
-                    match_pos = editor.SendScintilla(editor.SCI_BRACEMATCH, pos - 1, 0)
-            if match_pos != -1:
-                editor.SendScintilla(editor.SCI_SETCURRENTPOS, match_pos)
-                editor.SendScintilla(editor.SCI_SETSEL, match_pos, match_pos)
-                line = editor.SendScintilla(editor.SCI_LINEFROMPOSITION, match_pos)
-                editor.ensureLineVisible(line)
-            else:
-                self.statusBar().showMessage("Nessuna parentesi corrispondente trovata", 3000)
+        if not editor:
+            return
+        editor.setFocus()
+        if not editor.go_to_matching():
+            self.statusBar().showMessage(
+                tr("msg.no_matching_bracket", default="Nessuna corrispondenza trovata"), 3000
+            )
 
     def action_mark_all(self) -> None:
         from ui.find_replace import FindReplaceDialog
@@ -3239,6 +3258,10 @@ class MainWindow(QMainWindow):
     def action_build_prev_error(self) -> None:
         if hasattr(self, "_build_panel") and self._build_panel:
             self._build_panel.goto_prev_error()
+
+    def _toggle_clean_aux(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("build/clean_aux_after_compile", checked)
 
     def action_keybinding_editor(self) -> None:
         from ui.keybinding import KeyBindingDialog
@@ -4724,6 +4747,12 @@ class MainWindow(QMainWindow):
         elif et == QEvent.Type.KeyRelease:
             if self._tab_switcher_key_release(event):
                 return True
+        elif et == QEvent.Type.FocusIn and isinstance(obj, EditorWidget):
+            # In split view, un click diretto nell'editor del pannello
+            # secondario (senza cambiare tab lì dentro) deve comunque
+            # aggiornare quale pannello è "attivo" per Ctrl+Tab, chiudi
+            # tab, sposta-nell'altro-pannello, ecc.
+            self._tab_manager.notify_editor_focus(obj)
         return super().eventFilter(obj, event)
 
     def _tab_switcher_key_press(self, event) -> bool:

@@ -19,11 +19,41 @@ Uso:
 from __future__ import annotations
 
 import re
+import threading
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
+
+
+# ─── Cache file per progetti multi-file ────────────────────────────────────────
+#
+# Il checker LaTeX live (editor/latex_checker.py, ogni 1.5s) e il rebuild
+# dell'autocompletamento (editor/autocomplete.py, ogni 2-3s) chiamano più
+# volte per ciclo le funzioni *_multifile qui sotto, ciascuna delle quali
+# percorre l'intero albero \input/\include e rilegge ogni file coinvolto.
+# Senza cache, un progetto con N file inclusi genera ~8-10×N letture da
+# disco ad ogni pausa di battitura — molto pesante su cartelle sincronizzate
+# (Dropbox, unità di rete). Questa cache, basata su mtime e condivisa da
+# tutte le funzioni sotto, elimina la rilettura dei file non modificati.
+# I due worker girano su QThread separati: il lock evita corse sulla cache.
+
+_file_cache_lock = threading.Lock()
+_file_cache: dict[Path, tuple[float, str]] = {}
+
+
+def _cached_read_text(path: Path) -> str:
+    """Legge `path` riusando il contenuto in cache se l'mtime non è cambiato."""
+    mtime = path.stat().st_mtime
+    with _file_cache_lock:
+        cached = _file_cache.get(path)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
+    text = path.read_text(encoding="utf-8", errors="replace")
+    with _file_cache_lock:
+        _file_cache[path] = (mtime, text)
+    return text
 
 
 # ─── Ambienti LaTeX standard ─────────────────────────────────────────────────
@@ -1275,7 +1305,7 @@ class LaTeXSupport:
         seen: set[str] = set()
         for fpath in LaTeXSupport.collect_project_files(tex_path):
             try:
-                text = fpath.read_text(encoding="utf-8", errors="replace")
+                text = _cached_read_text(fpath)
                 for key, hint in LaTeXSupport.extract_labels_with_context(text):
                     if key not in seen:
                         seen.add(key)
@@ -1306,7 +1336,7 @@ class LaTeXSupport:
         keys: set[str] = set()
         for fpath in LaTeXSupport.collect_project_files(tex_path):
             try:
-                text = fpath.read_text(encoding="utf-8", errors="replace")
+                text = _cached_read_text(fpath)
                 keys.update(LaTeXSupport.extract_ref_keys(text))
             except Exception:
                 pass
@@ -1323,7 +1353,7 @@ class LaTeXSupport:
         names: list[str] = []
         for fpath in LaTeXSupport.collect_project_files(tex_path):
             try:
-                text = fpath.read_text(encoding="utf-8", errors="replace")
+                text = _cached_read_text(fpath)
                 names.extend(LaTeXSupport.extract_hypertargets(text))
             except Exception:
                 pass
@@ -1356,7 +1386,7 @@ class LaTeXSupport:
             bib_path = base_dir / bib_name
             if bib_path.exists():
                 try:
-                    bib_text = bib_path.read_text(encoding="utf-8", errors="replace")
+                    bib_text = _cached_read_text(bib_path)
                     keys.extend(re.findall(r'@\w+\{([^,\s]+)\s*,', bib_text))
                 except Exception:
                     pass
@@ -1492,7 +1522,7 @@ class LaTeXSupport:
             visited.add(path)
             result.append(path)
             try:
-                text = path.read_text(encoding="utf-8", errors="replace")
+                text = _cached_read_text(path)
             except Exception:
                 return
             for m in re.finditer(
@@ -1514,7 +1544,7 @@ class LaTeXSupport:
         labels: list[str] = []
         for fpath in LaTeXSupport.collect_project_files(tex_path):
             try:
-                text = fpath.read_text(encoding="utf-8", errors="replace")
+                text = _cached_read_text(fpath)
                 labels.extend(LaTeXSupport.extract_labels(text))
             except Exception:
                 pass
@@ -1526,7 +1556,7 @@ class LaTeXSupport:
         keys: list[str] = []
         for fpath in LaTeXSupport.collect_project_files(tex_path):
             try:
-                text = fpath.read_text(encoding="utf-8", errors="replace")
+                text = _cached_read_text(fpath)
                 keys.extend(LaTeXSupport.extract_bibtex_keys(text, fpath))
             except Exception:
                 pass
@@ -1538,7 +1568,7 @@ class LaTeXSupport:
         cmds: list[str] = []
         for fpath in LaTeXSupport.collect_project_files(tex_path):
             try:
-                text = fpath.read_text(encoding="utf-8", errors="replace")
+                text = _cached_read_text(fpath)
                 cmds.extend(LaTeXSupport.extract_custom_commands(text))
             except Exception:
                 pass
@@ -1619,6 +1649,63 @@ class LaTeXSupport:
             })
 
         return errors
+
+    @staticmethod
+    def find_environment_match(text: str, line: int, col: int) -> Optional[tuple[int, int]]:
+        """
+        Se (line, col) cade su un token \\begin{env} o \\end{env}, restituisce
+        (line, col) dell'inizio dell'occorrenza corrispondente — l'altro
+        capo della coppia — gestendo correttamente l'annidamento di
+        ambienti con lo stesso nome (stesso principio di
+        check_environment_balance, ma per la navigazione: cerca in avanti
+        da un \\begin, all'indietro da un \\end, tenendo un contatore di
+        profondità per saltare le coppie annidate).
+        Restituisce None se la posizione non è su un \\begin/\\end o se
+        manca la corrispondenza (ambiente sbilanciato).
+        """
+        pattern = re.compile(r'\\(begin|end)\{([^}]*)\}')
+        tokens: list[tuple[str, str, int, int, int]] = []  # kind, name, line, col_start, col_end
+        for lineno, raw_line in enumerate(text.split("\n")):
+            stripped = re.sub(r'(?<!\\)%.*', '', raw_line)
+            for m in pattern.finditer(stripped):
+                tokens.append((m.group(1), m.group(2), lineno, m.start(), m.end()))
+
+        target_idx = None
+        for i, (_kind, _name, tline, cstart, cend) in enumerate(tokens):
+            if tline == line and cstart <= col <= cend:
+                target_idx = i
+                break
+        if target_idx is None:
+            return None
+
+        kind, name, _tline, _cstart, _cend = tokens[target_idx]
+
+        if kind == "begin":
+            depth = 0
+            for i in range(target_idx + 1, len(tokens)):
+                k2, n2, l2, s2, _e2 = tokens[i]
+                if n2 != name:
+                    continue
+                if k2 == "begin":
+                    depth += 1
+                elif depth == 0:
+                    return (l2, s2)
+                else:
+                    depth -= 1
+            return None
+        else:
+            depth = 0
+            for i in range(target_idx - 1, -1, -1):
+                k2, n2, l2, s2, _e2 = tokens[i]
+                if n2 != name:
+                    continue
+                if k2 == "end":
+                    depth += 1
+                elif depth == 0:
+                    return (l2, s2)
+                else:
+                    depth -= 1
+            return None
 
     # ── Conteggio parole ─────────────────────────────────────────────────────
 

@@ -670,6 +670,10 @@ class BuildPanel(QWidget):
                         and hasattr(mw, "_preview_panel_dock")):
                     mw._preview_panel_dock.set_pdf_path(pdf_path)
 
+                from config.settings import Settings
+                if Settings.instance().get("build/clean_aux_after_compile", False):
+                    self._clean_aux_files(pdf_path)
+
         # Abilita "Analizza con AI" — utile sia in caso di errore sia di successo
         self._btn_analyze_ai.setEnabled(True)
 
@@ -699,6 +703,42 @@ class BuildPanel(QWidget):
             return None
         pdf = Path(str(path)).with_suffix(".pdf")
         return pdf if pdf.exists() else None
+
+    # Estensioni ausiliarie generate dai motori LaTeX/BibTeX/Biber/makeindex/
+    # glossaries più comuni. Il PDF non è mai incluso qui, quindi non può
+    # mai essere cancellato per errore da questa lista.
+    _AUX_EXTENSIONS = [
+        ".aux", ".log", ".out", ".toc", ".lof", ".lot",
+        ".bbl", ".blg", ".bcf", ".run.xml",
+        ".synctex.gz", ".fls", ".fdb_latexmk",
+        ".nav", ".snm", ".vrb",
+        ".idx", ".ind", ".ilg",
+        ".glo", ".gls", ".glg",
+        ".acn", ".acr", ".alg",
+    ]
+
+    def _clean_aux_files(self, pdf_path) -> None:
+        """
+        Elimina i file ausiliari accanto al PDF appena generato (stesso nome,
+        stessa cartella). Chiamata solo dopo una compilazione riuscita e solo
+        se l'opzione è attiva — il PDF stesso non è mai toccato.
+        """
+        base = pdf_path.with_suffix("")
+        removed = []
+        for ext in self._AUX_EXTENSIONS:
+            candidate = base.with_name(base.name + ext)
+            if candidate.exists():
+                try:
+                    candidate.unlink()
+                    removed.append(candidate.name)
+                except OSError:
+                    pass
+        if removed:
+            self._output.appendHtml(
+                '<span style="color:#858585">🧹 '
+                f'{tr("build_panel.aux_cleaned", n=len(removed), files=", ".join(removed))}'
+                '</span>'
+            )
 
     def _clear_output(self) -> None:
         self._output.clear()

@@ -1006,6 +1006,43 @@ class EditorWidget(QsciScintilla):
             self.ensureLineVisible(line_0)
             self.SendScintilla(QsciScintilla.SCI_SCROLLCARET)
 
+    def go_to_matching(self, line: Optional[int] = None, col: Optional[int] = None) -> bool:
+        """
+        Salta all'estremo corrispondente della coppia su cui si trova
+        (line, col) — il cursore corrente se non specificati.
+
+        Per LaTeX prova prima l'ambiente \\begin{...}/\\end{...} (annidamento
+        gestito correttamente), che il matching nativo di Scintilla non
+        capisce essendo un costrutto multi-carattere; altrimenti ricade
+        sulla parentesi/graffa standard via SCI_BRACEMATCH.
+
+        Restituisce True se un match è stato trovato e il cursore spostato.
+        """
+        if line is None or col is None:
+            line, col = self.getCursorPosition()
+
+        if getattr(self, "_current_language", "").lower() == "latex":
+            from editor.latex_support import LaTeXSupport
+            match = LaTeXSupport.find_environment_match(self.text(), line, col)
+            if match:
+                m_line, m_col = match
+                self.setCursorPosition(m_line, m_col)
+                self.ensureLineVisible(m_line)
+                self.SendScintilla(QsciScintilla.SCI_SCROLLCARET)
+                return True
+
+        pos = self.positionFromLineIndex(line, col)
+        match_pos = self.SendScintilla(QsciScintilla.SCI_BRACEMATCH, pos, 0)
+        if match_pos == -1 and pos > 0:
+            match_pos = self.SendScintilla(QsciScintilla.SCI_BRACEMATCH, pos - 1, 0)
+        if match_pos == -1:
+            return False
+        self.SendScintilla(QsciScintilla.SCI_SETCURRENTPOS, match_pos)
+        self.SendScintilla(QsciScintilla.SCI_SETSEL, match_pos, match_pos)
+        m_line = self.SendScintilla(QsciScintilla.SCI_LINEFROMPOSITION, match_pos)
+        self.ensureLineVisible(m_line)
+        return True
+
     def get_selected_text_info(self) -> dict:
         """Restituisce informazioni sulla selezione corrente."""
         text = self.selectedText()
@@ -1633,6 +1670,24 @@ class EditorWidget(QsciScintilla):
         paste = menu.addAction(tr("action.paste"))
         paste.triggered.connect(self._smart_paste)
         menu.addSeparator()
+
+        # "Vai alla corrispondenza": stessa logica di Ctrl+] ma dal punto
+        # cliccato invece che dal cursore — utile per saltare da un
+        # \begin{ambiente}/graffa aperta direttamente al suo \end{}/graffa
+        # di chiusura senza dover prima spostare il cursore lì.
+        # SCI_POSITIONFROMPOINTCLOSE (a differenza di SCI_POSITIONFROMPOINT)
+        # restituisce -1 se il punto non è vicino a un carattere, invece di
+        # agganciarsi comunque alla posizione più vicina.
+        click_pos = self.SendScintilla(QsciScintilla.SCI_POSITIONFROMPOINTCLOSE,
+                                        event.pos().x(), event.pos().y())
+        if click_pos != -1:
+            click_line, click_col = self.lineIndexFromPosition(click_pos)
+            goto_match = menu.addAction(tr("action.go_to_matching"))
+            goto_match.triggered.connect(
+                lambda _checked, l=click_line, c=click_col: self._context_go_to_matching(l, c)
+            )
+            menu.addSeparator()
+
         sel   = menu.addAction(tr("action.select_all"))
         sel.triggered.connect(self.selectAll)
 
@@ -1640,6 +1695,13 @@ class EditorWidget(QsciScintilla):
         self.context_menu_requested.emit(menu)
 
         menu.exec(event.globalPos())
+
+    def _context_go_to_matching(self, line: int, col: int) -> None:
+        """Handler della voce 'Vai alla corrispondenza' nel menu contestuale."""
+        if not self.go_to_matching(line, col):
+            mw = self.window()
+            if hasattr(mw, "statusBar"):
+                mw.statusBar().showMessage(tr("msg.no_matching_bracket"), 3000)
 
     def _spell_word_at_point(self, x: int, y: int):
         """Restituisce (word, line_s, col_s, line_e, col_e) per la parola sotto (x,y)."""

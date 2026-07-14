@@ -131,6 +131,9 @@ class TabManager(QTabWidget):
         self._custom_tabs: dict[QWidget, Optional[Path]] = {}
         # Preview panel attivo
         self._preview_enabled = False
+        # Ordine di ultimo utilizzo dei tab (widget container), usato dal
+        # popup Ctrl+Tab: indice 0 = tab corrente, poi in ordine di recenza.
+        self._mru: List[QWidget] = []
 
         self._setup_connections()
 
@@ -390,6 +393,8 @@ class TabManager(QTabWidget):
 
     def _close_tab_at(self, index: int) -> None:
         container = self.widget(index)
+        if container in self._mru:
+            self._mru.remove(container)
         editor = self._editors.pop(container, None)
         if editor:
             self._containers.pop(editor, None)
@@ -460,6 +465,20 @@ class TabManager(QTabWidget):
         self.current_editor_changed.emit(editor)
         if editor:
             editor.setFocus()
+
+        widget = self.widget(index) if index >= 0 else None
+        if widget is not None:
+            if widget in self._mru:
+                self._mru.remove(widget)
+            self._mru.insert(0, widget)
+
+    def mru_widgets(self) -> List[QWidget]:
+        """Container dei tab in ordine di ultimo utilizzo (indice 0 = corrente),
+        usato dal popup di switch rapido Ctrl+Tab. Include eventuali tab
+        aperti ma mai ancora messi a fuoco, in coda, nell'ordine delle tab."""
+        seen = set(self._mru)
+        rest = [self.widget(i) for i in range(self.count()) if self.widget(i) not in seen]
+        return [w for w in self._mru if w is not None] + rest
 
     # ── Preview panel ─────────────────────────────────────────────────────────
 

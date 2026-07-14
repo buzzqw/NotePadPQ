@@ -146,6 +146,10 @@ class SplitViewManager(QWidget):
     def current_editor(self):
         return self._active.tab_manager.current_editor()
 
+    def active_tab_manager(self):
+        """TabManager del pannello attualmente attivo (usato dal popup Ctrl+Tab)."""
+        return self._active.tab_manager
+
     def new_tab(self, **kwargs):
         return self._active.tab_manager.new_tab(**kwargs)
 

@@ -19,7 +19,9 @@ class RecentFiles:
 
     def __init__(self):
         self._path = get_config_dir() / "recent_files.json"
-        self._list: list[str] = self._load()
+        self._list: list[str]
+        self._pinned: set[str]
+        self._list, self._pinned = self._load()
 
     @classmethod
     def instance(cls) -> "RecentFiles":
@@ -27,19 +29,27 @@ class RecentFiles:
             cls._instance = cls()
         return cls._instance
 
-    def _load(self) -> list[str]:
+    def _load(self) -> tuple[list[str], set[str]]:
         try:
             if self._path.exists():
                 data = json.loads(self._path.read_text(encoding="utf-8"))
-                return [p for p in data if Path(p).exists()]
+                if isinstance(data, list):
+                    # Formato legacy: lista piatta senza pin.
+                    return [p for p in data if Path(p).exists()], set()
+                recent = [p for p in data.get("recent", []) if Path(p).exists()]
+                pinned = {p for p in data.get("pinned", []) if Path(p).exists()}
+                return recent, pinned
         except Exception:
             pass
-        return []
+        return [], set()
 
     def _save(self) -> None:
         try:
             self._path.write_text(
-                json.dumps(self._list, ensure_ascii=False, indent=2),
+                json.dumps(
+                    {"recent": self._list, "pinned": sorted(self._pinned)},
+                    ensure_ascii=False, indent=2
+                ),
                 encoding="utf-8"
             )
         except Exception:
@@ -50,18 +60,44 @@ class RecentFiles:
         if p in self._list:
             self._list.remove(p)
         self._list.insert(0, p)
-        self._list = self._list[:self.MAX_ITEMS]
+        # Tronca solo le voci non fissate: i file pinnati restano sempre
+        # in lista, anche oltre MAX_ITEMS, così non vengono mai spinti
+        # fuori da un uso intenso di file temporanei/di appoggio.
+        kept_pinned   = [p for p in self._list if p in self._pinned]
+        kept_unpinned = [p for p in self._list if p not in self._pinned][:self.MAX_ITEMS]
+        keep = set(kept_pinned) | set(kept_unpinned)
+        self._list = [p for p in self._list if p in keep]
         self._save()
 
     def get_list(self) -> list[str]:
-        return list(self._list)
+        """File pinnati per primi (in ordine di recenza tra loro), poi gli altri."""
+        pinned   = [p for p in self._list if p in self._pinned]
+        unpinned = [p for p in self._list if p not in self._pinned]
+        return pinned + unpinned
+
+    def is_pinned(self, path: Path) -> bool:
+        return str(path.resolve()) in self._pinned
+
+    def toggle_pin(self, path: Path) -> bool:
+        """Fissa/rimuove il fissaggio di path. Restituisce il nuovo stato (True = fissato)."""
+        p = str(path.resolve())
+        if p in self._pinned:
+            self._pinned.discard(p)
+        else:
+            self._pinned.add(p)
+            if p not in self._list:
+                self._list.insert(0, p)
+        self._save()
+        return p in self._pinned
 
     def clear(self) -> None:
-        self._list = []
+        """Svuota i recenti non fissati; i file pinnati restano."""
+        self._list = [p for p in self._list if p in self._pinned]
         self._save()
 
     def remove(self, path: Path) -> None:
         p = str(path.resolve())
         if p in self._list:
             self._list.remove(p)
-            self._save()
+        self._pinned.discard(p)
+        self._save()

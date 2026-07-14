@@ -128,6 +128,9 @@ _ICON_MAP: dict[str, str] = {
     "autoclose_toggle": "braces.svg", "indent_width": "sliders.svg",
     "writing_goal_set": "bookmark.svg",
     "read_only": "lock.svg", "write_bom": "file-code.svg",
+    "tail_mode_toggle": "refresh-cw.svg",
+    "build_next_error": "chevron-down.svg", "build_prev_error": "chevron-up.svg",
+    "pin_recent_file": "bookmark.svg",
     "wrap_env": "braces.svg",
     # Plugin / Aiuto
     "plugin_manager": "puzzle.svg", "manual": "book-open.svg",
@@ -166,6 +169,32 @@ _ICON_MAP: dict[str, str] = {
 }
 
 # ─── MainWindow ───────────────────────────────────────────────────────────────
+
+
+class _RecentFilesMenu(QMenu):
+    """
+    QMenu File recenti: tasto destro su una voce per fissarla in cima
+    (pin) o rimuovere il fissaggio, così un file aperto spesso non
+    scompare dalla lista spinto fuori da file temporanei/di appoggio.
+    """
+
+    def contextMenuEvent(self, event) -> None:
+        action = self.actionAt(event.pos())
+        path = action.data() if action else None
+        if path is None:
+            return
+        from core.recent_files import RecentFiles
+        rf = RecentFiles.instance()
+        label = (tr("action.unpin_recent_file") if rf.is_pinned(path)
+                 else tr("action.pin_recent_file"))
+        ctx = QMenu(self)
+        pin_act = ctx.addAction(label)
+        chosen = ctx.exec(event.globalPos())
+        if chosen is pin_act:
+            rf.toggle_pin(path)
+            mw = self.parentWidget()
+            if hasattr(mw, "_populate_recent_menu"):
+                mw._populate_recent_menu()
 
 
 class TripleClickFilter(QObject):
@@ -231,6 +260,7 @@ class MainWindow(QMainWindow):
         self._setup_writing_goal()
         self.setAcceptDrops(True)
         self._setup_resource_monitor()
+        self._setup_tab_switcher()
 
         self.setAcceptDrops(True)
 
@@ -907,8 +937,9 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("open",          "Ctrl+O",           self.action_open))
         m.addAction(self._act("open_selected",  "Shift+Ctrl+O",    self.action_open_selected))
 
-        # File recenti — submenu
-        self._recent_menu = m.addMenu(tr("action.open_recent"))
+        # File recenti — submenu (tasto destro su una voce per fissarla)
+        self._recent_menu = _RecentFilesMenu(tr("action.open_recent"), self)
+        m.addMenu(self._recent_menu)
         self._menus["open_recent"] = self._recent_menu
         self._populate_recent_menu()
 
@@ -964,12 +995,14 @@ class MainWindow(QMainWindow):
             menu.addAction(action)
 
     def _populate_recent_menu(self) -> None:
-        """Popola il submenu File recenti dalla cronologia."""
+        """Popola il submenu File recenti dalla cronologia (i pinnati restano in cima)."""
         self._recent_menu.clear()
         try:
             from core.recent_files import RecentFiles
-            recent = RecentFiles.instance().get_list()
+            rf = RecentFiles.instance()
+            recent = rf.get_list()
         except Exception:
+            rf = None
             recent = []
 
         if not recent:
@@ -978,10 +1011,20 @@ class MainWindow(QMainWindow):
             self._recent_menu.addAction(empty)
             return
 
+        prev_pinned = None
         for path in recent:
             p = Path(path)
-            action = QAction(str(p), self)
-            action.setToolTip(str(p))
+            is_pinned = rf.is_pinned(p) if rf else False
+            if prev_pinned and not is_pinned:
+                self._recent_menu.addSeparator()
+            prev_pinned = is_pinned
+
+            action = QAction(f"📌  {p}" if is_pinned else str(p), self)
+            action.setData(p)
+            tip = str(p)
+            if not is_pinned:
+                tip += "\n" + tr("tooltip.pin_recent_file")
+            action.setToolTip(tip)
             action.triggered.connect(
                 lambda checked, fp=p: self.open_files([fp])
             )
@@ -1303,6 +1346,9 @@ class MainWindow(QMainWindow):
         self._sep(m)
         m.addAction(self._act("read_only",   "", self._toggle_read_only, checkable=True, checked=False))
         m.addAction(self._act("write_bom",   "", self._toggle_write_bom, checkable=True, checked=False))
+        tail_act = self._act("tail_mode_toggle", "", self._toggle_tail_mode, checkable=True, checked=False)
+        tail_act.setToolTip(tr("tooltip.tail_mode_toggle"))
+        m.addAction(tail_act)
         self._sep(m)
 
         # Imposta tipo di file submenu
@@ -1486,6 +1532,9 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("build",        "F7", self.action_build))
         m.addAction(self._act("stop_build",   "",   self.action_stop_build))
         m.addAction(self._act("build_profiles","F8", self.action_build_profiles))
+        self._sep(m)
+        m.addAction(self._act("build_next_error", "Alt+Down", self.action_build_next_error))
+        m.addAction(self._act("build_prev_error", "Alt+Up",   self.action_build_prev_error))
         self._sep(m)
         self._menus["lsp"] = m
         m.addSection("⚡  LSP")
@@ -3014,6 +3063,33 @@ class MainWindow(QMainWindow):
         if editor:
             editor._write_bom = checked  # letto da file_manager al salvataggio
 
+    def _toggle_tail_mode(self, checked: bool) -> None:
+        """
+        Modalità 'segui il file' (tail -f): utile per log molto lunghi che
+        crescono in continuazione. Riusa il QFileSystemWatcher già attivo
+        per ogni tab (vedi TabManager.new_tab) — quando il file cambia,
+        _on_file_changed_externally ricarica in silenzio e salta in fondo
+        invece di mostrare il dialogo "file modificato esternamente".
+        """
+        editor = self._current_editor()
+        if not editor:
+            return
+        editor._tail_mode = checked
+        if checked:
+            # Forza sola lettura solo se non lo era già di per sé: alla
+            # disattivazione ripristiniamo lo stato solo se l'abbiamo
+            # cambiato noi, per non sorprendere chi l'aveva già impostata.
+            editor._tail_forced_read_only = not editor.is_read_only()
+            if editor._tail_forced_read_only:
+                editor.set_read_only(True)
+            editor.go_to_line(editor.lines())
+            name = editor.file_path.name if editor.file_path else ""
+            self.statusBar().showMessage(f"👁  {tr('action.tail_mode_toggle')}: {name}", 3000)
+        else:
+            if getattr(editor, "_tail_forced_read_only", False):
+                editor.set_read_only(False)
+            editor._tail_forced_read_only = False
+
     def _set_indent_type(self, use_spaces: bool) -> None:
         editor = self._current_editor()
         if editor:
@@ -3155,6 +3231,14 @@ class MainWindow(QMainWindow):
         from ui.build_panel import BuildProfilesDialog
         dlg = BuildProfilesDialog(self)
         dlg.exec()
+
+    def action_build_next_error(self) -> None:
+        if hasattr(self, "_build_panel") and self._build_panel:
+            self._build_panel.goto_next_error()
+
+    def action_build_prev_error(self) -> None:
+        if hasattr(self, "_build_panel") and self._build_panel:
+            self._build_panel.goto_prev_error()
 
     def action_keybinding_editor(self) -> None:
         from ui.keybinding import KeyBindingDialog
@@ -3880,6 +3964,22 @@ class MainWindow(QMainWindow):
 
         editor._watcher.blockSignals(True)
 
+        # Modalità "segui il file" (tail -f): ricarica sempre in silenzio,
+        # senza dialoghi, e salta in fondo — ha priorità su tutto il resto.
+        if getattr(editor, "_tail_mode", False):
+            if editor.file_path.exists():
+                try:
+                    from core.file_manager import FileManager
+                    content, enc, le = FileManager.read(editor.file_path)
+                    editor.load_content(content, enc, le)
+                    editor.setModified(False)
+                    editor.go_to_line(editor.lines())
+                except Exception:
+                    pass
+                editor._watcher.addPath(str(editor.file_path))
+            editor._watcher.blockSignals(False)
+            return
+
         # Caso: file eliminato dal disco
         if not editor.file_path.exists():
             msg_box = QMessageBox(self)
@@ -4599,6 +4699,101 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
+
+    # ── Switch rapido tra tab (Ctrl+Tab, stile Notepad++/VSCode) ───────────────
+
+    def _setup_tab_switcher(self) -> None:
+        """
+        Installa un eventFilter a livello applicazione per intercettare
+        Ctrl+Tab / Ctrl+Shift+Tab / rilascio di Ctrl indipendentemente da
+        quale widget abbia il focus (editor, albero file, ecc.): un semplice
+        QShortcut non basterebbe, perché il pattern "tieni Ctrl, premi Tab
+        più volte, rilascia per confermare" richiede di intercettare anche
+        il KeyRelease del solo tasto Ctrl.
+        """
+        self._tab_switcher_popup = None
+        self._tab_switcher_widgets: list = []
+        self._tab_switcher_index = 0
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        et = event.type()
+        if et == QEvent.Type.KeyPress:
+            if self._tab_switcher_key_press(event):
+                return True
+        elif et == QEvent.Type.KeyRelease:
+            if self._tab_switcher_key_release(event):
+                return True
+        return super().eventFilter(obj, event)
+
+    def _tab_switcher_key_press(self, event) -> bool:
+        key  = event.key()
+        mods = event.modifiers()
+        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+        if ctrl and key == Qt.Key.Key_Tab:
+            self._advance_tab_switcher(forward=not (mods & Qt.KeyboardModifier.ShiftModifier))
+            return True
+        if ctrl and key == Qt.Key.Key_Backtab:
+            # Ctrl+Shift+Tab arriva spesso come Key_Backtab invece di Tab+Shift
+            self._advance_tab_switcher(forward=False)
+            return True
+        if self._tab_switcher_popup is not None and key == Qt.Key.Key_Escape:
+            self._cancel_tab_switcher()
+            return True
+        return False
+
+    def _tab_switcher_key_release(self, event) -> bool:
+        if self._tab_switcher_popup is not None and event.key() == Qt.Key.Key_Control:
+            self._commit_tab_switcher()
+            return True
+        return False
+
+    def _advance_tab_switcher(self, forward: bool) -> None:
+        tm = self._tab_manager.active_tab_manager()
+        if self._tab_switcher_popup is None:
+            widgets = tm.mru_widgets()
+            if len(widgets) < 2:
+                return
+            self._tab_switcher_widgets = widgets
+            # Parte dal secondo elemento (il tab usato subito prima
+            # dell'attuale), come il classico Alt-Tab.
+            self._tab_switcher_index = 1
+
+            from ui.tab_switcher import TabSwitcherPopup
+            self._tab_switcher_popup = TabSwitcherPopup(self)
+            labels = [self._tab_switcher_label(tm, w) for w in widgets]
+            self._tab_switcher_popup.set_items(labels, self._tab_switcher_index)
+            self._tab_switcher_popup.popup_at_center_of(self)
+        else:
+            n = len(self._tab_switcher_widgets)
+            step = 1 if forward else -1
+            self._tab_switcher_index = (self._tab_switcher_index + step) % n
+            self._tab_switcher_popup.set_index(self._tab_switcher_index)
+
+    def _tab_switcher_label(self, tm, widget) -> str:
+        idx = tm.indexOf(widget)
+        return tm.tabText(idx) if idx >= 0 else "?"
+
+    def _commit_tab_switcher(self) -> None:
+        if self._tab_switcher_popup is None:
+            return
+        widgets = self._tab_switcher_widgets
+        idx = self._tab_switcher_index
+        self._tab_switcher_popup.hide()
+        self._tab_switcher_popup.deleteLater()
+        self._tab_switcher_popup = None
+        if 0 <= idx < len(widgets):
+            tm = self._tab_manager.active_tab_manager()
+            i = tm.indexOf(widgets[idx])
+            if i >= 0:
+                tm.setCurrentIndex(i)
+
+    def _cancel_tab_switcher(self) -> None:
+        if self._tab_switcher_popup is None:
+            return
+        self._tab_switcher_popup.hide()
+        self._tab_switcher_popup.deleteLater()
+        self._tab_switcher_popup = None
 
 
 # ─── Test standalone ──────────────────────────────────────────────────────────

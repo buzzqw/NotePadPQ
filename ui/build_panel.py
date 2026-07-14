@@ -286,6 +286,7 @@ class BuildPanel(QWidget):
         self._mw = main_window
         self._bm = BuildManager.instance()
         self._current_profile: str = ""
+        self._current_error_idx: int = -1
 
         self._build_ui()
         self._connect_signals()
@@ -340,6 +341,15 @@ class BuildPanel(QWidget):
         self._btn_stop.setEnabled(False)
         self._btn_stop.setStyleSheet("color: #f44747;")
 
+        self._btn_prev_error = QPushButton("▲")
+        self._btn_next_error = QPushButton("▼")
+        self._btn_prev_error.setToolTip(tr("tooltip.build_prev_error"))
+        self._btn_next_error.setToolTip(tr("tooltip.build_next_error"))
+        self._btn_prev_error.setFixedWidth(28)
+        self._btn_next_error.setFixedWidth(28)
+        self._btn_prev_error.setEnabled(False)
+        self._btn_next_error.setEnabled(False)
+
         self._btn_analyze_ai = QPushButton(tr("action.build_analyze_ai"))
         self._btn_analyze_ai.setToolTip(tr("tooltip.build_analyze_ai"))
         self._btn_analyze_ai.setEnabled(False)
@@ -347,6 +357,7 @@ class BuildPanel(QWidget):
 
         for btn in [self._btn_compile, self._btn_run,
                     self._btn_build, self._btn_stop, self._btn_clear,
+                    self._btn_prev_error, self._btn_next_error,
                     self._btn_analyze_ai]:
             tb.addWidget(btn)
 
@@ -424,6 +435,8 @@ class BuildPanel(QWidget):
         self._btn_stop.clicked.connect(bm.stop)
         self._btn_clear.clicked.connect(self._clear_output)
         self._btn_analyze_ai.clicked.connect(self._analyze_with_ai)
+        self._btn_next_error.clicked.connect(self.goto_next_error)
+        self._btn_prev_error.clicked.connect(self.goto_prev_error)
 
         # Sincronizza il profilo quando cambia il tab nell'editor
         try:
@@ -448,6 +461,15 @@ class BuildPanel(QWidget):
                 btn.setText(f"{label}  {sc}" if sc else label)
             else:
                 btn.setText(label)
+
+        tip_mapping = {
+            self._btn_next_error: ("build_next_error", tr("tooltip.build_next_error")),
+            self._btn_prev_error: ("build_prev_error", tr("tooltip.build_prev_error")),
+        }
+        for btn, (key, tip) in tip_mapping.items():
+            action = actions.get(key)
+            sc = action.shortcut().toString() if action else ""
+            btn.setToolTip(f"{tip}  ({sc})" if sc else tip)
 
     def _set_analyze_ai_icon(self) -> None:
         from pathlib import Path
@@ -580,6 +602,9 @@ class BuildPanel(QWidget):
         if started:
             self._output.clear()
             self._error_tree.clear()
+            self._current_error_idx = -1
+            self._btn_next_error.setEnabled(False)
+            self._btn_prev_error.setEnabled(False)
             self.error_count_changed.emit(0)
             self._btn_analyze_ai.setEnabled(False)
             self._btn_stop.setEnabled(True)
@@ -756,6 +781,37 @@ class BuildPanel(QWidget):
             if "error" in err.get("message", "").lower():
                 item.setForeground(0, QColor("#f44747"))
                 item.setForeground(2, QColor("#f44747"))
+
+        self._current_error_idx = -1
+        has_errors = self._error_tree.topLevelItemCount() > 0
+        self._btn_next_error.setEnabled(has_errors)
+        self._btn_prev_error.setEnabled(has_errors)
+
+    # ── Navigazione errori (stile TeXstudio F4) ─────────────────────────────────
+
+    def goto_next_error(self) -> None:
+        self._goto_error(+1)
+
+    def goto_prev_error(self) -> None:
+        self._goto_error(-1)
+
+    def _goto_error(self, step: int) -> None:
+        n = self._error_tree.topLevelItemCount()
+        if n == 0:
+            self._status_bar.setText(tr("build_panel.no_errors", default="Nessun errore da mostrare."))
+            return
+        self._current_error_idx = (self._current_error_idx + step) % n
+        item = self._error_tree.topLevelItem(self._current_error_idx)
+        self._error_tree.setCurrentItem(item)
+        self._error_tree.scrollToItem(item)
+        self._on_error_clicked(item)
+        self._status_bar.setText(
+            f"⚠  Errore {self._current_error_idx + 1}/{n}: {item.text(2)}"
+        )
+        self._status_bar.setStyleSheet(
+            "padding: 2px 8px; font-size: 11px; "
+            "background: #3a1e1e; color: #f44747; border-top: 1px solid #3c3c3c;"
+        )
 
     def _on_error_clicked(self, item: QTreeWidgetItem) -> None:
         err = item.data(0, Qt.ItemDataRole.UserRole)

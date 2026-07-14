@@ -17,11 +17,11 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit,
-    QTreeWidget, QTreeWidgetItem, QTabWidget, QToolBar,
+    QTreeWidget, QTreeWidgetItem, QToolBar,
     QLabel, QComboBox, QDialog, QDialogButtonBox,
     QFormLayout, QLineEdit, QPushButton, QSplitter,
     QGroupBox, QListWidget, QListWidgetItem, QMessageBox,
@@ -269,7 +269,17 @@ class BuildPanel(QWidget):
     """
     Widget pannello build. Viene aggiunto come dock o widget inferiore
     dalla MainWindow quando viene avviata una compilazione.
+
+    Contiene solo la toolbar (profilo/azioni) e il log grezzo di
+    compilazione. La lista errori (`_error_tree`) e il tab task
+    (`_task_widget`) sono creati qui ma vengono montati dalla MainWindow
+    come tab di pari livello del pannello inferiore (accanto a
+    "Diagnostics"), non annidati in un secondo QTabWidget: un secondo
+    livello di tab dietro una toolbar-corner-widget lasciava le linguette
+    inaccessibili (nessuno scrolling) quando lo spazio era stretto.
     """
+
+    error_count_changed = pyqtSignal(int)
 
     def __init__(self, main_window: "MainWindow", parent=None):
         super().__init__(parent)
@@ -290,9 +300,13 @@ class BuildPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # ── Barra superiore: profilo attivo ───────────────────────────────────
+        # ── Barra superiore: profilo attivo + azioni ──────────────────────────
+        # Vera QToolBar (non corner-widget di un QTabWidget): se lo spazio
+        # manca, Qt mostra automaticamente una freccia "»" di overflow invece
+        # di nascondere i pulsanti/tab senza alcun modo di raggiungerli.
         tb = QToolBar()
         tb.setMovable(False)
+        self._toolbar = tb
 
         # Etichetta profilo attivo — colorata e visibile
         self._lbl_profile = QLabel()
@@ -326,10 +340,6 @@ class BuildPanel(QWidget):
         self._btn_stop.setEnabled(False)
         self._btn_stop.setStyleSheet("color: #f44747;")
 
-        self._btn_open_pdf = QPushButton("📄 PDF")
-        self._btn_open_pdf.setToolTip(tr("tooltip.build_open_pdf"))
-        self._btn_open_pdf.setEnabled(False)
-
         self._btn_analyze_ai = QPushButton(tr("action.build_analyze_ai"))
         self._btn_analyze_ai.setToolTip(tr("tooltip.build_analyze_ai"))
         self._btn_analyze_ai.setEnabled(False)
@@ -337,23 +347,15 @@ class BuildPanel(QWidget):
 
         for btn in [self._btn_compile, self._btn_run,
                     self._btn_build, self._btn_stop, self._btn_clear,
-                    self._btn_open_pdf, self._btn_analyze_ai]:
+                    self._btn_analyze_ai]:
             tb.addWidget(btn)
 
+        layout.addWidget(tb)
 
-        # ── Barra stato build ─────────────────────────────────────────────────
-        self._status_bar = QLabel()
-        self._status_bar.setStyleSheet(
-            "padding: 2px 8px; font-size: 11px; "
-            "background: #252526; color: #858585; border-top: 1px solid #3c3c3c;"
-        )
-        self._status_bar.setText(tr("msg.ready", default="Pronto."))
-
-        # ── Tabs: Output | Errori ─────────────────────────────────────────────
-        self._tabs = QTabWidget()
-        self._tabs.setMinimumHeight(0)
-
-        # Output
+        # ── Log grezzo di compilazione ────────────────────────────────────────
+        # Resta sempre il contenuto di questo pannello: non c'è più uno switch
+        # automatico verso un'altra tab in caso di errore, così il log con
+        # l'errore reale del compilatore non sparisce mai dalla vista.
         self._output = QPlainTextEdit()
         self._output.setMinimumHeight(0)
         self._output.setReadOnly(True)
@@ -367,9 +369,18 @@ class BuildPanel(QWidget):
                 selection-background-color: #264f78;
             }
         """)
-        self._tabs.addTab(self._output, tr("label.output", default="Output"))
+        layout.addWidget(self._output, 1)
 
-        # Errori
+        # ── Barra stato build ─────────────────────────────────────────────────
+        self._status_bar = QLabel()
+        self._status_bar.setStyleSheet(
+            "padding: 2px 8px; font-size: 11px; "
+            "background: #252526; color: #858585; border-top: 1px solid #3c3c3c;"
+        )
+        self._status_bar.setText(tr("msg.ready", default="Pronto."))
+        layout.addWidget(self._status_bar)
+
+        # ── Errori (montato dalla MainWindow come tab a parte) ────────────────
         self._error_tree = QTreeWidget()
         self._error_tree.setMinimumHeight(0)
         self._error_tree.setStyleSheet("""
@@ -395,17 +406,9 @@ class BuildPanel(QWidget):
         self._error_tree.setColumnWidth(0, 220)
         self._error_tree.setColumnWidth(1, 60)
         self._error_tree.itemDoubleClicked.connect(self._on_error_clicked)
-        self._tabs.addTab(self._error_tree,
-                          tr("label.errors", default="Errori"))
 
-        # ── Tab Task rapido ───────────────────────────────────────────────────
+        # ── Task rapido (montato dalla MainWindow come tab a parte) ───────────
         self._task_widget = _TaskTab(self._mw)
-        self._tabs.addTab(self._task_widget, "⚡ Task")
-
-        self._tabs.setCornerWidget(tb, Qt.Corner.TopLeftCorner)
-
-        layout.addWidget(self._tabs, 1)
-        layout.addWidget(self._status_bar)
 
         QTimer.singleShot(0, self._refresh_button_labels)
 
@@ -418,7 +421,6 @@ class BuildPanel(QWidget):
         self._btn_compile.clicked.connect(lambda: self._run_action("compile"))
         self._btn_run.clicked.connect(    lambda: self._run_action("run"))
         self._btn_build.clicked.connect(  lambda: self._run_action("build"))
-        self._btn_open_pdf.clicked.connect(self._open_pdf_in_preview)
         self._btn_stop.clicked.connect(bm.stop)
         self._btn_clear.clicked.connect(self._clear_output)
         self._btn_analyze_ai.clicked.connect(self._analyze_with_ai)
@@ -473,13 +475,6 @@ class BuildPanel(QWidget):
         Aggiorna profilo attivo e combo in base al file corrente.
         Se esiste un override per-estensione lo mostra nel combo, altrimenti usa auto-detect.
         """
-        pdf_path = self._find_generated_pdf()
-        self._btn_open_pdf.setEnabled(pdf_path is not None)
-        if pdf_path:
-            self._btn_open_pdf.setToolTip(tr("build_panel.open_pdf_tooltip", name=pdf_path.name))
-        else:
-            self._btn_open_pdf.setToolTip(tr("tooltip.build_open_pdf"))
-
         editor = self._mw._tab_manager.current_editor()
         if editor is None:
             self._profile_combo.blockSignals(True)
@@ -585,6 +580,7 @@ class BuildPanel(QWidget):
         if started:
             self._output.clear()
             self._error_tree.clear()
+            self.error_count_changed.emit(0)
             self._btn_analyze_ai.setEnabled(False)
             self._btn_stop.setEnabled(True)
             self._btn_compile.setEnabled(False)
@@ -619,7 +615,6 @@ class BuildPanel(QWidget):
         cursor.insertText(line + "\n", fmt)
         self._output.setTextCursor(cursor)
         self._output.ensureCursorVisible()
-        self._tabs.setCurrentIndex(0)
 
     @pyqtSlot(bool, str)
     def _on_build_done(self, success: bool, message: str) -> None:
@@ -640,33 +635,30 @@ class BuildPanel(QWidget):
             f"background: {color_bg}; color: {color_fg}; border-top: 1px solid #3c3c3c;"
         )
 
-        # Abilita pulsante PDF se il build è riuscito e c'è un .pdf generato
+        # Se il build è riuscito e ha generato un PDF, aggiorna l'anteprima
+        # automaticamente quando il dock Anteprima è già visibile.
         if success:
             pdf_path = self._find_generated_pdf()
-            self._btn_open_pdf.setEnabled(pdf_path is not None)
             if pdf_path:
-                self._btn_open_pdf.setToolTip(tr("build_panel.open_pdf_tooltip", name=pdf_path.name))
-                self._btn_open_pdf.setText(f"📄 {pdf_path.name}")
-                # Aggiorna anteprima automaticamente se il dock è già visibile
                 mw = self.window()
                 if (hasattr(mw, "_preview_dock") and mw._preview_dock.isVisible()
                         and hasattr(mw, "_preview_panel_dock")):
                     mw._preview_panel_dock.set_pdf_path(pdf_path)
-        else:
-            self._btn_open_pdf.setEnabled(False)
 
         # Abilita "Analizza con AI" — utile sia in caso di errore sia di successo
         self._btn_analyze_ai.setEnabled(True)
 
-        # Parsing errori automatico
+        # Parsing errori automatico — il log resta comunque la vista attiva:
+        # la tab "Errori compilazione" si limita a mostrare un badge col
+        # conteggio, senza sostituire la vista sul log grezzo.
+        n = 0
         if not success and self._current_profile:
             output_text = self._output.toPlainText()
             errors = self._bm.parse_errors(output_text, self._current_profile)
             if errors:
                 self._show_errors(errors)
                 n = len(errors)
-                self._tabs.setTabText(1, f"{tr('label.errors', default='Errori')} ({n})")
-                self._tabs.setCurrentIndex(1)
+        self.error_count_changed.emit(n)
 
     def _find_generated_pdf(self):
         """Trova il PDF generato dal file corrente (stesso nome, stessa directory)."""
@@ -682,39 +674,6 @@ class BuildPanel(QWidget):
             return None
         pdf = Path(str(path)).with_suffix(".pdf")
         return pdf if pdf.exists() else None
-
-    def _open_pdf_in_preview(self) -> None:
-        """
-        Mostra il PDF generato direttamente nel dock Anteprima,
-        senza aprire un nuovo tab editor.
-        """
-        pdf_path = self._find_generated_pdf()
-        if not pdf_path:
-            self._status_bar.setText(tr("build_panel.no_pdf", profile=self._current_profile))
-            self._status_bar.setStyleSheet(
-                "padding: 2px 8px; font-size: 11px; "
-                "background: #3a1e1e; color: #f44747; border-top: 1px solid #3c3c3c;"
-            )
-            return
-
-        mw = self.window()
-        if not hasattr(mw, "_preview_dock") or not hasattr(mw, "_preview_panel_dock"):
-            return
-
-        preview = mw._preview_panel_dock
-
-        # Mostra il dock
-        mw._preview_dock.show()
-        act = mw._actions.get("preview_toggle")
-        if act:
-            act.setChecked(True)
-
-        # Carica il PDF direttamente nella preview tramite set_pdf_path
-        # (non serve aprire un tab editor)
-        preview.set_pdf_path(pdf_path)
-
-        # Aggiorna label pulsante con nome file
-        self._btn_open_pdf.setText(f"📄 {pdf_path.name}")
 
     def _clear_output(self) -> None:
         self._output.clear()

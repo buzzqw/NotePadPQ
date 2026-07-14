@@ -271,6 +271,11 @@ class MainWindow(QMainWindow):
         vbox.setContentsMargins(0, 0, 0, 0)
         vbox.setSpacing(0)
         vbox.addWidget(self._tab_manager)
+        # Larghezza minima solida per l'editor: senza questo vincolo, Qt può
+        # sottrarre spazio all'area centrale a favore dei dock laterali
+        # (Lista delle funzioni / Anteprima) finché non resta uno spazio di
+        # editing troppo stretto per scrivere.
+        container.setMinimumWidth(450)
         self.setCentralWidget(container)
 
     def _setup_dock_panels(self) -> None:
@@ -358,14 +363,28 @@ class MainWindow(QMainWindow):
         self._bottom_tabs.setMinimumHeight(0)
         self._bottom_tabs.setTabPosition(_QTabWidget.TabPosition.South)
 
-        # Tab 1: Output compilazione
-        self._build_panel = BuildPanel(self)
-        self._bottom_tabs.addTab(self._build_panel, "⚙  Output compilazione")
+        # Le tab sono tutte allo stesso livello (nessun QTabWidget annidato):
+        # un secondo livello di tab dietro una toolbar lasciava le linguette
+        # irraggiungibili quando lo spazio era stretto, senza scrolling.
 
-        # Tab: Diagnostics LSP
+        # Tab 1: Log di compilazione — resta sempre la vista attiva di default,
+        # anche in caso di errore (niente più switch automatico altrove).
+        self._build_panel = BuildPanel(self)
+        self._bottom_tabs.addTab(self._build_panel, "🖥  Log")
+
+        # Tab 2: Errori di compilazione (parsing del log) — badge col conteggio
+        self._errors_tab_index = self._bottom_tabs.addTab(
+            self._build_panel._error_tree, "⚠  Errori compilazione"
+        )
+        self._build_panel.error_count_changed.connect(self._on_build_errors_changed)
+
+        # Tab 3: Diagnostics LSP (analisi live del file, indipendente dal build)
         from ui.lsp_panel import DiagnosticsPanel
         self._diag_panel = DiagnosticsPanel(self)
         self._bottom_tabs.addTab(self._diag_panel, "⚡  Diagnostics")
+
+        # Tab 4: Task rapido (Makefile/npm/comando libero)
+        self._bottom_tabs.addTab(self._build_panel._task_widget, "🗲  Task")
 
         self._build_dock = QDockWidget(tr("label.build_output", default="Pannello inferiore"), self)
         self._build_dock.setObjectName("BuildDock")
@@ -2766,6 +2785,20 @@ class MainWindow(QMainWindow):
             self._build_dock.show()
         else:
             self._build_dock.hide()
+
+    def _on_build_errors_changed(self, n: int) -> None:
+        """Aggiorna il badge con il conteggio errori sulla tab dedicata,
+        senza mai spostare la vista corrente (resta sul Log di default)."""
+        from PyQt6.QtGui import QColor, QPalette
+        base = "⚠  Errori compilazione"
+        idx = self._errors_tab_index
+        bar = self._bottom_tabs.tabBar()
+        if n > 0:
+            self._bottom_tabs.setTabText(idx, f"{base} ({n})")
+            bar.setTabTextColor(idx, QColor("#f44747"))
+        else:
+            self._bottom_tabs.setTabText(idx, base)
+            bar.setTabTextColor(idx, bar.palette().color(QPalette.ColorRole.WindowText))
 
     def _toggle_file_browser(self, checked: bool) -> None:
         """Mostra/nasconde il pannello File Browser."""

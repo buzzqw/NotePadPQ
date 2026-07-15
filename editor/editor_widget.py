@@ -369,6 +369,15 @@ class EditorWidget(QsciScintilla):
         self.textChanged.connect(self._spell_timer.start)
         # --- FINE SPELL CHECKER ---
 
+        # --- HOVER POPUP: rete di sicurezza anti-persistenza ---
+        # SCN_DWELLEND di Scintilla non scatta sempre (es. il mouse esce dal
+        # widget senza un move interno, o la finestra perde il focus), quindi
+        # il popup andrebbe chiuso comunque dopo un tempo massimo.
+        self._hover_popup_timer = QTimer(self)
+        self._hover_popup_timer.setSingleShot(True)
+        self._hover_popup_timer.setInterval(8000)
+        self._hover_popup_timer.timeout.connect(self._hide_hover_popup)
+
         # Multi-cursore (Ctrl+D, Ctrl+Shift+D, Ctrl+Alt+↑/↓, …)
         from editor.multicursor import MultiCursorManager
         self._multicursor = MultiCursorManager(self)
@@ -1361,6 +1370,16 @@ class EditorWidget(QsciScintilla):
                     self._show_bibtex_autocomplete()
         # --- FINE AUTOCOMPLETAMENTO BIBTEX ---
 
+    def mousePressEvent(self, event) -> None:
+        """Un click nell'editor chiude sempre il popup di hover."""
+        self._hide_hover_popup()
+        super().mousePressEvent(event)
+
+    def focusOutEvent(self, event) -> None:
+        """Perdita del focus (cambio tab/finestra) chiude il popup di hover."""
+        self._hide_hover_popup()
+        super().focusOutEvent(event)
+
     def wheelEvent(self, event) -> None:
         """Ctrl+Scroll → zoom."""
         self._hide_hover_popup()
@@ -1874,6 +1893,7 @@ class EditorWidget(QsciScintilla):
 
     def _hide_hover_popup(self) -> None:
         """Distrugge il popup dell'immagine se esiste."""
+        self._hover_popup_timer.stop()
         if hasattr(self, '_hover_popup') and self._hover_popup:
             self._hover_popup.hide()
             self._hover_popup.deleteLater()
@@ -2060,6 +2080,7 @@ class EditorWidget(QsciScintilla):
         global_pos = self.mapToGlobal(QPoint(x, y))
         self._hover_popup.move(global_pos.x() + 15, global_pos.y() + 15)
         self._hover_popup.show()
+        self._hover_popup_timer.start()
 
     # -- Helper per creare il popup con HTML (documentazione comandi)
     def _create_html_tooltip_popup(self, html: str, x: int, y: int) -> None:
@@ -2087,6 +2108,7 @@ class EditorWidget(QsciScintilla):
         lbl.move(gp)
         lbl.show()
         self._hover_popup = lbl
+        self._hover_popup_timer.start()
 
 
     # ── Metodi per compatibilità ─────────────────────────────────────────────

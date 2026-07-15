@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QSize, QTimer
-from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
+from PyQt6.QtGui import QAction, QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit,
     QTreeWidget, QTreeWidgetItem, QToolBar,
@@ -307,6 +307,9 @@ class BuildPanel(QWidget):
         # di nascondere i pulsanti/tab senza alcun modo di raggiungerli.
         tb = QToolBar()
         tb.setMovable(False)
+        # Di default QToolBar mostra solo l'icona per le QAction: le nostre
+        # (▲ ▼ e "Analizza con AI") hanno anche testo che deve restare visibile.
+        tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._toolbar = tb
 
         # Etichetta profilo attivo — colorata e visibile
@@ -341,25 +344,30 @@ class BuildPanel(QWidget):
         self._btn_stop.setEnabled(False)
         self._btn_stop.setStyleSheet("color: #f44747;")
 
-        self._btn_prev_error = QPushButton("▲")
-        self._btn_next_error = QPushButton("▼")
+        for btn in [self._btn_compile, self._btn_run,
+                    self._btn_build, self._btn_stop, self._btn_clear]:
+            tb.addWidget(btn)
+
+        # Azioni secondarie come QAction (non QPushButton via addWidget): se lo
+        # spazio manca e finiscono nel menu "»" di overflow di QToolBar, solo
+        # le QAction restano cliccabili li' dentro — i widget custom aggiunti
+        # con addWidget() nell'overflow smettono di rispondere ai click.
+        tb.setIconSize(QSize(16, 16))
+        self._btn_prev_error = QAction("▲", self)
+        self._btn_next_error = QAction("▼", self)
         self._btn_prev_error.setToolTip(tr("tooltip.build_prev_error"))
         self._btn_next_error.setToolTip(tr("tooltip.build_next_error"))
-        self._btn_prev_error.setFixedWidth(28)
-        self._btn_next_error.setFixedWidth(28)
         self._btn_prev_error.setEnabled(False)
         self._btn_next_error.setEnabled(False)
 
-        self._btn_analyze_ai = QPushButton(tr("action.build_analyze_ai"))
+        self._btn_analyze_ai = QAction(tr("action.build_analyze_ai"), self)
         self._btn_analyze_ai.setToolTip(tr("tooltip.build_analyze_ai"))
         self._btn_analyze_ai.setEnabled(False)
         self._set_analyze_ai_icon()
 
-        for btn in [self._btn_compile, self._btn_run,
-                    self._btn_build, self._btn_stop, self._btn_clear,
-                    self._btn_prev_error, self._btn_next_error,
-                    self._btn_analyze_ai]:
-            tb.addWidget(btn)
+        tb.addAction(self._btn_prev_error)
+        tb.addAction(self._btn_next_error)
+        tb.addAction(self._btn_analyze_ai)
 
         layout.addWidget(tb)
 
@@ -434,9 +442,9 @@ class BuildPanel(QWidget):
         self._btn_build.clicked.connect(  lambda: self._run_action("build"))
         self._btn_stop.clicked.connect(bm.stop)
         self._btn_clear.clicked.connect(self._clear_output)
-        self._btn_analyze_ai.clicked.connect(self._analyze_with_ai)
-        self._btn_next_error.clicked.connect(self.goto_next_error)
-        self._btn_prev_error.clicked.connect(self.goto_prev_error)
+        self._btn_analyze_ai.triggered.connect(self._analyze_with_ai)
+        self._btn_next_error.triggered.connect(self.goto_next_error)
+        self._btn_prev_error.triggered.connect(self.goto_prev_error)
 
         # Sincronizza il profilo quando cambia il tab nell'editor
         try:
@@ -486,7 +494,6 @@ class BuildPanel(QWidget):
             pm = QPixmap()
             if pm.loadFromData(svg_data, "SVG") and not pm.isNull():
                 self._btn_analyze_ai.setIcon(QIcon(pm))
-                self._btn_analyze_ai.setIconSize(QSize(16, 16))
         except Exception:
             pass
 

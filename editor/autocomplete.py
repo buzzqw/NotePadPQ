@@ -1154,12 +1154,12 @@ class AutoCompleteManager(QObject):
 
     def complete_environments_from_word(self, is_end: bool) -> None:
         """
-        Mostra subito il popup ambienti appena \\begin/\\end sono completi,
-        prima ancora che venga digitata la {. Cancella l'eventuale popup
-        nativo QsciAPIs (ordinato alfabeticamente) per non sovrapporlo.
-        Non modifica il testo: se l'utente continua a digitare altre lettere
-        (es. \\begingroup) e nessun ambiente corrisponde più, il popup si
-        chiude da solo (vedi refresh_env_popup) senza aver toccato nulla.
+        Mostra subito il popup ambienti non appena la parola dopo \\ è un
+        prefisso di "begin"/"end" (es. \\beg), prima ancora di finire di
+        scrivere la parola e la {. Cancella l'eventuale popup nativo QsciAPIs
+        (ordinato alfabeticamente) per non sovrapporlo. Chiamato ad ogni
+        lettera finché la parola resta un prefisso valido — vedi
+        cancel_env_word_popup per la chiusura quando diverge.
         """
         try:
             from PyQt6.Qsci import QsciScintilla as _QSci
@@ -1167,6 +1167,21 @@ class AutoCompleteManager(QObject):
         except Exception:
             pass
         self._complete_environments(is_end=is_end, needs_brace=True)
+
+    def cancel_env_word_popup(self) -> None:
+        """
+        Chiude il popup ambienti aperto da complete_environments_from_word
+        se la parola digitata non è più un prefisso di begin/end (es.
+        \\begingroup, \\begins) — non tocca il testo, no-op se non era aperto.
+        """
+        if not self._env_popup_needs_brace:
+            return
+        self._env_popup_needs_brace = False
+        try:
+            from PyQt6.Qsci import QsciScintilla as _QSci
+            self._editor.SendScintilla(_QSci.SCI_AUTOCCANCEL)
+        except Exception:
+            pass
 
     def _complete_environments(self, is_end: bool = False, needs_brace: bool = False) -> None:
         """Popup con tutti gli ambienti LaTeX: standard + custom del documento."""

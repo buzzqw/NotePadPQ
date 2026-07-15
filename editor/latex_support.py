@@ -1037,25 +1037,39 @@ class LaTeXSupport:
         if m:
             ac.refresh_env_popup(m.group(1))
 
-    # Parola \begin o \end appena completata, { non ancora digitata
-    _BEGIN_END_WORD = re.compile(r'\\(begin|end)$')
+    # Parola dopo \ ancora incompleta (per riconoscere un prefisso di begin/end)
+    _CMD_WORD = re.compile(r'\\([a-zA-Z]*)$')
 
     @staticmethod
     def _handle_env_word(editor: "EditorWidget") -> None:
         """
-        Appena \\begin o \\end sono completi (parola intera, senza ancora la
-        {), mostra subito il popup ambienti ordinato per uso/nidificazione:
-        non serve digitare anche la graffa per vedere i suggerimenti utili.
+        Appena la parola dopo \\ e' un prefisso valido di "begin"/"end" di
+        almeno 2 lettere (stessa soglia dell'autocompletamento standard, es.
+        \\be, \\beg, \\begi...), mostra subito il popup ambienti ordinato per
+        uso/nidificazione: non serve arrivare a scrivere la parola intera ne'
+        la {. Si richiude da sola senza toccare il testo se la parola diverge
+        da begin/end (es. \\begingroup, \\begins).
         """
         ac = getattr(editor, "_autocomplete", None)
         if not ac:
             return
         line, col = editor.getCursorPosition()
         text_before = editor.text(line)[:col]
-        m = LaTeXSupport._BEGIN_END_WORD.search(text_before)
-        if not m:
-            return
-        ac.complete_environments_from_word(is_end=(m.group(1) == "end"))
+        m = LaTeXSupport._CMD_WORD.search(text_before)
+        word = m.group(1) if m else ""
+
+        is_begin = bool(word) and "begin".startswith(word)
+        is_end = bool(word) and "end".startswith(word)
+
+        if (is_begin or is_end) and len(word) >= 2:
+            # Ricalcola/riapre solo al primo carattere che rende la parola un
+            # prefisso valido: sulle lettere successive (beg→begi→begin) il
+            # popup resta quello già mostrato, senza rifare la scansione del
+            # documento ad ogni tasto — la scrittura non deve rallentare.
+            if not getattr(ac, "_env_popup_needs_brace", False):
+                ac.complete_environments_from_word(is_end=is_end)
+        else:
+            ac.cancel_env_word_popup()
 
     @staticmethod
     def _auto_close_generic_brace(editor: "EditorWidget") -> None:
@@ -1113,6 +1127,29 @@ class LaTeXSupport:
         extra_args = ENV_MANDATORY_ARGS.get(env_name, [])
         mandatory_str = "".join(extra_args)
 
+        # Se più sotto c'è già un \end{env_name} che chiude questo ambiente
+        # (es. si è riscritta solo la riga \begin{...} lasciando l'\end
+        # preesistente), non ne aggiungiamo un secondo: creerebbe una
+        # coppia begin/end spuria segnalata come errore.
+        already_closed = LaTeXSupport._has_matching_end_below(editor, line, env_name)
+
+        if already_closed:
+            if env_name in LaTeXSupport._LIST_ENVIRONMENTS:
+                insert_text = f"{env_name}}}{mandatory_str}\n{inner_indent}\\item "
+                cursor_line, cursor_col = line + 1, len(inner_indent) + 6
+            else:
+                insert_text = f"{env_name}}}{mandatory_str}"
+                cursor_line, cursor_col = line, col + len(insert_text)
+            editor._in_paste = True
+            try:
+                editor.beginUndoAction()
+                editor.insert(insert_text)
+                editor.endUndoAction()
+            finally:
+                editor._in_paste = False
+            editor.setCursorPosition(cursor_line, cursor_col)
+            return
+
         if env_name in LaTeXSupport._LIST_ENVIRONMENTS:
             insert_text = (
                 f"{env_name}}}{mandatory_str}\n"
@@ -1137,6 +1174,30 @@ class LaTeXSupport:
             editor._in_paste = False
 
         editor.setCursorPosition(line + 1, cursor_col)
+
+    @staticmethod
+    def _has_matching_end_below(editor: "EditorWidget", line: int, env_name: str,
+                                 max_lines: int = 300) -> bool:
+        """
+        Cerca nelle righe successive un \\end{env_name} che chiuda esattamente
+        l'ambiente che si sta per aprire (tenendo conto di ambienti annidati
+        nel mezzo). Se lo trova, insert_environment evita di aggiungere un
+        secondo \\end duplicato.
+        """
+        all_lines = editor.text().split("\n")
+        pattern = re.compile(r'\\(begin|end)\{([^}]+)\}')
+        stack: list[str] = []
+        for raw_line in all_lines[line + 1: line + 1 + max_lines]:
+            code = re.split(r'(?<!\\)%', raw_line, maxsplit=1)[0]
+            for m in pattern.finditer(code):
+                kind, env = m.group(1), m.group(2)
+                if kind == "begin":
+                    stack.append(env)
+                elif stack:
+                    stack.pop()
+                else:
+                    return env == env_name
+        return False
 
     @staticmethod
     def _handle_close_brace(editor: "EditorWidget") -> None:

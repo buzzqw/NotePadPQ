@@ -706,6 +706,7 @@ class AutoCompleteManager(QObject):
         self._bibtex_cache:      list = []
         self._hypertargets_cache: list = []
         self._env_cache:         list = []   # cache ambienti per refresh_env_popup
+        self._env_popup_needs_brace: bool = False  # True se il popup e' partito da \begin/\end senza { ancora digitata
 
         # Timer per aggiornamento cross-tab (evita refresh ad ogni keystroke)
         self._cross_tab_timer = QTimer(self)
@@ -994,7 +995,7 @@ class AutoCompleteManager(QObject):
             self._complete_cite_keys()
             return True
         elif cmd in ("begin", "end"):
-            self._complete_environments()
+            self._complete_environments(is_end=(cmd == "end"))
             return True
         elif cmd in ("input", "include", "subfile", "subinputfrom",
                      "includefrom", "subimport"):
@@ -1151,15 +1152,45 @@ class AutoCompleteManager(QObject):
         if themes:
             self._editor.showUserList(9, themes)
 
-    def _complete_environments(self) -> None:
+    def complete_environments_from_word(self, is_end: bool) -> None:
+        """
+        Mostra subito il popup ambienti appena \\begin/\\end sono completi,
+        prima ancora che venga digitata la {. Cancella l'eventuale popup
+        nativo QsciAPIs (ordinato alfabeticamente) per non sovrapporlo.
+        Non modifica il testo: se l'utente continua a digitare altre lettere
+        (es. \\begingroup) e nessun ambiente corrisponde più, il popup si
+        chiude da solo (vedi refresh_env_popup) senza aver toccato nulla.
+        """
+        try:
+            from PyQt6.Qsci import QsciScintilla as _QSci
+            self._editor.SendScintilla(_QSci.SCI_AUTOCCANCEL)
+        except Exception:
+            pass
+        self._complete_environments(is_end=is_end, needs_brace=True)
+
+    def _complete_environments(self, is_end: bool = False, needs_brace: bool = False) -> None:
         """Popup con tutti gli ambienti LaTeX: standard + custom del documento."""
+        self._env_popup_needs_brace = needs_brace
         try:
             from editor.latex_support import LaTeXSupport
             envs = LaTeXSupport.get_all_environments(self._editor.text())
         except Exception:
             from editor.latex_support import STANDARD_ENVIRONMENTS
             envs = STANDARD_ENVIRONMENTS
-        self._env_cache = sorted(envs)   # usato da refresh_env_popup
+
+        if is_end:
+            # \end{: propone prima gli ambienti ancora aperti (il più interno
+            # per primo, es. multicols, small, center...), poi il resto come fallback.
+            from editor.latex_support import LaTeXSupport
+            line, col = self._editor.getCursorPosition()
+            open_envs = LaTeXSupport.find_open_environments(self._editor.text(), line, col)
+            seen = set()
+            open_envs = [e for e in open_envs if not (e in seen or seen.add(e))]
+            rest = [e for e in sorted(set(envs)) if e not in seen]
+            self._env_cache = open_envs + rest   # usato da refresh_env_popup
+        else:
+            # Ambienti già usati (alfabetico) in cima, poi tutti gli altri (alfabetico)
+            self._env_cache = LaTeXSupport.sort_environments_by_usage(envs)   # usato da refresh_env_popup
         self._editor.showUserList(3, self._env_cache)
 
     def refresh_env_popup(self, prefix: str) -> None:

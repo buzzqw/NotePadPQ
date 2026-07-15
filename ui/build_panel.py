@@ -722,10 +722,16 @@ class BuildPanel(QWidget):
         Elimina i file ausiliari accanto al PDF appena generato (stesso nome,
         stessa cartella). Chiamata solo dopo una compilazione riuscita e solo
         se l'opzione è attiva — il PDF stesso non è mai toccato.
+        Se "build/keep_synctex" è attivo, .synctex.gz è escluso dalla pulizia
+        perché serve alla sincronizzazione sorgente↔PDF anche dopo il build.
         """
+        from config.settings import Settings
+        keep_synctex = Settings.instance().get("build/keep_synctex", True)
         base = pdf_path.with_suffix("")
         removed = []
         for ext in self._AUX_EXTENSIONS:
+            if keep_synctex and ext == ".synctex.gz":
+                continue
             candidate = base.with_name(base.name + ext)
             if candidate.exists():
                 try:

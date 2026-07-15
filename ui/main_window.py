@@ -1542,6 +1542,11 @@ class MainWindow(QMainWindow):
                                checkable=True, checked=clean_checked)
         clean_act.setToolTip(tr("tooltip.build_clean_aux_toggle"))
         m.addAction(clean_act)
+        keep_synctex_checked = Settings.instance().get("build/keep_synctex", True)
+        keep_synctex_act = self._act("build_keep_synctex_toggle", "", self._toggle_keep_synctex,
+                                      checkable=True, checked=keep_synctex_checked)
+        keep_synctex_act.setToolTip(tr("tooltip.build_keep_synctex_toggle"))
+        m.addAction(keep_synctex_act)
         self._sep(m)
         self._menus["lsp"] = m
         m.addSection("⚡  LSP")
@@ -3262,6 +3267,10 @@ class MainWindow(QMainWindow):
     def _toggle_clean_aux(self, checked: bool) -> None:
         from config.settings import Settings
         Settings.instance().set("build/clean_aux_after_compile", checked)
+
+    def _toggle_keep_synctex(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("build/keep_synctex", checked)
 
     def action_keybinding_editor(self) -> None:
         from ui.keybinding import KeyBindingDialog

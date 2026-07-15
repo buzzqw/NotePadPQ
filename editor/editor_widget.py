@@ -1791,9 +1791,24 @@ class EditorWidget(QsciScintilla):
             # — rimpiazza il prefisso parziale digitato dopo {
             self._insert_replacing_partial_and_close_brace(text)
         elif list_id == 3:
-            # Ambienti LaTeX da \begin{
-            from editor.latex_support import LaTeXSupport
-            LaTeXSupport.insert_environment(self, text)
+            # Ambienti LaTeX da \begin{ o \end{ (o da \begin/\end senza
+            # ancora la { se il popup è partito subito dopo la parola)
+            ac = getattr(self, "_autocomplete", None)
+            if ac is not None and getattr(ac, "_env_popup_needs_brace", False):
+                line, col = self.getCursorPosition()
+                self.insert("{")
+                self.setCursorPosition(line, col + 1)
+            line, col = self.getCursorPosition()
+            text_before = self.text(line)[:col]
+            brace_pos = text_before.rfind('{')
+            cmd_before = text_before[:brace_pos] if brace_pos >= 0 else text_before
+            if cmd_before.rstrip().endswith("\\end"):
+                # \end{...}: nessuna coppia \begin/\end né argomenti obbligatori,
+                # basta chiudere il nome dell'ambiente già digitato
+                self._insert_replacing_partial_and_close_brace(text)
+            else:
+                from editor.latex_support import LaTeXSupport
+                LaTeXSupport.insert_environment(self, text)
         elif list_id == 5:
             key = text.split("  [")[0] if "  [" in text else text
             self._insert_and_close_brace(key)

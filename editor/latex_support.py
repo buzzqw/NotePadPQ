@@ -947,6 +947,7 @@ class LaTeXSupport:
             pass  # il completamento parte dall'autocomplete standard
         elif char.isalpha() or char == "*":
             LaTeXSupport._handle_env_prefix(editor)
+            LaTeXSupport._handle_env_word(editor)
 
     @staticmethod
     def _handle_newline(editor: "EditorWidget") -> None:
@@ -1036,6 +1037,26 @@ class LaTeXSupport:
         if m:
             ac.refresh_env_popup(m.group(1))
 
+    # Parola \begin o \end appena completata, { non ancora digitata
+    _BEGIN_END_WORD = re.compile(r'\\(begin|end)$')
+
+    @staticmethod
+    def _handle_env_word(editor: "EditorWidget") -> None:
+        """
+        Appena \\begin o \\end sono completi (parola intera, senza ancora la
+        {), mostra subito il popup ambienti ordinato per uso/nidificazione:
+        non serve digitare anche la graffa per vedere i suggerimenti utili.
+        """
+        ac = getattr(editor, "_autocomplete", None)
+        if not ac:
+            return
+        line, col = editor.getCursorPosition()
+        text_before = editor.text(line)[:col]
+        m = LaTeXSupport._BEGIN_END_WORD.search(text_before)
+        if not m:
+            return
+        ac.complete_environments_from_word(is_end=(m.group(1) == "end"))
+
     @staticmethod
     def _auto_close_generic_brace(editor: "EditorWidget") -> None:
         """Auto-inserisce } dopo \\cmd{ se il cursore e' immediatamente dopo la {."""
@@ -1086,6 +1107,8 @@ class LaTeXSupport:
             editor.removeSelectedText()
             line, col = editor.getCursorPosition()
 
+        LaTeXSupport.track_env_usage(env_name)
+
         # Argomenti obbligatori dell'ambiente (testo statico)
         extra_args = ENV_MANDATORY_ARGS.get(env_name, [])
         mandatory_str = "".join(extra_args)
@@ -1130,6 +1153,7 @@ class LaTeXSupport:
             return
 
         env = m.group(1)
+        LaTeXSupport.track_env_usage(env)
         extra_args = ENV_MANDATORY_ARGS.get(env)
         if not extra_args:
             return
@@ -1468,6 +1492,65 @@ class LaTeXSupport:
         for pkg in pkgs:
             pkg_envs.extend(PACKAGE_ENVIRONMENTS.get(pkg.lower(), []))
         return sorted(set(STANDARD_ENVIRONMENTS + custom + pkg_envs))
+
+    # ── Frequenza d'uso ambienti (per ordinare il popup \begin{) ─────────────
+
+    @staticmethod
+    def _get_env_usage_counts() -> dict:
+        import json
+        from config.settings import Settings
+        raw = Settings.instance().get("latex/env_usage_counts", "{}")
+        try:
+            return json.loads(raw) if isinstance(raw, str) else dict(raw)
+        except (TypeError, ValueError):
+            return {}
+
+    @staticmethod
+    def track_env_usage(env_name: str) -> None:
+        """Incrementa il contatore d'uso di env_name (persistito), usato per
+        ordinare il popup \\begin{ con gli ambienti più usati in cima."""
+        import json
+        from config.settings import Settings
+        counts = LaTeXSupport._get_env_usage_counts()
+        counts[env_name] = counts.get(env_name, 0) + 1
+        Settings.instance().set("latex/env_usage_counts", json.dumps(counts))
+
+    @staticmethod
+    def find_open_environments(text: str, line: int, col: int) -> list[str]:
+        """
+        Scandisce il testo fino a (line, col) e restituisce gli ambienti
+        \\begin{...} ancora aperti (senza \\end{...} corrispondente), dal più
+        interno (aperto più di recente) al più esterno. Ignora i commenti.
+        Usato per suggerire l'ambiente giusto dopo \\end{.
+        """
+        all_lines = text.split("\n")
+        lines = all_lines[:line]
+        lines.append(all_lines[line][:col] if line < len(all_lines) else "")
+        prefix = "\n".join(lines)
+
+        stack: list[str] = []
+        pattern = re.compile(r'\\(begin|end)\{([^}]+)\}')
+        for raw_line in prefix.split("\n"):
+            code = re.split(r'(?<!\\)%', raw_line, maxsplit=1)[0]
+            for m in pattern.finditer(code):
+                kind, env = m.group(1), m.group(2)
+                if kind == "begin":
+                    stack.append(env)
+                else:
+                    for i in range(len(stack) - 1, -1, -1):
+                        if stack[i] == env:
+                            del stack[i]
+                            break
+        return list(reversed(stack))
+
+    @staticmethod
+    def sort_environments_by_usage(envs) -> list[str]:
+        """Ordina envs mettendo prima gli ambienti già usati almeno una volta
+        (alfabetico), poi tutti gli altri (alfabetico)."""
+        counts = LaTeXSupport._get_env_usage_counts()
+        used = sorted(e for e in envs if counts.get(e, 0) > 0)
+        unused = sorted(e for e in envs if counts.get(e, 0) <= 0)
+        return used + unused
 
     # ── Indentazione intelligente ─────────────────────────────────────────────
 

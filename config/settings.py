@@ -57,6 +57,7 @@ class Settings(QObject):
         "preview/sync_cursor":     True,
         # Build
         "build/save_before":       True,
+        "build/keep_synctex":      True,
         # i18n
         "i18n/language":           "it",
         # Finestra
@@ -69,6 +70,8 @@ class Settings(QObject):
         # Controllo ortografico
         "spellcheck/enabled":      False,
         "spellcheck/language":     "it",
+        # LaTeX
+        "latex/env_usage_counts":  "{}",  # JSON: {env_name: count} per ordinare il popup \begin{
         # Function List
         "function_list/latex_hidden_kinds": "",  # CSV: "subsubsection,command" ecc.
         "function_list/disabled_presets":   "",  # CSV: preset JSON disabilitati

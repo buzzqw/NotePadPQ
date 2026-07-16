@@ -41,6 +41,7 @@ from config.settings import Settings
 # QWebEngineView è opzionale: se non installato si usa QTextBrowser come fallback
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtWebEngineCore import QWebEngineSettings
     _HAS_WEBENGINE = True
 except ImportError:
     _HAS_WEBENGINE = False
@@ -693,6 +694,12 @@ class PreviewPanel(QWidget):
             self._web = safe_webview()
             if self._web is not None:
                 self._web.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+                # MathJax/Mermaid sono caricati da CDN: il contenuto locale
+                # (setHtml) deve poter accedere a URL remoti, altrimenti gli
+                # script falliscono silenziosamente (es. "mermaid is not defined").
+                self._web.settings().setAttribute(
+                    QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True
+                )
                 self._stack.addWidget(self._web)   # aggiunto in fondo, indice >= 4
         return self._web
 

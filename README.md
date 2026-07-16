@@ -92,6 +92,7 @@ Runs natively on Linux, Windows, and FreeBSD.
 - **Sort lines** by 5 criteria: alphabetical, reverse, by length, random.
 - **Word frequency**: occurrence analysis on the document or selection.
 - **Table alignment** for Markdown/LaTeX, **wrap in environment/tag**.
+- **Smart LaTeX environment popup**: typing `\begin`/`\end` suggests environments — most-used first for `\begin`, currently-open (innermost first) for `\end` — with a single correctly-paired insertion (no duplicate/mismatched `\end{}`).
 - **Color Translator**: pick a color and get HTML/CSS name, `#HEX`, `rgb()`, `rgb(%)`, `hsl()`: insert or copy each format individually.
 - **Lorem Ipsum generator**: insert placeholder text with configurable paragraphs, sentences, and separator.
 - Interactive regex tester, numeric converter (dec/hex/bin/oct).
@@ -102,6 +103,7 @@ Runs natively on Linux, Windows, and FreeBSD.
 - Real-time output with **clickable error list**; click an error to jump directly to the line.
 - **Automatic PDF detection**: the preview button activates instantly if a compiled PDF is already present.
 - **Auto-save** before compilation.
+- **Keep `.synctex.gz`** option (on by default): excludes it from auxiliary-file cleanup after compilation, so SyncTeX sync with the PDF preview survives.
 
 ### 👁️ Preview Panel
 - **Live preview** for Markdown, HTML, reStructuredText, LaTeX (structure), PDF.
@@ -458,6 +460,7 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Ordina righe** con 5 criteri: alfabetico, inverso, per lunghezza, casuale.
 - **Frequenza parole**: analisi delle occorrenze sul documento o sulla selezione.
 - **Allineamento tabelle** Markdown/LaTeX, **avvolgimento** in ambienti/tag.
+- **Popup ambienti LaTeX intelligente**: digitando `\begin`/`\end` propone gli ambienti — i più usati per `\begin`, quelli ancora aperti (dal più interno) per `\end` — con inserimento sempre corretto (niente `\end{}` duplicati o spaiati).
 - **Traduttore colori**: seleziona un colore e ottieni immediatamente nome HTML/CSS, `#HEX`, `rgb()`, `rgb(%)`, `hsl()`: pulsante inserisci/copia per ogni formato.
 - **Generatore Lorem Ipsum**: inserisce testo segnaposto con opzioni (paragrafi, frasi, separatore, primo paragrafo classico).
 - Tester regex interattivo, convertitore numerico (dec/hex/bin/oct).
@@ -468,6 +471,7 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Output in tempo reale** con lista errori cliccabile; click su un errore salta direttamente alla riga.
 - **Rilevamento PDF automatico**: il pulsante anteprima si abilita istantaneamente se è presente un PDF già compilato.
 - **Salvataggio automatico** prima della compilazione.
+- **Mantieni `.synctex.gz`** (attivo di default): lo esclude dalla pulizia dei file ausiliari dopo la compilazione, così la sincronizzazione SyncTeX con l'anteprima PDF resta valida.
 
 ### 👁️ Pannello Anteprima
 - **Anteprima live** di Markdown, HTML, reStructuredText, LaTeX (struttura), PDF.

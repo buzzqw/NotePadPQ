@@ -37,17 +37,21 @@ Runs natively on Linux, Windows, and FreeBSD.
 
 ## 🏆 Why NotePadPQ?
 
-| Feature | NotePadPQ | Notepad++ | Sublime Text | VS Code |
-|---|:---:|:---:|:---:|:---:|
-| Truly cross-platform (Linux/Win/BSD) | ✅ | ❌ (Win only) | ✅ | ✅ |
-| Free & open source | ✅ | ✅ | ❌ | ✅ (core) |
-| Native LaTeX support + PDF preview | ✅ | ❌ | ❌ | via ext |
-| Built-in AI assistant (multi-provider) | ✅ | ❌ | ❌ | via ext |
-| Live Markdown/HTML/PDF preview | ✅ | ❌ | via ext | via ext |
-| Spreadsheet & rich text editor | ✅ | ❌ | ❌ | ❌ |
-| Integrated database browser | ✅ | ❌ | ❌ | via ext |
-| Recover unsaved buffers on startup | ✅ | ✅ | ✅ | ✅ |
-| Lightweight (pure Python, no Electron) | ✅ | ✅ | ✅ | ❌ |
+| Feature | NotePadPQ | Notepad++ | Sublime Text | VS Code | TeXStudio |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Truly cross-platform (Linux/Win/BSD) | ✅ | ❌ (Win only) | ✅ | ✅ | ✅ (no BSD) |
+| Free & open source | ✅ | ✅ | ❌ | ✅ (core) | ✅ |
+| Native LaTeX support + PDF preview | ✅ | ❌ | ❌ | via ext | ✅ |
+| Built-in AI assistant (multi-provider) | ✅ | ❌ | ❌ | via ext | ❌ |
+| Live Markdown/HTML/PDF preview | ✅ | ❌ | via ext | via ext | PDF only |
+| Spreadsheet & rich text editor | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Integrated database browser | ✅ | ❌ | ❌ | via ext | ❌ |
+| Git integration panel (status/log/diff/branch/PR) | ✅ | ❌ | via ext | ✅ | ❌ |
+| Integrated native terminal (PTY) | ✅ | ❌ | via ext | ✅ | ❌ |
+| Built-in REST/HTTP client | ✅ | ❌ | via ext | via ext | ❌ |
+| Native LSP support (go to def, rename, hover) | ✅ | ❌ | via ext | ✅ | ❌ |
+| Recover unsaved buffers on startup | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Lightweight (pure Python, no Electron) | ✅ | ✅ | ✅ | ❌ | ✅ (C++/Qt) |
 
 ---
 
@@ -405,17 +409,21 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 
 ## 🏆 Perché NotePadPQ?
 
-| Funzionalità | NotePadPQ | Notepad++ | Sublime Text | VS Code |
-|---|:---:|:---:|:---:|:---:|
-| Veramente multipiattaforma (Linux/Win/BSD) | ✅ | ❌ (solo Win) | ✅ | ✅ |
-| Libero e open source | ✅ | ✅ | ❌ | ✅ (core) |
-| Supporto LaTeX nativo + anteprima PDF | ✅ | ❌ | ❌ | via ext |
-| AI assistant integrato (multi-provider) | ✅ | ❌ | ❌ | via ext |
-| Anteprima live Markdown/HTML/PDF | ✅ | ❌ | via ext | via ext |
-| Editor fogli di calcolo e rich text | ✅ | ❌ | ❌ | ❌ |
-| Browser database integrato | ✅ | ❌ | ❌ | via ext |
-| Recupero buffer non salvati all'avvio | ✅ | ✅ | ✅ | ✅ |
-| Leggero (Python puro, niente Electron) | ✅ | ✅ | ✅ | ❌ |
+| Funzionalità | NotePadPQ | Notepad++ | Sublime Text | VS Code | TeXStudio |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Veramente multipiattaforma (Linux/Win/BSD) | ✅ | ❌ (solo Win) | ✅ | ✅ | ✅ (no BSD) |
+| Libero e open source | ✅ | ✅ | ❌ | ✅ (core) | ✅ |
+| Supporto LaTeX nativo + anteprima PDF | ✅ | ❌ | ❌ | via ext | ✅ |
+| AI assistant integrato (multi-provider) | ✅ | ❌ | ❌ | via ext | ❌ |
+| Anteprima live Markdown/HTML/PDF | ✅ | ❌ | via ext | via ext | solo PDF |
+| Editor fogli di calcolo e rich text | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Browser database integrato | ✅ | ❌ | ❌ | via ext | ❌ |
+| Pannello Git integrato (status/log/diff/branch/PR) | ✅ | ❌ | via ext | ✅ | ❌ |
+| Terminale nativo integrato (PTY) | ✅ | ❌ | via ext | ✅ | ❌ |
+| Client REST/HTTP integrato | ✅ | ❌ | via ext | via ext | ❌ |
+| Supporto LSP nativo (vai a definizione, rename, hover) | ✅ | ❌ | via ext | ✅ | ❌ |
+| Recupero buffer non salvati all'avvio | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Leggero (Python puro, niente Electron) | ✅ | ✅ | ✅ | ❌ | ✅ (C++/Qt) |
 
 ---
 

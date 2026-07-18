@@ -21,6 +21,7 @@ Uso da MainWindow:
 
 from __future__ import annotations
 
+import bisect
 import json
 import re
 from abc import ABC, abstractmethod
@@ -29,7 +30,10 @@ from typing import Optional, List, Dict, TYPE_CHECKING
 from dataclasses import dataclass, field
 
 from PyQt6.QtCore import Qt, QTimer, QThread, QSortFilterProxyModel, pyqtSignal
-from PyQt6.QtGui import QStandardItemModel, QStandardItem, QColor, QFont, QIcon, QKeySequence, QAction
+from PyQt6.QtGui import (
+    QStandardItemModel, QStandardItem, QColor, QFont, QIcon, QKeySequence,
+    QAction, QPalette,
+)
 from PyQt6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QTreeView, QLineEdit, QPushButton, QLabel,
@@ -480,12 +484,26 @@ class _FunctionListPanel(QWidget):
         self._old_parse_workers: list = []
         self._parse_gen: int = 0
 
+        # Simbolo "corrente": riga in cui si trova il cursore nell'editor,
+        # evidenziata nell'albero. Lista (line, item) ordinata per riga per
+        # ricerca O(log n) con bisect, ricostruita a ogni refresh del parser.
+        self._line_items: list[tuple[int, QStandardItem]] = []
+        self._current_hl_item: Optional[QStandardItem] = None
+
         self._build_ui()
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(700)
         self._timer.timeout.connect(self._refresh)
+
+        # Debounce per l'evidenziazione della funzione corrente: il cursore
+        # si sposta molto più spesso del testo, quindi usiamo un intervallo
+        # breve ma comunque "lazy" per non ricalcolare a ogni singolo evento.
+        self._hl_timer = QTimer(self)
+        self._hl_timer.setSingleShot(True)
+        self._hl_timer.setInterval(150)
+        self._hl_timer.timeout.connect(self._update_highlight)
 
         main_window._tab_manager.current_editor_changed.connect(
             self._on_editor_changed
@@ -551,9 +569,15 @@ class _FunctionListPanel(QWidget):
                 self._editor.textChanged.disconnect(self._on_text_changed)
             except Exception:
                 pass
+            try:
+                self._editor.cursorPositionChanged.disconnect(self._on_cursor_moved)
+            except Exception:
+                pass
         self._editor = editor
         if editor:
             editor.textChanged.connect(self._on_text_changed)
+            editor.cursorPositionChanged.connect(self._on_cursor_moved)
+        self._set_highlight(None)
         # Se visibile aggiorna subito, altrimenti segna flag
         if self.isVisible():
             self._needs_refresh = False
@@ -567,13 +591,57 @@ class _FunctionListPanel(QWidget):
         if self._needs_refresh:
             self._needs_refresh = False
             self._timer.start()
-
+        else:
+            self._hl_timer.start()
 
     def _on_text_changed(self) -> None:
         if self.isVisible():
             self._timer.start()
         else:
             self._needs_refresh = True
+
+    def _on_cursor_moved(self, line: int, index: int) -> None:
+        # Costo quasi nullo se il pannello e' nascosto: nessun timer, nessun
+        # lavoro finche' l'utente non lo riapre.
+        if self.isVisible():
+            self._hl_timer.start()
+
+    def _set_highlight(self, item: Optional[QStandardItem]) -> None:
+        """Applica/rimuove lo sfondo di evidenziazione, senza toccare selezione o focus."""
+        if self._current_hl_item is item:
+            return
+        if self._current_hl_item is not None:
+            try:
+                self._current_hl_item.setData(None, Qt.ItemDataRole.BackgroundRole)
+                font = self._current_hl_item.font(); font.setBold(False)
+                self._current_hl_item.setFont(font)
+            except RuntimeError:
+                pass  # item appartenente a un modello già svuotato/ricostruito
+        self._current_hl_item = item
+        if item is not None:
+            color = QColor(self._tree.palette().color(
+                QPalette.ColorGroup.Active, QPalette.ColorRole.Highlight
+            ))
+            color.setAlpha(70)
+            item.setBackground(color)
+            font = item.font(); font.setBold(True)
+            item.setFont(font)
+
+    def _update_highlight(self) -> None:
+        if not self.isVisible() or not self._editor or not self._line_items:
+            self._set_highlight(None)
+            return
+        current_line = self._editor.getCursorPosition()[0] + 1  # 1-based, come FuncSymbol.line
+        lines = [ln for ln, _ in self._line_items]
+        idx = bisect.bisect_right(lines, current_line) - 1
+        if idx < 0:
+            self._set_highlight(None)
+            return
+        item = self._line_items[idx][1]
+        self._set_highlight(item)
+        src_index = item.index()
+        self._tree.scrollTo(self._proxy.mapFromSource(src_index),
+                             QAbstractItemView.ScrollHint.EnsureVisible)
 
     # Parser che usano la vista gerarchica per level
     _HIERARCHICAL_PARSERS = (_MarkdownParser, _LaTeXParser)
@@ -583,6 +651,7 @@ class _FunctionListPanel(QWidget):
         item.setData(sym.line, Qt.ItemDataRole.UserRole)
         item.setToolTip(sym.signature)
         item.setEditable(False)
+        self._line_items.append((sym.line, item))
         return item
 
     def _make_group_header(self, label: str) -> QStandardItem:
@@ -682,6 +751,8 @@ class _FunctionListPanel(QWidget):
         self._parse_worker = None
         self._symbols = symbols
         self._model.clear()
+        self._line_items = []
+        self._current_hl_item = None  # il vecchio item apparteneva al modello appena svuotato
 
         if not symbols:
             self._info.setText(tr("function_list.no_functions"))
@@ -691,9 +762,11 @@ class _FunctionListPanel(QWidget):
             self._build_hierarchical(symbols)
         else:
             self._build_grouped(symbols)
+        self._line_items.sort(key=lambda t: t[0])
 
         self._tree.expandAll()
         self._apply_filter(self._filter.text())
+        self._update_highlight()
 
         editor = self._editor
         count = len(symbols)

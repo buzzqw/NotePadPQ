@@ -1000,8 +1000,10 @@ class _TaskTab(QWidget):
         from core.build_manager import BuildWorker
         import os
         self._worker = BuildWorker(cmd, cwd, dict(os.environ))
-        self._worker.output.connect(self._on_output)
-        self._worker.finished.connect(self._on_done)
+        self._worker.output_line.connect(self._on_output)
+        self._worker.finished_ok.connect(lambda _secs: self._on_done(True))
+        self._worker.finished_err.connect(lambda _code: self._on_done(False))
+        self._worker.stopped.connect(lambda: self._on_done(False))
         self._worker.start()
 
     def _stop(self) -> None:

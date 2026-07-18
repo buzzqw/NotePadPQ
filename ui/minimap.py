@@ -13,10 +13,7 @@ import re
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QRect, QTimer, QThread, QPoint, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import (
-    QColor, QPainter, QPen, QBrush, QFont,
-    QFontMetrics, QPixmap, QImage,
-)
+from PyQt6.QtGui import QColor, QPainter, QPen, QBrush, QPixmap, QImage
 from PyQt6.QtWidgets import QWidget, QAbstractScrollArea, QLabel
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -172,12 +169,17 @@ class MinimapWidget(QWidget):
     @pyqtSlot()
     def _rebuild(self) -> None:
         """Avvia il worker di rendering in background (non blocca il main thread)."""
-        # Snapshot testo e dimensioni sul main thread (QScintilla non è thread-safe)
-        text   = self._editor.text()
-        lines  = text.split("\n")[:MAX_LINES]
-        height = max(len(lines) * LINE_HEIGHT, self.height())
+        # Elimina worker precedenti non più in esecuzione (previene memory leak
+        # anche se un worker crasha senza emettere finished)
+        self._old_workers[:] = [
+            w for w in self._old_workers if w.isRunning()
+        ]
 
-        # Colori dal tema: letti sul main thread, passati come stringe hex al worker
+        total = self._editor.lines()
+        n = min(total, MAX_LINES)
+        lines = [self._editor.text(i) for i in range(n)]
+        height = max(n * LINE_HEIGHT, self.height())
+
         try:
             from config.themes import ThemeManager
             tm    = ThemeManager.instance()
@@ -191,25 +193,15 @@ class MinimapWidget(QWidget):
         except Exception:
             bg, fg, kw, st, cm = "#1e1e1e", "#d4d4d4", "#569cd6", "#ce9178", "#6a9955"
 
-        # Annulla worker precedente senza distruggerlo (può essere ancora in run())
         if self._worker is not None:
             self._worker.cancel()
-            old = self._worker
-            self._old_workers.append(old)
-            def _clean(w=old):
-                try: self._old_workers.remove(w)
-                except ValueError: pass
-            old.finished.connect(_clean)
+            self._old_workers.append(self._worker)
             self._worker = None
 
         worker = _MinimapWorker(lines, height, bg, fg, kw, st, cm)
         worker.done.connect(self._on_image_ready)
         self._worker = worker
         self._old_workers.append(worker)
-        def _clean2(w=worker):
-            try: self._old_workers.remove(w)
-            except ValueError: pass
-        worker.finished.connect(_clean2)
         worker.start()
 
     @pyqtSlot(object)
@@ -298,18 +290,19 @@ class MinimapWidget(QWidget):
 
         y = self._popup_y
         line = self._line_from_y(y)
-        all_lines = self._editor.text().splitlines()
-        if not all_lines:
+        total = self._editor.lines()
+        if total == 0:
             return
 
         CONTEXT = 9
         start = max(0, line - CONTEXT)
-        end   = min(len(all_lines), line + CONTEXT + 1)
+        end   = min(total, line + CONTEXT + 1)
         MAX_W = 72
-        excerpt = "\n".join(
-            (l[:MAX_W] + "…") if len(l) > MAX_W else l
-            for l in all_lines[start:end]
-        )
+        excerpt_lines = []
+        for i in range(start, end):
+            l = self._editor.text(i).rstrip("\r\n")
+            excerpt_lines.append((l[:MAX_W] + "…") if len(l) > MAX_W else l)
+        excerpt = "\n".join(excerpt_lines)
         if not excerpt.strip():
             self._hide_popup()
             return

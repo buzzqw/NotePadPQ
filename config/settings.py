@@ -19,8 +19,9 @@ class Settings(QObject):
 
     _instance: Optional["Settings"] = None
 
-    # Valori default
-    DEFAULTS: dict[str, Any] = {
+    @staticmethod
+    def _defaults() -> dict:
+        return {
         # Editor
         "editor/font_family":      None,    # None = auto da piattaforma
         "editor/font_size":        11,
@@ -89,7 +90,7 @@ class Settings(QObject):
         return cls._instance
 
     def get(self, key: str, default: Any = None) -> Any:
-        fallback = default if default is not None else self.DEFAULTS.get(key)
+        fallback = default if default is not None else self._defaults().get(key)
         value = self._qs.value(key, fallback)
         # QSettings restituisce stringhe — converti i bool
         if isinstance(fallback, bool) and isinstance(value, str):

@@ -172,16 +172,13 @@ class GitGutter(QObject):
             self._timer.start()
 
     def _cancel_worker(self) -> None:
+        # Elimina worker precedenti non più in esecuzione
+        self._old_workers[:] = [
+            w for w in self._old_workers if w.isRunning()
+        ]
         if self._worker is not None:
             self._worker.cancel()
             self._old_workers.append(self._worker)
-            old = self._worker
-            def _cleanup(w=old):
-                try:
-                    self._old_workers.remove(w)
-                except ValueError:
-                    pass
-            old.finished.connect(_cleanup)
             self._worker = None
 
     def _refresh(self) -> None:
@@ -196,12 +193,6 @@ class GitGutter(QObject):
         worker.done.connect(lambda a, m, d, ed=editor: self._on_diff_done(a, m, d, ed))
         self._worker = worker
         self._old_workers.append(worker)
-        def _cleanup(w=worker):
-            try:
-                self._old_workers.remove(w)
-            except ValueError:
-                pass
-        worker.finished.connect(_cleanup)
         worker.start()
 
     def _on_diff_done(self, added: set, modified: set, deleted: set,

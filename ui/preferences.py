@@ -675,15 +675,6 @@ class PreferencesDialog(QDialog):
             return
         for ed in mw._tab_manager.all_editors():
             self._theme_mgr.apply_to_editor(ed, theme_name)
-        
-        # Risale alla MainWindow e applica il tema a tutti gli editor
-        mw = self.parent()
-        while mw is not None and not hasattr(mw, "_tab_manager"):
-            mw = mw.parent()
-        if mw is None:
-            return
-        for ed in mw._tab_manager.all_editors():
-            self._theme_mgr.apply_to_editor(ed, theme_name)
 
     def _apply(self) -> None:
         s = self._settings

@@ -73,10 +73,10 @@ class _LoadWorker(QObject):
     def __init__(self, path: Path):
         super().__init__()
         self._path     = path
-        self._cancelled = False
+        self._cancelled = threading.Event()
 
     def cancel(self) -> None:
-        self._cancelled = True
+        self._cancelled.set()
 
     def run(self) -> None:
         """Eseguito nel thread di background."""
@@ -103,7 +103,7 @@ class _LoadWorker(QObject):
 
                 buffer = b""
                 while True:
-                    if self._cancelled:
+                    if self._cancelled.is_set():
                         return
 
                     raw = f.read(CHUNK_SIZE_BYTES)
@@ -139,7 +139,7 @@ class _LoadWorker(QObject):
                     chunk_idx += 1
 
                 # Eventuale coda
-                if buffer and not self._cancelled:
+                if buffer and not self._cancelled.is_set():
                     try:
                         text = buffer.decode(encoding, errors="replace")
                     except Exception:
@@ -255,6 +255,7 @@ class LazyLoader(QObject):
         self._progress_dlg: Optional[QProgressDialog] = None
         self._cancelled   = False
         self._paged_view: Optional[PagedFileView] = None
+        self._pager_widget: Optional[QWidget] = None
         self._accumulated = []   # chunks accumulati prima dell'append
 
     # ── Entry point statico ───────────────────────────────────────────────────
@@ -460,6 +461,7 @@ class LazyLoader(QObject):
         if self._worker:
             self._worker.cancel()
         self._close_progress()
+        self._remove_pager_ui()
 
     # ── Progress dialog ───────────────────────────────────────────────────────
 
@@ -486,6 +488,15 @@ class LazyLoader(QObject):
     def _on_error(self, msg: str) -> None:
         self._close_progress()
         self.load_error.emit(msg)
+
+    def _remove_pager_ui(self) -> None:
+        if self._pager_widget is not None and self._mw is not None:
+            try:
+                self._mw.statusBar().removeWidget(self._pager_widget)
+                self._pager_widget.deleteLater()
+            except Exception:
+                pass
+            self._pager_widget = None
 
     # ── Informazioni stato ────────────────────────────────────────────────────
 

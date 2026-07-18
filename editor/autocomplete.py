@@ -855,22 +855,19 @@ class AutoCompleteManager(QObject):
             QTimer.singleShot(100, self._rebuild_api)
             return
 
+        # Elimina worker precedenti non più in esecuzione
+        self._old_api_workers[:] = [
+            w for w in self._old_api_workers if w.isRunning()
+        ]
+
         # Snapshot sul main thread (QScintilla non è thread-safe)
         text = self._editor.text()
         fp   = getattr(self._editor, "file_path", None)
         all_docs_words = self._collect_all_docs_words()
 
-        # Annulla worker precedente senza distruggerlo (pattern old_workers)
         if self._api_worker is not None:
             self._api_worker.cancel()
-            old = self._api_worker
-            self._old_api_workers.append(old)
-            def _cleanup_old(w=old):
-                try:
-                    self._old_api_workers.remove(w)
-                except ValueError:
-                    pass
-            old.finished.connect(_cleanup_old)
+            self._old_api_workers.append(self._api_worker)
             self._api_worker = None
 
         self._api_gen += 1
@@ -884,12 +881,6 @@ class AutoCompleteManager(QObject):
         )
         self._api_worker = worker
         self._old_api_workers.append(worker)
-        def _cleanup(w=worker):
-            try:
-                self._old_api_workers.remove(w)
-            except ValueError:
-                pass
-        worker.finished.connect(_cleanup)
         worker.start()
 
     def _on_api_ready(self, terms: list, gen: int) -> None:

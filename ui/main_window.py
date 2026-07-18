@@ -262,6 +262,8 @@ class MainWindow(QMainWindow):
         self._setup_resource_monitor()
         self._setup_tab_switcher()
 
+        self._prev_editor: Optional[EditorWidget] = None
+
         self.setAcceptDrops(True)
 
     # ── Setup ─────────────────────────────────────────────────────────────────
@@ -614,12 +616,19 @@ class MainWindow(QMainWindow):
 
             # Definition → naviga
             try:
-                client.definition_ready.disconnect()
+                client.definition_ready.disconnect(self._on_lsp_definition)
             except Exception:
                 pass
             client.definition_ready.connect(self._on_lsp_definition)
 
             # Hover → tooltip testo
+            try:
+                client.hover_ready.disconnect(self._on_lsp_hover_text)
+            except Exception:
+                pass
+            client.hover_ready.connect(self._on_lsp_hover_text)
+
+            # Hover widget → richiesta
             try:
                 editor.lsp_hover_requested.disconnect()
             except Exception:
@@ -627,13 +636,8 @@ class MainWindow(QMainWindow):
             editor.lsp_hover_requested.connect(
                 lambda line, col, _e=editor, _c=client: self._lsp_request_hover(_e, _c, line, col)
             )
-            try:
-                client.hover_ready.disconnect(self._on_lsp_hover_text)
-            except Exception:
-                pass
-            client.hover_ready.connect(self._on_lsp_hover_text)
 
-            # Formatting → applica edits
+            # Formatting → applica edits (usa disconnect() senza arg: il vecchio slot è una lambda)
             try:
                 client.formatting_ready.disconnect()
             except Exception:
@@ -644,14 +648,14 @@ class MainWindow(QMainWindow):
 
             # Rename → applica workspace edit
             try:
-                client.rename_ready.disconnect()
+                client.rename_ready.disconnect(self._on_lsp_rename)
             except Exception:
                 pass
             client.rename_ready.connect(self._on_lsp_rename)
 
             # References → mostra in panel
             try:
-                client.references_ready.disconnect()
+                client.references_ready.disconnect(self._on_lsp_references)
             except Exception:
                 pass
             client.references_ready.connect(self._on_lsp_references)
@@ -1886,32 +1890,54 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_json_xml_panel"):
             self._json_xml_panel.set_editor(editor)
 
+        # Scollega i segnali dell'editor precedente
+        prev = self._prev_editor
+        if prev is not None and prev is not editor:
+            try:
+                prev.cursor_changed.disconnect(self._statusbar.set_cursor)
+                prev.selection_changed_info.disconnect(self._statusbar.set_selection)
+                prev.encoding_changed.disconnect(self._statusbar.set_encoding)
+                prev.line_ending_changed.disconnect(self._statusbar.set_line_ending)
+                prev.overwrite_changed.disconnect(self._statusbar.set_overwrite)
+                prev.zoom_changed.disconnect(self._statusbar.set_zoom)
+            except (RuntimeError, TypeError):
+                pass
+
+            try:
+                prev.textChanged.disconnect(self._wg_timer.start)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                prev.cursorPositionChanged.disconnect(self._on_focus_cursor_moved)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                prev.modified_changed.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                prev.paste_clipboard_image_requested.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+
         # Collega i segnali del nuovo editor allo statusbar
         editor.cursor_changed.connect(self._statusbar.set_cursor)
         editor.selection_changed_info.connect(self._statusbar.set_selection)
         editor.encoding_changed.connect(self._statusbar.set_encoding)
         editor.line_ending_changed.connect(self._statusbar.set_line_ending)
         editor.modified_changed.connect(
-            lambda mod: self._on_tab_modified(editor, mod)
+            lambda mod, ed=editor: self._on_tab_modified(ed, mod)
         )
         editor.overwrite_changed.connect(self._statusbar.set_overwrite)
         editor.zoom_changed.connect(self._statusbar.set_zoom)
 
         # Writing goal — ricollega al nuovo editor se l'obiettivo è attivo
         if getattr(self, "_writing_goal", 0) > 0:
-            try:
-                editor.textChanged.disconnect(self._wg_timer.start)
-            except (RuntimeError, TypeError):
-                pass
             editor.textChanged.connect(self._wg_timer.start)
             self._update_writing_goal_display()
 
         # Focus paragrafo — ricollega cursore al nuovo editor se la modalità è attiva
         if self._actions.get("sentence_focus") and self._actions["sentence_focus"].isChecked():
-            try:
-                editor.cursorPositionChanged.disconnect(self._on_focus_cursor_moved)
-            except (RuntimeError, TypeError):
-                pass
             editor.cursorPositionChanged.connect(self._on_focus_cursor_moved)
             try:
                 from editor.markdown_support import MarkdownSupport
@@ -1923,13 +1949,11 @@ class MainWindow(QMainWindow):
         self._lsp_connect_editor(editor)
 
         # Incolla immagine clipboard come LaTeX
-        try:
-            editor.paste_clipboard_image_requested.disconnect()
-        except (RuntimeError, TypeError):
-            pass
         editor.paste_clipboard_image_requested.connect(
             lambda ed=editor: self._paste_clipboard_image_as_latex(ed)
         )
+
+        self._prev_editor = editor
 
     def _paste_clipboard_image_as_latex(self, editor: "EditorWidget") -> None:
         """Salva l'immagine dalla clipboard su disco e apre la procedura guidata LaTeX."""

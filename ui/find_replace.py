@@ -10,11 +10,14 @@ Supporta: testo semplice, regex PCRE, maiuscole/minuscole, parola intera,
 from __future__ import annotations
 
 import bisect
+import os
+import fnmatch
 import re
+import threading
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QColor, QTextCursor
 from PyQt6.QtWidgets import (
     QDialog, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
@@ -102,6 +105,158 @@ def _results_stylesheet() -> str:
         padding: 4px; border: 1px solid {c['border']}; font-weight: bold;
     }}
 """
+
+
+# ─── FindInFiles Worker (thread background) ─────────────────────────────────
+
+class _FindInFilesResult:
+    __slots__ = ("rel_path", "abs_path", "line_num", "line_text", "col_start", "col_end")
+    def __init__(self, rel_path: str, abs_path: str, line_num: int,
+                 line_text: str, col_start: int, col_end: int):
+        self.rel_path  = rel_path
+        self.abs_path  = abs_path
+        self.line_num  = line_num
+        self.line_text = line_text
+        self.col_start = col_start
+        self.col_end   = col_end
+
+class _FindInFilesWorker(QObject):
+    finished  = pyqtSignal()
+    file_done = pyqtSignal(str, str, int, list)   # rel_path, abs_path, match_count, list[_FindInFilesResult]
+    error     = pyqtSignal(str)
+
+    def __init__(self, base_dir: str, filters: list[str], query: str,
+                 use_re: bool, case_s: bool, recurse: bool):
+        super().__init__()
+        self._base_dir = base_dir
+        self._filters  = filters
+        self._query    = query
+        self._use_re   = use_re
+        self._case_s   = case_s
+        self._recurse  = recurse
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def run(self) -> None:
+        re_flags = 0 if self._case_s else re.IGNORECASE
+        try:
+            pattern = re.compile(self._query if self._use_re else re.escape(self._query), re_flags)
+        except re.error as e:
+            self.error.emit(str(e))
+            return
+
+        walker = os.walk(self._base_dir) if self._recurse \
+            else [(self._base_dir, [], os.listdir(self._base_dir))]
+
+        for root, _, files in walker:
+            if self._cancelled.is_set():
+                return
+            for fname in files:
+                if self._cancelled.is_set():
+                    return
+                if self._filters and not any(fnmatch.fnmatch(fname, f) for f in self._filters):
+                    continue
+                fpath = Path(root) / fname
+                try:
+                    text = fpath.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                lines = text.split("\n")
+                file_match_count = 0
+                file_line_entries: list[_FindInFilesResult] = []
+                for i, line in enumerate(lines):
+                    lm = list(pattern.finditer(line))
+                    if lm:
+                        file_match_count += len(lm)
+                        m = lm[0]
+                        try:
+                            rel = str(fpath.relative_to(self._base_dir))
+                        except ValueError:
+                            rel = str(fpath)
+                        file_line_entries.append(
+                            _FindInFilesResult(rel, str(fpath), i + 1, line, m.start(), m.end())
+                        )
+                if file_line_entries:
+                    try:
+                        rel = str(fpath.relative_to(self._base_dir))
+                    except ValueError:
+                        rel = str(fpath)
+                    self.file_done.emit(rel, str(fpath), file_match_count, file_line_entries)
+
+        self.finished.emit()
+
+
+class _ReplaceInFilesWorker(QObject):
+    finished = pyqtSignal(list, int, int)  # files_list, total_matches, total_files
+    error    = pyqtSignal(str)
+
+    def __init__(self, base_dir: str, filters: list, replace_text: str,
+                 pattern: re.Pattern, recurse: bool):
+        super().__init__()
+        self._base_dir     = base_dir
+        self._filters      = filters
+        self._replace_text = replace_text
+        self._pattern      = pattern
+        self._recurse      = recurse
+        self._cancelled    = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def scan(self) -> None:
+        walker = os.walk(self._base_dir) if self._recurse \
+            else [(self._base_dir, [], os.listdir(self._base_dir))]
+
+        files_to_modify = []
+        for root, _, files in walker:
+            if self._cancelled.is_set():
+                return
+            for fname in files:
+                if self._cancelled.is_set():
+                    return
+                if self._filters and not any(fnmatch.fnmatch(fname, f) for f in self._filters):
+                    continue
+                fpath = Path(root) / fname
+                try:
+                    text = fpath.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                new_text, count = self._pattern.subn(self._replace_text, text)
+                if count > 0:
+                    files_to_modify.append((str(fpath), new_text, count))
+
+        total_matches = sum(c for _, _, c in files_to_modify)
+        total_files   = len(files_to_modify)
+        self.finished.emit(files_to_modify, total_matches, total_files)
+
+
+class _ReplaceWriterWorker(QObject):
+    finished    = pyqtSignal(int, int, list)  # total_matches, total_files, errors
+    file_written = pyqtSignal(str, str)       # fpath, new_text
+
+    def __init__(self, files_list: list):
+        super().__init__()
+        self._files_list = files_list
+        self._cancelled  = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def write_all(self) -> None:
+        errors = []
+        total_matches = sum(c for _, _, c in self._files_list)
+        total_files   = len(self._files_list)
+        for fpath, new_text, _ in self._files_list:
+            if self._cancelled.is_set():
+                return
+            try:
+                Path(fpath).write_text(new_text, encoding="utf-8")
+                self.file_written.emit(fpath, new_text)
+            except Exception as exc:
+                errors.append(str(exc))
+        self.finished.emit(total_matches, total_files, errors)
 
 
 class FindReplaceDialog(QDialog):
@@ -773,6 +928,23 @@ ESEMPI
             self._resume_smart_highlight()
         except Exception:
             pass
+        self._cancel_find_in_files()
+        if hasattr(self, "_fif_rif_thread") and self._fif_rif_thread is not None:
+            if self._fif_rif_thread.isRunning():
+                if hasattr(self, "_fif_rif_worker"):
+                    self._fif_rif_worker.cancel()
+                self._fif_rif_thread.quit()
+                self._fif_rif_thread.wait(500)
+            self._fif_rif_thread.deleteLater()
+            self._fif_rif_thread = None
+        if hasattr(self, "_fif_rif_thread2") and self._fif_rif_thread2 is not None:
+            if self._fif_rif_thread2.isRunning():
+                if hasattr(self, "_fif_rif_worker2"):
+                    self._fif_rif_worker2.cancel()
+                self._fif_rif_thread2.quit()
+                self._fif_rif_thread2.wait(500)
+            self._fif_rif_thread2.deleteLater()
+            self._fif_rif_thread2 = None
         super().closeEvent(event)
 
     def _do_incremental(self) -> None:
@@ -1030,9 +1202,8 @@ ESEMPI
             self._fif_dir.setText(path)
 
     def _do_find_in_files(self) -> None:
-        import os, fnmatch
         query    = self._fif_find.text().strip()
-        base_dir = Path(self._fif_dir.text())
+        base_dir = self._fif_dir.text().strip()
         filters  = [f.strip() for f in self._fif_filter.text().split(";") if f.strip()]
         use_re   = self._fif_regex.isChecked()
         case_s   = self._fif_case.isChecked()
@@ -1041,91 +1212,91 @@ ESEMPI
         if not query:
             self._fif_status.setText(tr("msg.enter_search_text"))
             return
-        if not base_dir.is_dir():
+        if not base_dir or not Path(base_dir).is_dir():
             self._fif_status.setText(tr("msg.invalid_directory"))
             return
 
+        # Annulla eventuale ricerca precedente
+        self._cancel_find_in_files()
+
         self._fif_results.clear()
         self._fif_status.setText(tr("msg.searching"))
-        QApplication.processEvents()
 
-        re_flags = 0 if case_s else re.IGNORECASE
-        try:
-            pattern = re.compile(query if use_re else re.escape(query), re_flags)
-        except re.error as e:
-            self._fif_status.setText(tr("msg.regex_error", error=str(e)))
-            return
+        self._fif_worker = _FindInFilesWorker(base_dir, filters, query, use_re, case_s, recurse)
+        self._fif_thread = QThread()
+        self._fif_worker.moveToThread(self._fif_thread)
 
-        walker = os.walk(str(base_dir)) if recurse \
-            else [(str(base_dir), [], os.listdir(str(base_dir)))]
+        self._fif_worker.file_done.connect(self._on_fif_file_result)
+        self._fif_worker.finished.connect(self._on_fif_finished)
+        self._fif_worker.error.connect(self._on_fif_error)
+        self._fif_thread.started.connect(self._fif_worker.run)
+        self._fif_thread.finished.connect(self._fif_thread.deleteLater)
 
-        total_matches = 0
-        total_files   = 0
+        self._fif_thread.start()
+
+    def _cancel_find_in_files(self) -> None:
+        if hasattr(self, "_fif_worker") and self._fif_worker is not None:
+            self._fif_worker.cancel()
+        if hasattr(self, "_fif_thread") and self._fif_thread is not None:
+            if self._fif_thread.isRunning():
+                self._fif_thread.quit()
+                self._fif_thread.wait(500)
+            self._fif_thread.deleteLater()
+        self._fif_worker = None
+        self._fif_thread = None
+
+    def _on_fif_file_result(self, rel_path: str, abs_path: str,
+                            match_count: int, entries: list) -> None:
         _ROLE = Qt.ItemDataRole.UserRole
+        file_item = QTreeWidgetItem(
+            self._fif_results,
+            [f"📄 {rel_path}  (" + tr("msg.file_matches", matches=match_count) + ")", "", ""]
+        )
+        file_item.setData(0, _ROLE, {"path": abs_path})
+        btn_f = QPushButton(tr("button.replace"))
+        btn_f.setFixedSize(80, 22)
+        btn_f.setToolTip(tr("tooltip.fif_replace_in_file"))
+        btn_f.clicked.connect(lambda _checked, fi=file_item: self._replace_fif_file(fi))
+        self._fif_results.setItemWidget(file_item, 2, btn_f)
 
-        for root, _, files in walker:
-            for fname in files:
-                if filters and not any(fnmatch.fnmatch(fname, f) for f in filters):
-                    continue
-                fpath = Path(root) / fname
-                try:
-                    text = fpath.read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    continue
-                lines = text.split("\n")
-                # One list entry per line; count all occurrences for the header
-                # (Notepad++ / VS Code style: no duplicate rows for same line).
-                file_match_count = 0
-                file_line_entries = []
-                for i, line in enumerate(lines):
-                    lm = list(pattern.finditer(line))
-                    if lm:
-                        file_match_count += len(lm)
-                        file_line_entries.append((i + 1, line, lm[0].start(), lm[0].end()))
-                if not file_line_entries:
-                    continue
-                total_files   += 1
-                total_matches += file_match_count
-                try:
-                    rel = str(fpath.relative_to(base_dir))
-                except ValueError:
-                    rel = str(fpath)
-                file_item = QTreeWidgetItem(
-                    self._fif_results,
-                    [f"📄 {rel}  (" + tr("msg.file_matches", matches=file_match_count) + ")", "", ""]
-                )
-                file_item.setData(0, _ROLE, {"path": str(fpath)})
-                btn_f = QPushButton(tr("button.replace"))
-                btn_f.setFixedSize(80, 22)
-                btn_f.setToolTip(tr("tooltip.fif_replace_in_file"))
-                btn_f.clicked.connect(lambda _checked, fi=file_item: self._replace_fif_file(fi))
-                self._fif_results.setItemWidget(file_item, 2, btn_f)
+        for entry in entries:
+            child = QTreeWidgetItem([
+                "  " + tr("msg.row_n", n=entry.line_num), entry.line_text.strip()[:140], ""
+            ])
+            child.setData(0, _ROLE, {
+                "path": entry.abs_path, "line": entry.line_num,
+                "col_start": entry.col_start, "col_end": entry.col_end,
+            })
+            file_item.addChild(child)
+            btn_m = QPushButton(tr("button.replace"))
+            btn_m.setFixedSize(80, 22)
+            btn_m.setToolTip(tr("tooltip.fif_replace_match"))
+            btn_m.clicked.connect(lambda _checked, ci=child: self._replace_fif_single(ci))
+            self._fif_results.setItemWidget(child, 2, btn_m)
+        file_item.setExpanded(True)
 
-                for line_num, line_text, col_s, col_e in file_line_entries:
-                    child = QTreeWidgetItem([
-                        "  " + tr("msg.row_n", n=line_num), line_text.strip()[:140], ""
-                    ])
-                    child.setData(0, _ROLE, {
-                        "path": str(fpath), "line": line_num,
-                        "col_start": col_s, "col_end": col_e,
-                    })
-                    file_item.addChild(child)   # addChild prima di setItemWidget
-                    btn_m = QPushButton(tr("button.replace"))
-                    btn_m.setFixedSize(80, 22)
-                    btn_m.setToolTip(tr("tooltip.fif_replace_match"))
-                    btn_m.clicked.connect(lambda _checked, ci=child: self._replace_fif_single(ci))
-                    self._fif_results.setItemWidget(child, 2, btn_m)
-                file_item.setExpanded(True)
-
-        if total_matches == 0:
+    def _on_fif_finished(self) -> None:
+        if self._fif_results.topLevelItemCount() == 0:
             QTreeWidgetItem(self._fif_results, [tr("msg.no_results_found"), "", ""])
-            self._fif_status.setText(tr("msg.zero_results", query=query))
+            self._fif_status.setText(tr("msg.zero_results", query=self._fif_find.text().strip()))
         else:
+            total_matches = 0
+            total_files = self._fif_results.topLevelItemCount()
+            for i in range(total_files):
+                item = self._fif_results.topLevelItem(i)
+                total_matches += item.childCount()
             self._fif_status.setText(
                 tr("msg.results_count_files", matches=total_matches, files=total_files)
             )
-            self._send_to_result_panel(query, self._fif_results)
+            self._send_to_result_panel(self._fif_find.text().strip(), self._fif_results)
         self._fif_results.resizeColumnToContents(0)
+        self._fif_worker = None
+        self._fif_thread = None
+
+    def _on_fif_error(self, msg: str) -> None:
+        self._fif_status.setText(tr("msg.regex_error", error=msg))
+        self._fif_worker = None
+        self._fif_thread = None
 
     def _open_fif_result(self, item: QTreeWidgetItem) -> None:
         data = item.data(0, Qt.ItemDataRole.UserRole)
@@ -1148,11 +1319,10 @@ ESEMPI
                 editor.setFocus()
 
     def _do_replace_in_files(self) -> None:
-        import os, fnmatch
         from PyQt6.QtWidgets import QMessageBox
         query        = self._fif_find.text().strip()
         replace_text = self._fif_replace.text()
-        base_dir     = Path(self._fif_dir.text())
+        base_dir     = self._fif_dir.text().strip()
         filters      = [f.strip() for f in self._fif_filter.text().split(";") if f.strip()]
         use_re       = self._fif_regex.isChecked()
         case_s       = self._fif_case.isChecked()
@@ -1161,7 +1331,7 @@ ESEMPI
         if not query:
             self._fif_status.setText(tr("msg.enter_search_text"))
             return
-        if not base_dir.is_dir():
+        if not base_dir or not Path(base_dir).is_dir():
             self._fif_status.setText(tr("msg.invalid_directory"))
             return
 
@@ -1172,30 +1342,34 @@ ESEMPI
             self._fif_status.setText(tr("msg.regex_error", error=str(e)))
             return
 
-        walker = os.walk(str(base_dir)) if recurse \
-            else [(str(base_dir), [], os.listdir(str(base_dir)))]
+        self._fif_status.setText(tr("msg.searching"))
 
-        files_to_modify = []
-        for root, _, files in walker:
-            for fname in files:
-                if filters and not any(fnmatch.fnmatch(fname, f) for f in filters):
-                    continue
-                fpath = Path(root) / fname
-                try:
-                    text = fpath.read_text(encoding="utf-8", errors="replace")
-                except Exception:
-                    continue
-                new_text, count = pattern.subn(replace_text, text)
-                if count > 0:
-                    files_to_modify.append((fpath, new_text, count))
+        self._fif_replace_data = {
+            "base_dir": base_dir, "filters": filters, "replace_text": replace_text,
+            "pattern": pattern, "recurse": recurse,
+        }
 
-        if not files_to_modify:
+        self._fif_rif_worker = _ReplaceInFilesWorker(
+            base_dir, filters, replace_text, pattern, recurse
+        )
+        self._fif_rif_thread = QThread()
+        self._fif_rif_worker.moveToThread(self._fif_rif_thread)
+
+        self._fif_rif_worker.finished.connect(self._on_rif_scan_done)
+        self._fif_rif_worker.error.connect(self._on_fif_error)
+        self._fif_rif_thread.started.connect(self._fif_rif_worker.scan)
+        self._fif_rif_thread.finished.connect(self._fif_rif_thread.deleteLater)
+
+        self._fif_rif_thread.start()
+
+    def _on_rif_scan_done(self, files_list: list, total_matches: int, total_files: int) -> None:
+        if not files_list:
             self._fif_status.setText(tr("msg.replace_no_matches"))
+            self._fif_rif_worker = None
+            self._fif_rif_thread = None
             return
 
-        total_matches = sum(c for _, _, c in files_to_modify)
-        total_files   = len(files_to_modify)
-
+        from PyQt6.QtWidgets import QMessageBox
         reply = QMessageBox.question(
             self,
             tr("action.replace_in_files"),
@@ -1203,31 +1377,47 @@ ESEMPI
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
+            self._fif_rif_worker = None
+            self._fif_rif_thread = None
             return
 
-        errors = []
-        for fpath, new_text, _ in files_to_modify:
-            try:
-                fpath.write_text(new_text, encoding="utf-8")
-                for editor in self._mw._tab_manager.all_editors():
-                    if editor.file_path and editor.file_path.resolve() == fpath.resolve():
-                        cursor = editor.getCursorPosition()
-                        editor.beginUndoAction()
-                        editor.selectAll()
-                        editor.replaceSelectedText(new_text)
-                        editor.endUndoAction()
-                        line = min(cursor[0], max(0, editor.lines() - 1))
-                        editor.setCursorPosition(line, 0)
-                        editor.mark_saved()
-            except Exception as exc:
-                errors.append(tr("msg.replace_file_error", path=str(fpath), error=str(exc)))
+        self._fif_status.setText(tr("msg.replacing"))
 
+        self._fif_rif_worker2 = _ReplaceWriterWorker(files_list)
+        self._fif_rif_thread2 = QThread()
+        self._fif_rif_worker2.moveToThread(self._fif_rif_thread2)
+
+        self._fif_rif_worker2.finished.connect(self._on_rif_write_done)
+        self._fif_rif_worker2.file_written.connect(self._on_rif_file_written)
+        self._fif_rif_thread2.started.connect(self._fif_rif_worker2.write_all)
+        self._fif_rif_thread2.finished.connect(self._fif_rif_thread2.deleteLater)
+
+        self._fif_rif_thread2.start()
+
+    def _on_rif_file_written(self, fpath: str, new_text: str) -> None:
+        for editor in self._mw._tab_manager.all_editors():
+            if editor.file_path and str(editor.file_path.resolve()) == fpath:
+                cursor = editor.getCursorPosition()
+                editor.beginUndoAction()
+                editor.selectAll()
+                editor.replaceSelectedText(new_text)
+                editor.endUndoAction()
+                line = min(cursor[0], max(0, editor.lines() - 1))
+                editor.setCursorPosition(line, 0)
+                editor.mark_saved()
+
+    def _on_rif_write_done(self, total_matches: int, total_files: int, errors: list) -> None:
+        from PyQt6.QtWidgets import QMessageBox
         if errors:
             QMessageBox.warning(self, tr("action.replace_in_files"), "\n".join(errors))
 
         self._fif_status.setText(
             tr("msg.replaced_in_files", count=total_matches, files=total_files)
         )
+        self._fif_rif_worker = None
+        self._fif_rif_thread = None
+        self._fif_rif_worker2 = None
+        self._fif_rif_thread2 = None
         self._do_find_in_files()
 
     def _replace_fif_file(self, file_item: QTreeWidgetItem) -> None:

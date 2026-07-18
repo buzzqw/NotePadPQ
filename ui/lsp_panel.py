@@ -79,6 +79,8 @@ class DiagnosticsPanel(QWidget):
     def _rebuild(self) -> None:
         self._tree.clear()
         total = 0
+        errors = 0
+        warns = 0
         for uri, diags in self._data.items():
             if not diags:
                 continue
@@ -92,6 +94,10 @@ class DiagnosticsPanel(QWidget):
             for d in diags:
                 sev   = d.get("severity", 1)
                 label, color = _SEV.get(sev, ("?", "#858585"))
+                if sev == 1:
+                    errors += 1
+                elif sev == 2:
+                    warns += 1
                 start = d.get("range", {}).get("start", {})
                 line  = start.get("line", 0) + 1
                 msg   = d.get("message", "")
@@ -100,14 +106,6 @@ class DiagnosticsPanel(QWidget):
                 row.setForeground(2, QColor("#858585"))
                 row.setData(0, Qt.ItemDataRole.UserRole, {"uri": uri, "line": line - 1})
                 total += 1
-        errors = sum(
-            1 for diags in self._data.values()
-            for d in diags if d.get("severity", 1) == 1
-        )
-        warns = sum(
-            1 for diags in self._data.values()
-            for d in diags if d.get("severity", 1) == 2
-        )
         if total == 0:
             self._lbl_count.setText(tr("lsp_panel.no_problems"))
         else:

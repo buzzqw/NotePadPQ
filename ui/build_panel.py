@@ -687,8 +687,14 @@ class BuildPanel(QWidget):
         # Parsing errori automatico — il log resta comunque la vista attiva:
         # la tab "Errori compilazione" si limita a mostrare un badge col
         # conteggio, senza sostituire la vista sul log grezzo.
+        #
+        # Non ci basiamo sul solo `success` (exit code): strumenti come
+        # latexmk possono terminare con codice 0 anche quando pdflatex ha
+        # riportato errori TeX nel log (es. "! Undefined control sequence"),
+        # perché considerano "successo" l'aver comunque prodotto un PDF.
+        # Analizziamo quindi sempre l'output quando c'è un parser configurato.
         n = 0
-        if not success and self._current_profile:
+        if self._current_profile:
             output_text = self._output.toPlainText()
             errors = self._bm.parse_errors(output_text, self._current_profile)
             if errors:

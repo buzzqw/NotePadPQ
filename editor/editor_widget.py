@@ -1588,9 +1588,15 @@ class EditorWidget(QsciScintilla):
 
         if self._spell_worker is not None:
             old = self._spell_worker
-            old.cancel()
-            self._old_spell_workers.add(old)
-            old.finished.connect(lambda w=old: self._old_spell_workers.discard(w))
+            try:
+                old.cancel()
+                self._old_spell_workers.add(old)
+                old.finished.connect(lambda w=old: self._old_spell_workers.discard(w))
+            except RuntimeError:
+                # Il worker precedente è già stato eliminato (deleteLater) ma il
+                # riferimento non era ancora stato azzerato: nulla da cancellare.
+                pass
+            self._spell_worker = None
 
         self._spell_gen += 1
         worker = _SpellWorker(
@@ -1601,8 +1607,13 @@ class EditorWidget(QsciScintilla):
         )
         worker.done.connect(self._on_spell_check_done)
         worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(lambda w=worker: self._clear_spell_worker(w))
         self._spell_worker = worker
         worker.start()
+
+    def _clear_spell_worker(self, worker) -> None:
+        if self._spell_worker is worker:
+            self._spell_worker = None
 
     def _on_spell_check_done(self, gen: int, positions: list) -> None:
         if gen != self._spell_gen:

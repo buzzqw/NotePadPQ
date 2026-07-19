@@ -1156,7 +1156,7 @@ class _SettingsDialog(QDialog):
         for pid, edit in self._key_edits.items():
             key = _settings_key(pid)
             edit.setText(self._s.get(key, ""))
-        self._max_tok.setValue(int(self._s.get("ai/max_tokens", 4096)))
+        self._max_tok.setValue(int(self._s.get("ai/max_tokens", 16384)))
         self._update_oauth_status()
 
     def _save(self) -> None:
@@ -1964,7 +1964,7 @@ class _AIPanel(QWidget):
                 self._append_msg("system", f"⚠ {warn}", "#ffcc00")
             key_to_use = "" if pid in ("ollama", "llamacpp") else api_key
 
-        max_tokens   = int(s.get("ai/max_tokens", 4096))
+        max_tokens   = int(s.get("ai/max_tokens", 16384))
         thinking     = self._chk_thinking.isChecked() and self._chk_thinking.isVisible()
         system       = self._system_edit.toPlainText().strip()
         ollama_url   = (api_key or "http://localhost:11434") if pid == "ollama" else "http://localhost:11434"

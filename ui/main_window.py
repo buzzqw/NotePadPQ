@@ -1953,6 +1953,13 @@ class MainWindow(QMainWindow):
             lambda ed=editor: self._paste_clipboard_image_as_latex(ed)
         )
 
+        # Se il tab appena selezionato aveva una modifica esterna in sospeso,
+        # mostra ora il dialogo (non prima, per non disturbare mentre si
+        # lavorava su un altro file).
+        if getattr(editor, "_pending_external_change", False):
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(50, lambda: self._show_external_change_dialog(editor))
+
         self._prev_editor = editor
 
     def _paste_clipboard_image_as_latex(self, editor: "EditorWidget") -> None:
@@ -4031,6 +4038,39 @@ class MainWindow(QMainWindow):
                 editor._watcher.addPath(str(editor.file_path))
             editor._watcher.blockSignals(False)
             return
+
+        # Auto-reload silenzioso: non serve popup, ricarica subito.
+        from config.settings import Settings
+        if Settings.instance().get("file/autoreload_on_change", False):
+            try:
+                from core.file_manager import FileManager
+                content, enc, le = FileManager.read(editor.file_path)
+                editor.load_content(content, enc, le)
+                editor.setModified(False)
+                self.statusBar().showMessage(
+                    f"🔄 {editor.file_path.name} ricaricato automaticamente", 3000)
+            except Exception:
+                pass
+            if editor.file_path.exists():
+                editor._watcher.addPath(str(editor.file_path))
+            editor._watcher.blockSignals(False)
+            return
+
+        # Se il file NON è nel tab attivo, rimanda la notifica a quando
+        # l'utente aprirà/selezionerà questo tab. Così non compaiono popup
+        # molesti mentre si lavora su un altro file.
+        current = self._current_editor()
+        if current is not editor:
+            editor._pending_external_change = True
+            editor._watcher.blockSignals(False)
+            return
+
+        # Da qui in poi: popup mostrato solo se il tab è quello attivo
+        self._show_external_change_dialog(editor)
+
+    def _show_external_change_dialog(self, editor: EditorWidget) -> None:
+        """Mostra il dialogo di modifica esterna (file cambiato o eliminato)."""
+        editor._pending_external_change = False
 
         # Caso: file eliminato dal disco
         if not editor.file_path.exists():

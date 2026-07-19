@@ -177,7 +177,7 @@ def _md_delete_column(editor: "EditorWidget") -> bool:
 
 _TABULAR_ENVS = frozenset({
     "tabular", "tabular*", "tabularx", "tabulary",
-    "array", "longtable", "supertabular",
+    "array", "longtable", "supertabular", "xltabular",
 })
 _RE_BEGIN  = re.compile(r"\\begin\{(" + "|".join(_TABULAR_ENVS) + r")\}")
 _RE_END    = re.compile(r"\\end\{(" + "|".join(_TABULAR_ENVS) + r")\}")

@@ -303,6 +303,7 @@ INDICATOR_MARK4     = 4
 INDICATOR_SMART_HL  = 5   # Smart Highlight: parola sotto cursore
 INDICATOR_SPELL     = 6   # Sottolineatura a zig-zag rossa per errori ortografici
 INDICATOR_FIND_LINE = 7   # Evidenziazione riga intera durante la navigazione risultati
+INDICATOR_LATEX_COL = 8   # Warning colonne tabella LaTeX (squiggly ambra)
 
 # ─── EditorWidget ─────────────────────────────────────────────────────────────
 
@@ -570,6 +571,15 @@ class EditorWidget(QsciScintilla):
         except Exception:
             pass
         self.setIndicatorDrawUnder(True, INDICATOR_FIND_LINE)
+
+        # Indicatore colonne tabella LaTeX: squiggly ambra sotto il testo.
+        # Simile allo spell checker ma giallo/ambra per differenziare i warning
+        # di colonna (\"troppe/poche colonne nella tabella\") dagli errori rossi.
+        self.indicatorDefine(
+            QsciScintilla.IndicatorStyle.SquiggleIndicator, INDICATOR_LATEX_COL
+        )
+        self.setIndicatorForegroundColor(QColor(200, 160, 0), INDICATOR_LATEX_COL)
+        self.setIndicatorDrawUnder(True, INDICATOR_LATEX_COL)
 
     def _setup_caret(self) -> None:
         """Configura il cursore (caret)."""

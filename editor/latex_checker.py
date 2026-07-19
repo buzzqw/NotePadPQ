@@ -39,6 +39,16 @@ _MARKER_WARNING_SYM = QsciScintilla.MarkerSymbol.RightTriangle
 _RE_COMMENT  = re.compile(r'(?<!\\)%.*')
 _RE_REF      = re.compile(r'\\(?:ref|eqref|pageref|cref|Cref|autoref|nameref|vref)\{([^}]+)\}')
 _RE_CITE     = re.compile(r'\\(?:cite[a-zA-Z]*|parencite|footcite|textcite|autocite)\{([^}]+)\}')
+_RE_BEGIN_ENV = re.compile(r'\\begin\{([^}]+)\}')
+_RE_END_ENV   = re.compile(r'\\end\{([^}]+)\}')
+_RE_MULTICOL  = re.compile(r'\\multicolumn\{(\d+)\}')
+_COL_CHARS    = frozenset("lcrpLCRX")
+
+# Ambienti tabellari LaTeX con specifica colonne
+_TABULAR_ENVS = frozenset({
+    "tabular", "tabular*", "tabularx", "tabulary",
+    "array", "longtable", "supertabular", "xltabular",
+})
 
 
 class _CheckWorker(QThread):
@@ -67,6 +77,9 @@ class _CheckWorker(QThread):
         if self._cancelled:
             return
         issues.extend(self._check_undefined_citations())
+        if self._cancelled:
+            return
+        issues.extend(self._check_tabular_columns())
         if not self._cancelled:
             self.done.emit(self._generation, issues)
 
@@ -128,6 +141,127 @@ class _CheckWorker(QThread):
                         })
         return issues
 
+    def _check_tabular_columns(self) -> list[dict]:
+        """Controlla che le righe del corpo tabella abbiano lo stesso numero
+        di colonne dichiarato nella specifica colonne (es. {llX})."""
+        issues: list[dict] = []
+        lines = self._text.split("\n")
+        i = 0
+        while i < len(lines):
+            if self._cancelled:
+                return issues
+            stripped = _RE_COMMENT.sub('', lines[i])
+            bm = _RE_BEGIN_ENV.search(stripped)
+            if not bm or bm.group(1) not in _TABULAR_ENVS:
+                i += 1
+                continue
+
+            env_name = bm.group(1)
+            after_begin = stripped[bm.end():]
+            col_spec, spec_start, spec_end = self._extract_col_spec(
+                after_begin, bm.end(), env_name)
+            if col_spec is None:
+                i += 1
+                continue
+            declared = self._count_tabular_cols(col_spec)
+
+            # Cerca il corrispondente \end{env}
+            depth = 1
+            end_line = i
+            for j in range(i + 1, len(lines)):
+                if self._cancelled:
+                    return issues
+                s = _RE_COMMENT.sub('', lines[j])
+                depth += len(_RE_BEGIN_ENV.findall(s))
+                depth -= len(_RE_END_ENV.findall(s))
+                if depth <= 0:
+                    end_line = j
+                    break
+            else:
+                end_line = len(lines) - 1
+
+            any_mismatch = False
+            for row in range(i + 1, end_line):
+                if self._cancelled:
+                    return issues
+                rs = _RE_COMMENT.sub('', lines[row])
+                if not rs.strip():
+                    continue
+                if re.match(r'^\s*\\(?:hline|toprule|midrule|bottomrule|cline)\b', rs):
+                    continue
+                if _RE_BEGIN_ENV.search(rs) or _RE_END_ENV.search(rs):
+                    continue
+                if '&' not in rs and not any(c in _COL_CHARS for c in rs):
+                    continue
+                actual = self._count_row_cols(rs)
+                if actual > 0 and actual != declared:
+                    any_mismatch = True
+                    issues.append({
+                        "line":     row,
+                        "severity": "warning",
+                        "msg":      f"Colonne: {actual} nella riga, {declared} dichiarate "
+                                    f"in \\begin{{{env_name}}}{{{col_spec}}}",
+                        "col_line": i,
+                        "col_start": spec_start,
+                        "col_end":   spec_end,
+                    })
+
+            if any_mismatch:
+                issues.append({
+                    "line":     i,
+                    "severity": "warning",
+                    "msg":      f"Specifica colonne '{col_spec}' ({declared} col) "
+                                f"non corrisponde alle righe della tabella",
+                    "col_line": i,
+                    "col_start": spec_start,
+                    "col_end":   spec_end,
+                })
+
+            i = end_line + 1
+
+        return issues
+
+    @staticmethod
+    def _extract_col_spec(after_begin: str, offset: int, env_name: str = ""):
+        """Estrae la specifica colonne dal testo dopo \\begin{env}.
+        Per tabular*/tabularx/tabulary il secondo gruppo e' la column spec
+        (il primo e' la width); per gli altri ambienti e' il primo.
+        Ritorna (col_spec, start, end) oppure (None, -1, -1)."""
+        _TWO_ARG = frozenset({"tabular*", "tabularx", "tabulary", "xltabular"})
+        target_group = 2 if env_name in _TWO_ARG else 1
+
+        brace_depth = 0
+        groups_found = 0
+        start = -1
+        for idx, ch in enumerate(after_begin):
+            if ch == '{':
+                if brace_depth == 0:
+                    groups_found += 1
+                    start = idx
+                brace_depth += 1
+            elif ch == '}':
+                brace_depth -= 1
+                if brace_depth == 0:
+                    spec = after_begin[start + 1:idx]
+                    if groups_found == target_group:
+                        return spec, offset + start, offset + idx + 1
+        return None, -1, -1
+
+    @staticmethod
+    def _count_tabular_cols(col_spec: str) -> int:
+        """Conta le colonne in una specifica tabellare. Es. '|l|c|r|' → 3."""
+        count = sum(1 for c in col_spec if c in _COL_CHARS)
+        return max(1, count)
+
+    @staticmethod
+    def _count_row_cols(row: str) -> int:
+        """Conta le colonne effettive di una riga tabella, tenendo conto
+        che \\multicolumn{N}{...}{...} occupa N colonne ma conta come 1 entry."""
+        multicols = _RE_MULTICOL.findall(row)
+        extra_cols = sum(int(n) - 1 for n in multicols)
+        cleaned = _RE_MULTICOL.sub('', row)
+        return max(1, cleaned.count('&') + 1 + extra_cols)
+
 
 class LaTeXChecker(QObject):
     """
@@ -179,11 +313,13 @@ class LaTeXChecker(QObject):
             self._worker.cancel()
             self._worker = None
         self._clear_markers()
+        self._clear_tabular_indicators()
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
         if not enabled:
             self._clear_markers()
+            self._clear_tabular_indicators()
             self.issues_found.emit([])
 
     # ── Trigger ───────────────────────────────────────────────────────────────
@@ -218,6 +354,7 @@ class LaTeXChecker(QObject):
             return
         self._worker = None
         self._apply_markers(issues)
+        self._apply_tabular_indicators(issues)
         self.issues_found.emit(issues)
 
     # ── Marcatori gutter ─────────────────────────────────────────────────────
@@ -234,3 +371,36 @@ class LaTeXChecker(QObject):
                       if issue.get("severity") == "error"
                       else _MARKER_WARNING)
             self._editor.markerAdd(line, marker)
+
+    # ── Indicatori colonne tabella ──────────────────────────────────────────
+
+    def _clear_tabular_indicators(self) -> None:
+        """Rimuove gli indicatori colonne tabella dall'editor."""
+        from editor.editor_widget import INDICATOR_LATEX_COL
+        ed = self._editor
+        last_line = ed.lines() - 1
+        if last_line < 0:
+            return
+        ed.clearIndicatorRange(0, 0, last_line,
+                               ed.lineLength(last_line), INDICATOR_LATEX_COL)
+
+    def _apply_tabular_indicators(self, issues: list[dict]) -> None:
+        """Sottolinea con squiggly ambra la column spec sulle righe \\begin
+        delle tabelle con mismatch di colonne."""
+        from editor.editor_widget import INDICATOR_LATEX_COL
+        self._clear_tabular_indicators()
+        seen = set()
+        for issue in issues:
+            cl = issue.get("col_line")
+            cs = issue.get("col_start")
+            ce = issue.get("col_end")
+            if cl is None or cs is None or ce is None:
+                continue
+            key = (cl, cs)
+            if key in seen:
+                continue
+            seen.add(key)
+            length = max(1, ce - cs)
+            self._editor.fillIndicatorRange(
+                cl, cs, cl, cs + length, INDICATOR_LATEX_COL
+            )

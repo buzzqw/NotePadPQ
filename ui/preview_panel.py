@@ -431,6 +431,29 @@ class _PdfRenderWorker(QThread):
                 self.done.emit(self._gen, None, None, [])
 
 
+class _PdfContContainer(QWidget):
+    """Container per lo scroll continuo PDF con sizeHint() limitata.
+    QScrollArea.sizeHint() usa la sizeHint() del widget contenuto, e un
+    QVBoxLayout con centinaia di label ha una sizeHint() = somma altezze
+    (= centinaia di migliaia di pixel). Questo farebbe diventare enorme
+    il dock di anteprima e causerebbe flash/resize ad ogni cambio modalità.
+    Restituiamo una sizeHint() fissa piccola: la scroll area userà quella
+    per il suo sizeHint, ma il layout interno gestirà comunque tutte le
+    label e la scrollbar apparirà quando il contenuto eccede il viewport."""
+
+    def sizeHint(self):
+        return self._size_hint
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._size_hint = self._default_size_hint()
+
+    @staticmethod
+    def _default_size_hint():
+        from PyQt6.QtCore import QSize
+        return QSize(400, 480)
+
+
 class PreviewPanel(QWidget):
     """
     Pannello di anteprima laterale.
@@ -534,7 +557,9 @@ class PreviewPanel(QWidget):
         self._web_fallback.setOpenExternalLinks(True)
         self._stack.addWidget(self._web_fallback)    # indice 0 FISSO
 
-        # QWebEngineView lazy: creato solo per HTML puro, aggiunto alla fine
+        # QWebEngineView lazy: creato solo alla prima richiesta per HTML puro.
+        # Viene aggiunto in fondo allo stack (indice dinamico).
+        # Stack fisso: 0=TextBrowser, 1=LaTeX tree, 2=testo grezzo, 3=PDF, 4+=WebEngine
         self._web: Optional[object] = None
 
         # Pagina 1 — albero struttura LaTeX
@@ -693,7 +718,7 @@ class PreviewPanel(QWidget):
         self._pdf_scroll_cont.setStyleSheet("background: #404040; border: none;")
         self._pdf_scroll_cont.setAlignment(
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-        self._pdf_cont_container = QWidget()
+        self._pdf_cont_container = _PdfContContainer()
         self._pdf_cont_layout = _QVBoxLayout2(self._pdf_cont_container)
         self._pdf_cont_layout.setContentsMargins(8, 8, 8, 8)
         self._pdf_cont_layout.setSpacing(8)
@@ -720,6 +745,7 @@ class PreviewPanel(QWidget):
         self._pdf_links: list = []
         self._pdf_cursor_highlight: Optional[tuple] = None  # (page_0based, y_pt, h_pt, W_pt)
         self._pdf_continuous  = False   # True = scroll continuo
+        self._pdf_building    = False   # guardia contro valueChanged durante rebuild
         self._pdf_cont_page_labels: list = []   # _ClickableLabel per ogni pagina in modo continuo
         self._pdf_cont_clip_rects: list = []    # fitz.Rect clip per ogni pagina (coordinate conversion)
         self._pdf_cont_rendered: set = set()    # indici delle pagine già rasterizzate (rendering lazy)
@@ -737,13 +763,10 @@ class PreviewPanel(QWidget):
             self._web = safe_webview()
             if self._web is not None:
                 self._web.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-                # MathJax/Mermaid sono caricati da CDN: il contenuto locale
-                # (setHtml) deve poter accedere a URL remoti, altrimenti gli
-                # script falliscono silenziosamente (es. "mermaid is not defined").
                 self._web.settings().setAttribute(
                     QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True
                 )
-                self._stack.addWidget(self._web)   # aggiunto in fondo, indice >= 4
+                self._stack.addWidget(self._web)
         return self._web
 
     # ── Collegamento editor ───────────────────────────────────────────────────
@@ -1467,6 +1490,13 @@ class PreviewPanel(QWidget):
         h_px = max(1, int(round(clip_rect.height * z)))
         return clip_rect, w_px, h_px
 
+    def _null_pixmap(self):
+        """QPixmap vuoto condiviso — evita di crearne uno nuovo per ogni eviction."""
+        if not hasattr(self, "_null_pm"):
+            from PyQt6.QtGui import QPixmap
+            self._null_pm = QPixmap()
+        return self._null_pm
+
     def _render_page_pixmap(self, page_idx: int):
         """Rasterizza la pagina page_idx con crop, highlight cursore, selezione e link overlay.
         Ritorna (QPixmap, clip_rect) oppure (None, None) in caso di errore."""
@@ -1481,9 +1511,13 @@ class PreviewPanel(QWidget):
             mat = _fitz.Matrix(self._pdf_zoom, self._pdf_zoom)
             pix = page.get_pixmap(matrix=mat, alpha=False, clip=clip_rect)
             from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QBrush, QColor
-            img = QImage(pix.samples, pix.width, pix.height,
+            # bytes() copia i samples prima che fitz li liberi; QImage non
+            # deve tenere un riferimento alla memoria di fitz.
+            img = QImage(bytes(pix.samples), pix.width, pix.height,
                          pix.stride, QImage.Format.Format_RGB888)
+            del pix  # libera subito la memoria fitz
             pm = QPixmap.fromImage(img)
+            del img  # libera subito il QImage, solo il QPixmap resta in memoria
             ox, oy, z = clip_rect.x0, clip_rect.y0, self._pdf_zoom
 
             # Cursor indicator (forward SyncTeX)
@@ -1776,40 +1810,54 @@ class PreviewPanel(QWidget):
         e poi ad ogni scroll, solo per le pagine vicine a quelle visibili."""
         if self._pdf_doc is None or not _get_fitz():
             return
-        while self._pdf_cont_layout.count():
-            item = self._pdf_cont_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.setParent(None)
-        self._pdf_cont_page_labels = []
-        self._pdf_cont_clip_rects  = []
-        self._pdf_cont_rendered    = set()
+        self._pdf_building = True
+        try:
+            # Scollega tutti i segnali dai vecchi widget prima di rimuoverli:
+            # ogni label ha un clicked.connect(lambda) che crea un reference cycle
+            # (label → lambda → self → _pdf_cont_page_labels → label).
+            # Senza disconnect, i vecchi label e i loro QPixmap sopravvivono
+            # al GC per un tempo indefinito, accumulando memoria ad ogni rebuild.
+            for lbl in self._pdf_cont_page_labels:
+                try:
+                    lbl.clicked.disconnect()
+                except Exception:
+                    pass
+            while self._pdf_cont_layout.count():
+                item = self._pdf_cont_layout.takeAt(0)
+                w = item.widget()
+                if w:
+                    w.setParent(None)
+            self._pdf_cont_page_labels = []
+            self._pdf_cont_clip_rects  = []
+            self._pdf_cont_rendered    = set()
 
-        from PyQt6.QtWidgets import QFrame as _QF
-        total = len(self._pdf_doc)
-        for i in range(total):
-            try:
-                clip_rect, w_px, h_px = self._pdf_page_placeholder_size(i)
-            except Exception:
-                continue
-            lbl = _ClickableLabel()
-            lbl.setFixedSize(w_px, h_px)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            lbl.setStyleSheet("background: white; margin: 0;")
-            lbl.clicked.connect(lambda x, y, idx=i: self._pdf_cont_clicked(idx, x, y))
-            if i > 0:
-                sep = _QF()
-                sep.setFrameShape(_QF.Shape.HLine)
-                sep.setStyleSheet("color: #555; margin: 0 8px;")
-                self._pdf_cont_layout.addWidget(sep)
-            self._pdf_cont_layout.addWidget(lbl)
-            self._pdf_cont_page_labels.append(lbl)
-            self._pdf_cont_clip_rects.append(clip_rect)
-        self._stack.setCurrentIndex(3)
-        # Calcola subito posizione/dimensioni reali dei label: servono a
-        # _pdf_cont_render_visible() per sapere cosa è a schermo.
-        self._pdf_cont_layout.activate()
-        self._pdf_cont_render_visible()
+            from PyQt6.QtWidgets import QFrame as _QF
+            total = len(self._pdf_doc)
+            for i in range(total):
+                try:
+                    clip_rect, w_px, h_px = self._pdf_page_placeholder_size(i)
+                except Exception:
+                    continue
+                lbl = _ClickableLabel()
+                lbl.setFixedSize(w_px, h_px)
+                lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+                lbl.setStyleSheet("background: white; margin: 0;")
+                lbl.clicked.connect(lambda x, y, idx=i: self._pdf_cont_clicked(idx, x, y))
+                if i > 0:
+                    sep = _QF()
+                    sep.setFrameShape(_QF.Shape.HLine)
+                    sep.setStyleSheet("color: #555; margin: 0 8px;")
+                    self._pdf_cont_layout.addWidget(sep)
+                self._pdf_cont_layout.addWidget(lbl)
+                self._pdf_cont_page_labels.append(lbl)
+                self._pdf_cont_clip_rects.append(clip_rect)
+            self._stack.setCurrentIndex(3)
+            # Calcola subito posizione/dimensioni reali dei label: servono a
+            # _pdf_cont_render_visible() per sapere cosa è a schermo.
+            self._pdf_cont_layout.activate()
+            self._pdf_cont_render_visible()
+        finally:
+            self._pdf_building = False
 
     def _pdf_cont_render_visible(self) -> None:
         """Rasterizza le pagine visibili nello scroll continuo (più un
@@ -1822,6 +1870,8 @@ class PreviewPanel(QWidget):
         non accumulare memoria mentre l'utente scorre l'intero documento."""
         if self._mode != "pdf" or not self._pdf_continuous or not self._pdf_cont_page_labels:
             return
+        if getattr(self, "_pdf_building", False):
+            return
         vp_h   = self._pdf_scroll_cont.viewport().height()
         if vp_h <= 0:
             return
@@ -1830,13 +1880,16 @@ class PreviewPanel(QWidget):
         hi_y   = vp_top + vp_h + vp_h
         evict_lo = vp_top - 4 * vp_h
         evict_hi = vp_top + 6 * vp_h
+        evicted = 0
         for idx, lbl in enumerate(self._pdf_cont_page_labels):
             if idx in self._pdf_cont_rendered:
                 top = lbl.y()
                 bot = top + lbl.height()
                 if bot < evict_lo or top > evict_hi:
                     lbl.clear()
+                    lbl.setPixmap(self._null_pixmap())
                     self._pdf_cont_rendered.discard(idx)
+                    evicted += 1
                 continue
             top = lbl.y()
             bot = top + lbl.height()
@@ -1848,6 +1901,9 @@ class PreviewPanel(QWidget):
                 lbl.setPixmap(pm)
                 if idx < len(self._pdf_cont_clip_rects):
                     self._pdf_cont_clip_rects[idx] = clip_rect
+        if evicted > 10:
+            import gc
+            gc.collect()
 
     def _pdf_cont_relayout(self) -> None:
         """Ridimensiona i placeholder già esistenti al nuovo zoom/crop invece
@@ -1863,24 +1919,22 @@ class PreviewPanel(QWidget):
             # Documento diverso (o mai costruito prima): serve la build completa.
             self._pdf_show_all_pages()
             return
-        # Questa funzione veniva chiamata solo mentre la vista continua era
-        # già quella visibile (zoom/crop). Ora _pdf_refresh() la richiama
-        # anche tornando su un tab PDF dopo esserne usciti (es. verso un
-        # tab Markdown): senza questa riga i placeholder venivano aggiornati
-        # correttamente ma lo stack restava fermo sulla pagina precedente,
-        # quindi l'anteprima PDF non tornava mai visibile.
-        self._stack.setCurrentIndex(3)
-        self._pdf_cont_rendered = set()
-        for i, lbl in enumerate(self._pdf_cont_page_labels):
-            try:
-                clip_rect, w_px, h_px = self._pdf_page_placeholder_size(i)
-            except Exception:
-                continue
-            lbl.setFixedSize(w_px, h_px)
-            lbl.clear()   # rimuove il pixmap alla vecchia scala
-            self._pdf_cont_clip_rects[i] = clip_rect
-        self._pdf_cont_layout.activate()
-        self._pdf_cont_render_visible()
+        self._pdf_building = True
+        try:
+            self._stack.setCurrentIndex(3)
+            self._pdf_cont_rendered = set()
+            for i, lbl in enumerate(self._pdf_cont_page_labels):
+                try:
+                    clip_rect, w_px, h_px = self._pdf_page_placeholder_size(i)
+                except Exception:
+                    continue
+                lbl.setFixedSize(w_px, h_px)
+                lbl.clear()   # rimuove il pixmap alla vecchia scala
+                self._pdf_cont_clip_rects[i] = clip_rect
+            self._pdf_cont_layout.activate()
+            self._pdf_cont_render_visible()
+        finally:
+            self._pdf_building = False
 
     def _pdf_refresh(self) -> None:
         """Aggiorna la vista PDF nella modalità corrente."""

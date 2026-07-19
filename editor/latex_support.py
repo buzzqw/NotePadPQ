@@ -105,7 +105,7 @@ STANDARD_ENVIRONMENTS: list[str] = sorted([
     # figure e tabelle
     "figure", "figure*", "table", "table*",
     "tabular", "tabular*", "tabularx", "tabulary", "longtable",
-    "supertabular", "sidewaystable", "sidewaysfigure",
+    "supertabular", "xltabular", "sidewaystable", "sidewaysfigure",
     # box e layout
     "minipage", "lrbox", "picture",
     "multicols", "multicols*",
@@ -526,6 +526,12 @@ PACKAGE_COMMANDS: dict[str, list[str]] = {
         "\\setlength{\\LTpre}{}", "\\setlength{\\LTpost}{}",
         "\\setlength{\\LTcapwidth}{}",
     ],
+    "xltabular": [
+        "\\begin{xltabular}{\\textwidth}{X}", "\\end{xltabular}",
+        "\\begin{xltabular}{\\textwidth}{lX}", "\\begin{xltabular}{\\textwidth}{lXr}",
+        "\\endhead", "\\endfirsthead", "\\endfoot", "\\endlastfoot",
+        "\\caption{}", "\\caption[]{}",
+    ],
     "tabularray": [
         "\\begin{tblr}", "\\end{tblr}",
         "\\begin{longtblr}", "\\end{longtblr}",
@@ -818,6 +824,7 @@ ENV_MANDATORY_ARGS: dict[str, list[str]] = {
     "tabulary":   ["{\\textwidth}", "{|L|L|}"],
     "array":      ["{|c|c|c|}"],
     "longtable":  ["{|l|l|l|}"],
+    "xltabular":  ["{\\textwidth}", "{|X|X|}"],
     # Box e figure — posizione/dimensione obbligatorie
     "minipage":   ["{0.9\\textwidth}"],
     "wrapfigure": ["{r}", "{0.5\\textwidth}"],
@@ -1230,9 +1237,9 @@ class LaTeXSupport:
     @staticmethod
     def _handle_close_brace(editor: "EditorWidget") -> None:
         """
-        Dopo '}': se chiude \\begin{envname}, inserisce automaticamente
-        gli argomenti obbligatori dell'ambiente (es. multicols → {2}).
-        Usa i tab-stop per navigare tra argomenti multipli.
+        Dopo '}': se chiude \\begin{envname}, sincronizza il \\end{envname}
+        corrispondente e inserisce gli argomenti obbligatori dell'ambiente
+        (es. multicols → {2}). Usa i tab-stop per navigare tra argomenti.
         """
         line, col = editor.getCursorPosition()
         line_text = editor.text(line)[:col]
@@ -1243,6 +1250,10 @@ class LaTeXSupport:
 
         env = m.group(1)
         LaTeXSupport.track_env_usage(env)
+
+        # Sincronizza \end{env} corrispondente se diverso
+        LaTeXSupport._sync_end_environment(editor, env, line)
+
         extra_args = ENV_MANDATORY_ARGS.get(env)
         if not extra_args:
             return
@@ -1279,6 +1290,48 @@ class LaTeXSupport:
                                 for n, off, dlen in stops]
             editor._tabstop_index = 0
             editor._jump_to_next_tabstop()
+
+    # ─── Sincronizzazione \end ambiente ──────────────────────────────────────
+
+    @staticmethod
+    def _sync_end_environment(editor: "EditorWidget", env: str, begin_line: int) -> None:
+        """Trova il \\end{...} corrispondente al \\begin{env} sulla riga
+        begin_line e, se il nome dell'ambiente è diverso, lo aggiorna."""
+        depth = 0
+        total = editor.lines()
+        end_line = -1
+        end_col_start = -1
+        end_col_end = -1
+        old_env = ""
+
+        for r in range(begin_line, total):
+            line_text = editor.text(r)
+            # Conta \begin e \end su questa riga
+            for bm in re.finditer(r'\\(begin|end)\{([^}]+)\}', line_text):
+                cmd, name = bm.group(1), bm.group(2)
+                if cmd == "begin":
+                    depth += 1
+                else:  # end
+                    depth -= 1
+                    if depth == 0:
+                        end_line = r
+                        # Colonna inizio del nome ambiente dentro \end{...}
+                        end_col_start = bm.start() + len(r'\end{')
+                        end_col_end   = end_col_start + len(name)
+                        old_env       = name
+                        break
+            if end_line != -1:
+                break
+
+        if end_line == -1 or old_env == env:
+            return
+
+        # Sostituisci solo il nome dell'ambiente dentro \end{...}
+        editor.beginUndoAction()
+        editor.setSelection(end_line, end_col_start,
+                            end_line, end_col_end)
+        editor.replaceSelectedText(env)
+        editor.endUndoAction()
 
     @staticmethod
     def _handle_open_bracket(editor: "EditorWidget") -> None:

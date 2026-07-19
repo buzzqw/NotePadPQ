@@ -23,6 +23,7 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
 from core.platform import get_default_shell, get_shell_exec_flag, IS_WINDOWS
 from core.platform import get_config_dir
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -193,7 +194,7 @@ class BuildWorker(QThread):
                 self.finished_err.emit(self._proc.returncode)
 
         except Exception as e:
-            self.output_line.emit(f"[Errore] {e}")
+            self.output_line.emit(tr("build.error_prefix", error=str(e)))
             self.finished_err.emit(-1)
 
     def abort(self) -> None:
@@ -373,23 +374,23 @@ class BuildManager(QObject):
                 # Il percorso può essere assoluto o relativo al file corrente
                 possible_root = file_path.parent / root_file_str
                 if possible_root.exists():
-                    self.build_output.emit(f"🪄 [Magic Comment rilevato: Compilo file root -> {possible_root.name}]")
+                    self.build_output.emit(tr("build.magic_comment_detected", root=possible_root.name))
                     file_path = possible_root.resolve()
                 else:
-                    self.build_output.emit(f"⚠️ [Magic Comment ignorato: Il file root specificato '{root_file_str}' non esiste in {file_path.parent}]")
+                    self.build_output.emit(tr("build.magic_comment_ignored", file=root_file_str, dir=str(file_path.parent)))
                 break # Esce dal ciclo for dopo il primo hit
         # --- FINE MAGIC COMMENTS ---
 
         # Trova il profilo
         profile_name = self.get_profile_for_file(file_path)
         if not profile_name:
-            self.build_output.emit(f"[Nessun profilo per {file_path.suffix}]")
+            self.build_output.emit(tr("build.no_profile", suffix=file_path.suffix))
             return False
 
         profile = self._profiles[profile_name]
         command = profile.get(action, "")
         if not command:
-            self.build_output.emit(f"[Nessun comando '{action}' nel profilo {profile_name}]")
+            self.build_output.emit(tr("build.no_command", action=action, profile=profile_name))
             return False
 
         # Espansione variabili
@@ -418,7 +419,7 @@ class BuildManager(QObject):
             lambda code: self._on_error(code, profile)
         )
         self._worker.stopped.connect(
-            lambda: self.build_done.emit(False, "Interrotto")
+            lambda: self.build_done.emit(False, tr("build.interrupted"))
         )
         self._worker.start()
         return True
@@ -530,7 +531,7 @@ class BuildManager(QObject):
         env   = {**os.environ}
         self._worker = BuildWorker(cmd, str(cwd), env)
         self._worker.output.connect(self.build_output)
-        self._worker.finished.connect(lambda ok: self.build_done.emit(ok, "Task completato" if ok else "Task fallito"))
+        self._worker.finished.connect(lambda ok: self.build_done.emit(ok, tr("build.task_finished") if ok else tr("build.task_failed")))
         self._worker.start()
 
     def parse_errors(self, output: str, profile_name: str) -> list[dict]:

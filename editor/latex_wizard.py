@@ -32,20 +32,20 @@ class LaTeXWizardDialog(QDialog):
     def __init__(self, editor: "EditorWidget", parent=None):
         super().__init__(parent)
         self._editor = editor
-        self.setWindowTitle("LaTeX Wizard")
+        self.setWindowTitle(tr("latex_wizard.title", default="LaTeX Wizard"))
         self.resize(680, 520)
         self._build_ui()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._build_table_tab(),   "Table")
-        self._tabs.addTab(self._build_formula_tab(), "Math Formula")
-        self._tabs.addTab(self._build_env_tab(),     "Environments")
+        self._tabs.addTab(self._build_table_tab(),   tr("latex_wizard.tab_table"))
+        self._tabs.addTab(self._build_formula_tab(), tr("latex_wizard.tab_formula"))
+        self._tabs.addTab(self._build_env_tab(),     tr("latex_wizard.tab_environments"))
         layout.addWidget(self._tabs, 1)
 
         # Preview codice
-        grp = QGroupBox("Generated Code")
+        grp = QGroupBox(tr("latex_wizard.grp_generated_code"))
         gl  = QVBoxLayout(grp)
         self._preview = QPlainTextEdit()
         self._preview.setReadOnly(False)
@@ -54,7 +54,7 @@ class LaTeXWizardDialog(QDialog):
         layout.addWidget(grp)
 
         btns = QDialogButtonBox()
-        btn_insert = btns.addButton("Insert in Editor",
+        btn_insert = btns.addButton(tr("latex_wizard.btn_insert"),
                                     QDialogButtonBox.ButtonRole.AcceptRole)
         btn_copy   = btns.addButton(tr("button.copy"),
                                     QDialogButtonBox.ButtonRole.ActionRole)
@@ -77,22 +77,26 @@ class LaTeXWizardDialog(QDialog):
         self._tbl_cols = QSpinBox(); self._tbl_cols.setRange(1, 15); self._tbl_cols.setValue(3)
         self._tbl_rows.valueChanged.connect(self._rebuild_table_editor)
         self._tbl_cols.valueChanged.connect(self._rebuild_table_editor)
-        cfg.addRow("Rows:", self._tbl_rows)
-        cfg.addRow("Columns:", self._tbl_cols)
+        cfg.addRow(tr("latex_wizard.label_rows"), self._tbl_rows)
+        cfg.addRow(tr("latex_wizard.label_cols"), self._tbl_cols)
 
-        self._tbl_booktabs = QCheckBox("Use booktabs (\\toprule, \\midrule, \\bottomrule)")
+        self._tbl_booktabs = QCheckBox(tr("latex_wizard.chk_booktabs"))
         self._tbl_booktabs.setChecked(True)
-        self._tbl_caption = QLineEdit(); self._tbl_caption.setPlaceholderText("Table caption")
-        self._tbl_label   = QLineEdit(); self._tbl_label.setPlaceholderText("tab:label")
+        self._tbl_caption = QLineEdit(); self._tbl_caption.setPlaceholderText(tr("latex_wizard.placeholder_caption"))
+        self._tbl_label   = QLineEdit(); self._tbl_label.setPlaceholderText(tr("latex_wizard.placeholder_label"))
         self._tbl_pos     = QComboBox(); self._tbl_pos.addItems(["htbp", "h", "t", "b", "p"])
         self._tbl_align   = QComboBox()
-        self._tbl_align.addItems(["centered", "left", "right"])
+        self._tbl_align.addItems([
+            tr("latex_wizard.align_centered"),
+            tr("latex_wizard.align_left"),
+            tr("latex_wizard.align_right"),
+        ])
 
         cfg.addRow("", self._tbl_booktabs)
-        cfg.addRow("Caption:", self._tbl_caption)
-        cfg.addRow("Label:", self._tbl_label)
-        cfg.addRow("Position:", self._tbl_pos)
-        cfg.addRow("Alignment:", self._tbl_align)
+        cfg.addRow(tr("latex_wizard.label_caption"), self._tbl_caption)
+        cfg.addRow(tr("latex_wizard.label_label"), self._tbl_label)
+        cfg.addRow(tr("latex_wizard.label_position"), self._tbl_pos)
+        cfg.addRow(tr("latex_wizard.label_alignment"), self._tbl_align)
         layout.addLayout(cfg)
 
         # Editor celle
@@ -104,13 +108,13 @@ class LaTeXWizardDialog(QDialog):
 
         # Allineamento colonne
         col_cfg = QHBoxLayout()
-        col_cfg.addWidget(QLabel("Column alignment:"))
+        col_cfg.addWidget(QLabel(tr("latex_wizard.label_col_align")))
         self._col_align = QLineEdit("lll")
-        self._col_align.setPlaceholderText("e.g. llr  or  l|c|r")
+        self._col_align.setPlaceholderText(tr("latex_wizard.placeholder_col_align"))
         col_cfg.addWidget(self._col_align, 1)
         layout.addLayout(col_cfg)
 
-        btn_gen = QPushButton("Generate table code")
+        btn_gen = QPushButton(tr("latex_wizard.btn_gen_table"))
         btn_gen.clicked.connect(self._generate_table)
         layout.addWidget(btn_gen)
 
@@ -126,7 +130,7 @@ class LaTeXWizardDialog(QDialog):
         for c in range(cols):
             if not self._cell_table.item(0, c):
                 self._cell_table.setItem(
-                    0, c, QTableWidgetItem(f"Col {c+1}")
+                    0, c, QTableWidgetItem(tr("latex_wizard.default_col_header", n=c+1))
                 )
 
     def _generate_table(self) -> None:
@@ -180,30 +184,30 @@ class LaTeXWizardDialog(QDialog):
         cfg = QFormLayout()
         self._formula_type = QComboBox()
         self._formula_type.addItems([
-            "equation (numbered)",
-            "equation* (unnumbered)",
-            "align (multi-line numbered)",
-            "align* (multi-line unnumbered)",
-            "inline $...$",
-            "display \\[...\\]",
+            tr("latex_wizard.formula_numbered"),
+            tr("latex_wizard.formula_unnumbered"),
+            tr("latex_wizard.formula_align_num"),
+            tr("latex_wizard.formula_align_nonum"),
+            tr("latex_wizard.formula_inline"),
+            tr("latex_wizard.formula_display"),
         ])
-        cfg.addRow("Type:", self._formula_type)
+        cfg.addRow(tr("latex_wizard.label_type"), self._formula_type)
 
         self._formula_label = QLineEdit()
-        self._formula_label.setPlaceholderText("eq:label (optional)")
+        self._formula_label.setPlaceholderText(tr("latex_wizard.placeholder_formula_label"))
         cfg.addRow("Label:", self._formula_label)
         layout.addLayout(cfg)
 
-        layout.addWidget(QLabel("LaTeX Formula:"))
+        layout.addWidget(QLabel(tr("latex_wizard.label_formula")))
         self._formula_edit = QPlainTextEdit()
         self._formula_edit.setMaximumHeight(100)
         self._formula_edit.setPlaceholderText(
-            r"es. E = mc^2  oppure  \frac{a}{b} = \sqrt{c^2 - d^2}"
+            tr("latex_wizard.placeholder_formula_input")
         )
         layout.addWidget(self._formula_edit)
 
         # Inserimento rapido simboli
-        layout.addWidget(QLabel("Quick symbols:"))
+        layout.addWidget(QLabel(tr("latex_wizard.label_quick_symbols")))
         symbols_layout = QHBoxLayout()
         common_symbols = [
             ("α", "\\alpha"), ("β", "\\beta"), ("γ", "\\gamma"),
@@ -223,7 +227,7 @@ class LaTeXWizardDialog(QDialog):
         symbols_layout.addStretch()
         layout.addLayout(symbols_layout)
 
-        btn_gen = QPushButton("Generate formula code")
+        btn_gen = QPushButton(tr("latex_wizard.btn_gen_formula"))
         btn_gen.clicked.connect(self._generate_formula)
         layout.addWidget(btn_gen)
         layout.addStretch()
@@ -257,7 +261,7 @@ class LaTeXWizardDialog(QDialog):
         w = QWidget()
         layout = QVBoxLayout(w)
 
-        layout.addWidget(QLabel("Select an environment to insert:"))
+        layout.addWidget(QLabel(tr("latex_wizard.label_select_env")))
 
         environments = {
             "figure": self._gen_figure,
@@ -290,39 +294,39 @@ class LaTeXWizardDialog(QDialog):
     def _gen_itemize(self):
         self._preview.setPlainText(
             "\\begin{itemize}\n"
-            "    \\item Primo elemento\n"
-            "    \\item Secondo elemento\n"
-            "    \\item Terzo elemento\n"
+            f"    \\item {tr('latex_wizard.template_item_1')}\n"
+            f"    \\item {tr('latex_wizard.template_item_2')}\n"
+            f"    \\item {tr('latex_wizard.template_item_3')}\n"
             "\\end{itemize}"
         )
 
     def _gen_enumerate(self):
         self._preview.setPlainText(
             "\\begin{enumerate}\n"
-            "    \\item Primo elemento\n"
-            "    \\item Secondo elemento\n"
-            "    \\item Terzo elemento\n"
+            f"    \\item {tr('latex_wizard.template_item_1')}\n"
+            f"    \\item {tr('latex_wizard.template_item_2')}\n"
+            f"    \\item {tr('latex_wizard.template_item_3')}\n"
             "\\end{enumerate}"
         )
 
     def _gen_verbatim(self):
         self._preview.setPlainText(
             "\\begin{verbatim}\n"
-            "testo letterale qui\n"
+            f"{tr('latex_wizard.template_verbatim')}\n"
             "\\end{verbatim}"
         )
 
     def _gen_abstract(self):
         self._preview.setPlainText(
             "\\begin{abstract}\n"
-            "    Testo dell'abstract.\n"
+            f"    {tr('latex_wizard.template_abstract')}\n"
             "\\end{abstract}"
         )
 
     def _gen_multicols(self):
         self._preview.setPlainText(
             "\\begin{multicols}{2}\n"
-            "    Testo su due colonne.\n"
+            f"    {tr('latex_wizard.template_multicols')}\n"
             "\\end{multicols}"
         )
 

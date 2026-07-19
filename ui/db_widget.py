@@ -224,8 +224,7 @@ class DBDriverInstallerDialog(QDialog):
 
         layout = QVBoxLayout(self)
         lbl = QLabel(
-            f"Il driver per <b>{drv['display']}</b> non è installato.<br>"
-            f"Pacchetto richiesto: <code>pip install {drv['pip']}</code>"
+            tr("db.driver_missing_desc", display=drv['display'], pip=drv['pip'])
         )
         lbl.setTextFormat(Qt.TextFormat.RichText)
         lbl.setWordWrap(True)
@@ -248,7 +247,7 @@ class DBDriverInstallerDialog(QDialog):
     def _do_install(self) -> None:
         drv = _DRIVERS[self._db_type]
         self._btn_install.setEnabled(False)
-        self._status.setText(f"Installazione {drv['pip']}…")
+        self._status.setText(tr("db.installing_pip", pip=drv['pip']))
         QApplication.processEvents()
         try:
             result = subprocess.run(
@@ -256,16 +255,16 @@ class DBDriverInstallerDialog(QDialog):
                 capture_output=True, text=True, timeout=120
             )
             if result.returncode == 0:
-                self._status.setText("✓ Completato.")
+                self._status.setText(tr("db.install_completed"))
                 QApplication.processEvents()
                 self.accept()
             else:
-                self._status.setText("✗ Errore.")
+                self._status.setText(tr("db.install_error"))
                 QMessageBox.critical(self, "NotePadPQ",
-                                     f"pip install fallito:\n{result.stderr[-500:]}")
+                                     tr("db.pip_install_failed", stderr=result.stderr[-500:]))
                 self._btn_install.setEnabled(True)
         except Exception as exc:
-            self._status.setText("✗ Errore.")
+            self._status.setText(tr("db.install_error"))
             QMessageBox.critical(self, "NotePadPQ", str(exc))
             self._btn_install.setEnabled(True)
 
@@ -292,7 +291,7 @@ class DBConnectDialog(QDialog):
             QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self._name = QLineEdit()
-        self._name.setPlaceholderText("Es. Produzione PostgreSQL")
+        self._name.setPlaceholderText(tr("db.conn_name_placeholder"))
         form.addRow(tr("db.conn_name", default="Nome connessione:"), self._name)
 
         self._type = QComboBox()
@@ -303,10 +302,10 @@ class DBConnectDialog(QDialog):
         layout.addLayout(form)
 
         # SQLite file
-        self._grp_sqlite = QGroupBox("SQLite — file database")
+        self._grp_sqlite = QGroupBox(tr("db.sqlite_file_db"))
         sl = QHBoxLayout(self._grp_sqlite)
         self._sqlite_path = QLineEdit()
-        self._sqlite_path.setPlaceholderText("/percorso/database.db  (vuoto = memoria)")
+        self._sqlite_path.setPlaceholderText(tr("db.sqlite_path_placeholder"))
         sl.addWidget(self._sqlite_path)
         btn_br = QPushButton("…")
         btn_br.setFixedWidth(30)
@@ -364,8 +363,8 @@ class DBConnectDialog(QDialog):
 
     def _browse_sqlite(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Seleziona database SQLite", str(Path.home()),
-            "SQLite (*.db *.sqlite *.sqlite3);;Tutti i file (*)"
+            self, tr("db.select_sqlite_db"), str(Path.home()),
+            tr("db.sqlite_file_filter")
         )
         if path:
             self._sqlite_path.setText(path)
@@ -395,10 +394,10 @@ class DBConnectDialog(QDialog):
         try:
             conn = _open_connection(info)
             conn.close()
-            self._test_lbl.setText("✓ Connessione riuscita")
+            self._test_lbl.setText(tr("db.connection_success"))
             self._test_lbl.setStyleSheet("color: green; font-size: 11px;")
         except Exception as exc:
-            self._test_lbl.setText(f"✗ {exc}")
+            self._test_lbl.setText(tr("db.connection_test_failed", error=str(exc)))
             self._test_lbl.setStyleSheet("color: red; font-size: 11px;")
 
     def _accept(self) -> None:
@@ -481,7 +480,7 @@ class DBSavedConnectionsDialog(QDialog):
         self._list.setHeaderLabels([
             tr("db.conn_name", default="Nome"),
             tr("db.db_type",   default="Tipo"),
-            "Host / File",
+            tr("db.col_host_file"),
         ])
         self._list.setRootIsDecorated(False)
         self._list.setAlternatingRowColors(True)
@@ -574,12 +573,13 @@ class DBDriverManagerDialog(QDialog):
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        lbl = QLabel("Stato dei driver Python per i database supportati:")
+        lbl = QLabel(tr("db.driver_status_intro"))
         lbl.setWordWrap(True)
         layout.addWidget(lbl)
 
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["Database", "Pacchetto pip", "Stato"])
+        self._tree.setHeaderLabels([
+            tr("db.col_database"), tr("db.col_pip_package"), tr("db.col_status")])
         self._tree.setRootIsDecorated(False)
         self._tree.setAlternatingRowColors(True)
         layout.addWidget(self._tree)
@@ -600,7 +600,7 @@ class DBDriverManagerDialog(QDialog):
         for key, drv in _DRIVERS.items():
             ok = _driver_available(key)
             pip_pkg = drv["pip"] or "stdlib (built-in)"
-            status = "✓ Installato" if ok else "✗ Non installato"
+            status = tr("db.driver_installed") if ok else tr("db.driver_not_installed")
             item = QTreeWidgetItem([drv["display"], pip_pkg, status])
             item.setForeground(
                 2, Qt.GlobalColor.darkGreen if ok else Qt.GlobalColor.red)
@@ -616,10 +616,10 @@ class DBDriverManagerDialog(QDialog):
         key = item.data(0, Qt.ItemDataRole.UserRole)
         if _DRIVERS[key]["pip"] is None:
             QMessageBox.information(
-                self, "NotePadPQ", "Questo driver è nella libreria standard Python.")
+                self, "NotePadPQ", tr("db.driver_stdlib"))
             return
         if _driver_available(key):
-            QMessageBox.information(self, "NotePadPQ", "Driver già installato.")
+            QMessageBox.information(self, "NotePadPQ", tr("db.driver_already_installed"))
             return
         dlg = DBDriverInstallerDialog(key, self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -650,7 +650,7 @@ def _open_connection(info: dict):
         return oracledb.connect(
             user=info["username"], password=info["password"],
             dsn=f"{info['host']}:{info['port']}/{info['database']}")
-    raise ValueError(f"Tipo non supportato: {db_type}")
+    raise ValueError(tr("db.unsupported_type", db_type=db_type))
 
 
 def _get_tables(conn, db_type: str) -> list[tuple[str, str]]:
@@ -771,7 +771,7 @@ class _QueryWorker(QThread):
                     has_more = False
             else:
                 headers  = ["Info"]
-                rows     = [["Query eseguita."]]
+                rows     = [[tr("db.query_executed")]]
                 has_more = False
                 try:
                     conn.commit()
@@ -999,8 +999,7 @@ class _QueryTab(QWidget):
         # SQL editor (con autocompletamento)
         self._editor = _SqlEditor()
         self._editor.setPlaceholderText(
-            "Scrivi una query SQL…\n"
-            "F5 = esegui tutto   Ctrl+Enter = esegui selezione"
+            tr("db.editor_placeholder")
         )
         mono = QFont("Monospace")
         mono.setStyleHint(QFont.StyleHint.TypeWriter)
@@ -1220,7 +1219,9 @@ class _QueryTab(QWidget):
         suffix   = "+" if has_more else ""
         self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
         self._status_lbl.setText(
-            f"✓ righe {row_from}–{row_to}{suffix}  ({elapsed:.3f}s)"
+            tr("db.query_result_rows",
+               row_from=row_from, row_to=row_to, suffix=suffix,
+               elapsed=elapsed)
         )
         self._btn_export.setEnabled(bool(rows))
         self._show_results(headers, rows)
@@ -1230,7 +1231,7 @@ class _QueryTab(QWidget):
         self._pager.setVisible(show_pager)
         if show_pager:
             self._page_lbl.setText(
-                f"Righe {row_from}–{row_to}{suffix}"
+                tr("db.query_pager_rows", row_from=row_from, row_to=row_to, suffix=suffix)
             )
             self._btn_prev.setEnabled(offset > 0)
             self._btn_next.setEnabled(has_more)
@@ -1601,7 +1602,7 @@ class _QueryTab(QWidget):
                 total = sum(sizes)
                 self._splitter.setSizes([int(total * 0.55), int(total * 0.45)])
         except Exception as exc:
-            err_lbl = QLabel(f"Errore visualizzazione risultati:\n{exc}")
+            err_lbl = QLabel(tr("db.result_display_error", error=str(exc)))
             err_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(err_lbl)
 
@@ -1911,16 +1912,16 @@ class DBBrowserWidget(QWidget):
         if not _driver_available(db_type):
             dlg = DBDriverInstallerDialog(db_type, self)
             if dlg.exec() != QDialog.DialogCode.Accepted:
-                self._status_lbl.setText("✗ Driver non disponibile")
+                self._status_lbl.setText(tr("db.driver_unavailable"))
                 return
 
         try:
             self._conn = _open_connection(self._conn_info)
-            self._status_lbl.setText("✓ Connesso")
+            self._status_lbl.setText(tr("db.connected"))
             self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
             self._load_schema()
         except Exception as exc:
-            self._status_lbl.setText(f"✗ {str(exc)[:60]}")
+            self._status_lbl.setText(tr("db.connection_error_status", error=str(exc)[:60]))
             self._status_lbl.setStyleSheet("color: red; font-size: 11px;")
             QMessageBox.critical(
                 self, "NotePadPQ",
@@ -1945,7 +1946,7 @@ class DBBrowserWidget(QWidget):
 
         # Toggle header
         header_row = QHBoxLayout()
-        self._ai_toggle = QPushButton("🤖  AI Query  ▾")
+        self._ai_toggle = QPushButton(tr("db.ai_query_button") + "  ▾")
         self._ai_toggle.setStyleSheet(
             "QPushButton { border: none; text-align: left; font-size: 11px; "
             "font-weight: bold; color: palette(text); background: transparent; }"
@@ -1965,7 +1966,7 @@ class DBBrowserWidget(QWidget):
 
         # Provider selector row
         prov_row = QHBoxLayout()
-        prov_lbl = QLabel("Provider:")
+        prov_lbl = QLabel(tr("db.ai_provider") + ":")
         prov_lbl.setStyleSheet("font-size: 10px;")
         prov_row.addWidget(prov_lbl)
         self._ai_provider_combo = QComboBox()
@@ -1980,7 +1981,7 @@ class DBBrowserWidget(QWidget):
 
         # Model selector row
         model_row = QHBoxLayout()
-        model_lbl = QLabel("Modello:")
+        model_lbl = QLabel(tr("db.ai_model") + ":")
         model_lbl.setStyleSheet("font-size: 10px;")
         model_row.addWidget(model_lbl)
         self._ai_model_combo = QComboBox()
@@ -1991,7 +1992,7 @@ class DBBrowserWidget(QWidget):
         model_row.addWidget(self._ai_model_combo)
         self._ai_refresh_btn = QPushButton("↻")
         self._ai_refresh_btn.setFixedSize(22, 22)
-        self._ai_refresh_btn.setToolTip("Aggiorna lista modelli")
+        self._ai_refresh_btn.setToolTip(tr("db.refresh_models_tooltip"))
         self._ai_refresh_btn.setStyleSheet("font-size: 11px; padding: 0;")
         self._ai_refresh_btn.clicked.connect(self._ai_refresh_models)
         self._ai_refresh_btn.setVisible(False)
@@ -2043,7 +2044,7 @@ class DBBrowserWidget(QWidget):
                 if key:
                     self._ai_provider_combo.addItem(name, userData=info)
         if self._ai_provider_combo.count() == 0:
-            self._ai_provider_combo.addItem("(nessun provider configurato)", userData=None)
+            self._ai_provider_combo.addItem(tr("db.no_provider_configured"), userData=None)
 
     def _ai_on_provider_changed(self, _index: int = 0) -> None:
         """Aggiorna il combo dei modelli in base al provider selezionato."""
@@ -2080,7 +2081,7 @@ class DBBrowserWidget(QWidget):
     def _toggle_ai_panel(self) -> None:
         visible = not self._ai_body.isVisible()
         self._ai_body.setVisible(visible)
-        self._ai_toggle.setText("🤖  AI Query  " + ("▴" if visible else "▾"))
+        self._ai_toggle.setText(tr("db.ai_query_button") + "  " + ("▴" if visible else "▾"))
         if visible:
             self._ai_populate_providers()  # refresh in case keys were added
 
@@ -2124,7 +2125,7 @@ class DBBrowserWidget(QWidget):
         current = self._ai_model_combo.currentText()
         self._ai_model_combo.clear()
         if models is None:
-            self._ai_model_combo.addItem("⚠ ollama non raggiungibile")
+            self._ai_model_combo.addItem(tr("db.ollama_not_reachable"))
             self._ai_model_combo.setEnabled(False)
             return
         self._ai_model_combo.setEnabled(True)
@@ -2209,15 +2210,14 @@ class DBBrowserWidget(QWidget):
             from config.settings import Settings
             from plugins.ai_plugin import _AIWorker
         except ImportError:
-            QMessageBox.warning(self, "NotePadPQ", "Plugin AI non disponibile.")
+            QMessageBox.warning(self, "NotePadPQ", tr("msg.ai_not_available"))
             return
 
         pinfo = self._ai_provider_combo.currentData()
         if not pinfo:
             QMessageBox.warning(
                 self, "NotePadPQ",
-                "Nessun provider AI configurato.\n"
-                "Configura una chiave API nel pannello AI (Ctrl+Alt+A → ⚙)."
+                tr("db.ai_no_provider_configured")
             )
             return
 
@@ -2241,7 +2241,7 @@ class DBBrowserWidget(QWidget):
         messages = [{"role": "user", "content": question}]
 
         self._btn_ai_gen.setEnabled(False)
-        self._ai_status.setText("Generazione…")
+        self._ai_status.setText(tr("db.ai_generating"))
 
         self._ai_worker = _AIWorker(
             pid, model, api_key,
@@ -2253,7 +2253,7 @@ class DBBrowserWidget(QWidget):
 
     def _on_ai_sql_ready(self, text: str) -> None:
         self._btn_ai_gen.setEnabled(True)
-        self._ai_status.setText("✓ Pronto")
+        self._ai_status.setText(tr("db.ai_ready"))
         # Strip markdown fences if the AI added them despite instructions
         sql = text.strip()
         import re as _re
@@ -2267,9 +2267,9 @@ class DBBrowserWidget(QWidget):
 
     def _on_ai_error(self, error: str) -> None:
         self._btn_ai_gen.setEnabled(True)
-        self._ai_status.setText("✗ Errore")
+        self._ai_status.setText(tr("db.ai_error"))
         QMessageBox.critical(self, "NotePadPQ",
-                             f"Errore AI:\n{error}")
+                             tr("db.ai_error_detail", error=error))
 
     def _load_schema(self) -> None:
         if self._conn is None:
@@ -2280,7 +2280,7 @@ class DBBrowserWidget(QWidget):
         try:
             tables = _get_tables(self._conn, db_type)
         except Exception as exc:
-            self._status_lbl.setText(f"Schema: {exc}")
+            self._status_lbl.setText(tr("db.schema_error", error=str(exc)))
             return
 
         table_root = QTreeWidgetItem(["📋  Tabelle"])
@@ -2305,7 +2305,7 @@ class DBBrowserWidget(QWidget):
             self._schema_tree.addTopLevelItem(view_root)
 
         n = table_root.childCount() + view_root.childCount()
-        self._status_lbl.setText(f"✓ {n} oggetti")
+        self._status_lbl.setText(tr("db.schema_objects_count", n=n))
         self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
 
     def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
@@ -2499,7 +2499,7 @@ class DBBrowserWidget(QWidget):
             self._conn, self._conn_info, self._mw,
             self._query_count, self
         )
-        label = f"Query {self._query_count}"
+        label = tr("db.query_tab_label", query_count=self._query_count)
         self._query_tabs.addTab(tab, label)
         self._query_tabs.setCurrentWidget(tab)
         tab.focus_editor()

@@ -43,7 +43,7 @@ class StatusBar(QStatusBar):
         self._msg_timer.timeout.connect(lambda: self._lbl_message.setText(""))
         self.addWidget(self._lbl_message, 1)  # stretch=1 → occupa spazio libero a sinistra
 
-        self._lbl_cursor   = QLabel("Riga 1, Col 1")
+        self._lbl_cursor   = QLabel(tr("statusbar.default_cursor", default="Riga 1, Col 1"))
         self._lbl_sel      = QLabel("")
         self._lbl_encoding = QLabel("UTF-8")
         self._lbl_le       = QLabel("LF")
@@ -120,7 +120,7 @@ class StatusBar(QStatusBar):
             self._lbl_zoom.setText("")
         else:
             sign = "+" if level > 0 else ""
-            self._lbl_zoom.setText(f"Zoom {sign}{level}")
+            self._lbl_zoom.setText(tr("statusbar.zoom", level=f"{sign}{level}"))
 
     def set_read_only(self, ro: bool) -> None:
         self._lbl_readonly.setText(

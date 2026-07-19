@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import QProgressDialog, QApplication, QLabel, QPushButton
 
 from core.file_manager import FileManager
 from editor.editor_widget import LineEnding
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -306,8 +307,8 @@ class LazyLoader(QObject):
 
         size_mb = file_size / MB
         self._show_progress(
-            f"Apertura file ({size_mb:.1f} MB)…",
-            "Il file è di grandi dimensioni. Caricamento in corso…"
+            tr("lazy_loader.opening_file", size_mb=size_mb, default=f"Apertura file ({size_mb:.1f} MB)…"),
+            tr("lazy_loader.large_file_loading", default="Il file è di grandi dimensioni. Caricamento in corso…")
         )
 
         # Thread di lettura
@@ -403,12 +404,15 @@ class LazyLoader(QObject):
 
         def _update_label():
             lbl.setText(
-                f"📄 Pagina {pv.current_page + 1}/{pv.total_pages}  "
-                f"({pv.file_size_mb:.0f} MB)  [SOLA LETTURA]"
+                tr("lazy_loader.page_indicator",
+                   page=pv.current_page + 1, total=pv.total_pages,
+                   size=pv.file_size_mb,
+                   default=f"📄 Pagina {pv.current_page + 1}/{pv.total_pages}  "
+                           f"({pv.file_size_mb:.0f} MB)  [SOLA LETTURA]")
             )
 
-        btn_prev = QPushButton("◀ Pag. prec.")
-        btn_next = QPushButton("Pag. succ. ▶")
+        btn_prev = QPushButton(tr("lazy_loader.btn_prev_page", default="◀ Pag. prec."))
+        btn_next = QPushButton(tr("lazy_loader.btn_next_page", default="Pag. succ. ▶"))
         btn_prev.setFixedHeight(20)
         btn_next.setFixedHeight(20)
 
@@ -448,8 +452,9 @@ class LazyLoader(QObject):
         if self._mw is None:
             return
         self._mw.statusBar().showMessage(
-            f"⚠ File enorme ({size_gb:.2f} GB): modalità sola lettura, "
-            f"navigazione a pagine attiva. Pagina 1/{self._paged_view.total_pages}.",
+            tr("lazy_loader.paged_mode_notice", size_gb=size_gb, total_pages=self._paged_view.total_pages,
+               default=f"⚠ File enorme ({size_gb:.2f} GB): modalità sola lettura, "
+                       f"navigazione a pagine attiva. Pagina 1/{self._paged_view.total_pages}."),
             8000
         )
 
@@ -468,7 +473,7 @@ class LazyLoader(QObject):
     def _show_progress(self, title: str, text: str) -> None:
         if self._mw is None:
             return
-        dlg = QProgressDialog(text, "Annulla", 0, 100, self._mw)
+        dlg = QProgressDialog(text, tr("button.cancel", default="Annulla"), 0, 100, self._mw)
         dlg.setWindowTitle(title)
         dlg.setWindowModality(Qt.WindowModality.WindowModal)
         dlg.setMinimumDuration(500)

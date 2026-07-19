@@ -58,7 +58,7 @@ class FilePropertiesDialog(QDialog):
         chars_no_ws = len(text.replace(" ", "").replace("\n", "").replace("\t", ""))
 
         # ── File su disco ──────────────────────────────────────────────────
-        grp_file = QGroupBox("File")
+        grp_file = QGroupBox(tr("file_properties.grp_file", default="File"))
         form_file = QFormLayout(grp_file)
 
         if path and path.exists():
@@ -92,20 +92,20 @@ class FilePropertiesDialog(QDialog):
         path_row.addWidget(lbl_path, 1)
         path_row.addWidget(btn_copy)
 
-        form_file.addRow("Percorso:", path_row)  # type: ignore
+        form_file.addRow(tr("file_properties.label_path", default="Percorso:"), path_row)  # type: ignore
         form_file.addRow(tr("file_properties.label_size"), QLabel(size_str))
         form_file.addRow(tr("file_properties.label_modified"), QLabel(mtime_str))
         form_file.addRow(tr("file_properties.label_created"), QLabel(ctime_str))
         layout.addWidget(grp_file)
 
         # ── Documento ─────────────────────────────────────────────────────
-        grp_doc = QGroupBox("Documento")
+        grp_doc = QGroupBox(tr("file_properties.grp_doc", default="Documento"))
         form_doc = QFormLayout(grp_doc)
         form_doc.addRow(tr("label.encoding"),    QLabel(self._editor.encoding))
         form_doc.addRow(tr("label.line_ending"), QLabel(self._editor.line_ending.label()))
         form_doc.addRow(tr("label.lines_total"), QLabel(str(lines)))
         form_doc.addRow(tr("label.words"),       QLabel(str(words)))
-        form_doc.addRow(tr("label.chars"),       QLabel(f"{chars}  (senza spazi: {chars_no_ws})"))
+        form_doc.addRow(tr("label.chars"),       QLabel(tr("file_properties.chars_count", total=chars, no_spaces=chars_no_ws, default=f"{chars}  (senza spazi: {chars_no_ws})")))
         layout.addWidget(grp_doc)
 
         # ── Pulsanti ──────────────────────────────────────────────────────

@@ -140,22 +140,24 @@ class I18n(QObject):
 
     def translate(self, key: str, **kwargs) -> str:
         """
-        Traduce una chiave puntata es. "action.save" → "Salva".
+        Traduce una chiave puntata es. "action.save" -> "Salva".
 
         Fallback a cascata:
           1. lingua corrente (_data)
           2. inglese (_fallback)
-          3. chiave grezza (mai stringa vuota)
+          3. parametro `default=` se fornito
+          4. chiave grezza (mai stringa vuota)
 
         kwargs vengono sostituiti nel testo via str.format_map():
           tr("msg.file_not_found", path="/etc/foo")
-          → "File non trovato: /etc/foo"
+          -> "File non trovato: /etc/foo"
         """
+        default = kwargs.pop("default", None) if "default" in kwargs else None
         text = self._resolve(key, self._data)
         if text is None:
             text = self._resolve(key, self._fallback)
         if text is None:
-            text = key  # chiave grezza come ultimo fallback
+            text = default if default is not None else key
 
         if kwargs:
             try:

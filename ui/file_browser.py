@@ -106,7 +106,7 @@ class FileBrowser(QWidget):
 
     def _choose_root(self) -> None:
         folder = QFileDialog.getExistingDirectory(
-            self, "Scegli cartella", str(self._root)
+            self, tr("file_browser.choose_folder", default="Scegli cartella"), str(self._root)
         )
         if folder:
             self._set_root(Path(folder))
@@ -170,7 +170,7 @@ class FileBrowser(QWidget):
             )
             menu.addAction(act_set_root)
 
-        act_reveal = QAction("Mostra nel file manager", self)
+        act_reveal = QAction(tr("file_browser.reveal_in_fm", default="Mostra nel file manager"), self)
         act_reveal.triggered.connect(lambda: self._reveal(path or self._root))
         menu.addAction(act_reveal)
 
@@ -189,7 +189,7 @@ class FileBrowser(QWidget):
         except FileExistsError:
             QMessageBox.warning(self, tr("file_browser.error_title"), tr("file_browser.file_exists_error", name=name))
         except Exception as e:
-            QMessageBox.critical(self, "Errore", str(e))
+            QMessageBox.critical(self, tr("dialog.error", default="Error"), str(e))
 
     def _new_folder(self, folder: Path) -> None:
         name, ok = QInputDialog.getText(self, tr("file_browser.new_folder_title"), tr("file_browser.new_folder_prompt"))
@@ -201,7 +201,7 @@ class FileBrowser(QWidget):
         except FileExistsError:
             QMessageBox.warning(self, tr("file_browser.error_title"), tr("file_browser.folder_exists_error", name=name))
         except Exception as e:
-            QMessageBox.critical(self, "Errore", str(e))
+            QMessageBox.critical(self, tr("dialog.error", default="Error"), str(e))
 
     def _rename(self, path: Path) -> None:
         new_name, ok = QInputDialog.getText(
@@ -213,7 +213,7 @@ class FileBrowser(QWidget):
         try:
             path.rename(target)
         except Exception as e:
-            QMessageBox.critical(self, "Errore rinomina", str(e))
+            QMessageBox.critical(self, tr("file_browser.rename_error", default="Errore rinomina"), str(e))
 
     def _delete(self, path: Path) -> None:
         kind = path.name
@@ -232,7 +232,7 @@ class FileBrowser(QWidget):
             else:
                 path.unlink()
         except Exception as e:
-            QMessageBox.critical(self, "Errore eliminazione", str(e))
+            QMessageBox.critical(self, tr("file_browser.delete_error", default="Errore eliminazione"), str(e))
 
     def _reveal(self, path: Path) -> None:
         from PyQt6.QtCore import QUrl

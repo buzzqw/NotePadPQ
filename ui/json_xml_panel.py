@@ -98,7 +98,7 @@ class JsonXmlPanel(QWidget):
 
         # Modello + proxy filtro
         self._model = QStandardItemModel(self)
-        self._model.setHorizontalHeaderLabels(["Chiave / Tag", "Valore"])
+        self._model.setHorizontalHeaderLabels([tr("json_xml.col_key_tag"), tr("json_xml.col_value")])
         self._model.itemChanged.connect(self._on_item_changed)
 
         self._proxy = QSortFilterProxyModel(self)
@@ -122,7 +122,7 @@ class JsonXmlPanel(QWidget):
         layout.addWidget(self._tree, 1)
 
         # Hint editing
-        self._hint = QLabel("✏  Doppio click su un valore per modificarlo")
+        self._hint = QLabel(tr("json_xml.edit_hint"))
         self._hint.setStyleSheet("color: #666; font-size: 10px; padding: 1px 2px;")
         layout.addWidget(self._hint)
 
@@ -201,12 +201,12 @@ class JsonXmlPanel(QWidget):
         self._detect_lang()
         if not self._lang:
             self._clear_tree()
-            self._status.setText("—  non JSON né XML")
+            self._status.setText(tr("json_xml.not_json_xml"))
             return
         text = self._editor.text()
         if not text.strip():
             self._clear_tree()
-            self._status.setText("Documento vuoto")
+            self._status.setText(tr("json_xml.empty_doc"))
             return
         self._clear_tree()
         try:
@@ -215,15 +215,15 @@ class JsonXmlPanel(QWidget):
             else:
                 self._parse_xml(text)
         except json.JSONDecodeError as exc:
-            self._status.setText(f"⚠  JSON non valido — {exc.msg} (riga {exc.lineno})")
+            self._status.setText(tr("json_xml.invalid_json", msg=exc.msg, line=exc.lineno))
         except ET.ParseError as exc:
-            self._status.setText(f"⚠  XML non valido — {exc}")
+            self._status.setText(tr("json_xml.invalid_xml", error=str(exc)))
         except Exception as exc:
-            self._status.setText(f"⚠  Errore — {exc}")
+            self._status.setText(tr("json_xml.parse_error", error=str(exc)))
 
     def _clear_tree(self) -> None:
         self._model.clear()
-        self._model.setHorizontalHeaderLabels(["Chiave / Tag", "Valore"])
+        self._model.setHorizontalHeaderLabels([tr("json_xml.col_key_tag"), tr("json_xml.col_value")])
 
     # ── Parser JSON ───────────────────────────────────────────────────────────
 
@@ -232,7 +232,7 @@ class JsonXmlPanel(QWidget):
         root = self._model.invisibleRootItem()
         self._add_json_node(root, "", data, [])
         n = self._model.rowCount()
-        self._status.setText(f"JSON valido  ·  {n} nodo{'i' if n != 1 else ''} radice")
+        self._status.setText(tr("json_xml.valid_json", count=n))
         self._tree.expandToDepth(1)
         self._tree.resizeColumnToContents(0)
 
@@ -249,9 +249,9 @@ class JsonXmlPanel(QWidget):
 
         if isinstance(value, dict):
             cnt = len(value)
-            k_item = self._key_item(display_key) if key != "" else QStandardItem("{  }")
+            k_item = self._key_item(display_key) if key != "" else QStandardItem(tr("json_xml.empty_object", default="{  }"))
             k_item.setEditable(False)
-            v_item = QStandardItem(f"{{  {cnt} chiav{'i' if cnt != 1 else 'e'}  }}")
+            v_item = QStandardItem(tr("json_xml.json_object", count=cnt))
             v_item.setForeground(QBrush(_COL_TYPE))
             v_item.setEditable(False)
             parent.appendRow([k_item, v_item])
@@ -260,9 +260,9 @@ class JsonXmlPanel(QWidget):
 
         elif isinstance(value, list):
             cnt = len(value)
-            k_item = self._key_item(display_key) if key != "" else QStandardItem("[  ]")
+            k_item = self._key_item(display_key) if key != "" else QStandardItem(tr("json_xml.empty_array", default="[  ]"))
             k_item.setEditable(False)
-            v_item = QStandardItem(f"[  {cnt} element{'i' if cnt != 1 else 'o'}  ]")
+            v_item = QStandardItem(tr("json_xml.json_array", count=cnt))
             v_item.setForeground(QBrush(_COL_TYPE))
             v_item.setEditable(False)
             parent.appendRow([k_item, v_item])
@@ -270,7 +270,7 @@ class JsonXmlPanel(QWidget):
                 self._add_json_node(k_item, i, v, current_path)
 
         else:
-            k_item = self._key_item(display_key) if key != "" else QStandardItem("(valore)")
+            k_item = self._key_item(display_key) if key != "" else QStandardItem(tr("json_xml.scalar_value"))
             k_item.setEditable(False)
             v_item = QStandardItem(self._fmt_scalar(value))
             v_item.setForeground(QBrush(self._scalar_color(value)))
@@ -348,7 +348,7 @@ class JsonXmlPanel(QWidget):
         root_elem = ET.fromstring(text)
         root_item = self._model.invisibleRootItem()
         self._add_xml_node(root_item, root_elem, [])
-        self._status.setText("XML valido  ·  doppio click per modificare attributi e testo")
+        self._status.setText(tr("json_xml.valid_xml"))
         self._tree.expandToDepth(1)
         self._tree.resizeColumnToContents(0)
 
@@ -424,7 +424,7 @@ class JsonXmlPanel(QWidget):
             elif self._lang == "xml":
                 self._apply_xml_edit(item, json.loads(path_str), edit_type)
         except Exception as exc:
-            self._status.setText(f"⚠  Errore aggiornamento: {exc}")
+            self._status.setText(tr("json_xml.update_error", error=str(exc)))
         finally:
             self._updating_editor = False
 
@@ -449,7 +449,7 @@ class JsonXmlPanel(QWidget):
         # Aggiorna colore inline senza ricostruire l'albero
         item.setForeground(QBrush(self._scalar_color(new_val)))
         item.setText(self._fmt_scalar(new_val))
-        self._status.setText("✓  Documento aggiornato")
+        self._status.setText(tr("json_xml.doc_updated"))
 
     def _apply_xml_edit(self, item: QStandardItem, path: list, edit_type: str) -> None:
         if self._editor is None:
@@ -476,7 +476,7 @@ class JsonXmlPanel(QWidget):
             lines = lines[1:]
         formatted = "\n".join(lines) + "\n"
         self._write_to_editor(formatted)
-        self._status.setText("✓  Documento aggiornato")
+        self._status.setText(tr("json_xml.doc_updated"))
 
     def _write_to_editor(self, text: str) -> None:
         if self._editor is None:
@@ -687,7 +687,7 @@ class JsonXmlPanel(QWidget):
             return
         self._detect_lang()
         if not self._lang:
-            self._status.setText("⚠  Tipo file non riconoscibile")
+            self._status.setText(tr("json_xml.unrecognized_type"))
             return
         text = self._editor.text()
         if not text.strip():
@@ -695,16 +695,16 @@ class JsonXmlPanel(QWidget):
         try:
             formatted = self._pretty_print(text)
         except json.JSONDecodeError as exc:
-            self._status.setText(f"⚠  JSON non valido — {exc.msg} (riga {exc.lineno})")
+            self._status.setText(tr("json_xml.invalid_json", msg=exc.msg, line=exc.lineno))
             return
         except ET.ParseError as exc:
-            self._status.setText(f"⚠  XML non valido — {exc}")
+            self._status.setText(tr("json_xml.invalid_xml", error=str(exc)))
             return
         except Exception as exc:
-            self._status.setText(f"⚠  Errore — {exc}")
+            self._status.setText(tr("json_xml.parse_error", error=str(exc)))
             return
         if formatted == text:
-            self._status.setText("Documento già formattato")
+            self._status.setText(tr("json_xml.already_formatted"))
             return
         self._write_to_editor(formatted)
         self._refresh()
@@ -727,7 +727,7 @@ def install(main_window: "MainWindow") -> JsonXmlPanel:
     """Crea il dock JSON/XML, lo aggiunge alla finestra e al menu Visualizza."""
     panel = JsonXmlPanel(main_window)
 
-    dock = QDockWidget("{ }  JSON / XML", main_window)
+    dock = QDockWidget(tr("dock.json_xml"), main_window)
     dock.setObjectName("JsonXmlDock")
     dock.setWidget(panel)
     dock.setMinimumWidth(240)

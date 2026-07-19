@@ -14,21 +14,21 @@ from i18n.i18n import tr
 
 # Token sostituiti a runtime nella stringa header/footer
 _TOKENS = {
-    "{file}":    "Nome file",
-    "{path}":    "Percorso completo",
-    "{date}":    "Data",
-    "{time}":    "Ora",
-    "{page}":    "Numero pagina",
-    "{pages}":   "Totale pagine",
+    "{file}":    tr("print_options.token_file"),
+    "{path}":    tr("print_options.token_path"),
+    "{date}":    tr("print_options.token_date"),
+    "{time}":    tr("print_options.token_time"),
+    "{page}":    tr("print_options.token_page"),
+    "{pages}":   tr("print_options.token_pages"),
 }
 
 _PRESETS = [
-    ("(vuoto)", "", "", ""),
-    ("Nome file | Data | Pagina",
-     "{file}", "{date}", "Pagina {page} di {pages}"),
-    ("Solo pagina (centrata)",
-     "", "Pagina {page} di {pages}", ""),
-    ("Percorso a sinistra, ora a destra",
+    (tr("print_options.preset_empty"), "", "", ""),
+    (tr("print_options.preset_file_date_page"),
+     "{file}", "{date}", tr("print_options.page_x_of_y")),
+    (tr("print_options.preset_page_only"),
+     "", tr("print_options.page_x_of_y"), ""),
+    (tr("print_options.preset_path_left_time_right"),
      "{path}", "", "{time}"),
 ]
 
@@ -40,9 +40,9 @@ class _HFRow(QFrame):
         super().__init__()
         hl = QHBoxLayout(self)
         hl.setContentsMargins(0, 0, 0, 0)
-        self._left   = QLineEdit(); self._left.setPlaceholderText("Sinistra")
-        self._center = QLineEdit(); self._center.setPlaceholderText("Centro")
-        self._right  = QLineEdit(); self._right.setPlaceholderText("Destra")
+        self._left   = QLineEdit(); self._left.setPlaceholderText(tr("print_options.align_left"))
+        self._center = QLineEdit(); self._center.setPlaceholderText(tr("print_options.align_center"))
+        self._right  = QLineEdit(); self._right.setPlaceholderText(tr("print_options.align_right"))
         hl.addWidget(QLabel(f"{label}:"))
         hl.addWidget(self._left,   1)
         hl.addWidget(self._center, 1)
@@ -68,7 +68,7 @@ class PrintOptionsDialog(QDialog):
 
         # ── Preset ────────────────────────────────────────────────────────────
         hl_preset = QHBoxLayout()
-        hl_preset.addWidget(QLabel("Preset:"))
+        hl_preset.addWidget(QLabel(tr("print_options.label_preset")))
         self._preset_combo = QComboBox()
         for name, *_ in _PRESETS:
             self._preset_combo.addItem(name)
@@ -76,14 +76,14 @@ class PrintOptionsDialog(QDialog):
         vl.addLayout(hl_preset)
 
         # ── Header ────────────────────────────────────────────────────────────
-        grp_h = QGroupBox("Intestazione (header)")
+        grp_h = QGroupBox(tr("print_options.grp_header"))
         gh = QVBoxLayout(grp_h)
-        self._hdr_enabled = QCheckBox("Abilita intestazione")
+        self._hdr_enabled = QCheckBox(tr("print_options.chk_header_enabled"))
         self._hdr_enabled.setChecked(True)
         gh.addWidget(self._hdr_enabled)
-        self._hdr_row = _HFRow("  Testo")
+        self._hdr_row = _HFRow(tr("print_options.label_text"))
         gh.addWidget(self._hdr_row)
-        self._hdr_line = QCheckBox("Linea separatrice sotto l'intestazione")
+        self._hdr_line = QCheckBox(tr("print_options.chk_header_line"))
         self._hdr_line.setChecked(True)
         gh.addWidget(self._hdr_line)
         vl.addWidget(grp_h)
@@ -94,7 +94,7 @@ class PrintOptionsDialog(QDialog):
         self._ftr_enabled = QCheckBox(tr("print_options.chk_footer_enabled"))
         self._ftr_enabled.setChecked(True)
         gf.addWidget(self._ftr_enabled)
-        self._ftr_row = _HFRow("  Testo")
+        self._ftr_row = _HFRow(tr("print_options.label_text"))
         gf.addWidget(self._ftr_row)
         self._ftr_line = QCheckBox(tr("print_options.chk_footer_line"))
         self._ftr_line.setChecked(True)
@@ -108,13 +108,13 @@ class PrintOptionsDialog(QDialog):
         self._hf_size = QSpinBox()
         self._hf_size.setRange(6, 24)
         self._hf_size.setValue(8)
-        fl.addRow("Font h/f:", self._hf_font)
+        fl.addRow(tr("print_options.label_hf_font"), self._hf_font)
         fl.addRow(tr("print_options.label_size"), self._hf_size)
         vl.addLayout(fl)
 
         # ── Token helper ──────────────────────────────────────────────────────
         tokens_str = "  ".join(f"{k} = {v}" for k, v in _TOKENS.items())
-        lbl = QLabel(f"Token disponibili: {tokens_str}")
+        lbl = QLabel(tr("print_options.available_tokens", tokens=tokens_str))
         lbl.setWordWrap(True)
         lbl.setStyleSheet("color: gray; font-size: 9px;")
         vl.addWidget(lbl)
@@ -139,7 +139,7 @@ class PrintOptionsDialog(QDialog):
             return
         _, hl, hc, hr = _PRESETS[idx]
         self._hdr_row.set_values(hl, hc, hr)
-        self._ftr_row.set_values("", "Pagina {page} di {pages}", "")
+        self._ftr_row.set_values("", tr("print_options.page_x_of_y"), "")
 
     # ── Accessors ─────────────────────────────────────────────────────────────
 
@@ -171,8 +171,8 @@ class PrintOptionsDialog(QDialog):
 
 def _resolve_tokens(text: str, page: int, total_pages: int, file_path) -> str:
     now = datetime.datetime.now()
-    name = file_path.name if file_path else "senza_nome"
-    path = str(file_path) if file_path else "senza_nome"
+    name = file_path.name if file_path else tr("label.untitled", default="untitled")
+    path = str(file_path) if file_path else tr("label.untitled", default="untitled")
     return (text
             .replace("{file}",  name)
             .replace("{path}",  path)

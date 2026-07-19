@@ -101,7 +101,7 @@ class IncrementalSearchBar(QWidget):
 
         # Campo testo
         self._field = QLineEdit()
-        self._field.setPlaceholderText("Ricerca incrementale…  (F3 succ.  Shift+F3 prec.  Esc chiudi)")
+        self._field.setPlaceholderText(tr("incremental_search.placeholder", default="Ricerca incrementale…  (F3 succ.  Shift+F3 prec.  Esc chiudi)"))
         self._field.setFixedHeight(24)
         self._field.setMinimumWidth(220)
         self._field.setSizePolicy(
@@ -258,7 +258,7 @@ class IncrementalSearchBar(QWidget):
 
         if total == 0:
             self._set_field_color(_COLOR_ERROR)
-            self._count_lbl.setText("nessuno")
+            self._count_lbl.setText(tr("search.no_matches", default="nessuno"))
             return
 
         self._set_field_color(None)

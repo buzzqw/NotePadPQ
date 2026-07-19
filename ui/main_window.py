@@ -329,7 +329,7 @@ class MainWindow(QMainWindow):
         self._file_browser.file_open_requested.connect(
             lambda p: self.open_files([p])
         )
-        self._file_browser_dock = QDockWidget("📁  File Browser", self)
+        self._file_browser_dock = QDockWidget(tr("dock.file_browser"), self)
         self._file_browser_dock.setObjectName("FileBrowserDock")
         self._file_browser_dock.setWidget(self._file_browser)
         self._file_browser_dock.setMinimumWidth(180)
@@ -348,7 +348,7 @@ class MainWindow(QMainWindow):
         self._project_manager.file_open_requested.connect(
             lambda p: self.open_files([p])
         )
-        self._project_dock = QDockWidget("Progetti", self)
+        self._project_dock = QDockWidget(tr("dock.projects"), self)
         self._project_dock.setObjectName("ProjectDock")
         self._project_dock.setWidget(self._project_manager)
         self._project_dock.setMinimumWidth(200)
@@ -402,21 +402,21 @@ class MainWindow(QMainWindow):
         # Tab 1: Log di compilazione — resta sempre la vista attiva di default,
         # anche in caso di errore (niente più switch automatico altrove).
         self._build_panel = BuildPanel(self)
-        self._bottom_tabs.addTab(self._build_panel, "🖥  Log")
+        self._bottom_tabs.addTab(self._build_panel, tr("dock.log"))
 
         # Tab 2: Errori di compilazione (parsing del log) — badge col conteggio
         self._errors_tab_index = self._bottom_tabs.addTab(
-            self._build_panel._error_tree, "⚠  Errori compilazione"
+            self._build_panel._error_tree, tr("dock.build_errors")
         )
         self._build_panel.error_count_changed.connect(self._on_build_errors_changed)
 
         # Tab 3: Diagnostics LSP (analisi live del file, indipendente dal build)
         from ui.lsp_panel import DiagnosticsPanel
         self._diag_panel = DiagnosticsPanel(self)
-        self._bottom_tabs.addTab(self._diag_panel, "⚡  Diagnostics")
+        self._bottom_tabs.addTab(self._diag_panel, tr("dock.diagnostics"))
 
         # Tab 4: Task rapido (Makefile/npm/comando libero)
-        self._bottom_tabs.addTab(self._build_panel._task_widget, "🗲  Task")
+        self._bottom_tabs.addTab(self._build_panel._task_widget, tr("dock.task"))
 
         self._build_dock = QDockWidget(tr("label.build_output", default="Pannello inferiore"), self)
         self._build_dock.setObjectName("BuildDock")
@@ -446,7 +446,7 @@ class MainWindow(QMainWindow):
         # ── Dock destra: Minimap ─────────────────────────────────────────────
         from ui.minimap import MinimapWidget
         from config.settings import Settings as _S
-        self._minimap_dock = QDockWidget("Minimap", self)
+        self._minimap_dock = QDockWidget(tr("dock.minimap"), self)
         self._minimap_dock.setObjectName("MinimapDock")
         self._minimap_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         self._minimap_dock.setFeatures(
@@ -719,7 +719,7 @@ class MainWindow(QMainWindow):
 
     def _on_lsp_references(self, refs: list) -> None:
         if not refs:
-            self.statusBar().showMessage("LSP: nessun riferimento trovato", 3000)
+            self.statusBar().showMessage(tr("msg.lsp_no_refs"), 3000)
             return
         lines = []
         for r in refs:
@@ -730,7 +730,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(self, "Riferimenti LSP", "\n".join(lines[:50]))
+        QMessageBox.information(self, tr("dialog.lsp_refs"), "\n".join(lines[:50]))
 
     # ── Azioni LSP pubbliche ──────────────────────────────────────────────────
 
@@ -756,7 +756,7 @@ class MainWindow(QMainWindow):
         if not editor or not client or not editor.file_path:
             return
         from PyQt6.QtWidgets import QInputDialog
-        new_name, ok = QInputDialog.getText(self, "Rinomina simbolo", "Nuovo nome:")
+        new_name, ok = QInputDialog.getText(self, tr("dialog.lsp_rename"), tr("label.new_name_prompt"))
         if ok and new_name.strip():
             line, col = editor.getCursorPosition()
             client.request_rename(editor.file_path, line, col, new_name.strip())
@@ -765,7 +765,7 @@ class MainWindow(QMainWindow):
         editor = self._tab_manager.current_editor()
         client = getattr(editor, "_lsp_client", None)
         if not editor or not client or not editor.file_path:
-            self.statusBar().showMessage("LSP: server non disponibile per questo file", 3000)
+            self.statusBar().showMessage(tr("msg.lsp_unavailable"), 3000)
             return
         from config.settings import Settings
         tab_size = Settings.instance().get("editor/tab_width", 4)
@@ -808,18 +808,18 @@ class MainWindow(QMainWindow):
         """Confronta il buffer corrente con la versione salvata su disco."""
         editor = self._tab_manager.current_editor()
         if not editor or not editor.file_path or not editor.file_path.exists():
-            self.statusBar().showMessage("Nessun file salvato da confrontare.", 3000)
+            self.statusBar().showMessage(tr("msg.no_saved_file_to_compare"), 3000)
             return
         try:
             disk_content = editor.file_path.read_text(encoding=editor.encoding or "utf-8",
                                                        errors="replace")
         except Exception as e:
-            self.statusBar().showMessage(f"Errore lettura file: {e}", 4000)
+            self.statusBar().showMessage(tr("msg.file_read_error_status", error=str(e)), 4000)
             return
 
         current_content = editor.get_content()
         if current_content == disk_content:
-            self.statusBar().showMessage("Il buffer è identico alla versione su disco.", 3000)
+            self.statusBar().showMessage(tr("msg.buffer_identical"), 3000)
             return
 
         # Usa il plugin Compare se disponibile, altrimenti apri il file su disco in un nuovo tab
@@ -847,7 +847,7 @@ class MainWindow(QMainWindow):
                 tmp_path = Path(tmp.name)
             self.open_files([tmp_path])
             self.statusBar().showMessage(
-                "Versione su disco aperta in un nuovo tab per il confronto manuale.", 4000
+                tr("msg.disk_version_opened_for_comparison"), 4000
             )
 
     def _setup_i18n(self) -> None:
@@ -1406,8 +1406,8 @@ class MainWindow(QMainWindow):
         """Popola il submenu Imposta tipo di file — ordinato alfabeticamente con checkmark."""
         # Voce speciale "Automatico" sempre in cima
         from PyQt6.QtGui import QActionGroup
-        auto_action = QAction("Automatico", self)
-        auto_action.triggered.connect(lambda: self.action_set_language("Automatico"))
+        auto_action = QAction(tr("label.auto"), self)
+        auto_action.triggered.connect(lambda: self.action_set_language(tr("label.auto")))
         menu.addAction(auto_action)
         menu.addSeparator()
 
@@ -2056,7 +2056,7 @@ class MainWindow(QMainWindow):
             self,
             tr("action.open"),
             str(Path.home()),
-            "Tutti i file (*)"
+            tr("dialog.all_files")
         )
         if paths:
             self.open_files([Path(p) for p in paths])
@@ -2167,7 +2167,7 @@ class MainWindow(QMainWindow):
             return False
         default = str(editor.file_path or Path.home())
         path, _ = QFileDialog.getSaveFileName(
-            self, tr("action.save_as"), default, "Tutti i file (*)"
+            self, tr("action.save_as"), default, tr("dialog.all_files")
         )
         if not path:
             return False
@@ -2272,7 +2272,7 @@ class MainWindow(QMainWindow):
                     tr("msg.ftp_sync_failed", default="FTP sync fallito — vedi pannello FTP"), 5000
                 )
         except Exception as e:
-            self.statusBar().showMessage(f"FTP sync error: {e}", 5000)
+            self.statusBar().showMessage(tr("msg.ftp_sync_error", error=str(e)), 5000)
 
     def action_reload(self) -> None:
         editor = self._current_editor()
@@ -2343,7 +2343,7 @@ class MainWindow(QMainWindow):
                 custom.export_pdf()
             return
         default = str(editor.file_path.with_suffix("")
-                      if editor.file_path else Path.home() / "documento")
+                      if editor.file_path else Path.home() / tr("label.untitled"))
         path, _ = QFileDialog.getSaveFileName(
             self, tr("action.export_pdf"), default, "PDF (*.pdf)")
         if not path:
@@ -2388,7 +2388,7 @@ class MainWindow(QMainWindow):
         if not editor:
             return
 
-        stem = editor.file_path.stem if editor.file_path else "documento"
+        stem = editor.file_path.stem if editor.file_path else tr("label.untitled")
         default = str(_Path.home() / stem)
         _filter = (
             "Word 2007-365 DOCX (*.docx);;"
@@ -2433,10 +2433,7 @@ class MainWindow(QMainWindow):
             reply = _QMB.question(
                 self,
                 tr("action.export_as", default="Esporta come…"),
-                f"Il file sorgente ({src_ext or 'senza estensione'}) non è un formato di markup.\n"
-                "La conversione è possibile ma il risultato conterrà solo testo piano "
-                "senza formattazione strutturata (titoli, grassetto, tabelle…).\n\n"
-                "Continuare?",
+                tr("msg.export_plain_warning", ext=src_ext or tr("msg.no_extension")),
                 _QMB.StandardButton.Yes | _QMB.StandardButton.Cancel,
             )
             if reply != _QMB.StandardButton.Yes:
@@ -2447,7 +2444,7 @@ class MainWindow(QMainWindow):
             _QMB.critical(self, tr("action.export_as", default="Esporta come…"), err)
         else:
             _QMB.information(self, tr("action.export_as", default="Esporta come…"),
-                             f"File esportato:\n{p}")
+                             tr("msg.export_done", path=str(p)))
 
     @staticmethod
     def _export_text_as(content: str, fmt_in: str, dest: "Path") -> str:
@@ -2507,7 +2504,7 @@ class MainWindow(QMainWindow):
                 return result.stderr or f"pandoc exit {result.returncode}"
             return ""
         except FileNotFoundError:
-            return "pandoc non trovato. Installa pandoc oppure htmldocx."
+            return tr("msg.pandoc_not_found")
         except Exception as e:
             return str(e)
         finally:
@@ -2613,8 +2610,8 @@ class MainWindow(QMainWindow):
         editor = self._current_editor()
         if editor:
             width, ok = QInputDialog.getInt(
-                self, tr("action.spaces_to_tabs"),
-                "Dimensione tab:", editor.tabWidth(), 1, 32
+                self,                 tr("action.spaces_to_tabs"),
+                tr("label.tab_size_prompt"), editor.tabWidth(), 1, 32
             )
             if ok:
                 from core.text_tools import spaces_to_tabs
@@ -2887,7 +2884,7 @@ class MainWindow(QMainWindow):
         """Aggiorna il badge con il conteggio errori sulla tab dedicata,
         senza mai spostare la vista corrente (resta sul Log di default)."""
         from PyQt6.QtGui import QColor, QPalette
-        base = "⚠  Errori compilazione"
+        base = tr("dock.build_errors")
         idx = self._errors_tab_index
         bar = self._bottom_tabs.tabBar()
         if n > 0:
@@ -2938,7 +2935,7 @@ class MainWindow(QMainWindow):
         else:
             self._preview_dock.hide()
         self.statusBar().showMessage(
-            "Anteprima attivata" if checked else "Anteprima disattivata", 2000
+            tr("msg.preview_on") if checked else tr("msg.preview_off"), 2000
         )
 
     def _on_preview_dock_visibility(self, visible: bool) -> None:
@@ -2991,7 +2988,7 @@ class MainWindow(QMainWindow):
 
     def _show_df_exit_button(self) -> None:
         if not hasattr(self, "_df_exit_btn"):
-            btn = QPushButton("✕  Esci (Esc)", self)
+            btn = QPushButton(tr("button.exit_df"), self)
             btn.setObjectName("df_exit_btn")
             btn.setStyleSheet("""
                 QPushButton {
@@ -3165,7 +3162,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_statusbar"):
             self._statusbar._update_lang(editor)
         self._update_file_type_menu(editor)
-        self.statusBar().showMessage(f"Linguaggio impostato: {lang}", 3000)
+        self.statusBar().showMessage(tr("msg.language_set", lang=lang), 3000)
 
     def action_set_encoding(self, encoding: str) -> None:
         editor = self._current_editor()
@@ -3176,7 +3173,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_statusbar"):
             self._statusbar.set_encoding(clean)
         self._update_file_type_menu(editor)
-        self.statusBar().showMessage(f"Codifica impostata: {clean}", 3000)
+        self.statusBar().showMessage(tr("msg.encoding_set", enc=clean), 3000)
 
     def action_set_line_ending(self, le: LineEnding) -> None:
         editor = self._current_editor()
@@ -3186,7 +3183,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_statusbar"):
             self._statusbar.set_line_ending(le.label())
         self._update_file_type_menu(editor)
-        self.statusBar().showMessage(f"Fine riga impostata: {le.label()}", 3000)
+        self.statusBar().showMessage(tr("msg.line_ending_set", le=le.label()), 3000)
 
     def action_clone(self) -> None:
         editor = self._current_editor()
@@ -3213,14 +3210,14 @@ class MainWindow(QMainWindow):
     def action_record_macro(self) -> None:
         from core.macro import MacroManager
         MacroManager.instance().start_recording(self._current_editor())
-        self.statusBar().showMessage("⏺  Registrazione macro avviata — premi 'Ferma macro' per terminare", 5000)
+        self.statusBar().showMessage(tr("msg.macro_recording_started"), 5000)
 
     def action_stop_macro(self) -> None:
         from core.macro import MacroManager
         mm = MacroManager.instance()
         count = len(mm._actions) if hasattr(mm, '_actions') else 0
         mm.stop_recording()
-        self.statusBar().showMessage(f"⏹  Registrazione macro terminata ({count} azioni registrate)", 5000)
+        self.statusBar().showMessage(tr("msg.macro_recording_stopped", count=count), 5000)
 
     def action_play_macro(self) -> None:
         from core.macro import MacroManager
@@ -3353,10 +3350,9 @@ class MainWindow(QMainWindow):
                     except FileNotFoundError:
                         continue
                 QMessageBox.warning(self, self.APP_NAME,
-                                    "Nessun terminale supportato trovato.\n"
-                                    "Configurane uno in Preferenze → Build.")
+                                    tr("msg.no_supported_terminal"))
         except Exception as e:
-            QMessageBox.warning(self, self.APP_NAME, f"Impossibile aprire il terminale:\n{e}")
+            QMessageBox.warning(self, self.APP_NAME, tr("msg.cannot_open_terminal", error=str(e)))
 
     def action_plugin_manager(self) -> None:
         from plugins.plugin_manager import PluginManagerDialog
@@ -4095,9 +4091,9 @@ class MainWindow(QMainWindow):
                 content, enc, le = FileManager.read(editor.file_path)
                 editor.load_content(content, enc, le)
                 editor.setModified(False)
-                self.statusBar().showMessage(f"🔄 File ricaricato: {editor.file_path.name}", 3000)
+                self.statusBar().showMessage(tr("msg.file_reloaded", name=editor.file_path.name), 3000)
             except Exception as e:
-                QMessageBox.critical(self, "Errore", f"Impossibile ricaricare: {e}")
+                QMessageBox.critical(self, tr("msg.error"), tr("msg.cannot_reload", error=str(e)))
 
         elif clicked == btn_compare:
             import tempfile
@@ -4236,7 +4232,7 @@ class MainWindow(QMainWindow):
             dlg = ArcadeDialog(self)
             dlg.exec()
         except Exception as e:
-            self.statusBar().showMessage(f"Errore avvio Arcade: {e}", 5000)
+            self.statusBar().showMessage(tr("msg.arcade_launch_error", error=str(e)), 5000)
 
     def _update_clock(self):        
         from PyQt6.QtCore import QDateTime, QLocale
@@ -4604,7 +4600,7 @@ class MainWindow(QMainWindow):
             if hasattr(ed, "set_spellcheck_enabled"):
                 ed.set_spellcheck_enabled(checked, lang)
         label = tr("label.spell_on") if checked else tr("label.spell_off")
-        self.statusBar().showMessage(f"{label} ({lang})", 3000)
+        self.statusBar().showMessage(tr("msg.spell_status", label=label, lang=lang), 3000)
 
     def _set_spell_lang(self, lang: str) -> None:
         """Cambia la lingua del dizionario ortografico."""

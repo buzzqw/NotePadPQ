@@ -59,7 +59,7 @@ class CompareDialog(QDialog):
 
         # ── Selezione file ────────────────────────────────────────────────
         sel_layout = QHBoxLayout()
-        grp_a = QGroupBox("File A (Sinistra / Originale)")
+        grp_a = QGroupBox(tr("compare.file_a_label", default="File A (Sinistra / Originale)"))
         la = QHBoxLayout(grp_a)
         self._combo_a = QComboBox()
         btn_file_a = QPushButton("📂")
@@ -77,7 +77,7 @@ class CompareDialog(QDialog):
         lb.addWidget(btn_file_b)
         sel_layout.addWidget(grp_b, 1)
 
-        self._btn_compare = QPushButton("↔ Confronta")
+        self._btn_compare = QPushButton(tr("compare.btn_compare", default="↔ Confronta"))
         self._btn_compare.setMinimumHeight(40)
         self._btn_compare.clicked.connect(self._do_compare)
         sel_layout.addWidget(self._btn_compare)
@@ -101,8 +101,8 @@ class CompareDialog(QDialog):
         # ── BARRA STRUMENTI MERGE (STILE MELD) ───────────────────────────
         merge_bar = QHBoxLayout()
         
-        self._btn_prev = QPushButton("▲ Prec."); self._btn_prev.clicked.connect(self._prev_diff)
-        self._btn_next = QPushButton("▼ Succ."); self._btn_next.clicked.connect(self._next_diff)
+        self._btn_prev = QPushButton(tr("compare.btn_prev", default="▲ Prec.")); self._btn_prev.clicked.connect(self._prev_diff)
+        self._btn_next = QPushButton(tr("compare.btn_next", default="▼ Succ.")); self._btn_next.clicked.connect(self._next_diff)
         
         # Pulsanti per il merging
         self._btn_to_right = QPushButton(tr("compare.btn_copy_right"))
@@ -148,7 +148,7 @@ class CompareDialog(QDialog):
     def set_files(self, path_a: Path, path_b: Path):
         for side, path in [("a", path_a), ("b", path_b)]:
             combo = self._combo_a if side == "a" else self._combo_b
-            display = f"📄 {path.name} (Disco)" if "tmp" not in str(path) else "📝 Mia versione"
+            display = f"📄 {path.name} ({tr('compare.label_disk', default='Disco')})" if "tmp" not in str(path) else tr("compare.label_my_version", default="📝 Mia versione")
             combo.addItem(display, str(path))
             combo.setCurrentIndex(combo.count() - 1)
         self._do_compare()
@@ -163,7 +163,7 @@ class CompareDialog(QDialog):
         if self._combo_b.count() > 1: self._combo_b.setCurrentIndex(1)
 
     def _browse(self, side: str):
-        path, _ = QFileDialog.getOpenFileName(self, "Seleziona file", "", "Tutti i file (*)")
+        path, _ = QFileDialog.getOpenFileName(self, tr("compare.select_file_dialog", default="Seleziona file"), "", tr("compare.all_files_filter", default="Tutti i file (*)"))
         if path:
             combo = self._combo_a if side == "a" else self._combo_b
             combo.addItem(f"📁 {Path(path).name}", path)

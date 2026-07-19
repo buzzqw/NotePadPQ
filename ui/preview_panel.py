@@ -275,6 +275,41 @@ class _SyncTeXFwdWorker(QThread):
                 self.done.emit(self._gen, None)
 
 
+class _SyncTeXSelWorker(QThread):
+    """Esegue le chiamate `synctex view` per l'evidenziazione della
+    selezione in background: `_do_selection_sync` veniva eseguita sul
+    thread GUI e bloccava tutto l'editor (digitazione, scroll, tab)
+    per la durata dei sottoprocessi synctex, specialmente su
+    documenti con .synctex.gz grande."""
+
+    done = pyqtSignal(int, object, object)  # (generation, r_start, r_end)
+
+    def __init__(self, tex_path, pdf_path, line_from: int, line_to: int, generation: int):
+        super().__init__(None)
+        self._tex_path  = tex_path
+        self._pdf_path  = pdf_path
+        self._line_from = line_from
+        self._line_to   = line_to
+        self._gen       = generation
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        try:
+            from editor.synctex import SyncTeX
+            sx = SyncTeX(self._tex_path, self._pdf_path)
+            r_start = sx.tex_to_pdf(self._line_from, col=1)
+            r_end = (sx.tex_to_pdf(self._line_to, col=1)
+                     if not self._cancelled and self._line_to != self._line_from else None)
+            if not self._cancelled:
+                self.done.emit(self._gen, r_start, r_end)
+        except Exception:
+            if not self._cancelled:
+                self.done.emit(self._gen, None, None)
+
+
 class _PdfRenderWorker(QThread):
     """Rasterizza una pagina PDF con fitz in background.
     Emette done(gen, QImage_or_None, clip_rect, links)."""
@@ -415,17 +450,20 @@ class PreviewPanel(QWidget):
         self._last_hash: int = 0   # evita re-render se il testo non è cambiato
 
         # Debounce cursor sync: evita un SyncTeX subprocess o tree-walk
-        # per ogni singolo tasto freccia. Aggiorna solo dopo 200ms di quiete.
+        # per ogni singolo tasto freccia. Aggiorna solo dopo un attimo di
+        # quiete: un valore troppo basso fa "inseguire" il PDF ad ogni
+        # micro-pausa durante la digitazione/scroll, con l'effetto di
+        # un salto di pagina continuo e fastidioso.
         self._cursor_sync_timer = QTimer(self)
         self._cursor_sync_timer.setSingleShot(True)
-        self._cursor_sync_timer.setInterval(200)
+        self._cursor_sync_timer.setInterval(450)
         self._cursor_sync_timer.timeout.connect(self._do_cursor_sync)
         self._cursor_sync_line: int = 0
 
         # Debounce selection sync: evidenzia nel PDF il testo selezionato nel .tex
         self._selection_sync_timer = QTimer(self)
         self._selection_sync_timer.setSingleShot(True)
-        self._selection_sync_timer.setInterval(300)
+        self._selection_sync_timer.setInterval(450)
         self._selection_sync_timer.timeout.connect(self._do_selection_sync)
         # (page_0based, y0_pt, y1_pt) in PDF points, o None
         self._pdf_selection_highlight: Optional[tuple] = None
@@ -447,6 +485,11 @@ class PreviewPanel(QWidget):
         self._synctex_fwd_worker: Optional[_SyncTeXFwdWorker] = None
         self._old_synctex_fwd_workers: list = []   # tenuti vivi fino a finished
         self._synctex_fwd_gen: int = 0
+
+        # Worker asincrono per SyncTeX della selezione (evidenziazione)
+        self._synctex_sel_worker: Optional[_SyncTeXSelWorker] = None
+        self._old_synctex_sel_workers: list = []   # tenuti vivi fino a finished
+        self._synctex_sel_gen: int = 0
 
         self._md_worker = None             # thread markdown corrente
         self._md_old_workers: list = []    # worker superati: tenuti vivi fino al termine
@@ -935,7 +978,12 @@ class PreviewPanel(QWidget):
             self._selection_sync_timer.start()
 
     def _do_selection_sync(self) -> None:
-        """Evidenzia nel PDF la regione corrispondente al testo selezionato nel .tex."""
+        """Evidenzia nel PDF la regione corrispondente al testo selezionato nel .tex.
+        Le chiamate a `synctex` (sottoprocesso esterno) girano su un thread
+        separato: farle sul thread GUI bloccava tutto l'editor (digitazione,
+        scroll, cambio tab) per la durata della chiamata, specialmente con
+        un .synctex.gz grande — la selezione cambia ad ogni movimento del
+        cursore, quindi capitava molto spesso."""
         if not self._editor or not self._pdf_path:
             return
         try:
@@ -953,26 +1001,47 @@ class PreviewPanel(QWidget):
                     self._pdf_show_page()
             return
 
+        tex_p = self._editor.file_path
+        if not tex_p:
+            return
+
+        if self._synctex_sel_worker is not None:
+            self._synctex_sel_worker.cancel()
+            self._park_worker(self._synctex_sel_worker, self._old_synctex_sel_workers)
+            self._synctex_sel_worker = None
+
+        from pathlib import Path as _Path
+        self._synctex_sel_gen += 1
+        worker = _SyncTeXSelWorker(
+            tex_p, _Path(self._pdf_path), line_from + 1, line_to + 1, self._synctex_sel_gen,
+        )
+        worker.done.connect(self._on_synctex_sel_done)
+        self._synctex_sel_worker = worker
+        self._old_synctex_sel_workers.append(worker)
+        def _cleanup_stx_sel(w=worker):
+            try:
+                self._old_synctex_sel_workers.remove(w)
+            except ValueError:
+                pass
+        worker.finished.connect(_cleanup_stx_sel)
+        worker.start()
+
+    def _on_synctex_sel_done(self, gen: int, r_start, r_end) -> None:
+        if gen != self._synctex_sel_gen:
+            return
+        if self._synctex_sel_worker is not None:
+            self._synctex_sel_worker = None   # cleanup dalla old_list avviene su finished
+
+        if not r_start:
+            self._pdf_selection_highlight = None
+            self._pdf_refresh()
+            return
+
         try:
-            from editor.synctex import SyncTeX
-            from pathlib import Path as _Path
-            pdf_p = _Path(self._pdf_path)
-            tex_p = self._editor.file_path
-            if not tex_p:
-                return
-            sx = SyncTeX(tex_p, pdf_p)
-
-            r_start = sx.tex_to_pdf(line_from + 1, col=1)
-            if not r_start:
-                self._pdf_selection_highlight = None
-                self._pdf_refresh()
-                return
-
             page = r_start["page"] - 1  # 0-based
             y_start = r_start["y"]
 
             # Prendi la coordinata y della riga finale solo se è sulla stessa pagina
-            r_end = sx.tex_to_pdf(line_to + 1, col=1) if line_to != line_from else None
             if r_end and r_end.get("page") == r_start["page"]:
                 y_end = r_end["y"]
             else:
@@ -2147,8 +2216,16 @@ class PreviewPanel(QWidget):
             except Exception:
                 pass
         self._old_synctex_fwd_workers.clear()
+        for w in list(self._old_synctex_sel_workers):
+            w.cancel()
+            try:
+                w.wait(300)
+            except Exception:
+                pass
+        self._old_synctex_sel_workers.clear()
         self._render_worker       = None
         self._synctex_fwd_worker  = None
+        self._synctex_sel_worker  = None
         # Chiudi documento PDF
         if self._pdf_doc is not None:
             try:

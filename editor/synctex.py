@@ -32,6 +32,8 @@ class SyncTeX:
     Una istanza per coppia (tex_path, pdf_path).
     """
 
+    _available_cached: Optional[bool] = None
+
     def __init__(self, tex_path: Path, pdf_path: Path):
         self.tex_path = Path(tex_path)
         self.pdf_path = Path(pdf_path)
@@ -39,17 +41,19 @@ class SyncTeX:
 
     # ── Disponibilità ─────────────────────────────────────────────────────────
 
-    @staticmethod
-    def is_available() -> bool:
-        """Verifica che il CLI synctex sia nel PATH."""
-        try:
-            r = subprocess.run(
-                ["synctex", "help"],
-                capture_output=True, timeout=3
-            )
-            return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
+    @classmethod
+    def is_available(cls) -> bool:
+        """Verifica che il CLI synctex sia nel PATH (risultato in cache)."""
+        if cls._available_cached is None:
+            try:
+                r = subprocess.run(
+                    ["synctex", "help"],
+                    capture_output=True, timeout=3
+                )
+                cls._available_cached = True
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                cls._available_cached = False
+        return cls._available_cached
 
     def has_synctex_file(self) -> bool:
         """Controlla se esiste il file .synctex.gz per il PDF corrente."""

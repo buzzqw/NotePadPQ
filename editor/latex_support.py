@@ -27,6 +27,25 @@ if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
 
 
+# ─── Regex compilate a livello modulo (usa frequente: ~100-10k chiamate/sessione)
+
+_RE_COMMENT         = re.compile(r'(?<!\\)%.*')
+_RE_BEGIN_END       = re.compile(r'\\(begin|end)\{([^}]+)\}')
+_RE_BEGIN           = re.compile(r'\\begin\{([^}]+)\}')
+_RE_END             = re.compile(r'\\end\{([^}]+)\}')
+_RE_INCLUDE_INPUT   = re.compile(r'\\(?:input|include|subfile|subinputfrom)\*?\{([^}]+)\}')
+# Pre-build per is_in_math_mode (conta begin/end di ambienti math)
+_MATH_BEGIN_PAT = r'\\begin\{(' + '|'.join(
+    ["equation", "align", "gather", "multline",
+     "math", "displaymath", "split", "cases",
+     "alignat", "flalign", "subequations"]
+) + r'\*?)\}'
+_MATH_END_PAT   = r'\\end\{(' + '|'.join(
+    ["equation", "align", "gather", "multline",
+     "math", "displaymath", "split", "cases",
+     "alignat", "flalign", "subequations"]
+) + r'\*?)\}'
+
 # ─── Cache file per progetti multi-file ────────────────────────────────────────
 #
 # Il checker LaTeX live (editor/latex_checker.py, ogni 1.5s) e il rebuild
@@ -39,8 +58,11 @@ if TYPE_CHECKING:
 # tutte le funzioni sotto, elimina la rilettura dei file non modificati.
 # I due worker girano su QThread separati: il lock evita corse sulla cache.
 
+_MAX_CACHE_SIZE = 128
+
 _file_cache_lock = threading.Lock()
 _file_cache: dict[Path, tuple[float, str]] = {}
+_cache_keys: list[Path] = []
 
 
 def _cached_read_text(path: Path) -> str:
@@ -49,10 +71,19 @@ def _cached_read_text(path: Path) -> str:
     with _file_cache_lock:
         cached = _file_cache.get(path)
         if cached is not None and cached[0] == mtime:
+            if path in _cache_keys:
+                _cache_keys.remove(path)
+            _cache_keys.append(path)
             return cached[1]
+        while len(_cache_keys) >= _MAX_CACHE_SIZE:
+            old = _cache_keys.pop(0)
+            _file_cache.pop(old, None)
     text = path.read_text(encoding="utf-8", errors="replace")
     with _file_cache_lock:
         _file_cache[path] = (mtime, text)
+        if path in _cache_keys:
+            _cache_keys.remove(path)
+        _cache_keys.append(path)
     return text
 
 
@@ -281,13 +312,6 @@ PACKAGE_COMMANDS: dict[str, list[str]] = {
         "\\sisetup{}",
         "\\DeclareSIUnit{}{}",
         "\\tablenum{}",
-    ],
-    "mathtools": [
-        "\\coloneqq", "\\Coloneqq", "\\eqqcolon",
-        "\\prescript{}{}{}", "\\mathclap{}", "\\mathllap{}", "\\mathrlap{}",
-        "\\smashoperator{}", "\\adjustlimits{}{}",
-        "\\shortintertext{}",
-        "\\begin{pmatrix*}", "\\begin{bmatrix*}", "\\begin{vmatrix*}",
     ],
     "tcolorbox": [
         "\\tcbset{}", "\\tcbuselibrary{}",
@@ -1185,11 +1209,10 @@ class LaTeXSupport:
         secondo \\end duplicato.
         """
         all_lines = editor.text().split("\n")
-        pattern = re.compile(r'\\(begin|end)\{([^}]+)\}')
         stack: list[str] = []
         for raw_line in all_lines[line + 1: line + 1 + max_lines]:
-            code = re.split(r'(?<!\\)%', raw_line, maxsplit=1)[0]
-            for m in pattern.finditer(code):
+            code = _RE_COMMENT.split(raw_line, maxsplit=1)[0]
+            for m in _RE_BEGIN_END.finditer(code):
                 kind, env = m.group(1), m.group(2)
                 if kind == "begin":
                     stack.append(env)
@@ -1586,14 +1609,16 @@ class LaTeXSupport:
         """
         all_lines = text.split("\n")
         lines = all_lines[:line]
-        lines.append(all_lines[line][:col] if line < len(all_lines) else "")
-        prefix = "\n".join(lines)
+        if line < len(all_lines):
+            last = all_lines[line][:col] if col <= len(all_lines[line]) else all_lines[line]
+        else:
+            last = ""
+        lines.append(last)
 
         stack: list[str] = []
-        pattern = re.compile(r'\\(begin|end)\{([^}]+)\}')
-        for raw_line in prefix.split("\n"):
-            code = re.split(r'(?<!\\)%', raw_line, maxsplit=1)[0]
-            for m in pattern.finditer(code):
+        for raw_line in lines:
+            code = _RE_COMMENT.split(raw_line, maxsplit=1)[0]
+            for m in _RE_BEGIN_END.finditer(code):
                 kind, env = m.group(1), m.group(2)
                 if kind == "begin":
                     stack.append(env)
@@ -1669,9 +1694,7 @@ class LaTeXSupport:
                 text = _cached_read_text(path)
             except Exception:
                 return
-            for m in re.finditer(
-                r'\\(?:input|include|subfile|subinputfrom)\*?\{([^}]+)\}', text
-            ):
+            for m in _RE_INCLUDE_INPUT.finditer(text):
                 ref = m.group(1).strip()
                 if not ref.endswith(".tex"):
                     ref += ".tex"
@@ -1759,13 +1782,10 @@ class LaTeXSupport:
         stack: list[tuple[str, int]] = []  # (env_name, lineno)
 
         for lineno, line in enumerate(text.split("\n")):
-            # Rimuovi la parte commentata (% non escapata)
-            stripped = re.sub(r'(?<!\\)%.*', '', line)
-
-            for m in re.finditer(r'\\begin\{([^}]+)\}', stripped):
+            stripped = _RE_COMMENT.sub('', line)
+            for m in _RE_BEGIN.finditer(stripped):
                 stack.append((m.group(1), lineno))
-
-            for m in re.finditer(r'\\end\{([^}]+)\}', stripped):
+            for m in _RE_END.finditer(stripped):
                 env_name = m.group(1)
                 if not stack:
                     errors.append({
@@ -1807,11 +1827,10 @@ class LaTeXSupport:
         Restituisce None se la posizione non è su un \\begin/\\end o se
         manca la corrispondenza (ambiente sbilanciato).
         """
-        pattern = re.compile(r'\\(begin|end)\{([^}]*)\}')
-        tokens: list[tuple[str, str, int, int, int]] = []  # kind, name, line, col_start, col_end
+        tokens: list[tuple[str, str, int, int, int]] = []
         for lineno, raw_line in enumerate(text.split("\n")):
-            stripped = re.sub(r'(?<!\\)%.*', '', raw_line)
-            for m in pattern.finditer(stripped):
+            stripped = _RE_COMMENT.sub('', raw_line)
+            for m in _RE_BEGIN_END.finditer(stripped):
                 tokens.append((m.group(1), m.group(2), lineno, m.start(), m.end()))
 
         target_idx = None
@@ -1859,7 +1878,7 @@ class LaTeXSupport:
         Conta parole (corpo documento, escluso preambolo e comandi LaTeX).
         Restituisce {words, chars, chars_nospace, lines, paragraphs}.
         """
-        text_nc = re.sub(r'(?<!\\)%[^\n]*', '', text)
+        text_nc = _RE_COMMENT.sub('', text)
         m = re.search(r'\\begin\{document\}', text_nc)
         body = text_nc[m.end():] if m else text_nc
         m2 = re.search(r'\\end\{document\}', body)
@@ -1890,13 +1909,26 @@ class LaTeXSupport:
         dollar_count = len(re.findall(r'(?<!\\)\$', before))
         if dollar_count % 2 == 1:
             return True
-        math_envs = (
-            "equation", "align", "gather", "multline",
-            "math", "displaymath", "split", "cases",
-            "alignat", "flalign", "subequations",
-        )
-        env_pat = r'\\begin\{(' + '|'.join(math_envs) + r'\*?)\}'
-        end_pat = r'\\end\{('  + '|'.join(math_envs) + r'\*?)\}'
-        opens  = len(re.findall(env_pat, before))
-        closes = len(re.findall(end_pat, before))
+        opens  = len(re.findall(_MATH_BEGIN_PAT, before))
+        closes = len(re.findall(_MATH_END_PAT, before))
         return opens > closes
+
+
+# ─── Funzione standalone extract_structure (wrap di extract_sections) ──────────
+# Usata dalla minimap (ui/latex_minimap.py) per ottenere la struttura documento
+# in formato [{depth, type, title, line}, ...].
+
+_SECTION_DEPTH = {
+    "part": 0, "chapter": 1, "section": 2, "subsection": 3,
+    "subsubsection": 4, "paragraph": 5, "subparagraph": 6,
+}
+
+
+def extract_structure(text: str) -> list[dict]:
+    """Restituisce la struttura del documento come lista di dizionari
+    con chiavi depth, type, title, line (1-based)."""
+    return [
+        {"depth": _SECTION_DEPTH.get(typ, 0), "type": typ,
+         "title": title, "line": line + 1}
+        for typ, title, line in LaTeXSupport.extract_sections(text)
+    ]

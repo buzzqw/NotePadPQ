@@ -36,6 +36,10 @@ _MARKER_WARNING = 23
 _MARKER_ERROR_SYM   = QsciScintilla.MarkerSymbol.Circle
 _MARKER_WARNING_SYM = QsciScintilla.MarkerSymbol.RightTriangle
 
+_RE_COMMENT  = re.compile(r'(?<!\\)%.*')
+_RE_REF      = re.compile(r'\\(?:ref|eqref|pageref|cref|Cref|autoref|nameref|vref)\{([^}]+)\}')
+_RE_CITE     = re.compile(r'\\(?:cite[a-zA-Z]*|parencite|footcite|textcite|autocite)\{([^}]+)\}')
+
 
 class _CheckWorker(QThread):
     """Esegue i tre controlli LaTeX in un thread separato per non bloccare la UI."""
@@ -86,11 +90,8 @@ class _CheckWorker(QThread):
         for lineno, line in enumerate(self._text.split("\n")):
             if self._cancelled:
                 return []
-            stripped = re.sub(r'(?<!\\)%.*', '', line)
-            for m in re.finditer(
-                r'\\(?:ref|eqref|pageref|cref|Cref|autoref|nameref|vref)\{([^}]+)\}',
-                stripped
-            ):
+            stripped = _RE_COMMENT.sub('', line)
+            for m in _RE_REF.finditer(stripped):
                 key = m.group(1).strip()
                 if key and key not in defined:
                     issues.append({
@@ -112,14 +113,11 @@ class _CheckWorker(QThread):
             return []
 
         issues: list[dict] = []
-        cite_pat = re.compile(
-            r'\\(?:cite[a-zA-Z]*|parencite|footcite|textcite|autocite)\{([^}]+)\}'
-        )
         for lineno, line in enumerate(self._text.split("\n")):
             if self._cancelled:
                 return []
-            stripped = re.sub(r'(?<!\\)%.*', '', line)
-            for m in cite_pat.finditer(stripped):
+            stripped = _RE_COMMENT.sub('', line)
+            for m in _RE_CITE.finditer(stripped):
                 for key in m.group(1).split(","):
                     key = key.strip()
                     if key and key not in known:

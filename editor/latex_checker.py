@@ -199,6 +199,13 @@ class _CheckWorker(QThread):
                     max_actual = actual
                 if actual > 0 and actual != declared:
                     any_mismatch = True
+                    # Se la riga ha più colonne del dichiarato, evidenzia
+                    # da dopo la colonna declared-esima (l'& di troppo + resto)
+                    hl_start = -1
+                    if actual > declared:
+                        amp_pos = self._nth_ampersand_pos(rs, declared)
+                        if amp_pos >= 0:
+                            hl_start = amp_pos  # posizione dell'& di troppo
                     issues.append({
                         "line":     row,
                         "severity": "warning",
@@ -207,6 +214,8 @@ class _CheckWorker(QThread):
                         "col_line": i,
                         "col_start": spec_start,
                         "col_end":   spec_end,
+                        "highlight_start": hl_start,
+                        "highlight_end": len(rs) if hl_start >= 0 else -1,
                     })
 
             if any_mismatch:
@@ -273,6 +282,18 @@ class _CheckWorker(QThread):
         if excess_count > 0 and len(positions) > excess_count:
             return positions[-excess_count:]  # ultimi N
         return positions
+
+    @staticmethod
+    def _nth_ampersand_pos(row: str, n: int) -> int:
+        """Posizione (offset caratteri) dell'n-esimo & (1-based) in una riga
+        tabella. Ritorna -1 se non trovato."""
+        count = 0
+        for i, ch in enumerate(row):
+            if ch == '&':
+                count += 1
+                if count == n:
+                    return i
+        return -1
 
     @staticmethod
     def _count_tabular_cols(col_spec: str) -> int:
@@ -412,18 +433,32 @@ class LaTeXChecker(QObject):
                                ed.lineLength(last_line), INDICATOR_LATEX_COL)
 
     def _apply_tabular_indicators(self, issues: list[dict]) -> None:
-        """Sottolinea con squiggly ambra le colonne in eccesso o l'intera
-        column spec sulle righe \\begin delle tabelle con mismatch."""
+        """Sottolinea con squiggly ambra: (a) X in eccesso nella column spec
+        della riga \\begin, (b) & di troppo nelle righe del corpo tabella."""
         from editor.editor_widget import INDICATOR_LATEX_COL
         self._clear_tabular_indicators()
         seen = set()
         for issue in issues:
+            # (a) Body row: highlight from excess & to end of line
+            hs = issue.get("highlight_start")
+            he = issue.get("highlight_end")
+            line = issue.get("line", 0)
+            if hs is not None and hs >= 0 and he is not None and he > hs:
+                key = (line, hs)
+                if key in seen:
+                    continue
+                seen.add(key)
+                self._editor.fillIndicatorRange(
+                    line, hs, line, he, INDICATOR_LATEX_COL
+                )
+                continue
+
+            # (b) Column spec: highlight excess column chars
             cl = issue.get("col_line")
             if cl is None:
                 continue
             excess = issue.get("excess_positions")
             if excess:
-                # Evidenzia solo i caratteri colonna in eccesso
                 for pos in excess:
                     key = (cl, pos)
                     if key in seen:
@@ -432,17 +467,18 @@ class LaTeXChecker(QObject):
                     self._editor.fillIndicatorRange(
                         cl, pos, cl, pos + 1, INDICATOR_LATEX_COL
                     )
-            else:
-                # Fallback: evidenzia l'intera column spec
-                cs = issue.get("col_start")
-                ce = issue.get("col_end")
-                if cs is None or ce is None:
-                    continue
-                key = (cl, cs)
-                if key in seen:
-                    continue
-                seen.add(key)
-                length = max(1, ce - cs)
-                self._editor.fillIndicatorRange(
-                    cl, cs, cl, cs + length, INDICATOR_LATEX_COL
-                )
+                continue
+
+            # (c) Fallback: highlight entire column spec
+            cs = issue.get("col_start")
+            ce = issue.get("col_end")
+            if cs is None or ce is None:
+                continue
+            key = (cl, cs)
+            if key in seen:
+                continue
+            seen.add(key)
+            length = max(1, ce - cs)
+            self._editor.fillIndicatorRange(
+                cl, cs, cl, cs + length, INDICATOR_LATEX_COL
+            )

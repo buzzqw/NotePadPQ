@@ -715,12 +715,10 @@ class BuildPanel(QWidget):
         # Analizziamo quindi sempre l'output quando c'è un parser configurato.
         n = 0
         if self._current_profile:
-            # self._full_log, non self._output.toPlainText(): il widget scarta
-            # le righe più vecchie oltre setMaximumBlockCount(5000), quindi su
-            # log lunghi (documenti di centinaia di pagine) un errore vicino
-            # all'inizio non sarebbe più presente nel testo visibile a fine build.
             output_text = "\n".join(self._full_log)
+            print(f"[DEBUG build_panel] _full_log has {len(self._full_log)} lines, profile={self._current_profile}")
             errors = self._bm.parse_errors(output_text, self._current_profile)
+            print(f"[DEBUG build_panel] parse_errors returned {len(errors)} items")
             if errors:
                 self._show_errors(errors)
                 n = len(errors)

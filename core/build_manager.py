@@ -69,23 +69,23 @@ DEFAULT_PROFILES: dict[str, dict] = {
     },
     "LaTeX (pdflatex)": {
         "extensions": [".tex"],
-        "compile":    "pdflatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "run":        "pdflatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "build":      "latexmk -pdf -synctex=1 -output-directory=${DIR} ${FILE}",
+        "compile":    "pdflatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
+        "run":        "pdflatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
+        "build":      "latexmk -pdf -file-line-error -synctex=1 -output-directory=${DIR} ${FILE}",
         "error_parser": "latex",
     },
     "LaTeX (xelatex)": {
         "extensions": [".tex"],
-        "compile":    "xelatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "run":        "xelatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "build":      "latexmk -xelatex -synctex=1 -output-directory=${DIR} ${FILE}",
+        "compile":    "xelatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
+        "run":        "xelatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
+        "build":      "latexmk -xelatex -file-line-error -synctex=1 -output-directory=${DIR} ${FILE}",
         "error_parser": "latex",
     },
     "LaTeX (lualatex)": {
         "extensions": [".tex"],
-        "compile":    "lualatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "run":        "lualatex -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "build":      "latexmk -lualatex -synctex=1 -output-directory=${DIR} ${FILE}",
+        "compile":    "lualatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
+        "run":        "lualatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
+        "build":      "latexmk -lualatex -file-line-error -synctex=1 -output-directory=${DIR} ${FILE}",
         "error_parser": "latex",
     },
     "Make": {
@@ -141,9 +141,11 @@ DEFAULT_PROFILES: dict[str, dict] = {
 # build di questa app passano sempre ${FILE} assoluto, quindi il log riporta
 # "(/percorso/assoluto/file.tex" — nessun prefisso "./" da richiedere qui.
 _RE_LATEX_FILE  = re.compile(r'\(([^\s()]+\.(?:tex|sty|cls|def|cfg|fd|clo))\b')
-_RE_LATEX_BANG  = re.compile(r'^! (.+)')
+_RE_LATEX_BANG  = re.compile(r'!\s*(.+)')               # ! messaggio (anche dopo file:line:)
 _RE_LATEX_LNUM  = re.compile(r'^l\.(\d+)')
-_RE_LATEX_MODERN = re.compile(r'^([^\s:]+\.tex):(\d+): (.+)')
+_RE_LATEX_MODERN = re.compile(r'([^\s:]+\.(?:tex|sty|cls|aux)):(\d+):\s*(.+)')
+# Warning: "LaTeX Warning:", "Package X Warning:", "Class X Warning:"
+_RE_LATEX_WARN  = re.compile(r'(?:LaTeX|Package|Class)[\w\s]*Warning:\s*(.+)')
 
 # ─── BuildWorker ──────────────────────────────────────────────────────────────
 
@@ -590,14 +592,12 @@ class BuildManager(QObject):
         - Errori TeX tradizionali: "! messaggio\\nl.N ..."
         - Package errors: "! Package X Error: messaggio"
         - Formato moderno: "./file.tex:N: messaggio"
+        - Warning: "LaTeX Warning:", "Package X Warning:", etc.
         """
         errors: list[dict] = []
         seen: set[tuple] = set()
 
         # ── Pattern 1: errore TeX classico ───────────────────────────────
-        # "! Undefined control sequence." poi "l.75 \includegraphics"
-        # Scansione riga per riga per mantenere il contesto del file corrente.
-
         file_stack: list[str] = []
         current_file: str = ""
         lines = output.splitlines()
@@ -608,9 +608,6 @@ class BuildManager(QObject):
 
             # Aggiorna stack file (parentesi di apertura)
             for fm in _RE_LATEX_FILE.finditer(raw):
-                # .lstrip("./") spoglierebbe anche la "/" iniziale di un path
-                # assoluto (lstrip toglie un INSIEME di caratteri, non un prefisso):
-                # rimuoviamo quindi solo l'eventuale prefisso letterale "./".
                 f = fm.group(1)
                 if f.startswith("./"):
                     f = f[2:]
@@ -623,33 +620,71 @@ class BuildManager(QObject):
                     file_stack.pop()
                 current_file = file_stack[-1] if file_stack else current_file
 
-            bm = _RE_LATEX_BANG.match(raw)
+            # Cerca "! messaggio" ovunque sulla riga (con -file-line-error
+            # può apparire dopo il prefisso file:line:)
+            bm = _RE_LATEX_BANG.search(raw)
             if bm:
                 msg = bm.group(1).strip()
-                # Cerca l.N nelle prossime 15 righe
                 line_num = 0
-                for k in range(i + 1, min(i + 15, len(lines))):
-                    lm = _RE_LATEX_LNUM.match(lines[k])
-                    if lm:
-                        line_num = int(lm.group(1))
-                        break
+                # Prima cerca file:line sulla riga corrente (formato moderno)
+                fm = _RE_LATEX_MODERN.search(raw)
+                if fm:
+                    current_file = fm.group(1)
+                    line_num = int(fm.group(2))
+                    msg = fm.group(3).strip()
+                else:
+                    # Cerca l.N nelle prossime 15 righe
+                    for k in range(i + 1, min(i + 15, len(lines))):
+                        lm = _RE_LATEX_LNUM.match(lines[k])
+                        if lm:
+                            line_num = int(lm.group(1))
+                            break
                 key = (current_file, line_num, msg)
                 if key not in seen:
                     seen.add(key)
-                    errors.append({"file": current_file, "line": line_num, "message": msg})
+                    errors.append({
+                        "file": current_file,
+                        "line": line_num,
+                        "message": msg,
+                    })
+
+            # Pattern 2: formato moderno senza "!" (es. warning di compilatore)
+            fm = _RE_LATEX_MODERN.search(raw)
+            if fm and not _RE_LATEX_BANG.search(raw):
+                f = fm.group(1)
+                if f.startswith("./"):
+                    f = f[2:]
+                lnum = int(fm.group(2))
+                msg  = fm.group(3).strip()
+                key  = (f, lnum, msg)
+                if key not in seen:
+                    # Aggiorna current_file se il modern match è su una riga
+                    # che non parte da !
+                    if f and f.endswith(".tex"):
+                        current_file = f
+                    seen.add(key)
+                    errors.append({"file": f or current_file, "line": lnum, "message": msg})
 
             i += 1
 
-        # ── Pattern 2: formato moderno "./file.tex:N: messaggio" ─────────
-        for m in _RE_LATEX_MODERN.finditer(output):
-            f = m.group(1)
-            if f.startswith("./"):
-                f = f[2:]
-            lnum = int(m.group(2))
-            msg  = m.group(3).strip()
-            key  = (f, lnum, msg)
+        # ── Pattern 3: warning di LaTeX ──────────────────────────────────
+        for m in _RE_LATEX_WARN.finditer(output):
+            msg = m.group(1).strip()
+            # Cerca il numero di riga prima del warning (formato: "l.123" o "lines 45-67")
+            pos = m.start()
+            before = output[:pos]
+            # Cerca ultimo "l.N" prima del warning
+            lm = None
+            for lm_match in re.finditer(r'l\.(\d+)', before):
+                lm = lm_match
+            line_num = int(lm.group(1)) if lm else 0
+            key = (current_file or "", line_num, msg[:120])
             if key not in seen:
                 seen.add(key)
-                errors.append({"file": f, "line": lnum, "message": msg})
+                errors.append({
+                    "file": current_file or "",
+                    "line": line_num,
+                    "message": f"Warning: {msg[:120]}",
+                })
 
         return errors

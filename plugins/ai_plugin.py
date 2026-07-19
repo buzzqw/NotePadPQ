@@ -1265,6 +1265,7 @@ class _AIPanel(QWidget):
     _anthropic_ready  = pyqtSignal(object)  # list[str] | None — thread-safe
     _openai_ready     = pyqtSignal(object)  # list[str] | None — thread-safe
     _gemini_ready     = pyqtSignal(object)  # list[str] | None — thread-safe
+    _deepseek_ready   = pyqtSignal(object)  # list[str] | None — thread-safe
     _llamacpp_ready   = pyqtSignal(object)  # list[str] | None — thread-safe
 
     def __init__(self, main_window: "MainWindow", parent=None):
@@ -1292,6 +1293,7 @@ class _AIPanel(QWidget):
         self._anthropic_ready.connect(self._set_anthropic_models)
         self._openai_ready.connect(self._set_openai_models)
         self._gemini_ready.connect(self._set_gemini_models)
+        self._deepseek_ready.connect(self._set_deepseek_models)
         self._llamacpp_ready.connect(self._set_llamacpp_models)
         self._build_ui()
 
@@ -1522,7 +1524,7 @@ class _AIPanel(QWidget):
         idx = self._model_combo.findText(default)
         if idx >= 0:
             self._model_combo.setCurrentIndex(idx)
-        self._btn_refresh_models.setVisible(pid in ("anthropic", "ollama", "openai", "gemini", "llamacpp"))
+        self._btn_refresh_models.setVisible(pid in ("anthropic", "ollama", "openai", "gemini", "llamacpp", "deepseek"))
         if pid == "ollama":
             self._refresh_ollama_models()
         elif pid == "anthropic":
@@ -1533,6 +1535,8 @@ class _AIPanel(QWidget):
             self._refresh_gemini_models()
         elif pid == "llamacpp":
             self._refresh_llamacpp_models()
+        elif pid == "deepseek":
+            self._refresh_deepseek_models()
 
     def _on_model_changed(self, model: str) -> None:
         name    = self._provider_combo.currentText()
@@ -1738,6 +1742,56 @@ class _AIPanel(QWidget):
             self._model_combo.addItem(m)
         idx = self._model_combo.findText(current)
         default_idx = self._model_combo.findText(PROVIDERS["Google Gemini"]["default"])
+        self._model_combo.setCurrentIndex(idx if idx >= 0 else max(default_idx, 0))
+
+    def _refresh_deepseek_models(self) -> None:
+        """Interroga /v1/models DeepSeek (API compatibile OpenAI) in background."""
+        import threading
+        from config.settings import Settings
+        api_key = Settings.instance().get("ai/deepseek_key", "").strip()
+        if not api_key:
+            return
+
+        self._btn_refresh_models.setEnabled(False)
+        self._btn_refresh_models.setText("…")
+
+        def _fetch():
+            try:
+                req = urllib.request.Request(
+                    "https://api.deepseek.com/v1/models",
+                    method="GET",
+                    headers={"Authorization": f"Bearer {api_key}"}
+                )
+                with urllib.request.urlopen(req, timeout=8, context=_make_ssl_ctx()) as resp:
+                    data = json.loads(resp.read())
+                models = sorted(
+                    [m["id"] for m in data.get("data", [])
+                     if m.get("id", "").startswith("deepseek")],
+                    reverse=True
+                )
+                static = PROVIDERS["DeepSeek"]["models"]
+                known = [m for m in static if m in models]
+                extra = [m for m in models if m not in static]
+                self._deepseek_ready.emit(known + extra if (known or extra) else None)
+            except Exception:
+                self._deepseek_ready.emit(None)
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _set_deepseek_models(self, models) -> None:
+        """Popola il combo con i modelli DeepSeek effettivamente disponibili."""
+        self._btn_refresh_models.setEnabled(True)
+        self._btn_refresh_models.setText("↻")
+        if PROVIDERS.get(self._provider_combo.currentText(), {}).get("id") != "deepseek":
+            return
+        if not models:
+            return
+        current = self._model_combo.currentText()
+        self._model_combo.clear()
+        for m in models:
+            self._model_combo.addItem(m)
+        idx = self._model_combo.findText(current)
+        default_idx = self._model_combo.findText(PROVIDERS["DeepSeek"]["default"])
         self._model_combo.setCurrentIndex(idx if idx >= 0 else max(default_idx, 0))
 
     def _refresh_llamacpp_models(self) -> None:

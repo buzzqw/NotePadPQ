@@ -1800,5 +1800,15 @@
   "statusbar": {
     "default_cursor": "Riga 1, Col 1",
     "zoom": "Zoom {level}"
+  },
+  "dock": {
+    "file_browser": "File Browser",
+    "projects": "Progetti",
+    "log": "Log",
+    "build_errors": "Errori di compilazione",
+    "diagnostics": "Diagnostica",
+    "task": "Task",
+    "minimap": "Minimappa",
+    "json_xml": "Struttura JSON/XML"
   }
 }

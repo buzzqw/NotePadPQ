@@ -1781,5 +1781,15 @@
   "statusbar": {
     "default_cursor": "Zeile 1, Sp. 1",
     "zoom": "Zoom {level}"
+  },
+  "dock": {
+    "file_browser": "Dateibrowser",
+    "projects": "Projekte",
+    "log": "Protokoll",
+    "build_errors": "Kompilierfehler",
+    "diagnostics": "Diagnose",
+    "task": "Aufgabe",
+    "minimap": "Minimap",
+    "json_xml": "JSON/XML-Struktur"
   }
 }

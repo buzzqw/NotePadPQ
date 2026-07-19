@@ -716,10 +716,20 @@ class BuildPanel(QWidget):
         n = 0
         if self._current_profile:
             output_text = "\n".join(self._full_log)
-            print(f"[DEBUG build_panel] _full_log has {len(self._full_log)} lines, profile={self._current_profile}")
+            # Dump temporaneo del log per debug
+            import tempfile, os
+            dump_path = os.path.join(tempfile.gettempdir(), "npq_build_log.txt")
+            with open(dump_path, 'w', errors='replace') as f:
+                f.write(output_text)
+            profile = self._bm._profiles.get(self._current_profile, {})
+            parser = profile.get("error_parser", "NONE")
+            print(f"[DEBUG build_panel] _full_log has {len(self._full_log)} lines, profile={self._current_profile}, error_parser={parser}")
+            print(f"[DEBUG build_panel] dumped log to {dump_path}")
             errors = self._bm.parse_errors(output_text, self._current_profile)
             print(f"[DEBUG build_panel] parse_errors returned {len(errors)} items")
             if errors:
+                for e in errors[:3]:
+                    print(f"  -> {e.get('file','?')}:{e.get('line',0)}: {e.get('message','')[:80]}")
                 self._show_errors(errors)
                 n = len(errors)
         self.error_count_changed.emit(n)

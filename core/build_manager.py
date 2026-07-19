@@ -554,6 +554,7 @@ class BuildManager(QObject):
         profile = self._profiles.get(profile_name, {})
 
         if profile.get("error_parser") == "latex":
+            print(f"[DEBUG parse_errors] using latex parser, output length={len(output)}")
             return self._parse_latex_log(output)
 
         pattern = profile.get("error_regex", "")
@@ -596,6 +597,16 @@ class BuildManager(QObject):
         """
         errors: list[dict] = []
         seen: set[tuple] = set()
+
+        lines = output.splitlines()
+        bang_count = 0
+        modern_count = 0
+        warn_count = 0
+        print(f"[DEBUG _parse_latex_log] {len(lines)} lines, first error line sample:")
+        for ln in lines:
+            if 'Undefined control' in ln or ln.startswith('!'):
+                print(f"  -> {ln[:120]}")
+                break
 
         # ── Pattern 1: errore TeX classico ───────────────────────────────
         file_stack: list[str] = []
@@ -687,4 +698,5 @@ class BuildManager(QObject):
                     "message": f"Warning: {msg[:120]}",
                 })
 
+        print(f"[DEBUG _parse_latex_log] found {len(errors)} errors, first: {errors[0] if errors else 'NONE'}")
         return errors

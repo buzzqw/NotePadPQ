@@ -65,3 +65,4 @@ tests/*
 retroactive_notes.sh
 test.sh
 .junie/.venv-build/
+APPUNTI.md

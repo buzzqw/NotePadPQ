@@ -1,12 +1,20 @@
 name: Build AppImage
 
-# DISABILITATO: la build AppImage viene ora eseguita localmente da versiona.sh
-# tramite packaging/appimage/build-appimage.sh e caricata con gh CLI.
-# Per riabilitare, rimuovere la riga "if: false" dal job appimage qui sotto.
+# Trigger: si attiva quando versiona.sh pubblica la release su GitHub
+# (release:published), oppure manualmente dalla UI Actions.
+#
+# Usiamo release:published invece di push:tags perché versiona.sh crea
+# la release DOPO il push del tag — la release è già pronta quando
+# questo job parte, quindi gh release upload non incontra race condition.
 on:
-  push:
-    tags:
-      - 'v[0-9]*.[0-9]*.[0-9]*'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag della release (es. v1.4.2)'
+        required: true
+        type: string
 
 permissions:
   contents: write   # necessario per caricare asset nella release
@@ -14,13 +22,33 @@ permissions:
 jobs:
   appimage:
     name: Build AppImage (x86_64)
-    if: false   # disabilitato: build eseguita localmente da versiona.sh
     runs-on: ubuntu-22.04   # glibc 2.35 — compatibile con distro 2022+
 
     steps:
-      # ── Checkout ─────────────────────────────────────────────────────────
+      # ── Determina il tag (release event oppure input manuale) ─────────────
+      - name: Determina tag
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Checkout al tag specificato ───────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.value }}
+
+      # ── Calcola variabili di versione ─────────────────────────────────────
+      - name: Versione
+        id: ver
+        run: |
+          TAG="${{ steps.tag.outputs.value }}"
+          VER="${TAG#v}"
+          echo "tag=${TAG}"     >> "$GITHUB_OUTPUT"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
       # ── Dipendenze di sistema ─────────────────────────────────────────────
       # Librerie XCB/OpenGL necessarie a Qt6 anche in ambienti headless
@@ -95,15 +123,13 @@ jobs:
 
       - name: Build AppImage
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"   # rimuove il prefisso "v"
+          VERSION="${{ steps.ver.outputs.version }}"
           APPIMAGE_NAME="NotePadPQ-${VERSION}-x86_64.AppImage"
           ARCH=x86_64 appimagetool-extracted/AppRun \
             --comp zstd \
             dist/notepadpq.AppDir \
             "${APPIMAGE_NAME}"
-          echo "APPIMAGE_NAME=${APPIMAGE_NAME}" >> "${GITHUB_ENV}"
-        env:
-          ARCH: x86_64
+          echo "appimage=${APPIMAGE_NAME}" >> "$GITHUB_ENV"
 
       # ── Verifica ─────────────────────────────────────────────────────────
       - name: Verify AppImage
@@ -111,11 +137,10 @@ jobs:
           ls -lh "${APPIMAGE_NAME}"
           file "${APPIMAGE_NAME}"
 
-      # ── Upload alla release ───────────────────────────────────────────────
-      - name: Upload AppImage to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ${{ env.APPIMAGE_NAME }}
-          fail_on_unmatched_files: true
+      # ── Upload alla release GitHub ────────────────────────────────────────
+      - name: Upload AppImage to release
+        run: |
+          gh release upload "${{ steps.ver.outputs.tag }}" \
+            "${APPIMAGE_NAME}" --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

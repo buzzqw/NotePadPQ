@@ -433,8 +433,8 @@ class LaTeXChecker(QObject):
                                ed.lineLength(last_line), INDICATOR_LATEX_COL)
 
     def _apply_tabular_indicators(self, issues: list[dict]) -> None:
-        """Sottolinea con squiggly ambra: (a) X in eccesso nella column spec
-        della riga \\begin, (b) & di troppo nelle righe del corpo tabella."""
+        """Sottolinea con squiggly ambra: (a) & di troppo nelle righe del corpo
+        tabella, (b) X in eccesso nella column spec della riga \\begin."""
         from editor.editor_widget import INDICATOR_LATEX_COL
         self._clear_tabular_indicators()
         seen = set()
@@ -453,12 +453,10 @@ class LaTeXChecker(QObject):
                 )
                 continue
 
-            # (b) Column spec: highlight excess column chars
-            cl = issue.get("col_line")
-            if cl is None:
-                continue
+            # (b) Column spec: highlight only excess column chars (if any)
             excess = issue.get("excess_positions")
-            if excess:
+            cl = issue.get("col_line")
+            if excess and cl is not None:
                 for pos in excess:
                     key = (cl, pos)
                     if key in seen:
@@ -467,18 +465,3 @@ class LaTeXChecker(QObject):
                     self._editor.fillIndicatorRange(
                         cl, pos, cl, pos + 1, INDICATOR_LATEX_COL
                     )
-                continue
-
-            # (c) Fallback: highlight entire column spec
-            cs = issue.get("col_start")
-            ce = issue.get("col_end")
-            if cs is None or ce is None:
-                continue
-            key = (cl, cs)
-            if key in seen:
-                continue
-            seen.add(key)
-            length = max(1, ce - cs)
-            self._editor.fillIndicatorRange(
-                cl, cs, cl, cs + length, INDICATOR_LATEX_COL
-            )

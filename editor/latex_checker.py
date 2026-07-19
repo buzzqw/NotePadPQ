@@ -97,7 +97,7 @@ class _CheckWorker(QThread):
                     issues.append({
                         "line":     lineno,
                         "severity": "warning",
-                        "msg":      f"Label non definita: '{key}'",
+                        "msg":      f"Undefined label: '{key}'",
                     })
         return issues
 
@@ -124,7 +124,7 @@ class _CheckWorker(QThread):
                         issues.append({
                             "line":     lineno,
                             "severity": "warning",
-                            "msg":      f"Chiave BibTeX non trovata: '{key}'",
+                            "msg":      f"BibTeX key not found: '{key}'",
                         })
         return issues
 

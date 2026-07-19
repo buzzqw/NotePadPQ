@@ -39,22 +39,22 @@ class LaTeXWizardDialog(QDialog):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._build_table_tab(),   "Tabella")
-        self._tabs.addTab(self._build_formula_tab(), "Formula matematica")
-        self._tabs.addTab(self._build_env_tab(),     "Ambienti")
+        self._tabs.addTab(self._build_table_tab(),   "Table")
+        self._tabs.addTab(self._build_formula_tab(), "Math Formula")
+        self._tabs.addTab(self._build_env_tab(),     "Environments")
         layout.addWidget(self._tabs, 1)
 
         # Preview codice
-        grp = QGroupBox("Codice generato")
+        grp = QGroupBox("Generated Code")
         gl  = QVBoxLayout(grp)
         self._preview = QPlainTextEdit()
-        self._preview.setReadOnly(False)  # modificabile manualmente
+        self._preview.setReadOnly(False)
         self._preview.setMaximumHeight(140)
         gl.addWidget(self._preview)
         layout.addWidget(grp)
 
         btns = QDialogButtonBox()
-        btn_insert = btns.addButton("Inserisci nell'editor",
+        btn_insert = btns.addButton("Insert in Editor",
                                     QDialogButtonBox.ButtonRole.AcceptRole)
         btn_copy   = btns.addButton(tr("button.copy"),
                                     QDialogButtonBox.ButtonRole.ActionRole)
@@ -77,22 +77,22 @@ class LaTeXWizardDialog(QDialog):
         self._tbl_cols = QSpinBox(); self._tbl_cols.setRange(1, 15); self._tbl_cols.setValue(3)
         self._tbl_rows.valueChanged.connect(self._rebuild_table_editor)
         self._tbl_cols.valueChanged.connect(self._rebuild_table_editor)
-        cfg.addRow("Righe:", self._tbl_rows)
-        cfg.addRow("Colonne:", self._tbl_cols)
+        cfg.addRow("Rows:", self._tbl_rows)
+        cfg.addRow("Columns:", self._tbl_cols)
 
-        self._tbl_booktabs = QCheckBox("Usa booktabs (\\toprule, \\midrule, \\bottomrule)")
+        self._tbl_booktabs = QCheckBox("Use booktabs (\\toprule, \\midrule, \\bottomrule)")
         self._tbl_booktabs.setChecked(True)
-        self._tbl_caption = QLineEdit(); self._tbl_caption.setPlaceholderText("Caption tabella")
-        self._tbl_label   = QLineEdit(); self._tbl_label.setPlaceholderText("tab:etichetta")
+        self._tbl_caption = QLineEdit(); self._tbl_caption.setPlaceholderText("Table caption")
+        self._tbl_label   = QLineEdit(); self._tbl_label.setPlaceholderText("tab:label")
         self._tbl_pos     = QComboBox(); self._tbl_pos.addItems(["htbp", "h", "t", "b", "p"])
         self._tbl_align   = QComboBox()
-        self._tbl_align.addItems(["centrato", "sinistra", "destra"])
+        self._tbl_align.addItems(["centered", "left", "right"])
 
         cfg.addRow("", self._tbl_booktabs)
         cfg.addRow("Caption:", self._tbl_caption)
         cfg.addRow("Label:", self._tbl_label)
-        cfg.addRow("Posizione:", self._tbl_pos)
-        cfg.addRow("Allineamento:", self._tbl_align)
+        cfg.addRow("Position:", self._tbl_pos)
+        cfg.addRow("Alignment:", self._tbl_align)
         layout.addLayout(cfg)
 
         # Editor celle
@@ -104,13 +104,13 @@ class LaTeXWizardDialog(QDialog):
 
         # Allineamento colonne
         col_cfg = QHBoxLayout()
-        col_cfg.addWidget(QLabel("Allineamento colonne:"))
+        col_cfg.addWidget(QLabel("Column alignment:"))
         self._col_align = QLineEdit("lll")
-        self._col_align.setPlaceholderText("es. llr  o  l|c|r")
+        self._col_align.setPlaceholderText("e.g. llr  or  l|c|r")
         col_cfg.addWidget(self._col_align, 1)
         layout.addLayout(col_cfg)
 
-        btn_gen = QPushButton("Genera codice tabella")
+        btn_gen = QPushButton("Generate table code")
         btn_gen.clicked.connect(self._generate_table)
         layout.addWidget(btn_gen)
 
@@ -138,7 +138,7 @@ class LaTeXWizardDialog(QDialog):
         pos     = self._tbl_pos.currentText()
         col_spec= self._col_align.text().strip() or "l" * cols
 
-        align_map = {"centrato": "\\centering", "sinistra": "\\raggedright", "destra": "\\raggedleft"}
+        align_map = {"centered": "\\centering", "left": "\\raggedright", "right": "\\raggedleft"}
         align_cmd = align_map.get(self._tbl_align.currentText(), "\\centering")
 
         lines = [
@@ -180,21 +180,21 @@ class LaTeXWizardDialog(QDialog):
         cfg = QFormLayout()
         self._formula_type = QComboBox()
         self._formula_type.addItems([
-            "equation (numerata)",
-            "equation* (non numerata)",
-            "align (multi-riga numerata)",
-            "align* (multi-riga non numerata)",
+            "equation (numbered)",
+            "equation* (unnumbered)",
+            "align (multi-line numbered)",
+            "align* (multi-line unnumbered)",
             "inline $...$",
             "display \\[...\\]",
         ])
-        cfg.addRow("Tipo:", self._formula_type)
+        cfg.addRow("Type:", self._formula_type)
 
         self._formula_label = QLineEdit()
-        self._formula_label.setPlaceholderText("eq:etichetta (opzionale)")
+        self._formula_label.setPlaceholderText("eq:label (optional)")
         cfg.addRow("Label:", self._formula_label)
         layout.addLayout(cfg)
 
-        layout.addWidget(QLabel("Formula LaTeX:"))
+        layout.addWidget(QLabel("LaTeX Formula:"))
         self._formula_edit = QPlainTextEdit()
         self._formula_edit.setMaximumHeight(100)
         self._formula_edit.setPlaceholderText(
@@ -203,7 +203,7 @@ class LaTeXWizardDialog(QDialog):
         layout.addWidget(self._formula_edit)
 
         # Inserimento rapido simboli
-        layout.addWidget(QLabel("Simboli rapidi:"))
+        layout.addWidget(QLabel("Quick symbols:"))
         symbols_layout = QHBoxLayout()
         common_symbols = [
             ("α", "\\alpha"), ("β", "\\beta"), ("γ", "\\gamma"),
@@ -223,7 +223,7 @@ class LaTeXWizardDialog(QDialog):
         symbols_layout.addStretch()
         layout.addLayout(symbols_layout)
 
-        btn_gen = QPushButton("Genera codice formula")
+        btn_gen = QPushButton("Generate formula code")
         btn_gen.clicked.connect(self._generate_formula)
         layout.addWidget(btn_gen)
         layout.addStretch()
@@ -257,7 +257,7 @@ class LaTeXWizardDialog(QDialog):
         w = QWidget()
         layout = QVBoxLayout(w)
 
-        layout.addWidget(QLabel("Seleziona un ambiente da inserire:"))
+        layout.addWidget(QLabel("Select an environment to insert:"))
 
         environments = {
             "figure": self._gen_figure,
@@ -271,7 +271,7 @@ class LaTeXWizardDialog(QDialog):
         grid = QGridLayout()
         for i, (name, fn) in enumerate(environments.items()):
             btn = QPushButton(f"\\begin{{{name}}}")
-            btn.clicked.connect(lambda checked, f=fn: (f(), None))
+            btn.clicked.connect(lambda checked, f=fn: f())
             grid.addWidget(btn, i // 3, i % 3)
         layout.addLayout(grid)
         layout.addStretch()
@@ -281,7 +281,7 @@ class LaTeXWizardDialog(QDialog):
         self._preview.setPlainText(
             "\\begin{figure}[htbp]\n"
             "    \\centering\n"
-            "    \\includegraphics[width=\\textwidth]{nome_file}\n"
+            "    \\includegraphics[width=\\textwidth]{file_name}\n"
             "    \\caption{Caption}\n"
             "    \\label{fig:etichetta}\n"
             "\\end{figure}"

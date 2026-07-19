@@ -155,7 +155,7 @@ PACKAGE_ENVIRONMENTS: dict[str, list[str]] = {
     "rotating":     ["turn", "rotate"],
     "spreadtab":    ["spreadtab"],
     "quoting":      ["quoting"],
-    "lstlistings":  ["lstlisting"],
+    "listings":   ["lstlisting"],
     "minted":       ["listing"],
     "tcolorbox":    ["tcbitemize", "tcbeamer", "tcbverbatimwrite",
                      "tcblisting", "tcolorbox"],
@@ -1290,9 +1290,11 @@ class LaTeXSupport:
         line, col = editor.getCursorPosition()
         line_text = editor.text(line)
 
-        # Conta i $ nella riga per determinare se siamo in math mode
-        # (euristica semplice: se dispari, inserisci il chiusura)
-        dollar_count = line_text[:col - 1].count("$") - line_text[:col - 1].count("\\$")
+        # Rimuovi tutte le sequenze \X (escape LaTeX), poi conta i $ rimasti.
+        # Corretto per casi come \\$ (\\ rimosso, $ rimane → math toggle),
+        # \$ (sequenza rimossa → non è math toggle).
+        clean = re.sub(r'\\.', '', line_text[:col - 1])
+        dollar_count = clean.count("$")
         # Se è un $ di apertura (conta pari prima di questo)
         if dollar_count % 2 == 0:
             # Inserisci $ di chiusura e riposiziona cursore
@@ -1790,7 +1792,7 @@ class LaTeXSupport:
                 if not stack:
                     errors.append({
                         "line": lineno, "env": env_name,
-                        "msg": f"\\end{{{env_name}}} senza \\begin corrispondente",
+                        "msg": f"\\end{{{env_name}}} without matching \\begin",
                     })
                 else:
                     top_env, top_line = stack[-1]
@@ -1800,8 +1802,8 @@ class LaTeXSupport:
                         errors.append({
                             "line": lineno, "env": env_name,
                             "msg": (
-                                f"\\end{{{env_name}}} chiude '{top_env}' "
-                                f"aperto a riga {top_line + 1}"
+                                f"\\end{{{env_name}}} closes '{top_env}' "
+                                f"opened at line {top_line + 1}"
                             ),
                         })
                         stack.pop()
@@ -1809,7 +1811,7 @@ class LaTeXSupport:
         for env_name, lineno in stack:
             errors.append({
                 "line": lineno, "env": env_name,
-                "msg": f"\\begin{{{env_name}}} non chiuso",
+                "msg": f"\\begin{{{env_name}}} not closed",
             })
 
         return errors
@@ -1826,49 +1828,60 @@ class LaTeXSupport:
         profondità per saltare le coppie annidate).
         Restituisce None se la posizione non è su un \\begin/\\end o se
         manca la corrispondenza (ambiente sbilanciato).
+
+        Invece di tokenizzare tutto il documento, esegue una scansione
+        bidirezionale incrementale dal cursore (O(n) solo sulla zona
+        effettivamente percorsa, non sull'intero testo).
         """
-        tokens: list[tuple[str, str, int, int, int]] = []
-        for lineno, raw_line in enumerate(text.split("\n")):
-            stripped = _RE_COMMENT.sub('', raw_line)
-            for m in _RE_BEGIN_END.finditer(stripped):
-                tokens.append((m.group(1), m.group(2), lineno, m.start(), m.end()))
+        lines = text.split("\n")
+        nlines = len(lines)
 
-        target_idx = None
-        for i, (_kind, _name, tline, cstart, cend) in enumerate(tokens):
-            if tline == line and cstart <= col <= cend:
-                target_idx = i
+        # ── Determina se il cursore è su un \begin{env} o \end{env} ─────────
+        raw = lines[line]
+        stripped = _RE_COMMENT.sub('', raw)
+        kind = name = None
+        for m in _RE_BEGIN_END.finditer(stripped):
+            if m.start() <= col <= m.end():
+                kind = m.group(1)
+                name = m.group(2)
                 break
-        if target_idx is None:
+        if kind is None:
             return None
-
-        kind, name, _tline, _cstart, _cend = tokens[target_idx]
 
         if kind == "begin":
-            depth = 0
-            for i in range(target_idx + 1, len(tokens)):
-                k2, n2, l2, s2, _e2 = tokens[i]
-                if n2 != name:
-                    continue
-                if k2 == "begin":
-                    depth += 1
-                elif depth == 0:
-                    return (l2, s2)
-                else:
-                    depth -= 1
-            return None
+            # Scansione in avanti: cerca \end{name} con depth=0
+            def _iter_after():
+                depth = 0
+                for ln in range(line, nlines):
+                    row = _RE_COMMENT.sub('', lines[ln])
+                    for m2 in _RE_BEGIN_END.finditer(row):
+                        if m2.group(2) != name:
+                            continue
+                        if m2.group(1) == "begin":
+                            depth += 1
+                        else:
+                            depth -= 1
+                            if depth == 0:
+                                return (ln, m2.start())
+                return None
+            return _iter_after()
         else:
-            depth = 0
-            for i in range(target_idx - 1, -1, -1):
-                k2, n2, l2, s2, _e2 = tokens[i]
-                if n2 != name:
-                    continue
-                if k2 == "end":
-                    depth += 1
-                elif depth == 0:
-                    return (l2, s2)
-                else:
-                    depth -= 1
-            return None
+            # Scansione all'indietro: cerca \begin{name} con depth=0
+            def _iter_before():
+                depth = 0
+                for ln in range(line, -1, -1):
+                    row = _RE_COMMENT.sub('', lines[ln])
+                    for m2 in reversed(list(_RE_BEGIN_END.finditer(row))):
+                        if m2.group(2) != name:
+                            continue
+                        if m2.group(1) == "end":
+                            depth += 1
+                        else:
+                            depth -= 1
+                            if depth == 0:
+                                return (ln, m2.start())
+                return None
+            return _iter_before()
 
     # ── Conteggio parole ─────────────────────────────────────────────────────
 

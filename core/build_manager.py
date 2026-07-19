@@ -134,6 +134,12 @@ DEFAULT_PROFILES: dict[str, dict] = {
     },
 }
 
+# Regex per il parser errori LaTeX (riusate, non ricompilate per ogni build)
+_RE_LATEX_FILE  = re.compile(r'\((\./[^\s()]+\.(?:tex|sty|cls|def|cfg|fd|clo))\b')
+_RE_LATEX_BANG  = re.compile(r'^! (.+)')
+_RE_LATEX_LNUM  = re.compile(r'^l\.(\d+)')
+_RE_LATEX_MODERN = re.compile(r'^(\./[^\s:]+\.tex):(\d+): (.+)')
+
 # ─── BuildWorker ──────────────────────────────────────────────────────────────
 
 class BuildWorker(QThread):
@@ -581,10 +587,6 @@ class BuildManager(QObject):
         # "! Undefined control sequence." poi "l.75 \includegraphics"
         # Scansione riga per riga per mantenere il contesto del file corrente.
 
-        _re_file_open  = re.compile(r'\((\./[^\s()]+\.(?:tex|sty|cls|def|cfg|fd|clo))\b')
-        _re_bang       = re.compile(r'^! (.+)')
-        _re_lnum       = re.compile(r'^l\.(\d+)')
-
         file_stack: list[str] = []
         current_file: str = ""
         lines = output.splitlines()
@@ -594,7 +596,7 @@ class BuildManager(QObject):
             raw = lines[i]
 
             # Aggiorna stack file (parentesi di apertura)
-            for fm in _re_file_open.finditer(raw):
+            for fm in _RE_LATEX_FILE.finditer(raw):
                 f = fm.group(1).lstrip("./")
                 file_stack.append(f)
                 current_file = f
@@ -605,13 +607,13 @@ class BuildManager(QObject):
                     file_stack.pop()
                 current_file = file_stack[-1] if file_stack else current_file
 
-            bm = _re_bang.match(raw)
+            bm = _RE_LATEX_BANG.match(raw)
             if bm:
                 msg = bm.group(1).strip()
                 # Cerca l.N nelle prossime 15 righe
                 line_num = 0
                 for k in range(i + 1, min(i + 15, len(lines))):
-                    lm = _re_lnum.match(lines[k])
+                    lm = _RE_LATEX_LNUM.match(lines[k])
                     if lm:
                         line_num = int(lm.group(1))
                         break
@@ -623,10 +625,7 @@ class BuildManager(QObject):
             i += 1
 
         # ── Pattern 2: formato moderno "./file.tex:N: messaggio" ─────────
-        _re_modern = re.compile(
-            r'^(\./[^\s:]+\.tex):(\d+): (.+)', re.MULTILINE
-        )
-        for m in _re_modern.finditer(output):
+        for m in _RE_LATEX_MODERN.finditer(output):
             f    = m.group(1).lstrip("./")
             lnum = int(m.group(2))
             msg  = m.group(3).strip()

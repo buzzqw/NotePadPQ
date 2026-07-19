@@ -136,11 +136,11 @@ PROVIDERS: dict[str, dict] = {
     },
     "DeepSeek": {
         "id":      "deepseek",
-        "models":  ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro"],
+        "models":  ["deepseek-v4-pro", "deepseek-v4-flash"],
         "default": "deepseek-v4-pro",
         "key_url": "https://platform.deepseek.com/api_keys",
-        "note":    "deepseek-reasoner espone la catena di ragionamento (thinking).",
-        "thinking_models": ["deepseek-reasoner"],
+        "note":    "deepseek-v4-pro espone la catena di ragionamento (thinking).",
+        "thinking_models": ["deepseek-v4-pro"],
     },
     "Ollama (locale)": {
         "id":      "ollama",

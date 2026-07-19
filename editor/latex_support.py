@@ -922,7 +922,12 @@ class LaTeXSupport:
         - A) {} già inserite (cursore dopo }) → sposta cursore dentro
         - B) {} non inserite (cursore dopo \\cmd) → le inserisce poi sposta
         """
-        sel = selection or ""
+        # SCN_AUTOCCOMPLETED espone la selezione come 'const char*' (QScintilla
+        # C++): PyQt la consegna come bytes, non str — va decodificata prima
+        # di poterla confrontare con stringhe Python.
+        sel = selection or b""
+        if isinstance(sel, (bytes, bytearray)):
+            sel = sel.decode("utf-8", "replace")
         if "{}" not in sel:
             return
 

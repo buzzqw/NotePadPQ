@@ -917,7 +917,14 @@ class PreviewPanel(QWidget):
         # scorra, nuove pagine possono diventare visibili: il rendering lazy
         # in modo continuo è agganciato allo scroll, quindi va rinfrescato
         # esplicitamente anche qui.
-        if self._pdf_continuous:
+        # IMPORTANTE: _pdf_continuous è un flag dell'interfaccia (persiste
+        # cambiando tab/modalità), non un indicatore che stiamo mostrando un
+        # PDF adesso. Senza il controllo su self._mode, passare a un tab
+        # Markdown/HTML dopo aver usato lo scroll continuo su un PDF di
+        # centinaia di pagine faceva scattare qui una rasterizzazione
+        # sincrona di tutte le pagine "visibili" nel vecchio layout,
+        # bloccando l'intera UI per secondi e lasciando la preview bloccata.
+        if self._mode == "pdf" and self._pdf_continuous:
             self._pdf_cont_render_visible()
 
     @pyqtSlot(bool)
@@ -1810,7 +1817,7 @@ class PreviewPanel(QWidget):
         Collegata sia allo scroll (senza debounce: è solo un controllo su un
         set, economico) sia richiamata esplicitamente dopo aver ricostruito
         i placeholder o dopo un salto di pagina."""
-        if not self._pdf_continuous or not self._pdf_cont_page_labels:
+        if self._mode != "pdf" or not self._pdf_continuous or not self._pdf_cont_page_labels:
             return
         vp_h   = self._pdf_scroll_cont.viewport().height()
         vp_top = self._pdf_scroll_cont.verticalScrollBar().value()
@@ -1844,6 +1851,13 @@ class PreviewPanel(QWidget):
             # Documento diverso (o mai costruito prima): serve la build completa.
             self._pdf_show_all_pages()
             return
+        # Questa funzione veniva chiamata solo mentre la vista continua era
+        # già quella visibile (zoom/crop). Ora _pdf_refresh() la richiama
+        # anche tornando su un tab PDF dopo esserne usciti (es. verso un
+        # tab Markdown): senza questa riga i placeholder venivano aggiornati
+        # correttamente ma lo stack restava fermo sulla pagina precedente,
+        # quindi l'anteprima PDF non tornava mai visibile.
+        self._stack.setCurrentIndex(3)
         self._pdf_cont_rendered = set()
         for i, lbl in enumerate(self._pdf_cont_page_labels):
             try:
@@ -1961,7 +1975,7 @@ class PreviewPanel(QWidget):
     def _pdf_on_cont_scroll(self) -> None:
         """Aggiorna l'indicatore di pagina corrente durante lo scroll continuo.
         Chiamato con debounce di 80 ms dal timer per non bloccare ogni pixel di drag."""
-        if not self._pdf_doc or not self._pdf_continuous:
+        if self._mode != "pdf" or self._pdf_doc is None or not self._pdf_continuous:
             return
         from PyQt6.QtWidgets import QFrame as _QF2
         vp_h   = self._pdf_scroll_cont.viewport().height()

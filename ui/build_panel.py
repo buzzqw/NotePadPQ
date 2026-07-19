@@ -721,9 +721,8 @@ class BuildPanel(QWidget):
             # all'inizio non sarebbe più presente nel testo visibile a fine build.
             output_text = "\n".join(self._full_log)
             errors = self._bm.parse_errors(output_text, self._current_profile)
-            if errors:
-                self._show_errors(errors)
-                n = len(errors)
+            self._show_errors(errors)
+            n = len(errors)
         self.error_count_changed.emit(n)
 
     def _find_generated_pdf(self):

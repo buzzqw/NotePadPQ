@@ -122,6 +122,7 @@ jobs:
           mv squashfs-root appimagetool-extracted
 
       - name: Build AppImage
+        id: build_appimage
         run: |
           VERSION="${{ steps.ver.outputs.version }}"
           APPIMAGE_NAME="NotePadPQ-${VERSION}-x86_64.AppImage"
@@ -129,18 +130,18 @@ jobs:
             --comp zstd \
             dist/notepadpq.AppDir \
             "${APPIMAGE_NAME}"
-          echo "appimage=${APPIMAGE_NAME}" >> "$GITHUB_ENV"
+          echo "name=${APPIMAGE_NAME}" >> "$GITHUB_OUTPUT"
 
       # ── Verifica ─────────────────────────────────────────────────────────
       - name: Verify AppImage
         run: |
-          ls -lh "${APPIMAGE_NAME}"
-          file "${APPIMAGE_NAME}"
+          ls -lh "${{ steps.build_appimage.outputs.name }}"
+          file "${{ steps.build_appimage.outputs.name }}"
 
       # ── Upload alla release GitHub ────────────────────────────────────────
       - name: Upload AppImage to release
         run: |
           gh release upload "${{ steps.ver.outputs.tag }}" \
-            "${APPIMAGE_NAME}" --clobber
+            "${{ steps.build_appimage.outputs.name }}" --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

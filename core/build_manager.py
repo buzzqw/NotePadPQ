@@ -217,9 +217,10 @@ class BuildManager(QObject):
     Singleton. Gestisce i profili di compilazione e l'esecuzione dei build.
     """
 
-    build_output = pyqtSignal(str)          # linea output
-    build_done   = pyqtSignal(bool, str)    # success, message
-    build_errors = pyqtSignal(list)         # lista dict {file, line, msg}
+    build_started = pyqtSignal(str)         # action ("compile"/"run"/"build"): una build sta per partire
+    build_output  = pyqtSignal(str)         # linea output
+    build_done    = pyqtSignal(bool, str)   # success, message
+    build_errors  = pyqtSignal(list)        # lista dict {file, line, msg}
 
     _instance: Optional["BuildManager"] = None
 
@@ -408,6 +409,11 @@ class BuildManager(QObject):
         env["NOTEPADPQ_FILE"]     = str(file_path)
         env["NOTEPADPQ_DIR"]      = str(file_path.parent)
         env["NOTEPADPQ_BASENAME"] = file_path.stem
+
+        # Segnala l'avvio: la UI (BuildPanel) resetta qui log/errori/pulsanti,
+        # indipendentemente dal fatto che la build sia partita dai pulsanti del
+        # pannello o da una scorciatoia/menu che chiama run() direttamente.
+        self.build_started.emit(action)
 
         # Log
         from i18n.i18n import tr

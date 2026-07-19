@@ -287,6 +287,14 @@ class BuildPanel(QWidget):
         self._bm = BuildManager.instance()
         self._current_profile: str = ""
         self._current_error_idx: int = -1
+        # Log completo per il parsing errori: self._output è un QPlainTextEdit
+        # con setMaximumBlockCount(5000), che scarta silenziosamente le righe
+        # più vecchie oltre quel limite. Su documenti grandi (es. un libro di
+        # centinaia di pagine) il log di compilazione supera facilmente le
+        # 5000 righe e un errore vicino all'inizio del documento finisce fuori
+        # dal buffer visibile prima ancora che la build finisca: parse_errors()
+        # deve quindi lavorare su questa lista, non su self._output.toPlainText().
+        self._full_log: list[str] = []
 
         self._build_ui()
         self._connect_signals()
@@ -433,6 +441,7 @@ class BuildPanel(QWidget):
 
     def _connect_signals(self) -> None:
         bm = self._bm
+        bm.build_started.connect(self._on_build_started)
         bm.build_output.connect(self._append_output)
         bm.build_done.connect(self._on_build_done)
         bm.build_errors.connect(self._show_errors)
@@ -605,31 +614,42 @@ class BuildPanel(QWidget):
         if editor is None:
             return
 
-        started = self._bm.run(action, editor)
-        if started:
-            self._output.clear()
-            self._error_tree.clear()
-            self._current_error_idx = -1
-            self._btn_next_error.setEnabled(False)
-            self._btn_prev_error.setEnabled(False)
-            self.error_count_changed.emit(0)
-            self._btn_analyze_ai.setEnabled(False)
-            self._btn_stop.setEnabled(True)
-            self._btn_compile.setEnabled(False)
-            self._btn_run.setEnabled(False)
-            self._btn_build.setEnabled(False)
-            self._status_bar.setText(
-                tr("build_panel.in_progress", action=action.capitalize(), profile=self._current_profile)
-            )
-            self._status_bar.setStyleSheet(
-                "padding: 2px 8px; font-size: 11px; "
-                "background: #1e3a1e; color: #4caf50; border-top: 1px solid #3c3c3c;"
-            )
+        self._bm.run(action, editor)
+
+    @pyqtSlot(str)
+    def _on_build_started(self, action: str) -> None:
+        """Reset di log/errori/pulsanti a inizio build. Agganciato al segnale
+        BuildManager.build_started invece che al solo click sui pulsanti del
+        pannello, così lo stato si azzera anche quando la build parte da una
+        scorciatoia/menu che chiama BuildManager.run() direttamente (altrimenti
+        il log e gli errori della build precedente restavano visibili/misti a
+        quelli nuovi)."""
+        self._output.clear()
+        self._full_log.clear()
+        self._error_tree.clear()
+        self._current_error_idx = -1
+        self._btn_next_error.setEnabled(False)
+        self._btn_prev_error.setEnabled(False)
+        self.error_count_changed.emit(0)
+        self._btn_analyze_ai.setEnabled(False)
+        self._btn_stop.setEnabled(True)
+        self._btn_compile.setEnabled(False)
+        self._btn_run.setEnabled(False)
+        self._btn_build.setEnabled(False)
+        self._status_bar.setText(
+            tr("build_panel.in_progress", action=action.capitalize(), profile=self._current_profile)
+        )
+        self._status_bar.setStyleSheet(
+            "padding: 2px 8px; font-size: 11px; "
+            "background: #1e3a1e; color: #4caf50; border-top: 1px solid #3c3c3c;"
+        )
 
     # ── Output ────────────────────────────────────────────────────────────────
 
     @pyqtSlot(str)
     def _append_output(self, line: str) -> None:
+        self._full_log.append(line)
+
         cursor = self._output.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
@@ -695,7 +715,11 @@ class BuildPanel(QWidget):
         # Analizziamo quindi sempre l'output quando c'è un parser configurato.
         n = 0
         if self._current_profile:
-            output_text = self._output.toPlainText()
+            # self._full_log, non self._output.toPlainText(): il widget scarta
+            # le righe più vecchie oltre setMaximumBlockCount(5000), quindi su
+            # log lunghi (documenti di centinaia di pagine) un errore vicino
+            # all'inizio non sarebbe più presente nel testo visibile a fine build.
+            output_text = "\n".join(self._full_log)
             errors = self._bm.parse_errors(output_text, self._current_profile)
             if errors:
                 self._show_errors(errors)
@@ -761,6 +785,7 @@ class BuildPanel(QWidget):
 
     def _clear_output(self) -> None:
         self._output.clear()
+        self._full_log.clear()
         self._btn_analyze_ai.setEnabled(False)
 
     def _analyze_with_ai(self) -> None:

@@ -136,10 +136,14 @@ DEFAULT_PROFILES: dict[str, dict] = {
 }
 
 # Regex per il parser errori LaTeX (riusate, non ricompilate per ogni build)
-_RE_LATEX_FILE  = re.compile(r'\((\./[^\s()]+\.(?:tex|sty|cls|def|cfg|fd|clo))\b')
+# Il percorso non ha un prefisso fisso: pdflatex lo stampa relativo ("./file.tex")
+# solo se invocato con un path relativo dalla sua stessa directory; i profili di
+# build di questa app passano sempre ${FILE} assoluto, quindi il log riporta
+# "(/percorso/assoluto/file.tex" — nessun prefisso "./" da richiedere qui.
+_RE_LATEX_FILE  = re.compile(r'\(([^\s()]+\.(?:tex|sty|cls|def|cfg|fd|clo))\b')
 _RE_LATEX_BANG  = re.compile(r'^! (.+)')
 _RE_LATEX_LNUM  = re.compile(r'^l\.(\d+)')
-_RE_LATEX_MODERN = re.compile(r'^(\./[^\s:]+\.tex):(\d+): (.+)')
+_RE_LATEX_MODERN = re.compile(r'^([^\s:]+\.tex):(\d+): (.+)')
 
 # ─── BuildWorker ──────────────────────────────────────────────────────────────
 
@@ -598,7 +602,12 @@ class BuildManager(QObject):
 
             # Aggiorna stack file (parentesi di apertura)
             for fm in _RE_LATEX_FILE.finditer(raw):
-                f = fm.group(1).lstrip("./")
+                # .lstrip("./") spoglierebbe anche la "/" iniziale di un path
+                # assoluto (lstrip toglie un INSIEME di caratteri, non un prefisso):
+                # rimuoviamo quindi solo l'eventuale prefisso letterale "./".
+                f = fm.group(1)
+                if f.startswith("./"):
+                    f = f[2:]
                 file_stack.append(f)
                 current_file = f
             # Parentesi di chiusura (stima grezza)
@@ -627,7 +636,9 @@ class BuildManager(QObject):
 
         # ── Pattern 2: formato moderno "./file.tex:N: messaggio" ─────────
         for m in _RE_LATEX_MODERN.finditer(output):
-            f    = m.group(1).lstrip("./")
+            f = m.group(1)
+            if f.startswith("./"):
+                f = f[2:]
             lnum = int(m.group(2))
             msg  = m.group(3).strip()
             key  = (f, lnum, msg)

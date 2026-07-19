@@ -108,32 +108,39 @@ PROVIDERS: dict[str, dict] = {
     "Anthropic (Claude)": {
         "id":      "anthropic",
         "models": [
-            "claude-opus-4-7",
-            "claude-sonnet-4-6",
+            "claude-opus-4-8",
+            "claude-sonnet-5",
             "claude-haiku-4-5-20251001",
-            "claude-opus-4-5",
-            "claude-sonnet-4-5-20251001",
+            "claude-fable-5",
         ],
-        "default": "claude-sonnet-4-6",
+        "default": "claude-sonnet-5",
         "key_url": "https://console.anthropic.com/settings/keys",
         "note":    "API key da console.anthropic.com (separata dall'abbonamento Claude Pro)",
-        "thinking_models": ["claude-opus-4-7", "claude-opus-4-5", "claude-sonnet-4-5-20251001"],
+        "thinking_models": ["claude-opus-4-8", "claude-sonnet-5"],
     },
     "OpenAI (ChatGPT)": {
         "id":      "openai",
-        "models":  ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o3-mini", "gpt-3.5-turbo"],
-        "default": "gpt-4o",
+        "models":  ["gpt-5", "gpt-5-mini", "gpt-4.1", "gpt-4o", "o3", "o3-mini"],
+        "default": "gpt-5",
         "key_url": "https://platform.openai.com/api-keys",
         "note":    "",
         "thinking_models": [],
     },
     "Google Gemini": {
         "id":      "gemini",
-        "models":  ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash-thinking-exp"],
-        "default": "gemini-2.0-flash",
+        "models":  ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"],
+        "default": "gemini-2.5-flash",
         "key_url": "https://aistudio.google.com/app/apikey",
         "note":    "",
         "thinking_models": [],
+    },
+    "DeepSeek": {
+        "id":      "deepseek",
+        "models":  ["deepseek-chat", "deepseek-reasoner"],
+        "default": "deepseek-chat",
+        "key_url": "https://platform.deepseek.com/api_keys",
+        "note":    "deepseek-reasoner espone la catena di ragionamento (thinking).",
+        "thinking_models": ["deepseek-reasoner"],
     },
     "Ollama (locale)": {
         "id":      "ollama",
@@ -155,14 +162,13 @@ PROVIDERS: dict[str, dict] = {
 
 # Prezzo stimato per 1M token (input/output) in USD
 MODEL_COST: dict[str, tuple[float, float]] = {
-    "claude-opus-4-7":             (15.0, 75.0),
-    "claude-sonnet-4-6":           (3.0,  15.0),
+    "claude-opus-4-8":             (15.0, 75.0),
+    "claude-sonnet-5":             (3.0,  15.0),
     "claude-haiku-4-5-20251001":   (0.8,  4.0),
-    "claude-opus-4-5":             (15.0, 75.0),
-    "claude-sonnet-4-5-20251001":  (3.0,  15.0),
     "gpt-4o":                      (5.0,  15.0),
     "gpt-4o-mini":                 (0.15, 0.6),
-    "gpt-4-turbo":                 (10.0, 30.0),
+    "deepseek-chat":               (0.27, 1.10),
+    "deepseek-reasoner":           (0.55, 2.19),
 }
 
 CONTEXT_ACTIONS = [
@@ -462,6 +468,8 @@ class _AIWorker(QThread):
                 text = self._call_openai()
             elif self._provider == "gemini":
                 text = self._call_gemini()
+            elif self._provider == "deepseek":
+                text = self._call_deepseek()
             elif self._provider == "ollama":
                 text = self._call_ollama()
             elif self._provider == "llamacpp":
@@ -494,6 +502,7 @@ class _AIWorker(QThread):
                 "anthropic": "La chiave deve iniziare con sk-ant-... — ottienila su console.anthropic.com/settings/keys",
                 "openai":    "La chiave deve iniziare con sk-... — ottienila su platform.openai.com/api-keys",
                 "gemini":    "La chiave si ottiene su aistudio.google.com/app/apikey",
+                "deepseek":  "La chiave si ottiene su platform.deepseek.com/api_keys",
             }
             hint = hints.get(self._provider, "Verifica la chiave nelle impostazioni (⚙).")
             return f"Chiave API non valida (401).\n{hint}\n\nDettaglio: {api_msg}"
@@ -599,6 +608,33 @@ class _AIWorker(QThread):
         usage = data.get("usage", {})
         self.usage_ready.emit(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
         return data["choices"][0]["message"]["content"]
+
+    # ── DeepSeek (API compatibile OpenAI) ────────────────────────────────────
+
+    def _call_deepseek(self) -> str:
+        url  = "https://api.deepseek.com/chat/completions"
+        msgs = self._messages
+        if self._system:
+            msgs = [{"role": "system", "content": self._system}] + list(msgs)
+        body = json.dumps({
+            "model":      self._model,
+            "messages":   msgs,
+            "max_tokens": self._max_tokens,
+        }).encode()
+        req = urllib.request.Request(url, data=body, method="POST", headers={
+            "Content-Type":  "application/json",
+            "Authorization": f"Bearer {self._key}",
+        })
+        with urllib.request.urlopen(req, timeout=120, context=_make_ssl_ctx()) as resp:
+            data = json.loads(resp.read())
+        usage = data.get("usage", {})
+        self.usage_ready.emit(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+        msg = data["choices"][0]["message"]
+        # deepseek-reasoner espone la catena di ragionamento in un campo separato
+        reasoning = msg.get("reasoning_content", "")
+        if reasoning:
+            self.think_chunk.emit(reasoning)
+        return msg.get("content", "")
 
     # ── Google Gemini ──────────────────────────────────────────────────────────
 
@@ -982,6 +1018,7 @@ class _SettingsDialog(QDialog):
             "anthropic": "sk-ant-api03-…  (da console.anthropic.com)",
             "openai":    "sk-proj-…  (da platform.openai.com)",
             "gemini":    "AIzaSy…  (da aistudio.google.com)",
+            "deepseek":  "sk-…  (da platform.deepseek.com)",
             "ollama":    "http://localhost:11434",
             "llamacpp":  "http://localhost:8080",
         }
@@ -2253,6 +2290,7 @@ def _key_hint(pid: str) -> str:
         "anthropic": "Chiave Anthropic: console.anthropic.com/settings/keys  (formato: sk-ant-...)",
         "openai":    "Chiave OpenAI: platform.openai.com/api-keys  (formato: sk-...)",
         "gemini":    "Chiave Gemini: aistudio.google.com/app/apikey  (formato: AIza...)",
+        "deepseek":  "Chiave DeepSeek: platform.deepseek.com/api_keys  (formato: sk-...)",
     }.get(pid, "")
 
 
@@ -2265,6 +2303,8 @@ def _validate_key(pid: str, key: str) -> str:
         return "La chiave OpenAI sembra incorretta: deve iniziare con 'sk-'."
     if pid == "gemini" and not key.startswith("AIza"):
         return "La chiave Gemini sembra incorretta: deve iniziare con 'AIza'."
+    if pid == "deepseek" and not key.startswith("sk-"):
+        return "La chiave DeepSeek sembra incorretta: deve iniziare con 'sk-'."
     return ""
 
 

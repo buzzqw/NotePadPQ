@@ -766,6 +766,16 @@ class PreviewPanel(QWidget):
                 self._web.settings().setAttribute(
                     QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True
                 )
+                # QWebEnginePage dipinge di bianco (colore di default) durante la
+                # navigazione, prima che il CSS della nuova pagina (sfondo #1e1e1e,
+                # vedi _CSS_BASE) venga applicato. Passando da un'anteprima scura
+                # (PDF/testo) a Markdown/HTML con MathJax/Mermaid — che richiedono
+                # WebEngine — questo si vede come un lampo bianco a tutto pannello,
+                # percepito come un "flash" dell'intera finestra. Impostando lo
+                # sfondo della pagina allo stesso colore scuro non c'è più nulla
+                # da dipingere di bianco durante il caricamento.
+                from PyQt6.QtGui import QColor as _QColor
+                self._web.page().setBackgroundColor(_QColor("#1e1e1e"))
                 self._stack.addWidget(self._web)
         return self._web
 

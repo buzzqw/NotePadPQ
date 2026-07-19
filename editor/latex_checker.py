@@ -182,6 +182,7 @@ class _CheckWorker(QThread):
 
             any_mismatch = False
             max_actual = 0
+            row_issues: list[dict] = []
             for row in range(i + 1, end_line):
                 if self._cancelled:
                     return issues
@@ -206,7 +207,7 @@ class _CheckWorker(QThread):
                         amp_pos = self._nth_ampersand_pos(rs, declared)
                         if amp_pos >= 0:
                             hl_start = amp_pos  # posizione dell'& di troppo
-                    issues.append({
+                    row_issues.append({
                         "line":     row,
                         "severity": "warning",
                         "msg":      f"Colonne: {actual} nella riga, {declared} dichiarate "
@@ -220,7 +221,9 @@ class _CheckWorker(QThread):
 
             if any_mismatch:
                 if declared > max_actual > 0:
-                    # Troppe colonne dichiarate: evidenzia solo quelle in eccesso
+                    # Troppe colonne dichiarate (nessuna riga usa così tante
+                    # colonne): evidenzia solo le X/l/c in eccesso nella
+                    # colspec, senza marcare ogni singola riga del corpo.
                     excess = self._excess_col_positions(
                         col_spec, spec_start + 1,
                         excess_count=declared - max_actual)
@@ -228,6 +231,10 @@ class _CheckWorker(QThread):
                                  f"{declared - max_actual} colonna/e di troppo "
                                  f"(le righe ne usano al massimo {max_actual})")
                 else:
+                    # Righe con colonne in eccesso rispetto al dichiarato:
+                    # marca ogni riga incoerente (già evidenzia solo la
+                    # parte in eccesso, dall'& di troppo in poi).
+                    issues.extend(row_issues)
                     excess = []
                     issue_msg = (f"Scheda colonne '{col_spec}' ({declared} col) "
                                  f"non corrisponde alle righe della tabella")
@@ -245,18 +252,36 @@ class _CheckWorker(QThread):
 
         return issues
 
-    @staticmethod
-    def _extract_col_spec(after_begin: str, offset: int, env_name: str = ""):
+    _RE_LENGTH_MACRO = re.compile(r'^\\[A-Za-z]+$')
+    _RE_LENGTH_UNIT  = re.compile(
+        r'^[0-9]+(\.[0-9]+)?\s*(pt|mm|cm|in|em|ex|bp|sp|pc|dd|cc|mu|\\[A-Za-z]+)$')
+    _RE_LENGTH_FRAC  = re.compile(r'^[0-9.]+\\[A-Za-z]+$')
+
+    @classmethod
+    def _looks_like_length(cls, spec: str) -> bool:
+        """True se 'spec' sembra un argomento di larghezza (es. \\linewidth,
+        0.5\\textwidth, 5cm) piuttosto che una column spec."""
+        s = spec.strip()
+        return bool(
+            cls._RE_LENGTH_MACRO.match(s)
+            or cls._RE_LENGTH_UNIT.match(s)
+            or cls._RE_LENGTH_FRAC.match(s)
+        )
+
+    @classmethod
+    def _extract_col_spec(cls, after_begin: str, offset: int, env_name: str = ""):
         """Estrae la specifica colonne dal testo dopo \\begin{env}.
         Per tabular*/tabularx/tabulary il secondo gruppo e' la column spec
-        (il primo e' la width); per gli altri ambienti e' il primo.
-        Ritorna (col_spec, start, end) oppure (None, -1, -1)."""
+        (il primo e' la width); per gli altri ambienti e' il primo. Se il
+        gruppo atteso sembra invece un argomento di larghezza (es. quando
+        \\tabular viene usato per errore con due gruppi), si usa l'altro
+        gruppo disponibile. Ritorna (col_spec, start, end) oppure (None, -1, -1)."""
         _TWO_ARG = frozenset({"tabular*", "tabularx", "tabulary", "xltabular"})
-        target_group = 2 if env_name in _TWO_ARG else 1
 
         brace_depth = 0
         groups_found = 0
         start = -1
+        groups: list[tuple[str, int, int]] = []
         for idx, ch in enumerate(after_begin):
             if ch == '{':
                 if brace_depth == 0:
@@ -267,9 +292,22 @@ class _CheckWorker(QThread):
                 brace_depth -= 1
                 if brace_depth == 0:
                     spec = after_begin[start + 1:idx]
-                    if groups_found == target_group:
-                        return spec, offset + start, offset + idx + 1
-        return None, -1, -1
+                    groups.append((spec, offset + start, offset + idx + 1))
+                    if groups_found == 2:
+                        break
+
+        if not groups:
+            return None, -1, -1
+        if len(groups) == 1:
+            return groups[0]
+
+        preferred_idx = 1 if env_name in _TWO_ARG else 0
+        other_idx = 0 if preferred_idx == 1 else 1
+        preferred_is_length = cls._looks_like_length(groups[preferred_idx][0])
+        other_is_length = cls._looks_like_length(groups[other_idx][0])
+        if preferred_is_length and not other_is_length:
+            return groups[other_idx]
+        return groups[preferred_idx]
 
     @staticmethod
     def _excess_col_positions(col_spec: str, line_offset: int, excess_count: int = 0):

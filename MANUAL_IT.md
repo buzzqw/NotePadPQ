@@ -902,6 +902,7 @@ NotePadPQ ha un supporto LaTeX completo, ma le funzionalità **avanzate** richie
 - **Struttura documento** (Function List): sezioni, label, figure, tabelle del file `.tex`
 - **Supporto multi-file**: label, chiavi BibTeX e comandi custom estratti dall'intero progetto seguendo `\input{}`, `\include{}`, `\subfile{}`
 - **Checker bilanciamento**: rileva `\begin{}`/`\end{}` sbilanciati in tempo reale con marcatori nel gutter
+- **Checker colonne tabella**: negli ambienti `tabular`, `tabular*`, `tabularx`, `tabulary`, `array`, `longtable`, `supertabular`, `xltabular`, confronta il numero di colonne dichiarate nella column spec (es. `{lXXXXXXX}`) con il numero di colonne effettive di ogni riga del corpo. Se una riga ha **più** colonne del dichiarato, sottolinea in ambra solo la parte in eccesso (dall'ultima `&` di troppo in poi); se la column spec dichiara **più** colonne di quelle usate da tutte le righe, sottolinea solo le lettere (`X`, `l`, `c`, `r`, `p`…) in eccesso nella column spec stessa. `\multicolumn{N}{...}{...}` viene conteggiato correttamente come N colonne.
 
 ### Funzionalità che richiedono librerie opzionali
 

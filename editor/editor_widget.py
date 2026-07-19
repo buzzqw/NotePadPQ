@@ -469,6 +469,16 @@ class EditorWidget(QsciScintilla):
                            QsciScintilla.MarginType.SymbolMargin)
         self.setMarginWidth(MARGIN_SYMBOLS, 14)
         self.setMarginSensitivity(MARGIN_SYMBOLS, True)
+        # Senza una marker mask esplicita questo margine non mostra NESSUN
+        # marker (mask di default = 0): Scintilla, non potendo disegnare
+        # l'icona in alcun margine, ripiega colorando l'INTERA riga di testo
+        # con lo sfondo del marker (es. i warning colonne tabella LaTeX
+        # coloravano tutta la riga invece di un piccolo triangolo nel gutter).
+        # Riserva a questo margine tutti i marker tranne quelli di fold
+        # (bit 25-31, riservati da Scintilla) e quelli del Git Gutter.
+        _fold_mask = 0xFE000000  # bit 25-31, usati da setFolding
+        _git_mask  = (1 << MARKER_GIT_ADD) | (1 << MARKER_GIT_MOD) | (1 << MARKER_GIT_DEL)
+        self.setMarginMarkerMask(MARGIN_SYMBOLS, ~(_fold_mask | _git_mask) & 0xFFFFFFFF)
 
         # Marker bookmark: cerchio pieno
         self.markerDefine(QsciScintilla.MarkerSymbol.Circle, MARKER_BOOKMARK)
@@ -480,6 +490,7 @@ class EditorWidget(QsciScintilla):
         self.setMarginType(MARGIN_GIT, QsciScintilla.MarginType.SymbolMarginDefaultForegroundColor)
         self.setMarginWidth(MARGIN_GIT, 0)
         self.setMarginSensitivity(MARGIN_GIT, False)
+        self.setMarginMarkerMask(MARGIN_GIT, _git_mask)
 
         # Marker Git Gutter: rettangoli colorati a tutta altezza
         self.markerDefine(QsciScintilla.MarkerSymbol.FullRectangle, MARKER_GIT_ADD)

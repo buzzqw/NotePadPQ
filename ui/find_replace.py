@@ -17,7 +17,9 @@ import threading
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
+
+from core.worker_pool import ManagedWorker
 from PyQt6.QtGui import QColor, QTextCursor
 from PyQt6.QtWidgets import (
     QDialog, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
@@ -267,6 +269,10 @@ class FindReplaceDialog(QDialog):
     def __init__(self, main_window: "MainWindow"):
         super().__init__(main_window)
         self._mw = main_window
+        self._fif_mw:      Optional[ManagedWorker] = None
+        self._fif_rif_mw:  Optional[ManagedWorker] = None
+        self._fif_rif_mw2: Optional[ManagedWorker] = None
+        self._fif_total_matches = 0
         self.setWindowTitle(tr("action.find"))
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
         self.resize(780, 580)
@@ -929,22 +935,14 @@ ESEMPI
         except Exception:
             pass
         self._cancel_find_in_files()
-        if hasattr(self, "_fif_rif_thread") and self._fif_rif_thread is not None:
-            if self._fif_rif_thread.isRunning():
-                if hasattr(self, "_fif_rif_worker"):
-                    self._fif_rif_worker.cancel()
-                self._fif_rif_thread.quit()
-                self._fif_rif_thread.wait(500)
-            self._fif_rif_thread.deleteLater()
-            self._fif_rif_thread = None
-        if hasattr(self, "_fif_rif_thread2") and self._fif_rif_thread2 is not None:
-            if self._fif_rif_thread2.isRunning():
-                if hasattr(self, "_fif_rif_worker2"):
-                    self._fif_rif_worker2.cancel()
-                self._fif_rif_thread2.quit()
-                self._fif_rif_thread2.wait(500)
-            self._fif_rif_thread2.deleteLater()
-            self._fif_rif_thread2 = None
+        if self._fif_rif_mw is not None:
+            self._fif_rif_mw.worker.cancel()
+            self._fif_rif_mw.stop()
+            self._fif_rif_mw = None
+        if self._fif_rif_mw2 is not None:
+            self._fif_rif_mw2.worker.cancel()
+            self._fif_rif_mw2.stop()
+            self._fif_rif_mw2 = None
         super().closeEvent(event)
 
     def _do_incremental(self) -> None:
@@ -1220,33 +1218,26 @@ ESEMPI
         self._cancel_find_in_files()
 
         self._fif_results.clear()
+        self._fif_total_matches = 0
         self._fif_status.setText(tr("msg.searching"))
 
-        self._fif_worker = _FindInFilesWorker(base_dir, filters, query, use_re, case_s, recurse)
-        self._fif_thread = QThread()
-        self._fif_worker.moveToThread(self._fif_thread)
-
-        self._fif_worker.file_done.connect(self._on_fif_file_result)
-        self._fif_worker.finished.connect(self._on_fif_finished)
-        self._fif_worker.error.connect(self._on_fif_error)
-        self._fif_thread.started.connect(self._fif_worker.run)
-        self._fif_thread.finished.connect(self._fif_thread.deleteLater)
-
-        self._fif_thread.start()
+        worker = _FindInFilesWorker(base_dir, filters, query, use_re, case_s, recurse)
+        self._fif_mw = ManagedWorker(worker)
+        worker.file_done.connect(self._on_fif_file_result)
+        worker.finished.connect(self._on_fif_finished)
+        worker.error.connect(self._on_fif_error)
+        self._fif_mw.thread.started.connect(worker.run)
+        self._fif_mw.start()
 
     def _cancel_find_in_files(self) -> None:
-        if hasattr(self, "_fif_worker") and self._fif_worker is not None:
-            self._fif_worker.cancel()
-        if hasattr(self, "_fif_thread") and self._fif_thread is not None:
-            if self._fif_thread.isRunning():
-                self._fif_thread.quit()
-                self._fif_thread.wait(500)
-            self._fif_thread.deleteLater()
-        self._fif_worker = None
-        self._fif_thread = None
+        if self._fif_mw is not None:
+            self._fif_mw.worker.cancel()
+            self._fif_mw.stop()
+            self._fif_mw = None
 
     def _on_fif_file_result(self, rel_path: str, abs_path: str,
                             match_count: int, entries: list) -> None:
+        self._fif_total_matches += match_count
         _ROLE = Qt.ItemDataRole.UserRole
         file_item = QTreeWidgetItem(
             self._fif_results,
@@ -1280,23 +1271,17 @@ ESEMPI
             QTreeWidgetItem(self._fif_results, [tr("msg.no_results_found"), "", ""])
             self._fif_status.setText(tr("msg.zero_results", query=self._fif_find.text().strip()))
         else:
-            total_matches = 0
             total_files = self._fif_results.topLevelItemCount()
-            for i in range(total_files):
-                item = self._fif_results.topLevelItem(i)
-                total_matches += item.childCount()
             self._fif_status.setText(
-                tr("msg.results_count_files", matches=total_matches, files=total_files)
+                tr("msg.results_count_files", matches=self._fif_total_matches, files=total_files)
             )
             self._send_to_result_panel(self._fif_find.text().strip(), self._fif_results)
         self._fif_results.resizeColumnToContents(0)
-        self._fif_worker = None
-        self._fif_thread = None
+        self._fif_mw = None
 
     def _on_fif_error(self, msg: str) -> None:
         self._fif_status.setText(tr("msg.regex_error", error=msg))
-        self._fif_worker = None
-        self._fif_thread = None
+        self._fif_mw = None
 
     def _open_fif_result(self, item: QTreeWidgetItem) -> None:
         data = item.data(0, Qt.ItemDataRole.UserRole)
@@ -1349,24 +1334,18 @@ ESEMPI
             "pattern": pattern, "recurse": recurse,
         }
 
-        self._fif_rif_worker = _ReplaceInFilesWorker(
-            base_dir, filters, replace_text, pattern, recurse
-        )
-        self._fif_rif_thread = QThread()
-        self._fif_rif_worker.moveToThread(self._fif_rif_thread)
-
-        self._fif_rif_worker.finished.connect(self._on_rif_scan_done)
-        self._fif_rif_worker.error.connect(self._on_fif_error)
-        self._fif_rif_thread.started.connect(self._fif_rif_worker.scan)
-        self._fif_rif_thread.finished.connect(self._fif_rif_thread.deleteLater)
-
-        self._fif_rif_thread.start()
+        worker = _ReplaceInFilesWorker(base_dir, filters, replace_text, pattern, recurse)
+        self._fif_rif_mw = ManagedWorker(worker)
+        worker.finished.connect(self._on_rif_scan_done)
+        worker.error.connect(self._on_fif_error)
+        self._fif_rif_mw.thread.started.connect(worker.scan)
+        self._fif_rif_mw.start()
 
     def _on_rif_scan_done(self, files_list: list, total_matches: int, total_files: int) -> None:
+        self._fif_rif_mw = None
+
         if not files_list:
             self._fif_status.setText(tr("msg.replace_no_matches"))
-            self._fif_rif_worker = None
-            self._fif_rif_thread = None
             return
 
         from PyQt6.QtWidgets import QMessageBox
@@ -1377,22 +1356,16 @@ ESEMPI
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
-            self._fif_rif_worker = None
-            self._fif_rif_thread = None
             return
 
         self._fif_status.setText(tr("msg.replacing"))
 
-        self._fif_rif_worker2 = _ReplaceWriterWorker(files_list)
-        self._fif_rif_thread2 = QThread()
-        self._fif_rif_worker2.moveToThread(self._fif_rif_thread2)
-
-        self._fif_rif_worker2.finished.connect(self._on_rif_write_done)
-        self._fif_rif_worker2.file_written.connect(self._on_rif_file_written)
-        self._fif_rif_thread2.started.connect(self._fif_rif_worker2.write_all)
-        self._fif_rif_thread2.finished.connect(self._fif_rif_thread2.deleteLater)
-
-        self._fif_rif_thread2.start()
+        worker2 = _ReplaceWriterWorker(files_list)
+        self._fif_rif_mw2 = ManagedWorker(worker2)
+        worker2.finished.connect(self._on_rif_write_done)
+        worker2.file_written.connect(self._on_rif_file_written)
+        self._fif_rif_mw2.thread.started.connect(worker2.write_all)
+        self._fif_rif_mw2.start()
 
     def _on_rif_file_written(self, fpath: str, new_text: str) -> None:
         for editor in self._mw._tab_manager.all_editors():
@@ -1414,10 +1387,7 @@ ESEMPI
         self._fif_status.setText(
             tr("msg.replaced_in_files", count=total_matches, files=total_files)
         )
-        self._fif_rif_worker = None
-        self._fif_rif_thread = None
-        self._fif_rif_worker2 = None
-        self._fif_rif_thread2 = None
+        self._fif_rif_mw2 = None
         self._do_find_in_files()
 
     def _replace_fif_file(self, file_item: QTreeWidgetItem) -> None:

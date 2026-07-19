@@ -1816,15 +1816,27 @@ class PreviewPanel(QWidget):
         margine di una schermata sopra/sotto) che non lo sono già state.
         Collegata sia allo scroll (senza debounce: è solo un controllo su un
         set, economico) sia richiamata esplicitamente dopo aver ricostruito
-        i placeholder o dopo un salto di pagina."""
+        i placeholder o dopo un salto di pagina.
+
+        Libera anche i pixmap delle pagine ormai lontane dal viewport per
+        non accumulare memoria mentre l'utente scorre l'intero documento."""
         if self._mode != "pdf" or not self._pdf_continuous or not self._pdf_cont_page_labels:
             return
         vp_h   = self._pdf_scroll_cont.viewport().height()
+        if vp_h <= 0:
+            return
         vp_top = self._pdf_scroll_cont.verticalScrollBar().value()
         lo_y   = vp_top - vp_h
         hi_y   = vp_top + vp_h + vp_h
+        evict_lo = vp_top - 4 * vp_h
+        evict_hi = vp_top + 6 * vp_h
         for idx, lbl in enumerate(self._pdf_cont_page_labels):
             if idx in self._pdf_cont_rendered:
+                top = lbl.y()
+                bot = top + lbl.height()
+                if bot < evict_lo or top > evict_hi:
+                    lbl.clear()
+                    self._pdf_cont_rendered.discard(idx)
                 continue
             top = lbl.y()
             bot = top + lbl.height()

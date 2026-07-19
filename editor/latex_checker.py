@@ -181,6 +181,7 @@ class _CheckWorker(QThread):
                 end_line = len(lines) - 1
 
             any_mismatch = False
+            max_actual = 0
             for row in range(i + 1, end_line):
                 if self._cancelled:
                     return issues
@@ -194,6 +195,8 @@ class _CheckWorker(QThread):
                 if '&' not in rs and not any(c in _COL_CHARS for c in rs):
                     continue
                 actual = self._count_row_cols(rs)
+                if actual > max_actual:
+                    max_actual = actual
                 if actual > 0 and actual != declared:
                     any_mismatch = True
                     issues.append({
@@ -207,14 +210,26 @@ class _CheckWorker(QThread):
                     })
 
             if any_mismatch:
+                if declared > max_actual > 0:
+                    # Troppe colonne dichiarate: evidenzia solo quelle in eccesso
+                    excess = self._excess_col_positions(
+                        col_spec, spec_start + 1,
+                        excess_count=declared - max_actual)
+                    issue_msg = (f"Scheda colonne '{col_spec}' ({declared} col) ha "
+                                 f"{declared - max_actual} colonna/e di troppo "
+                                 f"(le righe ne usano al massimo {max_actual})")
+                else:
+                    excess = []
+                    issue_msg = (f"Scheda colonne '{col_spec}' ({declared} col) "
+                                 f"non corrisponde alle righe della tabella")
                 issues.append({
                     "line":     i,
                     "severity": "warning",
-                    "msg":      f"Specifica colonne '{col_spec}' ({declared} col) "
-                                f"non corrisponde alle righe della tabella",
+                    "msg":      issue_msg,
                     "col_line": i,
                     "col_start": spec_start,
                     "col_end":   spec_end,
+                    "excess_positions": excess,
                 })
 
             i = end_line + 1
@@ -246,6 +261,18 @@ class _CheckWorker(QThread):
                     if groups_found == target_group:
                         return spec, offset + start, offset + idx + 1
         return None, -1, -1
+
+    @staticmethod
+    def _excess_col_positions(col_spec: str, line_offset: int, excess_count: int = 0):
+        """Ritorna le posizioni assolute dei caratteri colonna in eccesso.
+        Se excess_count è 0, calcola le posizioni di TUTTI i caratteri colonna."""
+        positions = []
+        for c_idx, c in enumerate(col_spec):
+            if c in _COL_CHARS:
+                positions.append(line_offset + c_idx)
+        if excess_count > 0 and len(positions) > excess_count:
+            return positions[-excess_count:]  # ultimi N
+        return positions
 
     @staticmethod
     def _count_tabular_cols(col_spec: str) -> int:
@@ -385,22 +412,37 @@ class LaTeXChecker(QObject):
                                ed.lineLength(last_line), INDICATOR_LATEX_COL)
 
     def _apply_tabular_indicators(self, issues: list[dict]) -> None:
-        """Sottolinea con squiggly ambra la column spec sulle righe \\begin
-        delle tabelle con mismatch di colonne."""
+        """Sottolinea con squiggly ambra le colonne in eccesso o l'intera
+        column spec sulle righe \\begin delle tabelle con mismatch."""
         from editor.editor_widget import INDICATOR_LATEX_COL
         self._clear_tabular_indicators()
         seen = set()
         for issue in issues:
             cl = issue.get("col_line")
-            cs = issue.get("col_start")
-            ce = issue.get("col_end")
-            if cl is None or cs is None or ce is None:
+            if cl is None:
                 continue
-            key = (cl, cs)
-            if key in seen:
-                continue
-            seen.add(key)
-            length = max(1, ce - cs)
-            self._editor.fillIndicatorRange(
-                cl, cs, cl, cs + length, INDICATOR_LATEX_COL
-            )
+            excess = issue.get("excess_positions")
+            if excess:
+                # Evidenzia solo i caratteri colonna in eccesso
+                for pos in excess:
+                    key = (cl, pos)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    self._editor.fillIndicatorRange(
+                        cl, pos, cl, pos + 1, INDICATOR_LATEX_COL
+                    )
+            else:
+                # Fallback: evidenzia l'intera column spec
+                cs = issue.get("col_start")
+                ce = issue.get("col_end")
+                if cs is None or ce is None:
+                    continue
+                key = (cl, cs)
+                if key in seen:
+                    continue
+                seen.add(key)
+                length = max(1, ce - cs)
+                self._editor.fillIndicatorRange(
+                    cl, cs, cl, cs + length, INDICATOR_LATEX_COL
+                )

@@ -611,11 +611,7 @@ class BuildManager(QObject):
         # ── Pattern 1: errore TeX classico ───────────────────────────────
         file_stack: list[str] = []
         current_file: str = ""
-        lines = output.splitlines()
-
-        # ── Pattern 1: errore TeX classico ───────────────────────────────
-        file_stack: list[str] = []
-        current_file: str = ""
+        main_file: str = ""       # primo .tex aperto = file principale compilato
         lines = output.splitlines()
 
         i = 0
@@ -629,6 +625,8 @@ class BuildManager(QObject):
                     f = f[2:]
                 file_stack.append(f)
                 current_file = f
+                if not main_file and f.endswith(".tex"):
+                    main_file = f
             # Parentesi di chiusura (stima grezza)
             net_close = raw.count(')') - raw.count('(')
             if net_close > 0:
@@ -655,11 +653,15 @@ class BuildManager(QObject):
                         if lm:
                             line_num = int(lm.group(1))
                             break
-                key = (current_file, line_num, msg)
+                # Se il formato moderno ha dato il file, usalo; altrimenti
+                # preferisci il main_file (il .tex compilato) al current_file
+                # (che potrebbe essere un .cfg/.sty aperto dopo).
+                eff_file = current_file if _RE_LATEX_MODERN.search(raw) else (main_file or current_file)
+                key = (eff_file, line_num, msg)
                 if key not in seen:
                     seen.add(key)
                     errors.append({
-                        "file": current_file,
+                        "file": eff_file,
                         "line": line_num,
                         "message": msg,
                     })
@@ -694,11 +696,12 @@ class BuildManager(QObject):
             for lm_match in re.finditer(r'l\.(\d+)', before):
                 lm = lm_match
             line_num = int(lm.group(1)) if lm else 0
-            key = (current_file or "", line_num, msg[:120])
+            eff_file = main_file or current_file or ""
+            key = (eff_file, line_num, msg[:120])
             if key not in seen:
                 seen.add(key)
                 errors.append({
-                    "file": current_file or "",
+                    "file": eff_file,
                     "line": line_num,
                     "message": f"Warning: {msg[:120]}",
                 })

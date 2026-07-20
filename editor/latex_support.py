@@ -1941,6 +1941,87 @@ class LaTeXSupport:
                 return None
             return _iter_before()
 
+    # ── Sincronizzazione nome \begin{X}/\end{X} ──────────────────────────────
+
+    @staticmethod
+    def env_token_at(line_text: str, col: int) -> Optional[dict]:
+        """
+        Se col cade dentro l'argomento {nome} di un \\begin{nome} o
+        \\end{nome} sulla riga data, ritorna un dict con kind ("begin"/"end"),
+        token_start (colonna del backslash), name_start/name_end (span
+        dell'argomento {nome}, escluse le graffe) e name. Altrimenti None.
+        Usato per rilevare quando il cursore sta modificando il nome di un
+        ambiente, per poi sincronizzare l'altro capo della coppia.
+        """
+        stripped = _RE_COMMENT.sub('', line_text)
+        for m in _RE_BEGIN_END.finditer(stripped):
+            if m.start(2) <= col <= m.end(2):
+                return {
+                    "kind":       m.group(1),
+                    "token_start": m.start(),
+                    "name_start":  m.start(2),
+                    "name_end":    m.end(2),
+                    "name":        m.group(2),
+                }
+        return None
+
+    @staticmethod
+    def find_structural_match(text: str, line: int, token_start: int) -> Optional[tuple[int, int, int]]:
+        """
+        Come find_environment_match, ma trova l'altro capo della coppia
+        \\begin/\\end per struttura (annidamento), non per nome: usata per
+        sincronizzare il nome durante una rinomina, quando i due nomi sono
+        temporaneamente diversi (es. \\begin{xltabular} non ancora
+        rispecchiato in \\end{tabular}) e il filtro per nome di
+        find_environment_match non troverebbe corrispondenza.
+
+        token_start è la colonna del backslash del token di partenza sulla
+        riga `line`. Ritorna (line, name_start, name_end) dell'argomento
+        {nome} dell'altro capo, o None se non trovato/sbilanciato.
+        """
+        lines = text.split("\n")
+        nlines = len(lines)
+        raw = lines[line]
+        stripped = _RE_COMMENT.sub('', raw)
+        anchor = None
+        for m in _RE_BEGIN_END.finditer(stripped):
+            if m.start() == token_start:
+                anchor = m
+                break
+        if anchor is None:
+            return None
+        kind = anchor.group(1)
+
+        if kind == "begin":
+            depth = 0
+            for ln in range(line, nlines):
+                row = _RE_COMMENT.sub('', lines[ln])
+                for m2 in _RE_BEGIN_END.finditer(row):
+                    if ln == line and m2.start() < token_start:
+                        continue
+                    if m2.group(1) == "begin":
+                        depth += 1
+                    else:
+                        depth -= 1
+                        if depth == 0:
+                            return (ln, m2.start(2), m2.end(2))
+            return None
+        else:
+            depth = 0
+            for ln in range(line, -1, -1):
+                row = _RE_COMMENT.sub('', lines[ln])
+                matches = list(_RE_BEGIN_END.finditer(row))
+                if ln == line:
+                    matches = [mm for mm in matches if mm.start() <= token_start]
+                for m2 in reversed(matches):
+                    if m2.group(1) == "end":
+                        depth += 1
+                    else:
+                        depth -= 1
+                        if depth == 0:
+                            return (ln, m2.start(2), m2.end(2))
+            return None
+
     # ── Conteggio parole ─────────────────────────────────────────────────────
 
     @staticmethod

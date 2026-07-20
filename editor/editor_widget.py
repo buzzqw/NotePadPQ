@@ -383,6 +383,12 @@ class EditorWidget(QsciScintilla):
         from editor.multicursor import MultiCursorManager
         self._multicursor = MultiCursorManager(self)
 
+        # Sincronizzazione nome \begin{X}/\end{X}: quando il cursore lascia
+        # l'argomento di uno dei due dopo averlo modificato, l'altro capo
+        # della coppia viene rinominato di conseguenza. Vedi _on_cursor_env_rename.
+        self._env_rename_watch: Optional[dict] = None
+        self._env_rename_committing: bool = False
+
         self._setup_base()
         self._setup_margins()
         self._setup_indicators()
@@ -617,6 +623,7 @@ class EditorWidget(QsciScintilla):
         self.modificationChanged.connect(self._on_modification_changed)
         self.cursorPositionChanged.connect(self._on_cursor_changed)
         self.cursorPositionChanged.connect(self._apply_typewriter_scroll)
+        self.cursorPositionChanged.connect(self._on_cursor_env_rename)
         self.selectionChanged.connect(self._on_selection_changed)
         self.SCN_ZOOM.connect(self._on_zoom_changed)
 
@@ -648,6 +655,84 @@ class EditorWidget(QsciScintilla):
     def _on_cursor_changed(self, line: int, col: int) -> None:
         # Scintilla usa 0-based, emettiamo 1-based
         self.cursor_changed.emit(line + 1, col + 1)
+
+    def _on_cursor_env_rename(self, line: int, col: int) -> None:
+        """
+        Se il cursore lascia l'argomento {nome} di un \\begin{...}/\\end{...}
+        LaTeX che si stava modificando, sincronizza il nome sull'altro capo
+        strutturale della coppia (es. modifichi \\begin{tabular} in
+        \\begin{xltabular} e ci sposti via: \\end{tabular} diventa
+        \\end{xltabular}). Attivo solo su file LaTeX e mentre non è già in
+        corso un commit (altrimenti il riposizionamento del cursore dopo la
+        sostituzione ritriggerebbe questa stessa logica)."""
+        if self._env_rename_committing:
+            return
+        if getattr(self, "_current_language", "").lower() != "latex":
+            self._env_rename_watch = None
+            return
+
+        try:
+            from editor.latex_support import LaTeXSupport
+            line_text = self.text(line)
+            token = LaTeXSupport.env_token_at(line_text, col)
+        except Exception:
+            self._env_rename_watch = None
+            return
+
+        watch = self._env_rename_watch
+        if (watch is not None and watch["line"] == line
+                and token is not None and token["token_start"] == watch["token_start"]):
+            return  # ancora dentro lo stesso argomento: niente da fare
+
+        if watch is not None:
+            self._commit_env_rename(watch)
+            self._env_rename_watch = None
+
+        if token is not None:
+            self._env_rename_watch = {"line": line, **token}
+
+    def _commit_env_rename(self, watch: dict) -> None:
+        """Applica all'altro capo della coppia il nome corrente dell'argomento
+        tracciato da `watch`, se è cambiato rispetto a quando il tracking è
+        iniziato. Vedi _on_cursor_env_rename."""
+        from editor.latex_support import LaTeXSupport
+        line = watch["line"]
+        try:
+            current = LaTeXSupport.env_token_at(self.text(line), watch["name_start"])
+        except Exception:
+            return
+        if current is None or current["token_start"] != watch["token_start"]:
+            return  # la riga è cambiata: il token non è più quello tracciato
+
+        new_name = current["name"]
+        old_name = watch["name"]
+        if new_name == old_name or not new_name.strip():
+            return
+
+        try:
+            match = LaTeXSupport.find_structural_match(self.text(), line, watch["token_start"])
+        except Exception:
+            return
+        if match is None:
+            return
+        m_line, m_start, m_end = match
+
+        cur_line, cur_col = self.getCursorPosition()
+        self._env_rename_committing = True
+        try:
+            self.beginUndoAction()
+            self.setSelection(m_line, m_start, m_line, m_end)
+            self.replaceSelectedText(new_name)
+            self.endUndoAction()
+        finally:
+            # setSelection/replaceSelectedText spostano cursore e selezione
+            # sull'altro capo della coppia: li ripristiniamo dove l'utente
+            # li aveva lasciati (correggendo la colonna se la sostituzione
+            # è avvenuta sulla stessa riga, prima della posizione corrente).
+            if m_line == cur_line and m_start <= cur_col:
+                cur_col = max(0, cur_col + len(new_name) - (m_end - m_start))
+            self.setCursorPosition(cur_line, cur_col)
+            self._env_rename_committing = False
 
     def _on_selection_changed(self) -> None:
         # Ottimizzazione: selectedText() + encode() sono costosi; salta se non c'è selezione

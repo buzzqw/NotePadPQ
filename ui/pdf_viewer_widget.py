@@ -685,8 +685,12 @@ class PdfViewerWidget(QWidget):
     # ── Interazione ───────────────────────────────────────────────────────────
 
     def _on_scroll_changed(self, _value: int = 0) -> None:
-        """Debounce: aggiorna la pagina corrente 120ms dopo la fine dello scroll."""
-        self._scroll_timer.start()
+        """Throttle: fa partire il timer solo se non è già in corsa, così
+        durante uno scroll continuo (valueChanged più frequente dei 120ms)
+        il timer non resta perennemente riarmato senza mai scattare -
+        altrimenti il numero di pagina si aggiornerebbe solo a scroll fermo."""
+        if not self._scroll_timer.isActive():
+            self._scroll_timer.start()
 
     def _update_current_page(self) -> None:
         """Determina quale pagina è maggiormente visibile nel viewport e

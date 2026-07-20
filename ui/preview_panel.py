@@ -724,7 +724,7 @@ class PreviewPanel(QWidget):
         self._pdf_cont_layout.setSpacing(8)
         self._pdf_scroll_cont.setWidget(self._pdf_cont_container)
         self._pdf_scroll_cont.verticalScrollBar().valueChanged.connect(
-            self._cont_scroll_timer.start)
+            self._pdf_on_cont_scrollbar_changed)
         # Rendering lazy: ad ogni scroll (senza debounce, è un controllo
         # economico su un set) rasterizza solo le pagine che stanno per
         # diventare visibili e non lo sono ancora. Vedi _pdf_cont_render_visible.
@@ -1802,6 +1802,12 @@ class PreviewPanel(QWidget):
             # y=0) o se prima di setVisible(True) la viewport aveva ancora
             # dimensioni non valide.
             self._pdf_cont_render_visible()
+            # Stesso discorso per il contatore di pagina: _pdf_on_cont_scroll
+            # scatta solo su valueChanged della scrollbar, quindi se si
+            # rimane a y=0 (tipico quando la pagina da ripristinare è la
+            # prima) il contatore restava bloccato sul testo residuo della
+            # modalità pagina-singola invece di riflettere lo scroll continuo.
+            self._pdf_on_cont_scroll()
             # Nasconde la vista pagina singola solo ora (nessun flash visibile)
             self._pdf_scroll.setVisible(False)
         else:
@@ -1943,6 +1949,7 @@ class PreviewPanel(QWidget):
         if len(self._pdf_cont_page_labels) != total:
             # Documento diverso (o mai costruito prima): serve la build completa.
             self._pdf_show_all_pages()
+            self._pdf_on_cont_scroll()
             return
         self._pdf_building = True
         try:
@@ -1960,6 +1967,12 @@ class PreviewPanel(QWidget):
         finally:
             self._pdf_building = False
         self._pdf_cont_render_visible()
+        # Il totale (o la pagina corrente) può essere cambiato dal
+        # ricalcolo qui sopra (es. dopo una ricompilazione con un numero
+        # diverso di pagine): _pdf_on_cont_scroll aggiorna il contatore
+        # senza aspettare un valueChanged della scrollbar, che qui non
+        # scatta mai perché il relayout non tocca la posizione di scroll.
+        self._pdf_on_cont_scroll()
 
     def _pdf_refresh(self) -> None:
         """Aggiorna la vista PDF nella modalità corrente."""
@@ -2063,30 +2076,53 @@ class PreviewPanel(QWidget):
         except Exception:
             pass
 
+    def _pdf_on_cont_scrollbar_changed(self, _value: int = 0) -> None:
+        """Fa partire il timer di aggiornamento pagina solo se non è già in
+        corsa (throttle, non debounce): durante uno scroll continuo (rotella
+        con smooth-scroll, drag della barra) valueChanged può scattare più
+        spesso dell'intervallo del timer. Riavviarlo ad ogni segnale (come
+        faceva prima) lo terrebbe perennemente riarmato senza farlo mai
+        scattare, lasciando il contatore di pagina bloccato finché lo scroll
+        non si ferma del tutto."""
+        if not self._cont_scroll_timer.isActive():
+            self._cont_scroll_timer.start()
+
     def _pdf_on_cont_scroll(self) -> None:
         """Aggiorna l'indicatore di pagina corrente durante lo scroll continuo.
-        Chiamato con debounce di 80 ms dal timer per non bloccare ogni pixel di drag."""
-        if self._mode != "pdf" or self._pdf_doc is None or not self._pdf_continuous:
+        Richiamato periodicamente (throttle di 80 ms) mentre lo scroll è in
+        corso, e anche subito dopo build/relayout della vista continua che
+        non generano di per sé un valueChanged della scrollbar.
+
+        Usa self._pdf_cont_page_labels (la stessa lista, con le stesse
+        coordinate, usata da _pdf_cont_render_visible per decidere quali
+        pagine rasterizzare) invece di camminare self._pdf_cont_layout
+        item per item: più semplice, ed evita di dover distinguere i
+        separatori QFrame tra una label e l'altra nel conteggio."""
+        if (self._mode != "pdf" or self._pdf_doc is None or not self._pdf_continuous
+                or not self._pdf_cont_page_labels):
             return
-        from PyQt6.QtWidgets import QFrame as _QF2
-        vp_h   = self._pdf_scroll_cont.viewport().height()
-        vp_top = self._pdf_scroll_cont.verticalScrollBar().value()
-        vp_bot = vp_top + vp_h
-        best_idx    = 0
-        best_overlap = -1
-        page_idx    = 0
-        for j in range(self._pdf_cont_layout.count()):
-            item = self._pdf_cont_layout.itemAt(j)
-            w    = item.widget() if item else None
-            if w is None or isinstance(w, _QF2):
-                continue
-            lbl_top = w.pos().y()
-            lbl_bot = lbl_top + w.height()
-            overlap = max(0, min(lbl_bot, vp_bot) - max(lbl_top, vp_top))
-            if overlap > best_overlap:
-                best_overlap = overlap
-                best_idx     = page_idx
-            page_idx += 1
+        vp_h = self._pdf_scroll_cont.viewport().height()
+        if vp_h <= 0:
+            # Viewport non ancora layoutata (widget appena reso visibile):
+            # meglio non aggiornare che calcolare una pagina sbagliata.
+            return
+        try:
+            vp_top = self._pdf_scroll_cont.verticalScrollBar().value()
+            vp_bot = vp_top + vp_h
+            best_idx     = 0
+            best_overlap = -1
+            for idx, lbl in enumerate(self._pdf_cont_page_labels):
+                lbl_top = lbl.y()
+                lbl_bot = lbl_top + lbl.height()
+                overlap = max(0, min(lbl_bot, vp_bot) - max(lbl_top, vp_top))
+                if overlap > best_overlap:
+                    best_overlap = overlap
+                    best_idx     = idx
+        except RuntimeError:
+            # Le label possono essere in fase di ricostruzione (rebuild dopo
+            # ricompilazione/zoom): un widget già distrutto qui non deve far
+            # sparire l'aggiornamento per le chiamate successive.
+            return
         total = len(self._pdf_doc)
         self._pdf_lbl_page.setText(f"  {best_idx + 1} / {total}  ")
         self._pdf_page_num = best_idx

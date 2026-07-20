@@ -1541,6 +1541,11 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("build_prev_error", "Alt+Up",   self.action_build_prev_error))
         self._sep(m)
         from config.settings import Settings
+        clean_before_checked = Settings.instance().get("build/clean_aux_before_compile", False)
+        clean_before_act = self._act("build_clean_aux_before_toggle", "", self._toggle_clean_aux_before,
+                                      checkable=True, checked=clean_before_checked)
+        clean_before_act.setToolTip(tr("tooltip.build_clean_aux_before_toggle"))
+        m.addAction(clean_before_act)
         clean_checked = Settings.instance().get("build/clean_aux_after_compile", False)
         clean_act = self._act("build_clean_aux_toggle", "", self._toggle_clean_aux,
                                checkable=True, checked=clean_checked)
@@ -3291,6 +3296,10 @@ class MainWindow(QMainWindow):
     def action_build_prev_error(self) -> None:
         if hasattr(self, "_build_panel") and self._build_panel:
             self._build_panel.goto_prev_error()
+
+    def _toggle_clean_aux_before(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("build/clean_aux_before_compile", checked)
 
     def _toggle_clean_aux(self, checked: bool) -> None:
         from config.settings import Settings

@@ -287,13 +287,11 @@ class BuildPanel(QWidget):
         self._bm = BuildManager.instance()
         self._current_profile: str = ""
         self._current_error_idx: int = -1
-        # Log completo per il parsing errori: self._output è un QPlainTextEdit
-        # con setMaximumBlockCount(5000), che scarta silenziosamente le righe
-        # più vecchie oltre quel limite. Su documenti grandi (es. un libro di
-        # centinaia di pagine) il log di compilazione supera facilmente le
-        # 5000 righe e un errore vicino all'inizio del documento finisce fuori
-        # dal buffer visibile prima ancora che la build finisca: parse_errors()
-        # deve quindi lavorare su questa lista, non su self._output.toPlainText().
+        # Log completo per il parsing errori: self._output non ha limiti di
+        # righe, ma leggere migliaia di righe da un QPlainTextEdit ad ogni
+        # fine-build (per estrarre gli errori) è più lento e più fragile
+        # (richiede toPlainText()) che tenerle già pronte in una lista Python.
+        # parse_errors() lavora quindi su questa lista, non sul widget.
         self._full_log: list[str] = []
 
         self._build_ui()
@@ -387,7 +385,6 @@ class BuildPanel(QWidget):
         self._output.setMinimumHeight(0)
         self._output.setReadOnly(True)
         self._output.setFont(QFont("Monospace", 10))
-        self._output.setMaximumBlockCount(5000)
         self._output.setStyleSheet("""
             QPlainTextEdit {
                 background-color: #1e1e1e;
@@ -687,14 +684,22 @@ class BuildPanel(QWidget):
             f"background: {color_bg}; color: {color_fg}; border-top: 1px solid #3c3c3c;"
         )
 
-        # Se il build è riuscito e ha generato un PDF, aggiorna l'anteprima
-        # automaticamente quando il dock Anteprima è già visibile.
+        # Se il build è riuscito e ha generato un PDF, aggiorna l'anteprima.
+        # Non condizionato a mw._preview_dock.isVisible(): se il dock
+        # Anteprima è tabificato con quello di Build (comune, dato che li
+        # apriamo entrambi durante una compilazione), isVisible() è False
+        # ogni volta che la tab in primo piano è quella di Build — quindi la
+        # condizione saltava l'aggiornamento quasi sempre, lasciando
+        # l'anteprima sul PDF pre-compilazione (o vuota) finché l'utente non
+        # forzava un refresh riselezionando manualmente il file .tex.
+        # set_pdf_path() non ha bisogno che il pannello sia visibile: prepara
+        # comunque il contenuto corretto, pronto non appena l'utente
+        # riporta in primo piano quella tab.
         if success:
             pdf_path = self._find_generated_pdf()
             if pdf_path:
                 mw = self.window()
-                if (hasattr(mw, "_preview_dock") and mw._preview_dock.isVisible()
-                        and hasattr(mw, "_preview_panel_dock")):
+                if hasattr(mw, "_preview_panel_dock"):
                     mw._preview_panel_dock.set_pdf_path(pdf_path)
 
                 from config.settings import Settings
@@ -715,10 +720,9 @@ class BuildPanel(QWidget):
         # Analizziamo quindi sempre l'output quando c'è un parser configurato.
         n = 0
         if self._current_profile:
-            # self._full_log, non self._output.toPlainText(): il widget scarta
-            # le righe più vecchie oltre setMaximumBlockCount(5000), quindi su
-            # log lunghi (documenti di centinaia di pagine) un errore vicino
-            # all'inizio non sarebbe più presente nel testo visibile a fine build.
+            # self._full_log, non self._output.toPlainText(): estrarre il testo
+            # da un widget con migliaia di righe è più lento che leggerlo da
+            # una lista Python già pronta.
             output_text = "\n".join(self._full_log)
             errors = self._bm.parse_errors(output_text, self._current_profile)
             self._show_errors(errors)
@@ -740,19 +744,6 @@ class BuildPanel(QWidget):
         pdf = Path(str(path)).with_suffix(".pdf")
         return pdf if pdf.exists() else None
 
-    # Estensioni ausiliarie generate dai motori LaTeX/BibTeX/Biber/makeindex/
-    # glossaries più comuni. Il PDF non è mai incluso qui, quindi non può
-    # mai essere cancellato per errore da questa lista.
-    _AUX_EXTENSIONS = [
-        ".aux", ".log", ".out", ".toc", ".lof", ".lot",
-        ".bbl", ".blg", ".bcf", ".run.xml",
-        ".synctex.gz", ".fls", ".fdb_latexmk",
-        ".nav", ".snm", ".vrb",
-        ".idx", ".ind", ".ilg",
-        ".glo", ".gls", ".glg",
-        ".acn", ".acr", ".alg",
-    ]
-
     def _clean_aux_files(self, pdf_path) -> None:
         """
         Elimina i file ausiliari accanto al PDF appena generato (stesso nome,
@@ -762,19 +753,10 @@ class BuildPanel(QWidget):
         perché serve alla sincronizzazione sorgente↔PDF anche dopo il build.
         """
         from config.settings import Settings
+        from core.build_manager import clean_aux_files
         keep_synctex = Settings.instance().get("build/keep_synctex", True)
         base = pdf_path.with_suffix("")
-        removed = []
-        for ext in self._AUX_EXTENSIONS:
-            if keep_synctex and ext == ".synctex.gz":
-                continue
-            candidate = base.with_name(base.name + ext)
-            if candidate.exists():
-                try:
-                    candidate.unlink()
-                    removed.append(candidate.name)
-                except OSError:
-                    pass
+        removed = clean_aux_files(base, keep_synctex=keep_synctex)
         if removed:
             self._output.appendHtml(
                 '<span style="color:#858585">🧹 '

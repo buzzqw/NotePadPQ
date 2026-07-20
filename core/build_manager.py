@@ -212,6 +212,45 @@ class BuildWorker(QThread):
                 pass
 
 
+# ─── Pulizia file ausiliari LaTeX ─────────────────────────────────────────────
+# Condivisa fra la pulizia "prima" (BuildManager.run) e "dopo" (BuildPanel) la
+# compilazione, così le due opzioni di menu restano sempre in sincronia sulle
+# stesse estensioni.
+
+# Estensioni ausiliarie generate dai motori LaTeX/BibTeX/Biber/makeindex/
+# glossaries più comuni. Il PDF non è mai incluso qui, quindi non può
+# mai essere cancellato per errore da questa funzione.
+AUX_EXTENSIONS: list[str] = [
+    ".aux", ".log", ".out", ".toc", ".lof", ".lot",
+    ".bbl", ".blg", ".bcf", ".run.xml",
+    ".synctex.gz", ".fls", ".fdb_latexmk",
+    ".nav", ".snm", ".vrb",
+    ".idx", ".ind", ".ilg",
+    ".glo", ".gls", ".glg",
+    ".acn", ".acr", ".alg",
+]
+
+
+def clean_aux_files(base_path: Path, keep_synctex: bool = True) -> list[str]:
+    """
+    Elimina i file ausiliari accanto a base_path (stesso nome, stessa
+    cartella; base_path senza estensione). Usata sia prima che dopo la
+    compilazione LaTeX. Ritorna i nomi dei file effettivamente rimossi.
+    """
+    removed = []
+    for ext in AUX_EXTENSIONS:
+        if keep_synctex and ext == ".synctex.gz":
+            continue
+        candidate = base_path.with_name(base_path.name + ext)
+        if candidate.exists():
+            try:
+                candidate.unlink()
+                removed.append(candidate.name)
+            except OSError:
+                pass
+    return removed
+
+
 # ─── BuildManager ─────────────────────────────────────────────────────────────
 
 class BuildManager(QObject):
@@ -420,6 +459,23 @@ class BuildManager(QObject):
         # Log
         from i18n.i18n import tr
         self.build_output.emit(tr("msg.build_started", command=command))
+
+        # Pulizia file ausiliari PRIMA della compilazione: utile per ripartire
+        # da uno stato pulito (es. dopo aver cambiato pacchetti/indici e voler
+        # evitare che .aux/.toc obsoleti confondano la build). Valido solo per
+        # le estensioni LaTeX/BibTeX/makeindex/glossaries: per profili non-TeX
+        # (Rust, C, ecc.) non trova nulla da eliminare e non fa niente. Emessa
+        # DOPO build_started, che resetta l'output: prima verrebbe cancellata
+        # subito da _on_build_started().
+        if Settings.instance().get("build/clean_aux_before_compile", False):
+            removed = clean_aux_files(
+                file_path.with_suffix(""),
+                keep_synctex=Settings.instance().get("build/keep_synctex", True),
+            )
+            if removed:
+                self.build_output.emit(
+                    tr("build_panel.aux_cleaned", n=len(removed), files=", ".join(removed))
+                )
 
         # Avvia worker
         self._worker = BuildWorker(command, str(file_path.parent), env)

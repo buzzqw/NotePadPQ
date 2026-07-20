@@ -1865,9 +1865,9 @@ class PreviewPanel(QWidget):
             # Calcola subito posizione/dimensioni reali dei label: servono a
             # _pdf_cont_render_visible() per sapere cosa è a schermo.
             self._pdf_cont_layout.activate()
-            self._pdf_cont_render_visible()
         finally:
             self._pdf_building = False
+        self._pdf_cont_render_visible()
 
     def _pdf_cont_render_visible(self) -> None:
         """Rasterizza le pagine visibili nello scroll continuo (più un
@@ -1881,6 +1881,21 @@ class PreviewPanel(QWidget):
         if self._mode != "pdf" or not self._pdf_continuous or not self._pdf_cont_page_labels:
             return
         if getattr(self, "_pdf_building", False):
+            return
+        if not self._pdf_scroll_cont.isVisible():
+            # _pdf_show_all_pages()/_pdf_cont_relayout() chiamano questo
+            # metodo appena finito il rebuild, ma _pdf_toggle_continuous
+            # rende visibile _pdf_scroll_cont SOLO dopo. Finché è nascosto,
+            # il layout non ha mai eseguito un vero ciclo di show/paint e
+            # QVBoxLayout non ha ancora assegnato posizioni geometriche reali
+            # alle label: lbl.y() torna 0 per TUTTE, quindi ogni pagina
+            # risulterebbe "visibile" e verrebbe rasterizzata — sull'intero
+            # documento, non solo sulla finestra scrollata. È esattamente
+            # così che un PDF di alcune centinaia di pagine finiva per
+            # consumare ~2 GB di RAM nell'istante dell'attivazione. Il
+            # chiamante (_pdf_toggle_continuous) invoca comunque di nuovo
+            # questo metodo subito dopo aver reso visibile la scroll area,
+            # quando le posizioni sono finalmente valide.
             return
         vp_h   = self._pdf_scroll_cont.viewport().height()
         if vp_h <= 0:
@@ -1942,9 +1957,9 @@ class PreviewPanel(QWidget):
                 lbl.clear()   # rimuove il pixmap alla vecchia scala
                 self._pdf_cont_clip_rects[i] = clip_rect
             self._pdf_cont_layout.activate()
-            self._pdf_cont_render_visible()
         finally:
             self._pdf_building = False
+        self._pdf_cont_render_visible()
 
     def _pdf_refresh(self) -> None:
         """Aggiorna la vista PDF nella modalità corrente."""

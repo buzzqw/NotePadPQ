@@ -395,7 +395,9 @@
     "spell_suggestions": "Sugerencias",
     "spell_language": "Idioma del diccionario",
     "spell_remaining": "Errores restantes: {count}",
-    "spell_complete": "Revisión ortográfica completada."
+    "spell_complete": "Revisión ortográfica completada.",
+    "close": "Cerrar",
+    "pdf_no_results": "Sin resultados"
   },
   "button": {
     "ok": "Aceptar",
@@ -1139,7 +1141,9 @@
     "pref_typewriter_deadzone": "Número de líneas alrededor del centro en las que el cursor no activa el desplazamiento automático en modo mecanógrafo.",
     "fif_replace_in_file": "Reemplazar todas las coincidencias en este archivo",
     "fif_replace_match": "Reemplazar esta coincidencia",
-    "find_all": "Busca todas las coincidencias y las lista para su reemplazo selectivo"
+    "find_all": "Busca todas las coincidencias y las lista para su reemplazo selectivo",
+    "build_draft_mode": "Modo borrador: comprobación rápida de sintaxis sin salida PDF.",
+    "pdf_magnify": "Lupa: clic para activar, pasar sobre el PDF para ampliar."
   },
   "websearch": {
     "submenu_title": "Búsqueda Web",
@@ -1699,7 +1703,8 @@
     "ref_prev": "Insertar referencia a la etiqueta anterior",
     "edit_tables": "Editar tablas",
     "magic_comments": "Añadir comentarios mágicos…",
-    "insert_table_quick": "Insertar tabla…"
+    "insert_table_quick": "Insertar tabla…",
+    "bibtex_wizard": "Asistente BibTeX..."
   },
   "latex_toolbar": {
     "part": "parte",
@@ -1795,5 +1800,23 @@
     "task": "Tarea",
     "minimap": "Minimapa",
     "json_xml": "Estructura JSON/XML"
+  },
+  "bibtex_wizard": {
+    "title": "Asistente BibTeX",
+    "tab_entry": "Nueva entrada",
+    "tab_search": "Buscar DOI",
+    "preview": "Vista previa BibTeX",
+    "copy": "Copiar",
+    "insert": "Insertar",
+    "close": "Cerrar",
+    "label_type": "Tipo:",
+    "auto_key": "Generar clave",
+    "auto_key_tip": "Generar clave de autor + año (ej. Einstein1905)",
+    "doi_info": "Ingresa un DOI (ej. 10.1000/xyz) para obtener\ndatos bibliográficos de Crossref.",
+    "lookup": "Buscar",
+    "doi_empty": "Sin resultado.",
+    "doi_searching": "Buscando...",
+    "doi_found": "¡Encontrado! Completa los campos en \"Nueva entrada\".",
+    "doi_error": "Error: "
   }
 }

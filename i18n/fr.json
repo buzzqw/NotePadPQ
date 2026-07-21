@@ -395,7 +395,9 @@
     "spell_suggestions": "Suggestions",
     "spell_language": "Langue du dictionnaire",
     "spell_remaining": "Erreurs restantes : {count}",
-    "spell_complete": "Vérification orthographique terminée."
+    "spell_complete": "Vérification orthographique terminée.",
+    "close": "Fermer",
+    "pdf_no_results": "Aucun résultat"
   },
   "button": {
     "ok": "OK",
@@ -1139,7 +1141,9 @@
     "pref_typewriter_deadzone": "Nombre de lignes autour du centre dans lesquelles le curseur ne déclenche pas de défilement automatique en mode machine à écrire.",
     "fif_replace_in_file": "Remplacer toutes les correspondances dans ce fichier",
     "fif_replace_match": "Remplacer cette correspondance",
-    "find_all": "Trouver toutes les occurrences et les lister pour remplacement sélectif"
+    "find_all": "Trouver toutes les occurrences et les lister pour remplacement sélectif",
+    "build_draft_mode": "Mode brouillon : vérification rapide de la syntaxe sans sortie PDF.",
+    "pdf_magnify": "Loupe : cliquer pour activer, survoler le PDF pour zoomer."
   },
   "websearch": {
     "submenu_title": "Recherche Web",
@@ -1699,7 +1703,8 @@
     "ref_prev": "Insérer référence à l'étiquette précédente",
     "edit_tables": "Modifier les tableaux",
     "magic_comments": "Ajouter des commentaires magiques…",
-    "insert_table_quick": "Insérer tableau…"
+    "insert_table_quick": "Insérer tableau…",
+    "bibtex_wizard": "Assistant BibTeX..."
   },
   "latex_toolbar": {
     "part": "partie",
@@ -1795,5 +1800,23 @@
     "task": "Tâche",
     "minimap": "Minicarte",
     "json_xml": "Structure JSON/XML"
+  },
+  "bibtex_wizard": {
+    "title": "Assistant BibTeX",
+    "tab_entry": "Nouvelle entrée",
+    "tab_search": "Rechercher DOI",
+    "preview": "Aperçu BibTeX",
+    "copy": "Copier",
+    "insert": "Insérer",
+    "close": "Fermer",
+    "label_type": "Type :",
+    "auto_key": "Générer la clé",
+    "auto_key_tip": "Générer la clé à partir de auteur + année (ex. Einstein1905)",
+    "doi_info": "Saisir un DOI (ex. 10.1000/xyz) pour récupérer\nles données bibliographiques de Crossref.",
+    "lookup": "Chercher",
+    "doi_empty": "Aucun résultat.",
+    "doi_searching": "Recherche...",
+    "doi_found": "Trouvé ! Remplissez les champs dans \"Nouvelle entrée\".",
+    "doi_error": "Erreur : "
   }
 }

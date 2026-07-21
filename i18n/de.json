@@ -395,7 +395,9 @@
     "spell_suggestions": "Vorschläge",
     "spell_language": "Wörterbuchsprache",
     "spell_remaining": "Verbleibende Fehler: {count}",
-    "spell_complete": "Rechtschreibprüfung abgeschlossen."
+    "spell_complete": "Rechtschreibprüfung abgeschlossen.",
+    "close": "Schließen",
+    "pdf_no_results": "Keine Treffer"
   },
   "button": {
     "ok": "OK",
@@ -1139,7 +1141,9 @@
     "pref_typewriter_deadzone": "Anzahl Zeilen um die Mitte, innerhalb derer kein automatisches Scrollen im Schreibmaschinenmodus ausgelöst wird.",
     "fif_replace_in_file": "Alle Treffer in dieser Datei ersetzen",
     "fif_replace_match": "Diesen Treffer ersetzen",
-    "find_all": "Alle Treffer finden und zur selektiven Ersetzung auflisten"
+    "find_all": "Alle Treffer finden und zur selektiven Ersetzung auflisten",
+    "build_draft_mode": "Draft-Modus: schnellere Syntaxprüfung ohne PDF-Ausgabe.",
+    "pdf_magnify": "Lupe: Klicken zum Aktivieren, über das PDF bewegen zum Vergrößern."
   },
   "websearch": {
     "submenu_title": "Websuche",
@@ -1699,7 +1703,8 @@
     "ref_prev": "Verweis auf vorherige Marke einfügen",
     "edit_tables": "Tabellen bearbeiten",
     "magic_comments": "Magische Kommentare hinzufügen…",
-    "insert_table_quick": "Tabelle einfügen…"
+    "insert_table_quick": "Tabelle einfügen…",
+    "bibtex_wizard": "BibTeX-Assistent..."
   },
   "latex_toolbar": {
     "part": "Teil",
@@ -1795,5 +1800,23 @@
     "task": "Aufgabe",
     "minimap": "Minimap",
     "json_xml": "JSON/XML-Struktur"
+  },
+  "bibtex_wizard": {
+    "title": "BibTeX-Assistent",
+    "tab_entry": "Neuer Eintrag",
+    "tab_search": "DOI suchen",
+    "preview": "BibTeX-Vorschau",
+    "copy": "Kopieren",
+    "insert": "Einfügen",
+    "close": "Schließen",
+    "label_type": "Typ:",
+    "auto_key": "Schlüssel generieren",
+    "auto_key_tip": "Schlüssel aus Autor + Jahr generieren (z.B. Einstein1905)",
+    "doi_info": "DOI eingeben (z.B. 10.1000/xyz) um bibliografische\nDaten von Crossref abzurufen.",
+    "lookup": "Suchen",
+    "doi_empty": "Kein Ergebnis.",
+    "doi_searching": "Suche...",
+    "doi_found": "Gefunden! Felder im Tab \"Neuer Eintrag\" ausfüllen.",
+    "doi_error": "Fehler: "
   }
 }

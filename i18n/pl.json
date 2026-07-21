@@ -395,7 +395,9 @@
     "spell_suggestions": "Sugestie",
     "spell_language": "Język słownika",
     "spell_remaining": "Pozostałe błędy: {count}",
-    "spell_complete": "Sprawdzanie pisowni zakończone."
+    "spell_complete": "Sprawdzanie pisowni zakończone.",
+    "close": "Zamknij",
+    "pdf_no_results": "Brak wyników"
   },
   "button": {
     "ok": "OK",
@@ -1139,7 +1141,9 @@
     "pref_typewriter_deadzone": "Liczba wierszy wokół środka, w obrębie których kursor nie wyzwala automatycznego przewijania w trybie maszynisty.",
     "fif_replace_in_file": "Zastąp wszystkie dopasowania w tym pliku",
     "fif_replace_match": "Zastąp to dopasowanie",
-    "find_all": "Znajdź wszystkie wystąpienia i wyświetl je do selektywnej zamiany"
+    "find_all": "Znajdź wszystkie wystąpienia i wyświetl je do selektywnej zamiany",
+    "build_draft_mode": "Tryb roboczy: szybkie sprawdzanie składni bez pliku PDF.",
+    "pdf_magnify": "Lupa: kliknij, aby aktywować, najedź na PDF, aby powiększyć."
   },
   "websearch": {
     "submenu_title": "Wyszukiwanie w sieci",
@@ -1699,7 +1703,8 @@
     "ref_prev": "Wstaw odniesienie do poprzedniej etykiety",
     "edit_tables": "Edytuj tabele",
     "magic_comments": "Dodaj komentarze magiczne…",
-    "insert_table_quick": "Wstaw tabelę…"
+    "insert_table_quick": "Wstaw tabelę…",
+    "bibtex_wizard": "Asystent BibTeX..."
   },
   "latex_toolbar": {
     "part": "część",
@@ -1795,5 +1800,23 @@
     "task": "Zadanie",
     "minimap": "Minimapa",
     "json_xml": "Struktura JSON/XML"
+  },
+  "bibtex_wizard": {
+    "title": "Asystent BibTeX",
+    "tab_entry": "Nowy wpis",
+    "tab_search": "Szukaj DOI",
+    "preview": "Podgląd BibTeX",
+    "copy": "Kopiuj",
+    "insert": "Wstaw",
+    "close": "Zamknij",
+    "label_type": "Typ:",
+    "auto_key": "Generuj klucz",
+    "auto_key_tip": "Generuj klucz z autora + roku (np. Einstein1905)",
+    "doi_info": "Wprowadź DOI (np. 10.1000/xyz) aby pobrać\ndane bibliograficzne z Crossref.",
+    "lookup": "Szukaj",
+    "doi_empty": "Brak wyniku.",
+    "doi_searching": "Szukanie...",
+    "doi_found": "Znaleziono! Wypełnij pola w zakładce \"Nowy wpis\".",
+    "doi_error": "Błąd: "
   }
 }

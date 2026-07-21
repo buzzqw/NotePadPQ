@@ -337,6 +337,7 @@
     "modified": "modified",
     "untitled": "untitled",
     "find": "Find:",
+    "close": "Close",
     "replace_with": "Replace with:",
     "match_case": "Match case",
     "whole_word": "Whole word",
@@ -396,6 +397,7 @@
     "pdf_fit_width": "Page width",
     "pdf_fit_page": "Full page",
     "pdf_auto": "Auto",
+    "pdf_no_results": "No results",
     "spell_not_found": "Word not found in dictionary",
     "spell_context": "Context",
     "spell_replace_with": "Replace with",
@@ -674,7 +676,8 @@
     "error": "Error",
     "save_clipboard_image": "Save clipboard image",
     "image_filter_save": "PNG Images (*.png);;JPEG (*.jpg *.jpeg);;All files (*)",
-    "spell_check_title": "Spelling Review"
+    "spell_check_title": "Spelling Review",
+    "all_files": "All files (*)"
   },
   "preview": {
     "crop_top": "Top:",
@@ -1144,6 +1147,7 @@
     "pdf_continuous": "Continuous scroll / Single page — in single-page mode the mouse wheel changes pages",
     "pdf_page_prev": "Previous page",
     "pdf_page_next": "Next page",
+    "pdf_magnify": "Magnifying glass: click to activate, hover over the PDF to zoom on details. Click again or press any key to deactivate.",
     "toggle_checklist": "Toggle the task on the current line.\nWorks on lines with - [ ] or - [x].",
     "smart_typography": "Automatically convert quotes to typographic (“”), -- to — and ... to …",
     "sentence_focus": "Dim text outside the current paragraph to help concentration",
@@ -1421,12 +1425,12 @@
     "vars_or": "or"
   },
   "compare": {
-    "grp_file_b": "File B (Right / Modified)",
-    "btn_copy_right": "Copy to Right ⮕",
-    "btn_copy_left": "⬅ Copy to Left",
-    "btn_apply": "✅ Apply changes and Close",
-    "btn_close": "Close",
-    "diffs_found": "Differences found: {n}"
+    "title": "Compare",
+    "file_a_label": "File A (Left / Original)",
+    "btn_compare": "Compare",
+    "btn_prev": "Prev",
+    "btn_next": "Next",
+    "select_file_dialog": "Select file"
   },
   "customize_toolbar": {
     "separator_label": "─────── Separator ───────",
@@ -1491,23 +1495,10 @@
     "export_delim_pipe": "Pipe  |"
   },
   "file_browser": {
-    "act_open": "Open",
-    "act_new_file": "New file…",
-    "act_new_folder": "New folder…",
-    "act_rename": "Rename…",
-    "act_delete": "Delete",
-    "act_set_root": "Set as root folder",
-    "new_file_title": "New file",
-    "new_file_prompt": "File name:",
-    "new_folder_title": "New folder",
-    "new_folder_prompt": "Folder name:",
-    "rename_title": "Rename",
-    "rename_prompt": "New name:",
-    "delete_confirm_title": "Confirm deletion",
-    "delete_confirm": "Delete {kind} '{name}'?\nThis operation cannot be undone.",
-    "file_exists_error": "File '{name}' already exists.",
-    "folder_exists_error": "Folder '{name}' already exists.",
-    "error_title": "Error"
+    "choose_folder": "Choose folder",
+    "reveal_in_fm": "Show in file manager",
+    "rename_error": "Rename error",
+    "delete_error": "Delete error"
   },
   "file_properties": {
     "btn_copy_path": "Copy path",
@@ -1716,7 +1707,8 @@
     "ref_prev": "Insert Reference to Previous Label",
     "edit_tables": "Edit Tables",
     "magic_comments": "Add Magic Comments…",
-    "insert_table_quick": "Insert table…"
+    "insert_table_quick": "Insert table…",
+    "bibtex_wizard": "BibTeX Wizard..."
   },
   "latex_toolbar": {
     "part": "part",
@@ -1799,20 +1791,6 @@
     "task_finished": "Task completed",
     "task_failed": "Task failed"
   },
-  "file_browser": {
-    "choose_folder": "Choose folder",
-    "reveal_in_fm": "Show in file manager",
-    "rename_error": "Rename error",
-    "delete_error": "Delete error"
-  },
-  "compare": {
-    "title": "Compare",
-    "file_a_label": "File A (Left / Original)",
-    "btn_compare": "Compare",
-    "btn_prev": "Prev",
-    "btn_next": "Next",
-    "select_file_dialog": "Select file"
-  },
   "statusbar": {
     "default_cursor": "Line 1, Col 1",
     "zoom": "Zoom {level}"
@@ -1826,5 +1804,23 @@
     "task": "Task",
     "minimap": "Minimap",
     "json_xml": "JSON/XML Structure"
+  },
+  "bibtex_wizard": {
+    "title": "BibTeX Wizard",
+    "tab_entry": "New Entry",
+    "tab_search": "Look up DOI",
+    "preview": "BibTeX Preview",
+    "copy": "Copy",
+    "insert": "Insert",
+    "close": "Close",
+    "label_type": "Type:",
+    "auto_key": "Generate Key",
+    "auto_key_tip": "Generate key from author + year (e.g. Einstein1905)",
+    "doi_info": "Enter a DOI (e.g. 10.1000/xyz) to automatically\nfetch bibliographic data from Crossref.",
+    "lookup": "Search",
+    "doi_empty": "No result.",
+    "doi_searching": "Searching...",
+    "doi_found": "Found! Fill in fields from the \"New Entry\" tab.",
+    "doi_error": "Error: "
   }
 }

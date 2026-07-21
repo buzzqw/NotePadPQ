@@ -665,7 +665,8 @@
     "error": "Błąd",
     "save_clipboard_image": "Zapisz obraz ze schowka",
     "image_filter_save": "Obrazy PNG (*.png);;JPEG (*.jpg *.jpeg);;Wszystkie pliki (*)",
-    "spell_check_title": "Korekta Pisowni"
+    "spell_check_title": "Korekta Pisowni",
+    "all_files": "Wszystkie pliki (*)"
   },
   "preview": {
     "crop_top": "Góra:",

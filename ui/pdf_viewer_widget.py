@@ -19,10 +19,11 @@ from core.external_open import open_url as _open_url
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QToolBar, QToolButton,
     QLabel, QSizePolicy, QScrollArea, QFrame, QComboBox, QLineEdit,
-    QSplitter, QListWidget, QListWidgetItem, QTabWidget
+    QSplitter, QListWidget, QListWidgetItem, QTabWidget, QApplication
 )
 
 from i18n.i18n import tr
+from ui.pdf_tools import PdfSearchManager, PdfTextSelector, PdfMagnifier
 
 # ── Dipendenze opzionali ───────────────────────────────────────────────────────
 
@@ -54,6 +55,7 @@ class _PdfPageLabel(QLabel):
     """Riquadro che mostra una pagina PDF con link evidenziati e cliccabili."""
 
     link_activated = pyqtSignal(dict)
+    text_selected = pyqtSignal(str)
 
     def __init__(self, fitz_page, zoom: float, show_links: bool,
                  parent: Optional[QWidget] = None):
@@ -64,20 +66,46 @@ class _PdfPageLabel(QLabel):
         self._links: List[dict] = fitz_page.get_links() if fitz_page else []
         self._hovered_link: Optional[dict] = None
 
+        self._selector: Optional[PdfTextSelector] = None
+        self._search_matches: list = []
+        self._search_current: int = -1
+        self._is_selecting: bool = False
+        self._pending_link: Optional[dict] = None
+
         self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self.setMouseTracking(True)
         self._render()
 
     def _render(self) -> None:
+        from ui.pdf_tools import _SEARCH_HIGHLIGHT, _SEARCH_CURRENT, _SELECTION_COLOR, _SELECTION_BORDER
+
         mat = _fitz.Matrix(self._zoom, self._zoom)
         pix = self._fitz_page.get_pixmap(matrix=mat, colorspace=_fitz.csRGB)
         img = QImage(pix.samples, pix.width, pix.height,
                      pix.stride, QImage.Format.Format_RGB888)
         pm  = QPixmap.fromImage(img)
 
-        if self._show_links and self._links:
-            painter = QPainter(pm)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter = QPainter(pm)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        has_search = bool(self._search_matches)
+        has_links = self._show_links and self._links
+        has_sel = (self._selector is not None and self._selector._selecting)
+
+        if has_search:
+            for i, m in enumerate(self._search_matches):
+                r = m.get("rect_px") or m.get("rect")
+                if r:
+                    px_r = QRect(
+                        int(r.x0 * self._zoom), int(r.y0 * self._zoom),
+                        int((r.x1 - r.x0) * self._zoom),
+                        int((r.y1 - r.y0) * self._zoom))
+                    is_cur = (hasattr(self, '_search_current') and i == self._search_current)
+                    painter.setBrush(QBrush(_SEARCH_CURRENT if is_cur else _SEARCH_HIGHLIGHT))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawRect(px_r)
+
+        if has_links:
             for lnk in self._links:
                 rect = self._link_rect_px(lnk)
                 if lnk is self._hovered_link:
@@ -87,7 +115,15 @@ class _PdfPageLabel(QLabel):
                     painter.setBrush(QBrush(_LINK_FILL))
                     painter.setPen(QPen(_LINK_BORDER, 1))
                 painter.drawRoundedRect(rect, 2, 2)
-            painter.end()
+
+        if has_sel:
+            sel_r = self._selector.get_selection_rect_px()
+            if sel_r and sel_r.width() > 2 and sel_r.height() > 2:
+                painter.setBrush(QBrush(_SELECTION_COLOR))
+                painter.setPen(QPen(_SELECTION_BORDER, 1))
+                painter.drawRect(sel_r)
+
+        painter.end()
 
         self.setPixmap(pm)
         self.setFixedSize(pm.size())
@@ -110,12 +146,16 @@ class _PdfPageLabel(QLabel):
         return None
 
     def mouseMoveEvent(self, ev) -> None:
+        if self._selector and self._selector._selecting:
+            self._selector.update_selection(ev.pos())
+            self._render()
+            return
         lnk = self._link_at(ev.pos())
         if lnk is not self._hovered_link:
             self._hovered_link = lnk
             self.setCursor(
                 QCursor(Qt.CursorShape.PointingHandCursor)
-                if lnk else QCursor(Qt.CursorShape.ArrowCursor)
+                if lnk else QCursor(Qt.CursorShape.IBeamCursor)
             )
             if self._show_links:
                 self._render()
@@ -126,9 +166,29 @@ class _PdfPageLabel(QLabel):
         if ev.button() == Qt.MouseButton.LeftButton:
             lnk = self._link_at(ev.pos())
             if lnk:
-                self.link_activated.emit(lnk)
-                return
+                self._pending_link = lnk
+            else:
+                self._pending_link = None
+            if FITZ_OK and self._fitz_page:
+                self._selector = PdfTextSelector(self, self._fitz_page, self._zoom)
+                self._selector.start_selection(ev.pos())
+                self._is_selecting = False
+            return
         super().mousePressEvent(ev)
+
+    def mouseReleaseEvent(self, ev) -> None:
+        if ev.button() == Qt.MouseButton.LeftButton:
+            if self._selector and self._selector._selecting:
+                text = self._selector.end_selection()
+                if text:
+                    self.text_selected.emit(text)
+                self._render()
+            elif hasattr(self, '_pending_link') and self._pending_link:
+                self.link_activated.emit(self._pending_link)
+            self._pending_link = None
+            self._is_selecting = False
+            return
+        super().mouseReleaseEvent(ev)
 
     def update_show_links(self, show: bool) -> None:
         self._show_links = show
@@ -264,6 +324,10 @@ class PdfViewerWidget(QWidget):
         # eventuali QTimer.singleShot pendenti da rebuild precedenti.
         self._page_gen    = 0
 
+        self._search_mgr: Optional[PdfSearchManager] = None
+        self._search_bar = None
+        self._magnifier: Optional[PdfMagnifier] = None
+
         self._zoom_timer = QTimer(self)
         self._zoom_timer.setSingleShot(True)
         self._zoom_timer.setInterval(300)
@@ -376,6 +440,23 @@ class PdfViewerWidget(QWidget):
 
             bar.addSeparator()
 
+            # ricerca testo
+            self._btn_search = QToolButton(bar)
+            self._btn_search.setText("⌕")
+            self._btn_search.setToolTip(tr("tooltip.pdf_find"))
+            self._btn_search.clicked.connect(self._toggle_search_bar)
+            bar.addWidget(self._btn_search)
+
+            # lente di ingrandimento
+            self._btn_magnifier = QToolButton(bar)
+            self._btn_magnifier.setText("🔍")
+            self._btn_magnifier.setCheckable(True)
+            self._btn_magnifier.setToolTip(tr("tooltip.pdf_magnify"))
+            self._btn_magnifier.toggled.connect(self._on_toggle_magnifier)
+            bar.addWidget(self._btn_magnifier)
+
+            bar.addSeparator()
+
         # apri nel pannello Qt Web (solo se GL disponibile a runtime)
         if WEBENGINE_OK:
             from core.webengine import gl_available
@@ -405,6 +486,16 @@ class PdfViewerWidget(QWidget):
 
         layout.addWidget(bar)
 
+        # Barra ricerca (nascosta di default)
+        self._search_bar = self._build_search_bar()
+        self._search_bar.hide()
+        layout.addWidget(self._search_bar)
+
+        # Ctrl+F shortcut
+        sc = QShortcut(QKeySequence("Ctrl+F"), self)
+        sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        sc.activated.connect(self._focus_search)
+
         if FITZ_OK:
             self._splitter = QSplitter(Qt.Orientation.Horizontal, self)
 
@@ -426,6 +517,7 @@ class PdfViewerWidget(QWidget):
 
             self._scroll.setWidget(self._pages_container)
             self._scroll.viewport().installEventFilter(self)
+            self.installEventFilter(self)
             self._splitter.addWidget(self._scroll)
             self._splitter.setStretchFactor(0, 0)
             self._splitter.setStretchFactor(1, 1)
@@ -464,6 +556,133 @@ class PdfViewerWidget(QWidget):
                 "pip install pymupdf  oppure  pip install PyQt6-WebEngine", self)
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(lbl)
+
+    # ── Barra di ricerca ──────────────────────────────────────────────────────
+
+    def _build_search_bar(self) -> QFrame:
+        bar = QFrame(self)
+        bar.setFrameShape(QFrame.Shape.StyledPanel)
+        bar.setFixedHeight(38)
+        bar.setStyleSheet("QFrame { background: #2d2d2d; padding: 4px; }")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(8, 4, 8, 4)
+        h.setSpacing(6)
+
+        h.addWidget(QLabel("🔍", bar))
+
+        self._find_edit = QLineEdit(bar)
+        self._find_edit.setPlaceholderText(tr("label.find"))
+        self._find_edit.setClearButtonEnabled(True)
+        self._find_edit.setFixedWidth(260)
+        self._find_edit.textChanged.connect(self._on_search_changed)
+        self._find_edit.returnPressed.connect(self._on_search_next)
+        h.addWidget(self._find_edit)
+
+        self._find_lbl = QLabel(bar)
+        self._find_lbl.setStyleSheet("QLabel { color: gray; min-width: 50px; }")
+        h.addWidget(self._find_lbl)
+
+        btn_prev = QToolButton(bar)
+        btn_prev.setText("◀")
+        btn_prev.setToolTip(tr("tooltip.search_prev"))
+        btn_prev.clicked.connect(self._on_search_prev)
+        h.addWidget(btn_prev)
+
+        btn_next = QToolButton(bar)
+        btn_next.setText("▶")
+        btn_next.setToolTip(tr("tooltip.search_next"))
+        btn_next.clicked.connect(self._on_search_next)
+        h.addWidget(btn_next)
+
+        btn_close = QToolButton(bar)
+        btn_close.setText("✕")
+        btn_close.setToolTip(tr("label.close"))
+        btn_close.clicked.connect(self._hide_search_bar)
+        h.addWidget(btn_close)
+
+        return bar
+
+    def _toggle_search_bar(self):
+        if self._search_bar.isVisible():
+            self._hide_search_bar()
+        else:
+            self._search_bar.show()
+            self._find_edit.setFocus()
+            self._find_edit.selectAll()
+
+    def _hide_search_bar(self):
+        self._search_bar.hide()
+        self._search_mgr = None
+        for lbl in self._page_labels:
+            lbl._search_matches = []
+            lbl._search_current = -1
+            lbl._render()
+
+    def _focus_search(self):
+        if self._search_bar:
+            self._search_bar.show()
+            self._find_edit.setFocus()
+            self._find_edit.selectAll()
+
+    def _on_search_changed(self, text: str):
+        if not self._doc or not FITZ_OK:
+            return
+        if self._search_mgr is None:
+            self._search_mgr = PdfSearchManager(
+                self._doc, self._page_labels,
+                self._scroll_to_search_match, self._rebuild_pages)
+        self._search_mgr.search(text)
+        self._search_mgr.draw_matches()
+        count = self._search_mgr.match_count
+        cur = self._search_mgr.current_index
+        if count == 0:
+            self._find_lbl.setText(tr("label.pdf_no_results"))
+            self._find_lbl.setStyleSheet("QLabel { color: #e06c75; min-width: 50px; }")
+        else:
+            self._find_lbl.setText(f"{cur + 1}/{count}")
+            self._find_lbl.setStyleSheet("QLabel { color: gray; min-width: 50px; }")
+
+    def _on_search_next(self):
+        if self._search_mgr and self._search_mgr.match_count > 0:
+            self._search_mgr.next_match()
+            self._search_mgr.draw_matches()
+            self._find_lbl.setText(
+                f"{self._search_mgr.current_index + 1}/{self._search_mgr.match_count}")
+
+    def _on_search_prev(self):
+        if self._search_mgr and self._search_mgr.match_count > 0:
+            self._search_mgr.prev_match()
+            self._search_mgr.draw_matches()
+            self._find_lbl.setText(
+                f"{self._search_mgr.current_index + 1}/{self._search_mgr.match_count}")
+
+    def _scroll_to_search_match(self, page_idx: int, rect):
+        if not self._continuous:
+            self._cur_page = page_idx
+            self._show_single_page(page_idx)
+        else:
+            if page_idx < len(self._page_labels):
+                lbl = self._page_labels[page_idx]
+                y = lbl.mapTo(self._pages_container, QPoint(0, 0)).y()
+                ry = int(rect.y1 * self._zoom) if hasattr(rect, 'y1') else 0
+                self._scroll.verticalScrollBar().setValue(
+                    max(0, y + ry - self._scroll.viewport().height() // 3))
+            else:
+                self._scroll_to_page(page_idx)
+
+    # ── Magnifier ─────────────────────────────────────────────────────────────
+
+    def _on_toggle_magnifier(self, checked: bool):
+        if self._magnifier is None:
+            self._magnifier = PdfMagnifier(self)
+        if checked:
+            if not self._magnifier.active:
+                self._magnifier.toggle()
+                QApplication.instance().installEventFilter(self)
+        else:
+            if self._magnifier.active:
+                self._magnifier.toggle()
+                QApplication.instance().removeEventFilter(self)
 
     # ── Loading ───────────────────────────────────────────────────────────────
 
@@ -522,6 +741,13 @@ class PdfViewerWidget(QWidget):
                         self._page_next()
                         QTimer.singleShot(10, lambda: v_bar.setValue(v_bar.minimum()))
                         return True
+        if self._magnifier and self._magnifier.active:
+            if event.type() == QEvent.Type.MouseMove:
+                self._magnifier.on_mouse_move(event.globalPosition().toPoint())
+            if event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress):
+                self._magnifier.toggle()
+                self._btn_magnifier.setChecked(False)
+                QApplication.instance().removeEventFilter(self)
         return super().eventFilter(obj, event)
 
     def _zoom_step(self, step: float) -> None:
@@ -588,6 +814,21 @@ class PdfViewerWidget(QWidget):
         self._page_labels.append(lbl0)
         # Pagine successive in background
         QTimer.singleShot(0, lambda: _add_page(1))
+        # Ricollega il search manager alle nuove page labels
+        if self._search_mgr is not None:
+            self._search_mgr._page_labels = self._page_labels
+            if self._search_mgr._query:
+                QTimer.singleShot(100, lambda: self._research_after_rebuild())
+
+    def _research_after_rebuild(self):
+        if self._search_mgr and self._search_mgr._query:
+            self._search_mgr.search(self._search_mgr._query)
+            self._search_mgr.draw_matches()
+            n = self._search_mgr.match_count
+            c = self._search_mgr.current_index
+            if hasattr(self, '_find_lbl') and self._find_lbl:
+                self._find_lbl.setText(
+                    tr("label.pdf_no_results") if n == 0 else f"{c + 1}/{n}")
 
     # ── Zoom ──────────────────────────────────────────────────────────────────
 
@@ -761,6 +1002,10 @@ class PdfViewerWidget(QWidget):
         n = len(self._doc)
         self._page_cur_lbl.setText(f"{page_idx + 1} / {n}")
         self._side_panel.highlight_page(page_idx)
+
+        if self._search_mgr is not None and self._search_mgr._query:
+            self._search_mgr._page_labels = self._page_labels
+            QTimer.singleShot(50, self._search_mgr.draw_matches)
 
     def _page_prev(self) -> None:
         if not self._doc:

@@ -337,6 +337,7 @@
     "modified": "modificato",
     "untitled": "senza_nome",
     "find": "Cerca:",
+    "close": "Chiudi",
     "replace_with": "Sostituisci con:",
     "match_case": "Maiuscole/minuscole",
     "whole_word": "Parola intera",
@@ -396,6 +397,7 @@
     "pdf_fit_width": "Larghezza pagina",
     "pdf_fit_page": "Intera pagina",
     "pdf_auto": "Auto",
+    "pdf_no_results": "Nessun risultato",
     "spell_not_found": "Parola non trovata nel dizionario",
     "spell_context": "Contesto",
     "spell_replace_with": "Sostituisci con",
@@ -674,7 +676,8 @@
     "error": "Errore",
     "save_clipboard_image": "Salva immagine clipboard",
     "image_filter_save": "Immagini PNG (*.png);;JPEG (*.jpg *.jpeg);;Tutti i file (*)",
-    "spell_check_title": "Revisione Ortografica"
+    "spell_check_title": "Revisione Ortografica",
+    "all_files": "Tutti i file (*)"
   },
   "preview": {
     "crop_top": "Su:",
@@ -1144,6 +1147,7 @@
     "pdf_continuous": "Scroll continuo / Pagina singola — in modalità pagina singola la rotella del mouse cambia pagina",
     "pdf_page_prev": "Pagina precedente",
     "pdf_page_next": "Pagina successiva",
+    "pdf_magnify": "Lente di ingrandimento: clicca per attivare, passa il mouse sul PDF per zoommare sui dettagli. Clicca di nuovo o premi un tasto per disattivare.",
     "toggle_checklist": "Segna o deseleziona l'attività sulla riga corrente.\nFunziona su righe con - [ ] o - [x].",
     "smart_typography": "Converti automaticamente virgolette in tipografiche (“”), -- in — e ... in …",
     "sentence_focus": "Attenua il testo fuori dal paragrafo corrente per aiutare la concentrazione",
@@ -1716,7 +1720,8 @@
     "ref_prev": "Inserisci riferimento all'etichetta precedente",
     "edit_tables": "Modifica tabelle",
     "magic_comments": "Aggiungi commenti magici…",
-    "insert_table_quick": "Inserisci tabella…"
+    "insert_table_quick": "Inserisci tabella…",
+    "bibtex_wizard": "BibTeX Wizard..."
   },
   "latex_toolbar": {
     "part": "parte",
@@ -1812,5 +1817,23 @@
     "task": "Task",
     "minimap": "Minimappa",
     "json_xml": "Struttura JSON/XML"
+  },
+  "bibtex_wizard": {
+    "title": "BibTeX Wizard",
+    "tab_entry": "Nuova voce",
+    "tab_search": "Cerca DOI",
+    "preview": "Anteprima BibTeX",
+    "copy": "Copia",
+    "insert": "Inserisci",
+    "close": "Chiudi",
+    "label_type": "Tipo:",
+    "auto_key": "Genera chiave",
+    "auto_key_tip": "Genera chiave da autore + anno (es. Einstein1905)",
+    "doi_info": "Inserisci un DOI (es. 10.1000/xyz) per caricare\nautomaticamente i dati bibliografici da Crossref.",
+    "lookup": "Cerca",
+    "doi_empty": "Nessun risultato.",
+    "doi_searching": "Ricerca in corso...",
+    "doi_found": "Trovato! Compila i campi dalla scheda \"Nuova voce\".",
+    "doi_error": "Errore: "
   }
 }

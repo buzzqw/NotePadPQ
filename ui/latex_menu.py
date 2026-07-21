@@ -409,7 +409,18 @@ class LatexMenuManager:
         ]
         for label, text in entries:
             self._act(s, label, lambda t=text: self._insert(t))
+        s.addSeparator()
+        self._act(s, tr("latex_menu.bibtex_wizard", default="BibTeX Wizard..."),
+                  self._open_bibtex_wizard)
         return s
+
+    def _open_bibtex_wizard(self) -> None:
+        ed = self._mw._tab_manager.current_editor()
+        if not ed:
+            return
+        from editor.bibtex_wizard import BibTeXWizardDialog
+        dlg = BibTeXWizardDialog(ed, parent=self._mw)
+        dlg.exec()
 
     def _build_modifica_tabelle(self) -> QMenu:
         s = self._sub(tr("latex_menu.edit_tables", default="Modifica tabelle"))

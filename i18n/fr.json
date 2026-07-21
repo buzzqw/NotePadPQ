@@ -665,7 +665,8 @@
     "error": "Erreur",
     "save_clipboard_image": "Enregistrer l'image du presse-papier",
     "image_filter_save": "Images PNG (*.png);;JPEG (*.jpg *.jpeg);;Tous les fichiers (*)",
-    "spell_check_title": "Révision Orthographique"
+    "spell_check_title": "Révision Orthographique",
+    "all_files": "Tous les fichiers (*)"
   },
   "preview": {
     "crop_top": "Haut:",

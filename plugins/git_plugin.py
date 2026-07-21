@@ -26,7 +26,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Optional, List, Tuple, TYPE_CHECKING
+from typing import Optional, List, Tuple, TYPE_CHECKING, Callable
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QObject
 from PyQt6.QtWidgets import (
@@ -40,6 +40,7 @@ from PyQt6.QtGui import QColor, QFont
 
 from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from core.git_framework import GitFramework
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -342,6 +343,7 @@ class _GitPanel(QWidget):
         super().__init__(parent)
         self._mw   = main_window
         self._git: Optional[GitRunner] = None
+        self._git_fw: Optional[GitFramework] = None
         self._repo_dir: Optional[Path] = None
         self._build_ui()
         self._refresh_timer = QTimer(self)
@@ -487,6 +489,7 @@ class _GitPanel(QWidget):
         if repo_dir and repo_dir != self._repo_dir:
             self._repo_dir  = repo_dir
             self._git       = GitRunner(repo_dir)
+            self._git_fw    = GitFramework(repo_dir)
             self._repo_label.setText(f"📁 {repo_dir.name}")
             self.refresh()
 
@@ -556,64 +559,61 @@ class _GitPanel(QWidget):
     # ── Azioni rapide ─────────────────────────────────────────────────────────
 
     def _pull(self) -> None:
-        if not self._git:
+        if not self._git_fw:
             return
-        ok, msg = self._git.pull()
+        self._log("Pull in corso...", None)
+        self._git_fw.pull_async(callback=self._on_async_done)
+
+    def _push(self) -> None:
+        if not self._git_fw:
+            return
+        branch = self._git_fw.current_branch()
+        self._log(f"Push in corso ({branch})...", None)
+        self._git_fw.push_async(branch=branch, callback=self._on_async_done)
+
+    def _on_async_done(self, ok: bool, msg: str):
         self._log(msg, ok)
         if ok:
             self.refresh()
 
-    def _push(self) -> None:
-        if not self._git:
-            return
-        ok, msg = self._git.push()
-        self._log(msg, ok)
-
     def _commit(self) -> None:
-        if not self._git:
+        if not self._git_fw:
             return
         msg, ok = QInputDialog.getText(
             self, "Commit", "Messaggio di commit:"
         )
         if not ok or not msg.strip():
             return
-        self._git.add(".")
-        success, out = self._git.commit(msg.strip())
-        self._log(out, success)
-        if success:
-            self.refresh()
+        self._log("Commit in corso...", None)
+        self._git_fw.commit_async(msg.strip(), callback=self._on_async_done)
 
     def _stash(self) -> None:
-        if not self._git:
+        if not self._git_fw:
             return
-        reply = QMessageBox.question(
-            self, "Stash",
-            "Stash (salva) le modifiche correnti?",
-            QMessageBox.StandardButton.Yes |
-            QMessageBox.StandardButton.No |
-            QMessageBox.StandardButton.Cancel,
+        msg, ok = QInputDialog.getText(
+            self, "Stash", "Messaggio stash (opzionale):"
         )
-        if reply == QMessageBox.StandardButton.Yes:
-            self._git.stash()
-            self.refresh()
-        elif reply == QMessageBox.StandardButton.No:
-            self._git.stash_pop()
-            self.refresh()
+        if ok and msg.strip():
+            self._log("Stash in corso...", None)
+            self._git_fw.stash_push_async(msg.strip(), callback=self._on_async_done)
+        elif ok:
+            self._log("Stash in corso...", None)
+            self._git_fw.stash_push_async(callback=self._on_async_done)
 
     def _checkout_branch(self, item: QListWidgetItem) -> None:
+        if not self._git_fw:
+            return
         br = item.text().strip().lstrip("★ ").strip()
-        ok, msg = self._git.checkout(br)
-        self._log(msg, ok)
-        if ok:
-            self.refresh()
+        self._log(f"Checkout {br}...", None)
+        self._git_fw.checkout_async(br, callback=self._on_async_done)
 
     def _new_branch(self) -> None:
+        if not self._git_fw:
+            return
         name, ok = QInputDialog.getText(self, "Nuova branch", "Nome branch:")
         if ok and name.strip():
-            success, msg = self._git.checkout(name.strip(), create=True)
-            self._log(msg, success)
-            if success:
-                self.refresh()
+            self._log(f"Creazione branch {name.strip()}...", None)
+            self._git_fw.checkout_async(name.strip(), create=True, callback=self._on_async_done)
 
     # ── Diff ─────────────────────────────────────────────────────────────────
 
@@ -775,9 +775,9 @@ class _GitPanel(QWidget):
 
     # ── Utility ───────────────────────────────────────────────────────────────
 
-    def _log(self, msg: str, success: bool = True) -> None:
-        prefix = "✓" if success else "✗"
-        color  = "#56bd5b" if success else "#e06c75"
+    def _log(self, msg: str, success: Optional[bool] = True) -> None:
+        prefix = "✓" if success else "✗" if success is False else "⏳"
+        color  = "#56bd5b" if success else "#e06c75" if success is False else "#61afef"
         self._log_output.append(
             f'<span style="color:{color}">{prefix}</span> {msg}'
         )

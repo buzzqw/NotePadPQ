@@ -665,7 +665,8 @@
     "error": "Fehler",
     "save_clipboard_image": "Zwischenablage-Bild speichern",
     "image_filter_save": "PNG-Bilder (*.png);;JPEG (*.jpg *.jpeg);;Alle Dateien (*)",
-    "spell_check_title": "Rechtschreibkorrektur"
+    "spell_check_title": "Rechtschreibkorrektur",
+    "all_files": "Alle Dateien (*)"
   },
   "preview": {
     "crop_top": "Oben:",

@@ -665,7 +665,8 @@
     "error": "Error",
     "save_clipboard_image": "Guardar imagen del portapapeles",
     "image_filter_save": "Imágenes PNG (*.png);;JPEG (*.jpg *.jpeg);;Todos los archivos (*)",
-    "spell_check_title": "Revisión Ortográfica"
+    "spell_check_title": "Revisión Ortográfica",
+    "all_files": "Todos los archivos (*)"
   },
   "preview": {
     "crop_top": "Arriba:",

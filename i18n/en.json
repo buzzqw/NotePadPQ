@@ -1055,6 +1055,7 @@
     "ai_chat": "Conversation history with the AI.",
     "ai_input": "Message input field.\nYou can type freely or use the buttons above\nto automatically insert code as context.\n\nCtrl+Enter — send the message",
     "ai_add_context": "Adds the selected text (or the entire file if nothing is selected)\ndirectly at the cursor position in the input field.\n\nUseful for adding context in the middle of an already-written message.",
+    "ai_attach_file": "Selects one or more files from disk (they don't need to be open as tabs)\nand adds their content as context in the input field.",
     "ai_clear": "Clears the entire conversation history and starts fresh.\nThe AI will not remember previous messages after this action.",
     "ai_send": "Send the message to the AI and wait for the response.\nShortcut: Ctrl+Enter from the input field.",
     "ai_apply": "Replaces the active editor content with the last AI response.\nIf the response contains exactly one code block, it is extracted automatically;\notherwise the full text is used.\n\nThe operation can be undone with Ctrl+Z.",

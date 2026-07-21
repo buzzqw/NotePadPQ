@@ -1049,6 +1049,7 @@
     "ai_chat": "Historia rozmowy z AI.",
     "ai_input": "Pole wprowadzania wiadomości.\nMożesz pisać swobodnie lub użyć powyższych przycisków,\naby automatycznie wstawić kod jako kontekst.\n\nCtrl+Enter — wyślij wiadomość",
     "ai_add_context": "Dodaje zaznaczony tekst (lub cały plik, jeśli nic nie wybrano)\nbezpośrednio w pozycji kursora w polu wprowadzania.\n\nPrzydatne do dodawania kontekstu w środku już pisanej wiadomości.",
+    "ai_attach_file": "Wybiera jeden lub więcej plików z dysku (nie muszą być otwarte jako karty)\ni dodaje ich zawartość jako kontekst w polu wprowadzania.",
     "ai_clear": "Czyści całą historię rozmowy i zaczyna od nowa.\nAI nie będzie pamiętać poprzednich wiadomości po tej akcji.",
     "ai_send": "Wyślij wiadomość do AI i poczekaj na odpowiedź.\nSkrót: Ctrl+Enter z pola wprowadzania.",
     "ai_apply": "Zastępuje aktywną zawartość edytora ostatnią odpowiedzią AI.\nJeśli odpowiedź zawiera dokładnie jeden blok kodu, jest on wyodrębniany automatycznie;\nw przeciwnym razie używany jest cały tekst.\n\nOperację można cofnąć za pomocą Ctrl+Z.",

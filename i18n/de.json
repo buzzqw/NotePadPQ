@@ -1049,6 +1049,7 @@
     "ai_chat": "Gesprächsverlauf mit der KI.",
     "ai_input": "Nachrichten-Eingabefeld.\nSie können frei schreiben oder die Schaltflächen oben verwenden,\num Code automatisch als Kontext einzufügen.\n\nStrg+Eingabe — Nachricht senden",
     "ai_add_context": "Fügt den ausgewählten Text (oder die gesamte Datei, wenn nichts ausgewählt ist)\ndirekt an der Cursorposition im Eingabefeld ein.\n\nNützlich, um Kontext mitten in eine bereits geschriebene Nachricht einzufügen.",
+    "ai_attach_file": "Wählt eine oder mehrere Dateien von der Festplatte aus (sie müssen nicht als Tab geöffnet sein)\nund fügt deren Inhalt als Kontext in das Eingabefeld ein.",
     "ai_clear": "Löscht den gesamten Gesprächsverlauf und beginnt von vorne.\nDie KI wird sich nach dieser Aktion nicht mehr an frühere Nachrichten erinnern.",
     "ai_send": "Nachricht an die KI senden und auf die Antwort warten.\nKürzel: Strg+Eingabe aus dem Eingabefeld.",
     "ai_apply": "Ersetzt den Inhalt des aktiven Editors durch die letzte KI-Antwort.\nWenn die Antwort genau einen Codeblock enthält, wird er automatisch extrahiert;\nansonsten wird der vollständige Text verwendet.\n\nDer Vorgang kann mit Strg+Z rückgängig gemacht werden.",

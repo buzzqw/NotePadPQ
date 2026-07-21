@@ -1055,6 +1055,7 @@
     "ai_chat": "Cronologia della conversazione con l'AI.",
     "ai_input": "Campo di input del messaggio.\nPuoi scrivere liberamente oppure usare i pulsanti sopra\nper inserire automaticamente il codice come contesto.\n\nCtrl+Invio — invia il messaggio",
     "ai_add_context": "Aggiunge il testo selezionato (o il file intero se nulla è selezionato)\ndirettamente nel punto in cui si trova il cursore nel campo di input.\n\nUtile per aggiungere contesto in mezzo a un messaggio già scritto.",
+    "ai_attach_file": "Seleziona uno o più file dal disco (non serve che siano aperti come tab)\ne ne aggiunge il contenuto come contesto nel campo di input.",
     "ai_clear": "Cancella tutta la cronologia della conversazione e riparte da zero.\nL'AI non ricorderà i messaggi precedenti dopo questa azione.",
     "ai_send": "Invia il messaggio all'AI e attendi la risposta.\nScorciatoia: Ctrl+Invio dal campo di input.",
     "ai_apply": "Sostituisce il contenuto dell'editor attivo con l'ultima risposta AI.\nSe la risposta contiene un unico blocco codice, viene estratto automaticamente;\naltrimenti viene usato il testo completo.\n\nL'operazione è annullabile con Ctrl+Z.",

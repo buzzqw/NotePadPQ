@@ -31,6 +31,7 @@ import base64
 import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, Qt, QTimer, QSize
@@ -40,7 +41,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QTextEdit, QPlainTextEdit, QPushButton,
     QSplitter, QDialog, QFormLayout, QDialogButtonBox,
     QDockWidget, QMessageBox, QCheckBox, QSpinBox,
-    QGroupBox, QScrollArea, QFrame,
+    QGroupBox, QScrollArea, QFrame, QFileDialog,
 )
 
 from plugins.base_plugin import BasePlugin
@@ -159,6 +160,27 @@ PROVIDERS: dict[str, dict] = {
         "thinking_models": [],
     },
 }
+
+# Default max token risposta (regolabile senza tetto pratico nelle impostazioni)
+_DEFAULT_MAX_TOKENS = 65000
+
+# Limite di caratteri per singolo file allegato via "Allega file"
+_ATTACH_MAX_CHARS = 200_000
+
+# Estensioni immagine supportate per "Allega immagine" (vision) -> media type
+_IMAGE_MEDIA_TYPES: dict[str, str] = {
+    ".png":  "image/png",
+    ".jpg":  "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif":  "image/gif",
+    ".webp": "image/webp",
+}
+# Limite prudente per immagine (Anthropic/Gemini accettano file più grandi, ma
+# restano comunque soggetti a limiti sulla dimensione totale della richiesta)
+_IMAGE_MAX_BYTES = 5_000_000
+
+# Provider che supportano l'invio di immagini (vision) nei messaggi
+_VISION_PROVIDERS = ("anthropic", "gemini")
 
 # Prezzo stimato per 1M token (input/output) in USD
 MODEL_COST: dict[str, tuple[float, float]] = {
@@ -518,12 +540,38 @@ class _AIWorker(QThread):
 
     # ── Anthropic (streaming SSE) ─────────────────────────────────────────────
 
+    @staticmethod
+    def _strip_images(messages: list[dict]) -> list[dict]:
+        """Ricostruisce i messaggi come {role, content} puri, scartando la
+        chiave 'images' — usato dai provider che non supportano la vision."""
+        return [{"role": m["role"], "content": m["content"]} for m in messages]
+
+    @staticmethod
+    def _anthropic_messages(messages: list[dict]) -> list[dict]:
+        """Converte 'images' (lista di {name, media_type, data}) nei blocchi
+        content Anthropic (image + text); i messaggi senza immagini restano
+        content=stringa, invariati rispetto al formato precedente."""
+        out = []
+        for m in messages:
+            imgs = m.get("images") or []
+            if not imgs:
+                out.append({"role": m["role"], "content": m["content"]})
+                continue
+            content = [
+                {"type": "image", "source": {"type": "base64", "media_type": img["media_type"], "data": img["data"]}}
+                for img in imgs
+            ]
+            if m["content"].strip():
+                content.append({"type": "text", "text": m["content"]})
+            out.append({"role": m["role"], "content": content})
+        return out
+
     def _call_anthropic_stream(self) -> str:
         url  = "https://api.anthropic.com/v1/messages"
         body_dict: dict = {
             "model":      self._model,
             "max_tokens": self._max_tokens,
-            "messages":   self._messages,
+            "messages":   self._anthropic_messages(self._messages),
             "stream":     True,
         }
         if self._system:
@@ -591,7 +639,7 @@ class _AIWorker(QThread):
 
     def _call_openai(self) -> str:
         url  = "https://api.openai.com/v1/chat/completions"
-        msgs = self._messages
+        msgs = self._strip_images(self._messages)
         if self._system:
             msgs = [{"role": "system", "content": self._system}] + list(msgs)
         body = json.dumps({
@@ -613,7 +661,7 @@ class _AIWorker(QThread):
 
     def _call_deepseek(self) -> str:
         url  = "https://api.deepseek.com/chat/completions"
-        msgs = self._messages
+        msgs = self._strip_images(self._messages)
         if self._system:
             msgs = [{"role": "system", "content": self._system}] + list(msgs)
         body = json.dumps({
@@ -646,8 +694,14 @@ class _AIWorker(QThread):
             contents.append({"role": "user", "parts": [{"text": self._system}]})
             contents.append({"role": "model", "parts": [{"text": "Ho capito."}]})
         for m in self._messages:
-            role = "user" if m["role"] == "user" else "model"
-            contents.append({"role": role, "parts": [{"text": m["content"]}]})
+            role  = "user" if m["role"] == "user" else "model"
+            parts = [
+                {"inlineData": {"mimeType": img["media_type"], "data": img["data"]}}
+                for img in (m.get("images") or [])
+            ]
+            if m["content"].strip() or not parts:
+                parts.append({"text": m["content"]})
+            contents.append({"role": role, "parts": parts})
         body = json.dumps({
             "contents":         contents,
             "generationConfig": {"maxOutputTokens": self._max_tokens},
@@ -662,7 +716,7 @@ class _AIWorker(QThread):
     # ── Ollama ────────────────────────────────────────────────────────────────
 
     def _call_ollama(self) -> str:
-        msgs = self._messages
+        msgs = self._strip_images(self._messages)
         if self._system:
             msgs = [{"role": "system", "content": self._system}] + list(msgs)
         url  = f"{self._ollama_url}/api/chat"
@@ -762,7 +816,7 @@ class _AIWorker(QThread):
     # ── LlamaCPP (llama-server, OpenAI-compatible) ────────────────────────────
 
     def _call_llamacpp(self) -> str:
-        msgs = self._messages
+        msgs = self._strip_images(self._messages)
         if self._system:
             msgs = [{"role": "system", "content": self._system}] + list(msgs)
         url  = f"{self._llamacpp_url.rstrip('/')}/v1/chat/completions"
@@ -921,7 +975,7 @@ class _AIWorker(QThread):
         url = "https://api.jetbrains.com/v1/chat/completions"
         
         # Prepara i messaggi nel formato OpenAI-compatibile
-        msgs = self._messages
+        msgs = self._strip_images(self._messages)
         if self._system:
             msgs = [{"role": "system", "content": self._system}] + list(msgs)
         
@@ -1140,9 +1194,12 @@ class _SettingsDialog(QDialog):
         tok_row = QHBoxLayout()
         tok_row.addWidget(QLabel("Max token risposta:"))
         self._max_tok = QSpinBox()
-        self._max_tok.setRange(256, 32000)
-        self._max_tok.setValue(4096)
-        self._max_tok.setSingleStep(256)
+        # Nessun tetto client-side realistico: il vero limite lo impone il
+        # provider (es. Anthropic consente output molto elevati con alcuni
+        # modelli/beta header). Il valore qui è solo il default richiesto al provider.
+        self._max_tok.setRange(256, 1_000_000)
+        self._max_tok.setValue(_DEFAULT_MAX_TOKENS)
+        self._max_tok.setSingleStep(1024)
         tok_row.addWidget(self._max_tok)
         tok_row.addStretch()
         layout.addLayout(tok_row)
@@ -1156,7 +1213,7 @@ class _SettingsDialog(QDialog):
         for pid, edit in self._key_edits.items():
             key = _settings_key(pid)
             edit.setText(self._s.get(key, ""))
-        self._max_tok.setValue(int(self._s.get("ai/max_tokens", 16384)))
+        self._max_tok.setValue(int(self._s.get("ai/max_tokens", _DEFAULT_MAX_TOKENS)))
         self._update_oauth_status()
 
     def _save(self) -> None:
@@ -1283,6 +1340,7 @@ class _AIPanel(QWidget):
         self._think_chars  = 0    # caratteri di soli pensieri generati
         self._local_model  = False  # True se il provider è Ollama/llama.cpp (stima tok/s live)
         self._inline_selection: Optional[tuple] = None  # (lf, cf, lt, ct) o None = intero file
+        self._pending_images: list[dict] = []  # immagini in coda, allegate al prossimo invio
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
         self._elapsed_start  = 0.0
@@ -1456,6 +1514,20 @@ class _AIPanel(QWidget):
         self._btn_ctx = QPushButton("+ Contesto")
         self._btn_ctx.setToolTip(tr("tooltip.ai_add_context"))
         self._btn_ctx.clicked.connect(self._add_context)
+        self._btn_attach = QPushButton("📎 Allega file")
+        self._btn_attach.setToolTip(tr("tooltip.ai_attach_file",
+            default="Seleziona uno o più file dal disco: il tipo viene riconosciuto automaticamente.\n"
+                    "Testo/codice → aggiunto come contesto nel campo di input.\n"
+                    "Immagini (PNG/JPEG/GIF/WEBP) → messe in coda per l'invio come vision\n"
+                    "(solo provider Anthropic e Google Gemini)."))
+        self._btn_attach.clicked.connect(self._attach_file)
+        self._lbl_pending_images = QLabel("")
+        self._lbl_pending_images.setStyleSheet("color:#858585; font-size:10px;")
+        self._btn_clear_images = QPushButton("✕")
+        self._btn_clear_images.setFixedWidth(20)
+        self._btn_clear_images.setToolTip("Rimuove le immagini in coda")
+        self._btn_clear_images.clicked.connect(self._clear_pending_images)
+        self._btn_clear_images.hide()
         self._btn_apply = QPushButton("⬇ Al file")
         self._btn_apply.setToolTip(tr("tooltip.ai_apply"))
         self._btn_apply.clicked.connect(self._apply_to_file)
@@ -1471,6 +1543,9 @@ class _AIPanel(QWidget):
         self._btn_send.setToolTip(tr("tooltip.ai_send"))
         self._btn_send.clicked.connect(self._on_send_btn)
         btn_row.addWidget(self._btn_ctx)
+        btn_row.addWidget(self._btn_attach)
+        btn_row.addWidget(self._lbl_pending_images)
+        btn_row.addWidget(self._btn_clear_images)
         btn_row.addStretch()
         btn_row.addWidget(self._btn_apply)
         btn_row.addWidget(self._btn_new_tab)
@@ -1899,6 +1974,98 @@ class _AIPanel(QWidget):
         lang = editor.file_path.suffix.lstrip(".") if editor.file_path else ""
         self._input.insertPlainText(f"\n\n```{lang}\n{code[:6000]}\n```")
 
+    def _attach_file(self) -> None:
+        """Apre un file dialog e allega i file scelti (da disco, non necessariamente
+        aperti come tab), riconoscendo automaticamente il tipo: le immagini
+        (PNG/JPEG/GIF/WEBP) vengono messe in coda per l'invio come vision,
+        tutto il resto viene trattato come testo/codice e inserito nell'input."""
+        dialog_title = tr("dialog.ai_attach_file", default="Allega file")
+        paths, _ = QFileDialog.getOpenFileNames(self, dialog_title, "", "Tutti i file (*)")
+        if not paths:
+            return
+        any_image = False
+        for path_str in paths:
+            path = Path(path_str)
+            if path.suffix.lower() in _IMAGE_MEDIA_TYPES:
+                self._attach_single_image(path)
+                any_image = True
+            else:
+                self._attach_single_file(path)
+        if any_image:
+            self._update_pending_images_label()
+        cursor = self._input.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        self._input.setTextCursor(cursor)
+        self._input.setFocus()
+
+    def _attach_single_file(self, path: Path) -> None:
+        try:
+            raw = path.read_bytes()
+        except OSError as e:
+            self._append_msg("system", f"⚠ Impossibile leggere {path.name}: {e}", "#ffcc00")
+            return
+        # Decodifica UTF-8 rigorosa: dati binari (immagini, video, PDF, eseguibili…)
+        # falliscono quasi sempre, a differenza del solo controllo dei byte nulli
+        # che alcuni formati binari (es. certi JPEG) possono eludere.
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            self._append_msg("system",
+                f"⚠ {path.name} non è un file di testo — non allegato.\n"
+                "Le immagini (PNG/JPEG/GIF/WEBP) sono riconosciute automaticamente; "
+                "altri formati binari (video, PDF, eseguibili…) non sono supportati.",
+                "#ffcc00")
+            return
+        truncated = len(text) > _ATTACH_MAX_CHARS
+        if truncated:
+            text = text[:_ATTACH_MAX_CHARS]
+        lang = path.suffix.lstrip(".")
+        self._input.insertPlainText(f"\n\nFile: {path.name}\n\n```{lang}\n{text}\n```\n")
+        if truncated:
+            self._append_msg("system",
+                f"⚠ {path.name} troncato ai primi {_ATTACH_MAX_CHARS} caratteri.", "#ffcc00")
+
+    def _attach_single_image(self, path: Path) -> None:
+        media_type = _IMAGE_MEDIA_TYPES.get(path.suffix.lower())
+        if not media_type:
+            self._append_msg("system",
+                f"⚠ {path.name}: formato non supportato (solo PNG/JPEG/GIF/WEBP).", "#ffcc00")
+            return
+        try:
+            raw = path.read_bytes()
+        except OSError as e:
+            self._append_msg("system", f"⚠ Impossibile leggere {path.name}: {e}", "#ffcc00")
+            return
+        if len(raw) > _IMAGE_MAX_BYTES:
+            self._append_msg("system",
+                f"⚠ {path.name} troppo grande ({len(raw) // 1_000_000} MB, "
+                f"limite {_IMAGE_MAX_BYTES // 1_000_000} MB) — non allegata.", "#ffcc00")
+            return
+        self._pending_images.append({
+            "name":       path.name,
+            "media_type": media_type,
+            "data":       base64.b64encode(raw).decode("ascii"),
+        })
+        self._append_msg("system",
+            f"🖼 {path.name} allegata ({len(raw) // 1024} KB) — verrà inviata con il prossimo messaggio "
+            "(solo provider Anthropic/Gemini).", "#2ea043")
+
+    def _clear_pending_images(self) -> None:
+        self._pending_images.clear()
+        self._update_pending_images_label()
+
+    def _update_pending_images_label(self) -> None:
+        n = len(self._pending_images)
+        if n == 0:
+            self._lbl_pending_images.setText("")
+            self._lbl_pending_images.setToolTip("")
+            self._btn_clear_images.hide()
+        else:
+            names = ", ".join(img["name"] for img in self._pending_images)
+            self._lbl_pending_images.setText(f"🖼 {n} in coda")
+            self._lbl_pending_images.setToolTip(names)
+            self._btn_clear_images.show()
+
     def _show_more_actions(self) -> None:
         from PyQt6.QtWidgets import QMenu
         menu = QMenu(self)
@@ -1964,11 +2131,18 @@ class _AIPanel(QWidget):
                 self._append_msg("system", f"⚠ {warn}", "#ffcc00")
             key_to_use = "" if pid in ("ollama", "llamacpp") else api_key
 
-        max_tokens   = int(s.get("ai/max_tokens", 16384))
+        max_tokens   = int(s.get("ai/max_tokens", _DEFAULT_MAX_TOKENS))
         thinking     = self._chk_thinking.isChecked() and self._chk_thinking.isVisible()
         system       = self._system_edit.toPlainText().strip()
         ollama_url   = (api_key or "http://localhost:11434") if pid == "ollama" else "http://localhost:11434"
         llamacpp_url = (api_key or "http://localhost:8080")  if pid == "llamacpp" else "http://localhost:8080"
+
+        if self._pending_images and pid not in _VISION_PROVIDERS:
+            self._append_msg("system",
+                f"⚠ Le immagini in coda non sono supportate dal provider '{name}' "
+                "(solo Anthropic e Google Gemini). Cambia provider o rimuovile con «✕» prima di inviare.",
+                "#ffcc00")
+            return
 
         # Cattura selezione prima di inviare (usata da inline edit in _on_result)
         if self._chk_inline.isChecked():
@@ -1978,9 +2152,17 @@ class _AIPanel(QWidget):
             else:
                 self._inline_selection = None  # None = intero file
 
-        self._history.append({"role": "user", "content": text})
-        self._append_msg("user", text)
+        entry: dict = {"role": "user", "content": text}
+        display_text = text
+        if self._pending_images:
+            entry["images"] = self._pending_images
+            names = ", ".join(img["name"] for img in self._pending_images)
+            display_text += f"\n\n🖼 Allegate: {names}"
+        self._history.append(entry)
+        self._append_msg("user", display_text)
         self._input.clear()
+        self._pending_images = []
+        self._update_pending_images_label()
 
         self._elapsed_start = time.time()
         self._has_thinking  = False

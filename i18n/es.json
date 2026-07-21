@@ -1049,6 +1049,7 @@
     "ai_chat": "Historial de la conversación con la IA.",
     "ai_input": "Campo de entrada del mensaje.\nPuede escribir libremente o usar los botones de arriba\npara insertar código automáticamente como contexto.\n\nCtrl+Intro — enviar el mensaje",
     "ai_add_context": "Añade el texto seleccionado (o el archivo completo si no hay nada seleccionado)\ndirectamente en la posición del cursor en el campo de entrada.\n\nÚtil para añadir contexto en medio de un mensaje ya escrito.",
+    "ai_attach_file": "Selecciona uno o más archivos del disco (no hace falta que estén abiertos como pestañas)\ny añade su contenido como contexto en el campo de entrada.",
     "ai_clear": "Borra todo el historial de la conversación y empieza de cero.\nLa IA no recordará los mensajes anteriores después de esta acción.",
     "ai_send": "Enviar el mensaje a la IA y esperar la respuesta.\nAtajo: Ctrl+Intro desde el campo de entrada.",
     "ai_apply": "Reemplaza el contenido del editor activo con la última respuesta de IA.\nSi la respuesta contiene exactamente un bloque de código, se extrae automáticamente;\nen caso contrario se usa el texto completo.\n\nLa operación se puede deshacer con Ctrl+Z.",

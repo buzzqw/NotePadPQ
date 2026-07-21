@@ -310,7 +310,8 @@
     "smart_typography": "Tipografia intelligente",
     "sentence_focus": "Focus paragrafo",
     "spell_check_dialog": "Revisione ortografica...",
-    "view_include_list": "Lista degli include"
+    "view_include_list": "Lista degli include",
+    "build_draft_mode_toggle": "⚡ Modalità Draft"
   },
   "color": {
     "red": "Rosso",
@@ -1160,7 +1161,8 @@
     "fif_replace_match": "Sostituisci questa corrispondenza",
     "include_list_sort": "Ordina A-Z / per riga",
     "include_list_refresh": "Aggiorna",
-    "find_all": "Trova tutte le occorrenze e mostrale per la sostituzione selettiva"
+    "find_all": "Trova tutte le occorrenze e mostrale per la sostituzione selettiva",
+    "build_draft_mode": "Modalità Draft: compilazione LaTeX più veloce con output PDF. Disabilita protrusione/espansione microtype, spaziatura sloppy, immagini placeholder."
   },
   "websearch": {
     "submenu_title": "Ricerca Web",
@@ -1424,7 +1426,8 @@
     "var_line_desc": "riga corrente del cursore",
     "var_col_desc": "colonna corrente del cursore",
     "cmd_placeholder_empty": "vuoto = non applicabile",
-    "vars_or": "o"
+    "vars_or": "o",
+    "draft_mode": "⚡ Draft"
   },
   "compare": {
     "grp_file_b": "File B (Destra / Modificato)",
@@ -1804,7 +1807,10 @@
     "no_command": "[Nessun comando '{action}' nel profilo {profile}]",
     "interrupted": "Interrotto",
     "task_finished": "Task completato",
-    "task_failed": "Task fallito"
+    "task_failed": "Task fallito",
+    "draft_mode_active": "⚡ Modalità Draft: compilazione veloce con output PDF",
+    "draft_wrapper_failed": "Creazione wrapper Draft fallita: {error}",
+    "draft_sty_missing": "File di stile Draft non trovato: {path}"
   },
   "statusbar": {
     "default_cursor": "Riga 1, Col 1",

@@ -310,7 +310,8 @@
     "smart_typography": "Smart typography",
     "sentence_focus": "Paragraph focus",
     "spell_check_dialog": "Spelling Review...",
-    "view_include_list": "Include List"
+    "view_include_list": "Include List",
+    "build_draft_mode_toggle": "⚡ Draft Mode"
   },
   "color": {
     "red": "Red",
@@ -1160,7 +1161,8 @@
     "fif_replace_match": "Replace this match",
     "include_list_sort": "Sort A-Z / by line",
     "include_list_refresh": "Refresh",
-    "find_all": "Find all matches and list them for selective replacement"
+    "find_all": "Find all matches and list them for selective replacement",
+    "build_draft_mode": "Draft mode: faster LaTeX compilation with PDF output. Disables microtype protrusion/expansion, uses sloppy spacing, draft mode for images."
   },
   "websearch": {
     "submenu_title": "Web Search",
@@ -1424,7 +1426,8 @@
     "var_line_desc": "current cursor line",
     "var_col_desc": "current cursor column",
     "cmd_placeholder_empty": "empty = not applicable",
-    "vars_or": "or"
+    "vars_or": "or",
+    "draft_mode": "⚡ Draft"
   },
   "compare": {
     "title": "Compare",
@@ -1791,7 +1794,10 @@
     "no_command": "[No command '{action}' in profile {profile}]",
     "interrupted": "Interrupted",
     "task_finished": "Task completed",
-    "task_failed": "Task failed"
+    "task_failed": "Task failed",
+    "draft_mode_active": "⚡ Draft mode: fast compilation with PDF output",
+    "draft_wrapper_failed": "Draft wrapper creation failed: {error}",
+    "draft_sty_missing": "Draft style file not found: {path}"
   },
   "statusbar": {
     "default_cursor": "Line 1, Col 1",

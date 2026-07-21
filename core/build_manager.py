@@ -439,6 +439,12 @@ class BuildManager(QObject):
             self.build_output.emit(tr("build.no_command", action=action, profile=profile_name))
             return False
 
+        # --- Draft mode: aggiunge/rimuove 'draft' da \documentclass ---
+        draft_original = None
+        if file_path.suffix == ".tex" and Settings.instance().get("build/draft_mode", False):
+            draft_original = self._toggle_documentclass_draft(file_path, enable=True)
+        # --- Fine draft mode ---
+
         # Espansione variabili
         command = self._expand_vars(command, file_path, editor)
 
@@ -480,14 +486,19 @@ class BuildManager(QObject):
         # Avvia worker
         self._worker = BuildWorker(command, str(file_path.parent), env)
         self._worker.output_line.connect(self.build_output)
+
+        _restore = draft_original
         self._worker.finished_ok.connect(
-            lambda secs: self._on_done(True, secs, profile)
+            lambda secs, r=_restore: (self._on_done(True, secs, profile),
+                                      self._toggle_documentclass_draft(file_path, enable=False) if r else None)
         )
         self._worker.finished_err.connect(
-            lambda code: self._on_error(code, profile)
+            lambda code, r=_restore: (self._on_error(code, profile),
+                                      self._toggle_documentclass_draft(file_path, enable=False) if r else None)
         )
         self._worker.stopped.connect(
-            lambda: self.build_done.emit(False, tr("build.interrupted"))
+            lambda r=_restore: (self.build_done.emit(False, tr("build.interrupted")),
+                                self._toggle_documentclass_draft(file_path, enable=False) if r else None)
         )
         self._worker.start()
         return True
@@ -529,6 +540,63 @@ class BuildManager(QObject):
             command = command.replace(f"${{{name}}}", val)
             command = command.replace(f"$({name})", val)
         return command
+
+    # ── Draft mode: modifica temporanea \documentclass ───────────────────────
+
+    @staticmethod
+    def _toggle_documentclass_draft(file_path: Path, enable: bool) -> Optional[str]:
+        """Aggiunge o rimuove 'draft' da \\documentclass nel file .tex.
+
+        enable=True: aggiunge 'draft' e restituisce il contenuto originale.
+        enable=False: ripristina il contenuto originale (passato come None per no-op).
+        """
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except Exception:
+            return None
+
+        if enable:
+            original = content
+            import re
+            # \documentclass[opts]{class} o \documentclass{class}
+            def _add_draft(m):
+                opts = m.group(1) or ""
+                cls = m.group(2)
+                if 'draft' in opts.split(','):
+                    return m.group(0)  # già presente
+                new_opts = f"draft,{opts}" if opts else "draft"
+                return f"\\documentclass[{new_opts}]{{{cls}}}"
+            new_content = re.sub(
+                r'\\documentclass(?:\[([^\]]*)\])?\{([^}]+)\}',
+                _add_draft, content, count=1)
+            if new_content != content:
+                try:
+                    file_path.write_text(new_content, encoding="utf-8")
+                except Exception:
+                    return None
+            return original
+        else:
+            # enable=False: ripristina — chiamato con il file_path, l'original
+            # e' gia' stato salvato; lo ripristiniamo dal contenuto corrente
+            # rimuovendo 'draft'
+            import re
+            def _remove_draft(m):
+                opts = m.group(1) or ""
+                cls = m.group(2)
+                parts = [p.strip() for p in opts.split(',') if p.strip() != 'draft']
+                new_opts = ','.join(parts)
+                if new_opts:
+                    return f"\\documentclass[{new_opts}]{{{cls}}}"
+                return f"\\documentclass{{{cls}}}"
+            new_content = re.sub(
+                r'\\documentclass(?:\[([^\]]*)\])?\{([^}]+)\}',
+                _remove_draft, content, count=1)
+            if new_content != content:
+                try:
+                    file_path.write_text(new_content, encoding="utf-8")
+                except Exception:
+                    pass
+            return None
 
     # ── Parsing errori ────────────────────────────────────────────────────────
 

@@ -302,7 +302,8 @@
     "smart_typography": "Inteligentna typografia",
     "sentence_focus": "Fokus akapitu",
     "spell_check_dialog": "Korekta pisowni...",
-    "view_include_list": "Include List"
+    "view_include_list": "Include List",
+    "build_draft_mode_toggle": "⚡ Tryb roboczy (bez PDF)"
   },
   "color": {
     "red": "Czerwony",

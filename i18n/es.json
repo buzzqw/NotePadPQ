@@ -302,7 +302,8 @@
     "smart_typography": "Tipografía inteligente",
     "sentence_focus": "Enfoque de párrafo",
     "spell_check_dialog": "Revisión ortográfica...",
-    "view_include_list": "Include List"
+    "view_include_list": "Include List",
+    "build_draft_mode_toggle": "⚡ Modo Borrador (sin PDF)"
   },
   "color": {
     "red": "Rojo",

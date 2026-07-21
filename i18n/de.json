@@ -302,7 +302,8 @@
     "smart_typography": "Intelligente Typografie",
     "sentence_focus": "Absatz-Fokus",
     "spell_check_dialog": "Rechtschreibkorrektur...",
-    "view_include_list": "Include List"
+    "view_include_list": "Include List",
+    "build_draft_mode_toggle": "⚡ Draft-Modus (kein PDF)"
   },
   "color": {
     "red": "Rot",

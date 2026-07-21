@@ -439,19 +439,6 @@ class BuildManager(QObject):
             self.build_output.emit(tr("build.no_command", action=action, profile=profile_name))
             return False
 
-        # --- Draft mode: inietta \@drafttrue (flag LaTeX standard) ---
-        draft_mode = Settings.instance().get("build/draft_mode", False)
-        if draft_mode and file_path.suffix in (".tex", ".rnw"):
-            file_arg = str(file_path.resolve())
-            file_arg_escaped = file_arg.replace("'", "'\\''")
-            draft_tex = (
-                f"-jobname={file_path.stem} "
-                f"'\\makeatletter\\newif\\if@draft\\@drafttrue\\makeatother"
-                f"\\input{{{file_arg_escaped}}}'"
-            )
-            command = command.replace("${FILE}", draft_tex)
-        # --- Fine draft mode ---
-
         # Espansione variabili
         command = self._expand_vars(command, file_path, editor)
 

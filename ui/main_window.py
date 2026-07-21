@@ -1557,12 +1557,6 @@ class MainWindow(QMainWindow):
         keep_synctex_act.setToolTip(tr("tooltip.build_keep_synctex_toggle"))
         m.addAction(keep_synctex_act)
         self._sep(m)
-        draft_checked = Settings.instance().get("build/draft_mode", False)
-        draft_act = self._act("build_draft_mode_toggle", "", self._toggle_draft_mode,
-                               checkable=True, checked=draft_checked)
-        draft_act.setToolTip(tr("tooltip.build_draft_mode"))
-        m.addAction(draft_act)
-        self._sep(m)
         self._menus["lsp"] = m
         m.addSection("⚡  LSP")
         m.addAction(self._act("lsp_goto_def", "Ctrl+F12",    self.action_lsp_goto_definition))
@@ -3314,10 +3308,6 @@ class MainWindow(QMainWindow):
     def _toggle_keep_synctex(self, checked: bool) -> None:
         from config.settings import Settings
         Settings.instance().set("build/keep_synctex", checked)
-
-    def _toggle_draft_mode(self, checked: bool) -> None:
-        from config.settings import Settings
-        Settings.instance().set("build/draft_mode", checked)
 
     def action_keybinding_editor(self) -> None:
         from ui.keybinding import KeyBindingDialog

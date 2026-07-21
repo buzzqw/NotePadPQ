@@ -443,7 +443,8 @@
     "spell_ignore_all": "Ignora tutto",
     "spell_replace": "Sostituisci",
     "spell_replace_all": "Sostituisci tutto",
-    "spell_add_dict": "Aggiungi al dizionario"
+    "spell_add_dict": "Aggiungi al dizionario",
+    "find_all": "Trova tutto"
   },
   "msg": {
     "no_matching_bracket": "Nessuna corrispondenza trovata",
@@ -1158,7 +1159,8 @@
     "fif_replace_in_file": "Sostituisci tutte le corrispondenze in questo file",
     "fif_replace_match": "Sostituisci questa corrispondenza",
     "include_list_sort": "Ordina A-Z / per riga",
-    "include_list_refresh": "Aggiorna"
+    "include_list_refresh": "Aggiorna",
+    "find_all": "Trova tutte le occorrenze e mostrale per la sostituzione selettiva"
   },
   "websearch": {
     "submenu_title": "Ricerca Web",

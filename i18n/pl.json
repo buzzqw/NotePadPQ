@@ -433,7 +433,8 @@
     "spell_ignore_all": "Ignoruj wszystko",
     "spell_replace": "Zamień",
     "spell_replace_all": "Zamień wszystko",
-    "spell_add_dict": "Dodaj do słownika"
+    "spell_add_dict": "Dodaj do słownika",
+    "find_all": "Znajdź wszystko"
   },
   "msg": {
     "unsaved_changes": "Plik \"{name}\" ma niezapisane zmiany.\nZapisać przed zamknięciem?",
@@ -1136,7 +1137,8 @@
     "pref_sentence_focus": "Przyćmi tekst poza bieżącym akapitem. Można włączyć z menu Dokument.",
     "pref_typewriter_deadzone": "Liczba wierszy wokół środka, w obrębie których kursor nie wyzwala automatycznego przewijania w trybie maszynisty.",
     "fif_replace_in_file": "Zastąp wszystkie dopasowania w tym pliku",
-    "fif_replace_match": "Zastąp to dopasowanie"
+    "fif_replace_match": "Zastąp to dopasowanie",
+    "find_all": "Znajdź wszystkie wystąpienia i wyświetl je do selektywnej zamiany"
   },
   "websearch": {
     "submenu_title": "Wyszukiwanie w sieci",

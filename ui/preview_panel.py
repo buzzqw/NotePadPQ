@@ -133,6 +133,10 @@ class _ClickableLabel(QLabel):
     from PyQt6.QtCore import pyqtSignal as _sig
     clicked = _sig(int, int)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+
     def mousePressEvent(self, event):
         from PyQt6.QtCore import Qt as _Qt
         if event.button() == _Qt.MouseButton.LeftButton:
@@ -705,9 +709,11 @@ class PreviewPanel(QWidget):
         self._pdf_scroll = QScrollArea()
         self._pdf_scroll.setWidgetResizable(True)
         self._pdf_scroll.setStyleSheet("background: #404040; border: none;")
+        self._pdf_scroll.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._pdf_lbl_img = _ClickableLabel()
         self._pdf_lbl_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._pdf_lbl_img.setStyleSheet("background: #404040;")
+        self._pdf_lbl_img.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._pdf_lbl_img.clicked.connect(self._on_pdf_clicked)
         self._pdf_scroll.setWidget(self._pdf_lbl_img)
         pdf_vl.addWidget(self._pdf_scroll, 1)
@@ -718,6 +724,7 @@ class PreviewPanel(QWidget):
         self._pdf_scroll_cont.setStyleSheet("background: #404040; border: none;")
         self._pdf_scroll_cont.setAlignment(
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+        self._pdf_scroll_cont.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._pdf_cont_container = _PdfContContainer()
         self._pdf_cont_layout = _QVBoxLayout2(self._pdf_cont_container)
         self._pdf_cont_layout.setContentsMargins(8, 8, 8, 8)
@@ -2217,7 +2224,6 @@ class PreviewPanel(QWidget):
             editor = mw._tab_manager.current_editor()
         if editor:
             editor.go_to_line(line)
-            editor.setFocus()
 
     def go_to_pdf_page_for_line(self, line: int) -> None:
         """

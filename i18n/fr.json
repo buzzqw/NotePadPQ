@@ -433,7 +433,8 @@
     "spell_ignore_all": "Tout ignorer",
     "spell_replace": "Remplacer",
     "spell_replace_all": "Remplacer tout",
-    "spell_add_dict": "Ajouter au dictionnaire"
+    "spell_add_dict": "Ajouter au dictionnaire",
+    "find_all": "Tout trouver"
   },
   "msg": {
     "unsaved_changes": "Le fichier \"{name}\" contient des modifications non enregistrées.\nEnregistrer avant de fermer ?",
@@ -1136,7 +1137,8 @@
     "pref_sentence_focus": "Atténuer le texte en dehors du paragraphe courant. Activable depuis le menu Document.",
     "pref_typewriter_deadzone": "Nombre de lignes autour du centre dans lesquelles le curseur ne déclenche pas de défilement automatique en mode machine à écrire.",
     "fif_replace_in_file": "Remplacer toutes les correspondances dans ce fichier",
-    "fif_replace_match": "Remplacer cette correspondance"
+    "fif_replace_match": "Remplacer cette correspondance",
+    "find_all": "Trouver toutes les occurrences et les lister pour remplacement sélectif"
   },
   "websearch": {
     "submenu_title": "Recherche Web",

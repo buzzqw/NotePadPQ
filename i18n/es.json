@@ -433,7 +433,8 @@
     "spell_ignore_all": "Ignorar todo",
     "spell_replace": "Reemplazar",
     "spell_replace_all": "Reemplazar todo",
-    "spell_add_dict": "Agregar al diccionario"
+    "spell_add_dict": "Agregar al diccionario",
+    "find_all": "Buscar todo"
   },
   "msg": {
     "unsaved_changes": "El archivo \"{name}\" tiene cambios sin guardar.\n¿Guardar antes de cerrar?",
@@ -1136,7 +1137,8 @@
     "pref_sentence_focus": "Atenuar el texto fuera del párrafo actual. Activable desde el menú Documento.",
     "pref_typewriter_deadzone": "Número de líneas alrededor del centro en las que el cursor no activa el desplazamiento automático en modo mecanógrafo.",
     "fif_replace_in_file": "Reemplazar todas las coincidencias en este archivo",
-    "fif_replace_match": "Reemplazar esta coincidencia"
+    "fif_replace_match": "Reemplazar esta coincidencia",
+    "find_all": "Busca todas las coincidencias y las lista para su reemplazo selectivo"
   },
   "websearch": {
     "submenu_title": "Búsqueda Web",

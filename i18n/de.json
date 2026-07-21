@@ -433,7 +433,8 @@
     "spell_ignore_all": "Alle ignorieren",
     "spell_replace": "Ersetzen",
     "spell_replace_all": "Alle ersetzen",
-    "spell_add_dict": "Zum Wörterbuch hinzufügen"
+    "spell_add_dict": "Zum Wörterbuch hinzufügen",
+    "find_all": "Alle finden"
   },
   "msg": {
     "unsaved_changes": "Die Datei \"{name}\" enthält nicht gespeicherte Änderungen.\nVor dem Schließen speichern?",
@@ -1136,7 +1137,8 @@
     "pref_sentence_focus": "Text außerhalb des aktuellen Absatzes abdunkeln. Im Menü Dokument umschaltbar.",
     "pref_typewriter_deadzone": "Anzahl Zeilen um die Mitte, innerhalb derer kein automatisches Scrollen im Schreibmaschinenmodus ausgelöst wird.",
     "fif_replace_in_file": "Alle Treffer in dieser Datei ersetzen",
-    "fif_replace_match": "Diesen Treffer ersetzen"
+    "fif_replace_match": "Diesen Treffer ersetzen",
+    "find_all": "Alle Treffer finden und zur selektiven Ersetzung auflisten"
   },
   "websearch": {
     "submenu_title": "Websuche",

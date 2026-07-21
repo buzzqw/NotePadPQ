@@ -72,6 +72,8 @@ class _PdfPageLabel(QLabel):
         self._is_selecting: bool = False
         self._pending_link: Optional[dict] = None
 
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+
         self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self.setMouseTracking(True)
         self._render()
@@ -164,6 +166,7 @@ class _PdfPageLabel(QLabel):
 
     def mousePressEvent(self, ev) -> None:
         if ev.button() == Qt.MouseButton.LeftButton:
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
             lnk = self._link_at(ev.pos())
             if lnk:
                 self._pending_link = lnk
@@ -173,6 +176,7 @@ class _PdfPageLabel(QLabel):
                 self._selector = PdfTextSelector(self, self._fitz_page, self._zoom)
                 self._selector.start_selection(ev.pos())
                 self._is_selecting = False
+            ev.accept()
             return
         super().mousePressEvent(ev)
 
@@ -749,6 +753,43 @@ class PdfViewerWidget(QWidget):
                 self._btn_magnifier.setChecked(False)
                 QApplication.instance().removeEventFilter(self)
         return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event) -> None:
+        from PyQt6.QtCore import QEvent
+        if not self._doc or not FITZ_OK:
+            super().keyPressEvent(event)
+            return
+        sb = self._scroll.verticalScrollBar()
+        n = len(self._doc)
+        key = event.key()
+        if key == Qt.Key.Key_PageDown:
+            if self._continuous:
+                sb.setValue(sb.value() + sb.pageStep())
+            else:
+                self._page_next()
+        elif key == Qt.Key.Key_PageUp:
+            if self._continuous:
+                sb.setValue(sb.value() - sb.pageStep())
+            else:
+                self._page_prev()
+        elif key == Qt.Key.Key_Home:
+            if self._continuous:
+                sb.setValue(0)
+            else:
+                self._cur_page = 0
+                self._show_single_page(0)
+        elif key == Qt.Key.Key_End:
+            if self._continuous:
+                sb.setValue(sb.maximum())
+            elif n > 0:
+                self._cur_page = n - 1
+                self._show_single_page(n - 1)
+        elif key == Qt.Key.Key_Down:
+            sb.setValue(sb.value() + 40)
+        elif key == Qt.Key.Key_Up:
+            sb.setValue(sb.value() - 40)
+        else:
+            super().keyPressEvent(event)
 
     def _zoom_step(self, step: float) -> None:
         new_zoom = round(max(0.25, min(4.0, self._zoom + step)), 2)

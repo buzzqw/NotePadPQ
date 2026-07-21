@@ -597,13 +597,16 @@ ESEMPI
         g.addLayout(opts2, 2, 0, 1, 2)
 
         btns = QHBoxLayout()
+        self._btn_find_all2  = QPushButton(tr("button.find_all"))
+        self._btn_find_all2.setToolTip(tr("tooltip.find_all"))
         self._btn_replace     = QPushButton(tr("button.replace"))
         self._btn_replace_all = QPushButton(tr("button.replace_all"))
         self._btn_find_next2  = QPushButton(tr("button.find_next"))
         self._btn_find_next2.setToolTip(tr("tooltip.find_next"))
         self._btn_replace.setToolTip(tr("tooltip.replace_one"))
         self._btn_replace_all.setToolTip(tr("tooltip.replace_all"))
-        for b in [self._btn_find_next2, self._btn_replace, self._btn_replace_all]:
+        for b in [self._btn_find_all2, self._btn_find_next2,
+                  self._btn_replace, self._btn_replace_all]:
             btns.addWidget(b)
         btns.addStretch()
         g.addLayout(btns, 3, 0, 1, 2)
@@ -611,6 +614,21 @@ ESEMPI
         self._lbl_replace_status = QLabel("")
         g.addWidget(self._lbl_replace_status, 4, 0, 1, 2)
 
+        # Lista risultati con colonna azione
+        self._replace_occurrences = QTreeWidget()
+        self._replace_occurrences.setHeaderLabels([
+            tr("label.col_line"), tr("label.col_text"), ""])
+        self._replace_occurrences.setColumnWidth(0, 58)
+        self._replace_occurrences.setColumnWidth(2, 84)
+        self._replace_occurrences.header().setStretchLastSection(True)
+        self._replace_occurrences.setRootIsDecorated(False)
+        self._replace_occurrences.setAlternatingRowColors(True)
+        self._replace_occurrences.itemDoubleClicked.connect(self._goto_replace_occurrence)
+        g.addWidget(self._replace_occurrences, 5, 0, 1, 2)
+
+        g.setRowStretch(5, 1)
+
+        self._btn_find_all2.clicked.connect(self._do_find_all_replace)
         self._btn_replace.clicked.connect(self._do_replace)
         self._btn_replace_all.clicked.connect(self._do_replace_all)
         self._btn_find_next2.clicked.connect(
@@ -1096,6 +1114,134 @@ ESEMPI
         except Exception:
             pass
         editor.setFocus()
+
+    # ── Replace-tab occurrence list ──────────────────────────────────────────
+
+    def _do_find_all_replace(self) -> None:
+        editor = self._current_editor()
+        if not editor:
+            return
+        text = self._find_edit2.currentText()
+        if not text:
+            return
+        flags = self._get_flags_replace()
+        self._populate_replace_occurrences(editor, text, flags)
+
+    def _get_flags_replace(self) -> dict:
+        return {
+            "case_sensitive": self._chk_case2.isChecked(),
+            "whole_word": self._chk_word2.isChecked(),
+            "regex": self._chk_regex2.isChecked(),
+            "wrap_around": self._chk_wrap2.isChecked(),
+        }
+
+    def _populate_replace_occurrences(self, editor, pattern_text: str, flags: dict) -> None:
+        self._replace_occurrences.clear()
+        if not pattern_text:
+            self._lbl_replace_status.setText("")
+            return
+        try:
+            re_flags = 0 if flags["case_sensitive"] else re.IGNORECASE
+            pat = pattern_text if flags["regex"] else re.escape(pattern_text)
+            if flags.get("whole_word"):
+                pat = rf"\b{pat}\b"
+            compiled = re.compile(pat, re_flags)
+        except re.error as e:
+            self._lbl_replace_status.setText(tr("msg.regex_error", error=str(e)))
+            return
+
+        _ROLE = Qt.ItemDataRole.UserRole
+        lines = editor.text().split("\n")
+        count = 0
+        _MAX_ITEMS = 2_000
+        items_to_add = []
+
+        for line_idx, line_text in enumerate(lines):
+            for m in compiled.finditer(line_text):
+                if len(items_to_add) >= _MAX_ITEMS:
+                    break
+                count += 1
+                display_line = line_text.strip()[:120]
+                item = QTreeWidgetItem([
+                    str(line_idx + 1),
+                    display_line,
+                    ""
+                ])
+                item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                item.setData(0, _ROLE, {
+                    "line": line_idx + 1,
+                    "col":  m.start(),
+                    "len":  m.end() - m.start(),
+                    "match_text": m.group(0),
+                })
+                btn = QPushButton(tr("button.replace"))
+                btn.setFixedSize(78, 22)
+                btn.clicked.connect(lambda _checked, it=item: self._replace_single_occurrence(it))
+                self._replace_occurrences.addTopLevelItem(item)
+                self._replace_occurrences.setItemWidget(item, 2, btn)
+                items_to_add.append(item)
+
+        if count:
+            self._lbl_replace_status.setText(tr("msg.occurrences_n", count=count))
+        else:
+            self._lbl_replace_status.setText(tr("msg.no_results_query", query=pattern_text))
+
+    def _goto_replace_occurrence(self, item: QTreeWidgetItem) -> None:
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+        editor = self._current_editor()
+        if not editor:
+            return
+        line0 = max(0, data["line"] - 1)
+        char_col = data.get("col", 0)
+        char_len = data.get("len", 0)
+        try:
+            byte_start = editor.char_col_to_byte_col(line0, char_col)
+            byte_end   = editor.char_col_to_byte_col(line0, char_col + char_len)
+        except Exception:
+            byte_start, byte_end = char_col, char_col + char_len
+        editor.go_to_line(data["line"])
+        if hasattr(editor, "highlight_find_match"):
+            try:
+                editor.highlight_find_match(line0, byte_start, byte_end)
+            except Exception:
+                pass
+        try:
+            if byte_end > byte_start:
+                editor.setSelection(line0, byte_start, line0, byte_end)
+        except Exception:
+            pass
+        editor.setFocus()
+
+    def _replace_single_occurrence(self, item: QTreeWidgetItem) -> None:
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+        editor = self._current_editor()
+        if not editor:
+            return
+        replace_text = self._replace_edit.currentText()
+        line0 = data["line"] - 1
+        char_col = data.get("col", 0)
+        char_len = data.get("len", 0)
+
+        try:
+            byte_start = editor.char_col_to_byte_col(line0, char_col)
+            byte_end   = editor.char_col_to_byte_col(line0, char_col + char_len)
+        except Exception:
+            byte_start, byte_end = char_col, char_col + char_len
+
+        editor.setSelection(line0, byte_start, line0, byte_end)
+        try:
+            editor.replaceSelectedText(replace_text)
+        except Exception:
+            pass
+        editor.go_to_line(data["line"])
+
+        flags = self._get_flags_replace()
+        self._populate_replace_occurrences(
+            editor, self._find_edit2.currentText(), flags)
 
     def _highlight_all(self, editor: EditorWidget, pattern: str,
                        flags: dict, indicator: int) -> int:

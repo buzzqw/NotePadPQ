@@ -443,7 +443,8 @@
     "spell_ignore_all": "Ignore All",
     "spell_replace": "Replace",
     "spell_replace_all": "Replace All",
-    "spell_add_dict": "Add to Dictionary"
+    "spell_add_dict": "Add to Dictionary",
+    "find_all": "Find All"
   },
   "msg": {
     "no_matching_bracket": "No match found",
@@ -1158,7 +1159,8 @@
     "fif_replace_in_file": "Replace all matches in this file",
     "fif_replace_match": "Replace this match",
     "include_list_sort": "Sort A-Z / by line",
-    "include_list_refresh": "Refresh"
+    "include_list_refresh": "Refresh",
+    "find_all": "Find all matches and list them for selective replacement"
   },
   "websearch": {
     "submenu_title": "Web Search",

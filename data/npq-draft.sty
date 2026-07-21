@@ -1,32 +1,40 @@
 % npq-draft.sty — NotePadPQ Draft Mode Optimizer
 % Caricato automaticamente da NotePadPQ quando il Draft Mode e' attivo.
 % Non richiede modifiche al tuo documento.
-%
-% La flag \ifnpqdraft viene impostata da NotePadPQ prima di caricare
-% questo file. Se non e' impostata, il file non fa nulla.
 \newif\ifnpqdraft
 \ifnpqdraft\else\endinput\fi
 
 \PackageInfo{npq-draft}{NotePadPQ Draft Mode: fast compilation}
 
-% --- microtype: disabilita protrusione/espansione (piu' veloce) ---
+% --- microtype: disabilita protrusione/espansione ---
 \PassOptionsToPackage{protrusion=false,expansion=false,tracking=false}{microtype}
 
-% --- graphicx: placeholder invece di immagini ---
+% --- graphicx: placeholder box invece di immagini rasterizzate ---
 \PassOptionsToPackage{draft}{graphicx}
+
+% --- tikz/pgf: bounding box invece di grafica renderizzata ---
+\PassOptionsToPackage{draft}{tikz}
+\PassOptionsToPackage{draft}{pgfplots}
+
+% --- tcolorbox: niente box colorati ---
+\PassOptionsToPackage{draft}{tcolorbox}
 
 % --- hyperref: niente bordi colorati ---
 \PassOptionsToPackage{draft}{hyperref}
 
-% --- minted: niente syntax highlight ---
+% --- minted/listings: niente syntax highlight ---
 \PassOptionsToPackage{draft}{minted}
-
-% --- listing: niente colori ---
 \PassOptionsToPackage{draft}{listings}
+
+% --- biblatex: salta bibliografia ---
+\PassOptionsToPackage{draft}{biblatex}
+
+% --- todonotes: nascondi note ---
+\PassOptionsToPackage{disable}{todonotes}
 
 % --- Spaziatura veloce ---
 \sloppy
 
-% --- Penalty bassi: non perdere tempo con vedove/orfane ---
+% --- Penalty bassi ---
 \widowpenalty=150
 \clubpenalty=150

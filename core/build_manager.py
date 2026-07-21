@@ -446,7 +446,7 @@ class BuildManager(QObject):
             file_arg_escaped = file_arg.replace("'", "'\\''")
             draft_tex = (
                 f"-jobname={file_path.stem} "
-                f"'\\makeatletter\\@drafttrue\\makeatother"
+                f"'\\makeatletter\\newif\\if@draft\\@drafttrue\\makeatother"
                 f"\\input{{{file_arg_escaped}}}'"
             )
             command = command.replace("${FILE}", draft_tex)

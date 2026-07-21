@@ -462,14 +462,15 @@ class BuildManager(QObject):
 
             wrapper_cleanup = cleanup
 
-            # Sostituisci ${FILE} con codice TeX inline prima dell'espansione
+            # Sostituisci ${FILE} con codice TeX inline quotato per la shell
             file_arg = str(file_path.resolve())
+            file_arg_escaped = file_arg.replace("'", "'\\''")
             sty_name = "npq-draft.sty"
             draft_tex = (
-                f"-job-name={file_path.stem} "
-                rf"\makeatletter\newif\ifnpqdraft\npqdrafttrue\makeatother"
-                rf"\input{{{sty_name}}}"
-                rf"\input{{{file_arg}}}"
+                f"-jobname={file_path.stem} "
+                f"'\\makeatletter\\newif\\ifnpqdraft\\npqdrafttrue\\makeatother"
+                f"\\input{{{sty_name}}}"
+                f"\\input{{{file_arg_escaped}}}'"
             )
             command = command.replace("${FILE}", draft_tex)
         # --- Fine draft mode ---

@@ -303,7 +303,9 @@
     "sentence_focus": "Enfoque de párrafo",
     "spell_check_dialog": "Revisión ortográfica...",
     "view_include_list": "Include List",
-    "build_draft_mode_toggle": "⚡ Modo Borrador (sin PDF)"
+    "build_draft_mode_toggle": "⚡ Modo Borrador (sin PDF)",
+    "pin_recent_file": "Fijar",
+    "unpin_recent_file": "Soltar"
   },
   "color": {
     "red": "Rojo",
@@ -397,7 +399,10 @@
     "spell_remaining": "Errores restantes: {count}",
     "spell_complete": "Revisión ortográfica completada.",
     "close": "Cerrar",
-    "pdf_no_results": "Sin resultados"
+    "pdf_no_results": "Sin resultados",
+    "auto": "Auto",
+    "new_name_prompt": "Nuevo nombre:",
+    "tab_size_prompt": "Tamaño tab:"
   },
   "button": {
     "ok": "Aceptar",
@@ -437,7 +442,8 @@
     "spell_replace": "Reemplazar",
     "spell_replace_all": "Reemplazar todo",
     "spell_add_dict": "Agregar al diccionario",
-    "find_all": "Buscar todo"
+    "find_all": "Buscar todo",
+    "exit_df": "Salir sin distracciones"
   },
   "msg": {
     "unsaved_changes": "El archivo \"{name}\" tiene cambios sin guardar.\n¿Guardar antes de cerrar?",
@@ -511,7 +517,34 @@
     "macro_play_n_title": "Ejecutar macro N veces",
     "macro_play_n_prompt": "Número de repeticiones:",
     "macro_save_name_prompt": "Nombre de la macro:",
-    "no_terminal_supported": "No se encontró ningún terminal compatible.\nConfigure uno en Preferencias → Build."
+    "no_terminal_supported": "No se encontró ningún terminal compatible.\nConfigure uno en Preferencias → Build.",
+    "arcade_launch_error": "No se pudieron iniciar los juegos:",
+    "buffer_identical": "Los búferes son idénticos.",
+    "cannot_open_terminal": "No se puede abrir la terminal: {error}",
+    "cannot_reload": "No se puede recargar: {error}",
+    "disk_version_opened_for_comparison": "Versión en disco abierta para comparación.",
+    "encoding_set": "Codificación establecida a {encoding}.",
+    "error": "Error: {error}",
+    "export_done": "Exportación completada: {path}",
+    "export_plain_warning": "Exportar como texto plano, se perderá el formato. ¿Continuar?",
+    "file_read_error_status": "Error de lectura: {error}",
+    "file_reloaded": "Archivo recargado desde disco.",
+    "ftp_sync_error": "Error de sincronización: {error}",
+    "language_set": "Idioma establecido a {lang}.",
+    "line_ending_set": "Fin de línea establecido a {ending}.",
+    "lsp_no_refs": "No se encontraron referencias.",
+    "lsp_unavailable": "Servidor LSP no disponible.",
+    "macro_recording_started": "Grabación de macro iniciada.",
+    "macro_recording_stopped": "Grabación de macro detenida.",
+    "no_extension": "Sin extensión de archivo, no se puede detectar el lenguaje.",
+    "no_matching_bracket": "No se encontró paréntesis correspondiente.",
+    "no_saved_file_to_compare": "Guarda primero el archivo para comparar con la versión en disco.",
+    "no_supported_terminal": "No se encontró terminal compatible.",
+    "pandoc_not_found": "Pandoc no encontrado. Instálalo para habilitar la conversión de documentos.",
+    "preview_off": "Vista previa desactivada.",
+    "preview_on": "Vista previa activada.",
+    "replacing": "Reemplazando...",
+    "spell_status": "Ortografía: {count} errores restantes."
   },
   "pref": {
     "title": "Preferencias",
@@ -670,7 +703,9 @@
     "save_clipboard_image": "Guardar imagen del portapapeles",
     "image_filter_save": "Imágenes PNG (*.png);;JPEG (*.jpg *.jpeg);;Todos los archivos (*)",
     "spell_check_title": "Revisión Ortográfica",
-    "all_files": "Todos los archivos (*)"
+    "all_files": "Todos los archivos (*)",
+    "lsp_refs": "Referencias",
+    "lsp_rename": "Renombrar"
   },
   "preview": {
     "crop_top": "Arriba:",
@@ -1143,7 +1178,14 @@
     "fif_replace_match": "Reemplazar esta coincidencia",
     "find_all": "Busca todas las coincidencias y las lista para su reemplazo selectivo",
     "build_draft_mode": "Modo borrador: comprobación rápida de sintaxis sin salida PDF.",
-    "pdf_magnify": "Lupa: clic para activar, pasar sobre el PDF para ampliar."
+    "pdf_magnify": "Lupa: clic para activar, pasar sobre el PDF para ampliar.",
+    "build_clean_aux_before_toggle": "Limpiar archivos auxiliares antes de compilar",
+    "build_clean_aux_toggle": "Limpiar archivos auxiliares después de compilación exitosa",
+    "build_keep_synctex_toggle": "Conservar archivos .synctex.gz al limpiar",
+    "build_next_error": "Ir al siguiente error de compilación",
+    "build_prev_error": "Ir al error de compilación anterior",
+    "pin_recent_file": "Fijar este archivo para mantenerlo en la lista de archivos recientes",
+    "tail_mode_toggle": "Modo tail: desplazamiento automático al final de la salida"
   },
   "websearch": {
     "submenu_title": "Búsqueda Web",
@@ -1354,7 +1396,8 @@
   },
   "split_view": {
     "panel1": "① Panel 1",
-    "panel2": "② Panel 2"
+    "panel2": "② Panel 2",
+    "panel": "Vista dividida"
   },
   "build_panel": {
     "auto_profile": "— automático —",
@@ -1405,7 +1448,9 @@
     "var_line_desc": "línea actual del cursor",
     "var_col_desc": "columna actual del cursor",
     "cmd_placeholder_empty": "vacío = no aplicable",
-    "vars_or": "o"
+    "vars_or": "o",
+    "aux_cleaned": "{n} archivos auxiliares eliminados: {files}",
+    "no_errors": "Sin errores de compilación."
   },
   "compare": {
     "grp_file_b": "File B (Right / Modified)",

@@ -271,7 +271,7 @@
     "build_next_error": "Next error",
     "build_prev_error": "Previous error",
     "tail_mode_toggle": "Follow file (tail -f)",
-    "pin_recent_file": "Pin to top",
+    "pin_recent_file": "Pin",
     "unpin_recent_file": "Unpin",
     "context_ai": "Ask AI",
     "context_ai_ask_file": "Ask about current file",
@@ -405,7 +405,10 @@
     "spell_suggestions": "Suggestions",
     "spell_language": "Dictionary language",
     "spell_remaining": "Remaining errors: {count}",
-    "spell_complete": "Spell check complete."
+    "spell_complete": "Spell check complete.",
+    "auto": "Auto",
+    "new_name_prompt": "New name:",
+    "tab_size_prompt": "Tab size:"
   },
   "button": {
     "ok": "OK",
@@ -445,10 +448,11 @@
     "spell_replace": "Replace",
     "spell_replace_all": "Replace All",
     "spell_add_dict": "Add to Dictionary",
-    "find_all": "Find All"
+    "find_all": "Find All",
+    "exit_df": "Exit Distraction-Free"
   },
   "msg": {
-    "no_matching_bracket": "No match found",
+    "no_matching_bracket": "No matching bracket found.",
     "unsaved_changes": "File \"{name}\" has unsaved changes.\nSave before closing?",
     "unsaved_changes_many": "{count} files have unsaved changes.\nSave all before closing?",
     "file_not_found": "File not found: {path}",
@@ -520,7 +524,33 @@
     "macro_play_n_title": "Run Macro N Times",
     "macro_play_n_prompt": "Number of repetitions:",
     "macro_save_name_prompt": "Macro name:",
-    "no_terminal_supported": "No supported terminal found.\nConfigure one in Preferences → Build."
+    "no_terminal_supported": "No supported terminal found.\nConfigure one in Preferences → Build.",
+    "arcade_launch_error": "Failed to launch games:",
+    "buffer_identical": "Buffers are identical.",
+    "cannot_open_terminal": "Cannot open terminal: {error}",
+    "cannot_reload": "Cannot reload: {error}",
+    "disk_version_opened_for_comparison": "Disk version opened for comparison.",
+    "encoding_set": "Encoding set to {encoding}.",
+    "error": "Error: {error}",
+    "export_done": "Export completed: {path}",
+    "export_plain_warning": "Export as plain text, formatting will be lost. Continue?",
+    "file_read_error_status": "Read error: {error}",
+    "file_reloaded": "File reloaded from disk.",
+    "ftp_sync_error": "Sync error: {error}",
+    "language_set": "Language set to {lang}.",
+    "line_ending_set": "Line ending set to {ending}.",
+    "lsp_no_refs": "No references found.",
+    "lsp_unavailable": "LSP server not available.",
+    "macro_recording_started": "Macro recording started.",
+    "macro_recording_stopped": "Macro recording stopped.",
+    "no_extension": "No file extension, cannot detect language.",
+    "no_saved_file_to_compare": "Save the file first to compare with disk version.",
+    "no_supported_terminal": "No supported terminal found.",
+    "pandoc_not_found": "Pandoc not found. Install it to enable document conversion.",
+    "preview_off": "Preview disabled.",
+    "preview_on": "Preview enabled.",
+    "replacing": "Replacing...",
+    "spell_status": "Spell check: {count} errors remaining."
   },
   "pref": {
     "title": "Preferences",
@@ -679,7 +709,9 @@
     "save_clipboard_image": "Save clipboard image",
     "image_filter_save": "PNG Images (*.png);;JPEG (*.jpg *.jpeg);;All files (*)",
     "spell_check_title": "Spelling Review",
-    "all_files": "All files (*)"
+    "all_files": "All files (*)",
+    "lsp_refs": "References",
+    "lsp_rename": "Rename"
   },
   "preview": {
     "crop_top": "Top:",
@@ -1077,13 +1109,13 @@
     "lang_toolbar_hr": "Horizontal rule",
     "latex_insert_image": "Insert image",
     "build_analyze_ai": "Send compilation log to AI for analysis",
-    "build_next_error": "Jump to the next compilation error",
-    "build_prev_error": "Jump to the previous compilation error",
-    "build_clean_aux_before_toggle": "LaTeX projects only. Before every compilation, delete auxiliary files (.aux, .log, .out, .toc, .synctex.gz, etc.) next to the source, to start from a clean slate. The PDF is never touched. Has no effect for other languages (Rust, C, etc.), since those profiles don't produce these files.",
-    "build_clean_aux_toggle": "LaTeX projects only. After every successful compilation, delete auxiliary files (.aux, .log, .out, .toc, .synctex.gz, etc.) next to the source. The PDF is never touched. Has no effect for other languages (Rust, C, etc.), since those profiles don't produce these files.",
-    "build_keep_synctex_toggle": "Even with auxiliary-file cleanup enabled, don't delete .synctex.gz: it's needed for source↔PDF sync in the preview.",
-    "tail_mode_toggle": "Read-only mode that follows new lines appended to the file, like 'tail -f'",
-    "pin_recent_file": "Pin this file to the top of the recent list",
+    "build_next_error": "Go to next build error",
+    "build_prev_error": "Go to previous build error",
+    "build_clean_aux_before_toggle": "Clean auxiliary files before compilation",
+    "build_clean_aux_toggle": "Clean auxiliary files after successful compilation",
+    "build_keep_synctex_toggle": "Keep .synctex.gz files when cleaning aux files",
+    "tail_mode_toggle": "Toggle tail mode: auto-scroll to end of output",
+    "pin_recent_file": "Pin this file to keep it in the recent files list",
     "unpin_recent_file": "Unpin this file",
     "table_row_above": "Insert row above",
     "table_row_below": "Insert row below",
@@ -1373,11 +1405,12 @@
   },
   "split_view": {
     "panel1": "① Panel 1",
-    "panel2": "② Panel 2"
+    "panel2": "② Panel 2",
+    "panel": "Split View"
   },
   "build_panel": {
     "auto_profile": "— automatic —",
-    "no_errors": "No errors to show.",
+    "no_errors": "No compilation errors.",
     "open_pdf_tooltip": "Open: {name}",
     "no_pdf": "✗  PDF not found  — profile: {profile}",
     "no_task": "(no task found in {dir})",

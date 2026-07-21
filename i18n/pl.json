@@ -303,7 +303,9 @@
     "sentence_focus": "Fokus akapitu",
     "spell_check_dialog": "Korekta pisowni...",
     "view_include_list": "Include List",
-    "build_draft_mode_toggle": "⚡ Tryb roboczy (bez PDF)"
+    "build_draft_mode_toggle": "⚡ Tryb roboczy (bez PDF)",
+    "pin_recent_file": "Przypnij",
+    "unpin_recent_file": "Odepnij"
   },
   "color": {
     "red": "Czerwony",
@@ -397,7 +399,10 @@
     "spell_remaining": "Pozostałe błędy: {count}",
     "spell_complete": "Sprawdzanie pisowni zakończone.",
     "close": "Zamknij",
-    "pdf_no_results": "Brak wyników"
+    "pdf_no_results": "Brak wyników",
+    "auto": "Auto",
+    "new_name_prompt": "Nowa nazwa:",
+    "tab_size_prompt": "Rozmiar tab:"
   },
   "button": {
     "ok": "OK",
@@ -437,7 +442,8 @@
     "spell_replace": "Zamień",
     "spell_replace_all": "Zamień wszystko",
     "spell_add_dict": "Dodaj do słownika",
-    "find_all": "Znajdź wszystko"
+    "find_all": "Znajdź wszystko",
+    "exit_df": "Wyjdź bez rozpraszania"
   },
   "msg": {
     "unsaved_changes": "Plik \"{name}\" ma niezapisane zmiany.\nZapisać przed zamknięciem?",
@@ -511,7 +517,34 @@
     "macro_play_n_title": "Uruchom makro N razy",
     "macro_play_n_prompt": "Liczba powtórzeń:",
     "macro_save_name_prompt": "Nazwa makra:",
-    "no_terminal_supported": "Nie znaleziono obsługiwanego terminala.\nSkonfiguruj go w Preferencje → Build."
+    "no_terminal_supported": "Nie znaleziono obsługiwanego terminala.\nSkonfiguruj go w Preferencje → Build.",
+    "arcade_launch_error": "Nie udało się uruchomić gier:",
+    "buffer_identical": "Bufory są identyczne.",
+    "cannot_open_terminal": "Nie można otworzyć terminala: {error}",
+    "cannot_reload": "Nie można przeładować: {error}",
+    "disk_version_opened_for_comparison": "Wersja dyskowa otwarta do porównania.",
+    "encoding_set": "Kodowanie ustawione na {encoding}.",
+    "error": "Błąd: {error}",
+    "export_done": "Eksport zakończony: {path}",
+    "export_plain_warning": "Eksport jako zwykły tekst, formatowanie zostanie utracone. Kontynuować?",
+    "file_read_error_status": "Błąd odczytu: {error}",
+    "file_reloaded": "Plik przeładowany z dysku.",
+    "ftp_sync_error": "Błąd synchronizacji: {error}",
+    "language_set": "Język ustawiony na {lang}.",
+    "line_ending_set": "Koniec linii ustawiony na {ending}.",
+    "lsp_no_refs": "Nie znaleziono odwołań.",
+    "lsp_unavailable": "Serwer LSP niedostępny.",
+    "macro_recording_started": "Nagrywanie makra rozpoczęte.",
+    "macro_recording_stopped": "Nagrywanie makra zatrzymane.",
+    "no_extension": "Brak rozszerzenia pliku, nie można wykryć języka.",
+    "no_matching_bracket": "Nie znaleziono pasującego nawiasu.",
+    "no_saved_file_to_compare": "Zapisz najpierw plik, aby porównać z wersją dyskową.",
+    "no_supported_terminal": "Nie znaleziono obsługiwanego terminala.",
+    "pandoc_not_found": "Nie znaleziono Pandoc. Zainstaluj, aby włączyć konwersję dokumentów.",
+    "preview_off": "Podgląd wyłączony.",
+    "preview_on": "Podgląd włączony.",
+    "replacing": "Zamienianie...",
+    "spell_status": "Pisownia: pozostało {count} błędów."
   },
   "pref": {
     "title": "Preferencje",
@@ -670,7 +703,9 @@
     "save_clipboard_image": "Zapisz obraz ze schowka",
     "image_filter_save": "Obrazy PNG (*.png);;JPEG (*.jpg *.jpeg);;Wszystkie pliki (*)",
     "spell_check_title": "Korekta Pisowni",
-    "all_files": "Wszystkie pliki (*)"
+    "all_files": "Wszystkie pliki (*)",
+    "lsp_refs": "Odwołania",
+    "lsp_rename": "Zmień nazwę"
   },
   "preview": {
     "crop_top": "Góra:",
@@ -1143,7 +1178,14 @@
     "fif_replace_match": "Zastąp to dopasowanie",
     "find_all": "Znajdź wszystkie wystąpienia i wyświetl je do selektywnej zamiany",
     "build_draft_mode": "Tryb roboczy: szybkie sprawdzanie składni bez pliku PDF.",
-    "pdf_magnify": "Lupa: kliknij, aby aktywować, najedź na PDF, aby powiększyć."
+    "pdf_magnify": "Lupa: kliknij, aby aktywować, najedź na PDF, aby powiększyć.",
+    "build_clean_aux_before_toggle": "Wyczyść pliki pomocnicze przed kompilacją",
+    "build_clean_aux_toggle": "Wyczyść pliki pomocnicze po udanej kompilacji",
+    "build_keep_synctex_toggle": "Zachowaj pliki .synctex.gz podczas czyszczenia",
+    "build_next_error": "Przejdź do następnego błędu kompilacji",
+    "build_prev_error": "Przejdź do poprzedniego błędu kompilacji",
+    "pin_recent_file": "Przypnij ten plik, aby zachować go na liście ostatnich plików",
+    "tail_mode_toggle": "Tryb tail: automatyczne przewijanie do końca wyjścia"
   },
   "websearch": {
     "submenu_title": "Wyszukiwanie w sieci",
@@ -1354,7 +1396,8 @@
   },
   "split_view": {
     "panel1": "① Panel 1",
-    "panel2": "② Panel 2"
+    "panel2": "② Panel 2",
+    "panel": "Widok podzielony"
   },
   "build_panel": {
     "auto_profile": "— automatyczny —",
@@ -1405,7 +1448,9 @@
     "var_line_desc": "bieżący wiersz kursora",
     "var_col_desc": "bieżąca kolumna kursora",
     "cmd_placeholder_empty": "puste = nie dotyczy",
-    "vars_or": "lub"
+    "vars_or": "lub",
+    "aux_cleaned": "Usunięto {n} plików pomocniczych: {files}",
+    "no_errors": "Brak błędów kompilacji."
   },
   "compare": {
     "grp_file_b": "Plik B (Prawy / Zmodyfikowany)",

@@ -439,37 +439,14 @@ class BuildManager(QObject):
             self.build_output.emit(tr("build.no_command", action=action, profile=profile_name))
             return False
 
-        # --- Draft mode: copia npq-draft.sty e inietta flag nel comando ---
+        # --- Draft mode: inietta \@drafttrue (flag LaTeX standard) ---
         draft_mode = Settings.instance().get("build/draft_mode", False)
-        wrapper_cleanup = None
         if draft_mode and file_path.suffix in (".tex", ".rnw"):
-            import shutil
-            data_dir = Path(__file__).resolve().parent.parent / "data"
-            sty_src = data_dir / "npq-draft.sty"
-            sty_dest = file_path.parent / "npq-draft.sty"
-            sty_copied = False
-            if sty_src.exists():
-                try:
-                    shutil.copy2(sty_src, sty_dest)
-                    sty_copied = True
-                except OSError:
-                    pass
-
-            def cleanup():
-                if sty_copied:
-                    try: sty_dest.unlink(missing_ok=True)
-                    except OSError: pass
-
-            wrapper_cleanup = cleanup
-
-            # Sostituisci ${FILE} con codice TeX inline quotato per la shell
             file_arg = str(file_path.resolve())
             file_arg_escaped = file_arg.replace("'", "'\\''")
-            sty_name = "npq-draft.sty"
             draft_tex = (
                 f"-jobname={file_path.stem} "
-                f"'\\makeatletter\\newif\\ifnpqdraft\\npqdrafttrue\\makeatother"
-                f"\\input{{{sty_name}}}"
+                f"'\\makeatletter\\@drafttrue\\makeatother"
                 f"\\input{{{file_arg_escaped}}}'"
             )
             command = command.replace("${FILE}", draft_tex)
@@ -516,16 +493,14 @@ class BuildManager(QObject):
         # Avvia worker
         self._worker = BuildWorker(command, str(file_path.parent), env)
         self._worker.output_line.connect(self.build_output)
-
-        _cleanup = wrapper_cleanup
         self._worker.finished_ok.connect(
-            lambda secs: (self._on_done(True, secs, profile), _cleanup() if _cleanup else None)
+            lambda secs: self._on_done(True, secs, profile)
         )
         self._worker.finished_err.connect(
-            lambda code: (self._on_error(code, profile), _cleanup() if _cleanup else None)
+            lambda code: self._on_error(code, profile)
         )
         self._worker.stopped.connect(
-            lambda: (self.build_done.emit(False, tr("build.interrupted")), _cleanup() if _cleanup else None)
+            lambda: self.build_done.emit(False, tr("build.interrupted"))
         )
         self._worker.start()
         return True

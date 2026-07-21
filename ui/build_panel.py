@@ -720,11 +720,12 @@ class BuildPanel(QWidget):
         # Analizziamo quindi sempre l'output quando c'è un parser configurato.
         n = 0
         if self._current_profile:
-            # self._full_log, non self._output.toPlainText(): estrarre il testo
-            # da un widget con migliaia di righe è più lento che leggerlo da
-            # una lista Python già pronta.
             output_text = "\n".join(self._full_log)
-            errors = self._bm.parse_errors(output_text, self._current_profile)
+            source = None
+            editor = self._mw._tab_manager.current_editor() if hasattr(self._mw, "_tab_manager") else None
+            if editor:
+                source = getattr(editor, "file_path", None)
+            errors = self._bm.parse_errors(output_text, self._current_profile, source)
             self._show_errors(errors)
             n = len(errors)
         self.error_count_changed.emit(n)

@@ -620,15 +620,20 @@ class BuildManager(QObject):
         self._worker.finished.connect(lambda ok: self.build_done.emit(ok, tr("build.task_finished") if ok else tr("build.task_failed")))
         self._worker.start()
 
-    def parse_errors(self, output: str, profile_name: str) -> list[dict]:
+    def parse_errors(self, output: str, profile_name: str,
+                     source_file: Path | None = None) -> list[dict]:
         """
         Analizza l'output del build e restituisce lista di errori
         con file e numero di riga.
+        
+        Se source_file e' fornito, viene usato come fallback quando il parser
+        non riesce a determinare il file dagli indicatori di contesto.
+        Legge anche il .log file corrispondente se esiste.
         """
         profile = self._profiles.get(profile_name, {})
 
         if profile.get("error_parser") == "latex":
-            return self._parse_latex_log(output)
+            return self._parse_latex_log(output, source_file)
 
         # Se il profilo non ha error_parser esplicito, auto-rileva
         # dal contenuto dell'output: se contiene pattern LaTeX (es.
@@ -639,7 +644,7 @@ class BuildManager(QObject):
             or re.search(r'\.tex:\d+:', output[:3000])
             or re.search(r'l\.\d+', output[:3000])
         ):
-            return self._parse_latex_log(output)
+            return self._parse_latex_log(output, source_file)
 
         pattern = profile.get("error_regex", "")
         if not pattern:
@@ -669,7 +674,7 @@ class BuildManager(QObject):
         return errors
 
     @staticmethod
-    def _parse_latex_log(output: str) -> list[dict]:
+    def _parse_latex_log(output: str, source_file: Optional[Path] = None) -> list[dict]:
         """
         Parser dedicato per log LaTeX/XeLaTeX/LuaLaTeX.
 
@@ -678,9 +683,26 @@ class BuildManager(QObject):
         - Package errors: "! Package X Error: messaggio"
         - Formato moderno: "./file.tex:N: messaggio"
         - Warning: "LaTeX Warning:", "Package X Warning:", etc.
+
+        source_file: percorso del file .tex compilato, usato come fallback
+                     quando il parser non trova il file dal contesto.
         """
         errors: list[dict] = []
         seen: set[tuple] = set()
+
+        # Fallback: se source_file e' fornito, usalo quando main_file e' vuoto
+        fallback_file = str(source_file.name) if source_file else ""
+
+        # Leggi anche il .log file se esiste (ha piu' dettagli)
+        if source_file and source_file.exists():
+            log_path = source_file.with_suffix(".log")
+            if log_path.exists():
+                try:
+                    log_content = log_path.read_text(errors="replace")
+                    if len(log_content) > len(output):
+                        output = log_content
+                except Exception:
+                    pass
 
         # ── Pattern 1: errore TeX classico ───────────────────────────────
         file_stack: list[str] = []
@@ -730,7 +752,7 @@ class BuildManager(QObject):
                 # Se il formato moderno ha dato il file, usalo; altrimenti
                 # preferisci il main_file (il .tex compilato) al current_file
                 # (che potrebbe essere un .cfg/.sty aperto dopo).
-                eff_file = current_file if _RE_LATEX_MODERN.search(raw) else (main_file or current_file)
+                eff_file = current_file if _RE_LATEX_MODERN.search(raw) else (main_file or current_file or fallback_file)
                 key = (eff_file, line_num, msg)
                 if key not in seen:
                     seen.add(key)
@@ -770,7 +792,7 @@ class BuildManager(QObject):
             for lm_match in re.finditer(r'l\.(\d+)', before):
                 lm = lm_match
             line_num = int(lm.group(1)) if lm else 0
-            eff_file = main_file or current_file or ""
+            eff_file = main_file or current_file or fallback_file
             key = (eff_file, line_num, msg[:120])
             if key not in seen:
                 seen.add(key)

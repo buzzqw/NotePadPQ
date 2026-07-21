@@ -1387,6 +1387,12 @@ class BuildProfilesDialog(QDialog):
             "error_file_group":   1,
             "error_line_group":   2,
         }
+        # Preserva "error_parser" (es. "latex"): il form non lo espone come
+        # campo modificabile, quindi ricostruire il dict da zero lo perderebbe
+        # ad ogni salvataggio, disattivando il parser dedicato LaTeX.
+        existing_parser = self._bm.get_profiles().get(name, {}).get("error_parser")
+        if existing_parser:
+            profile["error_parser"] = existing_parser
         self._bm.add_profile(name, profile)
 
         # Aggiorna lista se è un nome nuovo

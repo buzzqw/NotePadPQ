@@ -699,7 +699,7 @@ class BuildManager(QObject):
             if log_path.exists():
                 try:
                     log_content = log_path.read_text(errors="replace")
-                    if len(log_content) > len(output):
+                    if log_content:
                         output = log_content
                 except Exception:
                     pass

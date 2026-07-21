@@ -311,7 +311,7 @@
     "sentence_focus": "Paragraph focus",
     "spell_check_dialog": "Spelling Review...",
     "view_include_list": "Include List",
-    "build_draft_mode_toggle": "⚡ Draft Mode"
+    "build_draft_mode_toggle": "⚡ Draft Mode (no PDF)"
   },
   "color": {
     "red": "Red",

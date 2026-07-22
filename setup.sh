@@ -17,7 +17,7 @@ PIP_LATEX="pymupdf matplotlib sympy"
 PIP_SPREADSHEET="openpyxl xlrd odfpy"
 
 # Pacchetti per il plugin Rich Text (WYSIWYG docx/odt/rtf)
-PIP_RICHTEXT="mammoth htmldocx"
+PIP_RICHTEXT="mammoth htmldocx pypandoc"
 
 # Pacchetti per i Code Formatter Python (black e ruff; prettier/clang-format si installano a parte)
 PIP_FORMATTERS="black ruff"
@@ -31,7 +31,8 @@ _check_pkg_status() {
     local pkgs="$1"
     local python_bins="$PYTHON"
     local VENV_DIR="${PROJECT_DIR}/.venv"
-    [[ -x "${VENV_DIR}/bin/python" ]] && python_bins="$PYTHON ${VENV_DIR}/bin/python"
+    # Se il venv esiste, controlla solo lì (il lanciatore userà il venv)
+    [[ -x "${VENV_DIR}/bin/python" ]] && python_bins="${VENV_DIR}/bin/python"
 
     local total=0
     local found=0
@@ -174,8 +175,10 @@ _pip_or_venv() {
         return $?
     fi
 
+    set +e
     $PYTHON -m pip install $extra_args $pkgs >/tmp/_pip_out.txt 2>&1
     local pip_exit=$?
+    set -e
 
     if [[ $pip_exit -eq 0 ]]; then
         return 0
@@ -225,6 +228,92 @@ _install_in_venv() {
     echo
 }
 
+# ─── uv (gestore pacchetti Python veloce) ─────────────────────────────────────
+
+# Verifica se uv è installato; altrimenti offre di installarlo.
+# Ritorna 0 se uv è disponibile, 1 altrimenti (fallback a pip).
+_ensure_uv() {
+    # uv può essere in ~/.local/bin o ~/.cargo/bin (non sempre nel PATH)
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
+    if command -v uv &>/dev/null; then
+        echo "  uv rilevato: $(uv --version 2>/dev/null || true)"
+        return 0
+    fi
+
+    echo
+    echo "  uv (gestore pacchetti Python veloce, raccomandato) non trovato."
+    echo "  uv evita i blocchi 'externally managed' e crea venv rapidamente."
+    echo -n "  Installare uv? [S/n] "
+    read -r UV_CHOICE
+    UV_CHOICE=${UV_CHOICE:-s}
+
+    if [[ "$UV_CHOICE" =~ ^[Ss]$ ]]; then
+        echo "  Installazione uv in corso..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="$HOME/.local/bin:$PATH"
+        if command -v uv &>/dev/null; then
+            echo "  uv installato: $(uv --version 2>/dev/null || true)"
+            return 0
+        else
+            echo "  ERRORE: installazione uv fallita. Uso pip come fallback."
+            return 1
+        fi
+    else
+        echo "  Uso pip come fallback."
+        return 1
+    fi
+}
+
+# Installa pacchetti Python con uv.
+# Se il .venv del progetto esiste già, installa lì.
+# Altrimenti prova uv pip install --system; se fallisce, offre di creare un venv.
+_uv_install() {
+    local pkgs="$1"
+    local VENV_DIR="${PROJECT_DIR}/.venv"
+
+    if [[ -x "${VENV_DIR}/bin/python" ]]; then
+        echo "  .venv rilevato — installo nel venv esistente: ${VENV_DIR}"
+        set +e
+        uv pip install --python "${VENV_DIR}/bin/python" $pkgs
+        set -e
+        return $?
+    fi
+
+    echo "  Installazione con uv (system)..."
+    if uv pip install --system $pkgs 2>/dev/null; then
+        return 0
+    fi
+
+    echo
+    echo "  Installazione di sistema fallita."
+    echo -n "  Creare un virtualenv dedicato (${VENV_DIR})? [S/n] "
+    read -r VENV_CHOICE
+    VENV_CHOICE=${VENV_CHOICE:-s}
+
+    if [[ "$VENV_CHOICE" =~ ^[Ss]$ ]]; then
+        echo "  Creazione virtualenv con uv..."
+        uv venv "$VENV_DIR"
+        echo "  Installazione pacchetti nel venv..."
+        uv pip install --python "${VENV_DIR}/bin/python" $pkgs
+
+        local LAUNCHER="${HOME}/.local/share/applications/notepadpq.desktop"
+        if [[ -f "$LAUNCHER" ]]; then
+            sed -i "s|^Exec=.*|Exec=${VENV_DIR}/bin/python ${PROJECT_DIR}/main.py %F|" "$LAUNCHER"
+            echo "  Lanciatore aggiornato per usare il venv: ${VENV_DIR}/bin/python"
+        fi
+
+        echo
+        echo "  NOTA: per avviare NotePadPQ dal terminale con le dipendenze del venv:"
+        echo "    ${VENV_DIR}/bin/python ${PROJECT_DIR}/main.py"
+        echo "  oppure attiva il venv prima:"
+        echo "    source ${VENV_DIR}/bin/activate"
+        echo
+    else
+        echo "  Installazione saltata. Puoi installare manualmente: uv pip install $pkgs"
+    fi
+}
+
 _print_latex_hint() {
     echo
     echo "┌─────────────────────────────────────────────────────────────────┐"
@@ -238,12 +327,21 @@ _print_latex_hint() {
     echo "│  • synctex     — navigazione bidirezionale sorgente ↔ PDF       │"
     echo "│                  (pacchetto di sistema, incluso in TeX Live)    │"
     echo "│                                                                 │"
-    echo "│  Installazione rapida (pip):                                    │"
-    echo "│    pip install pymupdf matplotlib sympy                         │"
-    echo "│                                                                 │"
-    echo "│  Su Arch Linux:                                                 │"
-    echo "│    sudo pacman -S python-pymupdf python-matplotlib python-sympy │"
-    echo "│    sudo pacman -S texlive-bin   (include synctex)               │"
+    if command -v apt-get &>/dev/null; then
+        echo "│  Installazione rapida (apt):                                    │"
+        echo "│    sudo apt install python3-pymupdf python3-matplotlib python3-sympy │"
+        echo "│    sudo apt install texlive-bin   (include synctex)             │"
+        echo "│                                                                 │"
+        echo "│  Oppure con uv:                                                 │"
+        echo "│    uv pip install pymupdf matplotlib sympy                      │"
+    elif command -v pacman &>/dev/null; then
+        echo "│  Installazione rapida (pacman):                                 │"
+        echo "│    sudo pacman -S python-pymupdf python-matplotlib python-sympy │"
+        echo "│    sudo pacman -S texlive-bin   (include synctex)               │"
+    else
+        echo "│  Installazione rapida (pip):                                    │"
+        echo "│    pip install pymupdf matplotlib sympy                         │"
+    fi
     echo "└─────────────────────────────────────────────────────────────────┘"
 }
 
@@ -259,7 +357,14 @@ _create_linux_launcher() {
     echo
     echo "=== Creazione lanciatore Linux ==="
 
-    PYTHON_BIN=$(command -v "$PYTHON")
+    local VENV_DIR="${PROJECT_DIR}/.venv"
+    if [[ -x "${VENV_DIR}/bin/python" ]]; then
+        PYTHON_BIN="${VENV_DIR}/bin/python"
+        echo "  Python venv:      ${PYTHON_BIN}"
+    else
+        PYTHON_BIN=$(command -v "$PYTHON")
+        echo "  Python sistema:   ${PYTHON_BIN}"
+    fi
 
     ICON_PATH=""
     for _try_icon in \
@@ -345,30 +450,61 @@ elif command -v pacman &>/dev/null; then
 
 elif command -v apt-get &>/dev/null; then
     BREAK="--break-system-packages"
-    sudo apt-get update
+    sudo apt-get update || true
     # Pacchetti base via apt (preferiti al pip su Debian/Ubuntu)
     APT_BASE="python3-pyqt6 python3-pyqt6.qsci python3-chardet python3-markdown python3-pyqt6.qtwebengine"
     APT_OPTIONAL=""
     $INSTALL_SPREADSHEET && APT_OPTIONAL+=" python3-openpyxl python3-xlrd python3-odf"
     $INSTALL_LATEX       && APT_OPTIONAL+=" python3-matplotlib python3-sympy"
-    sudo apt-get install -y $APT_BASE $APT_OPTIONAL 2>/dev/null || true
+    $INSTALL_RICHTEXT    && APT_OPTIONAL+=" pandoc"
+    sudo apt-get install -y $APT_BASE $APT_OPTIONAL || true
 
-    # Pacchetti non disponibili in apt → pip (con fallback venv)
+    # Offri uv per i pacchetti non disponibili in apt (evita 'externally managed')
+    if _ensure_uv; then
+        USE_UV=true
+    else
+        USE_UV=false
+    fi
+
     echo "  Installazione pacchetti base non disponibili in apt (PyGithub, keyring, ecc.)..."
-    _pip_or_venv "$PIP_CORE" "$BREAK"
+    if $USE_UV; then
+        _uv_install "$PIP_CORE"
+    else
+        _pip_or_venv "$PIP_CORE" "$BREAK"
+    fi
 
     if $INSTALL_RICHTEXT; then
-        echo "  Rich Text: installo via pip..."
-        _pip_or_venv "$PIP_RICHTEXT" "$BREAK"
+        echo "  Rich Text: installo..."
+        if $USE_UV; then
+            _uv_install "$PIP_RICHTEXT"
+        else
+            _pip_or_venv "$PIP_RICHTEXT" "$BREAK"
+        fi
     fi
     if $INSTALL_LATEX; then
-        echo "  LaTeX avanzato: installo pymupdf via pip..."
-        _pip_or_venv "pymupdf" "$BREAK"
+        echo "  LaTeX avanzato: installo pymupdf, matplotlib, sympy..."
+        if $USE_UV; then
+            _uv_install "$PIP_LATEX"
+        else
+            _pip_or_venv "$PIP_LATEX" "$BREAK"
+        fi
+    fi
+    if $INSTALL_SPREADSHEET; then
+        echo "  Foglio di calcolo: installo openpyxl, xlrd, odfpy..."
+        if $USE_UV; then
+            _uv_install "$PIP_SPREADSHEET"
+        else
+            _pip_or_venv "$PIP_SPREADSHEET" "$BREAK"
+        fi
     fi
     if $INSTALL_FORMATTERS; then
-        echo "  Code Formatter: installo black via apt e ruff via pip..."
+        echo "  Code Formatter: installo black via apt e ruff..."
         sudo apt-get install -y python3-black 2>/dev/null || true
-        _pip_or_venv "ruff" "$BREAK"
+        if $USE_UV; then
+            _uv_install "ruff"
+        else
+            _pip_or_venv "ruff" "$BREAK"
+        fi
     fi
 
 elif command -v dnf &>/dev/null; then
@@ -423,10 +559,15 @@ fi
 
 # ─── Verifica finale ──────────────────────────────────────────────────────────
 
+# Se esiste un venv, usa il suo Python per la verifica
+VERIFY_PYTHON="$PYTHON"
+VENV_DIR="${PROJECT_DIR}/.venv"
+[[ -x "${VENV_DIR}/bin/python" ]] && VERIFY_PYTHON="${VENV_DIR}/bin/python"
+
 echo
 echo "=== Verifica dipendenze ==="
 echo "--- Base (richieste) ---"
-$PYTHON -c "
+$VERIFY_PYTHON -c "
 def check(name, cmd):
     try:
         exec(cmd)
@@ -447,7 +588,7 @@ check('Keyring',     'import keyring')
 "
 echo
 echo "--- Foglio di calcolo (opzionali) ---"
-$PYTHON -c "
+$VERIFY_PYTHON -c "
 def check_opt(name, cmd, desc):
     try:
         exec(cmd)
@@ -462,7 +603,7 @@ check_opt('odfpy',      'import odf',       'ODS (fallback se openpyxl < 3.1)')
 
 echo
 echo "--- Plugin Rich Text (opzionali) ---"
-$PYTHON -c "
+$VERIFY_PYTHON -c "
 def check_opt(name, cmd, desc):
     try:
         exec(cmd)
@@ -482,7 +623,7 @@ fi
 
 echo
 echo "--- LaTeX avanzato (opzionali) ---"
-$PYTHON -c "
+$VERIFY_PYTHON -c "
 def check_opt(name, cmd, desc):
     try:
         exec(cmd)
@@ -498,7 +639,7 @@ _check_synctex
 
 echo
 echo "--- Plugin FTP/SFTP/SMB ---"
-if python3 -c "import paramiko" &>/dev/null 2>&1; then
+if $VERIFY_PYTHON -c "import paramiko" &>/dev/null 2>&1; then
     echo "  paramiko: OK  (SFTP)"
 else
     echo "  paramiko: non installato  →  pip install paramiko  (per SFTP)"
@@ -524,7 +665,16 @@ for tool in black ruff prettier clang-format rustfmt gofmt; do
     fi
 done
 echo "  Installa i formatter mancanti:"
-echo "    pip install black ruff              # Python"
+if command -v apt-get &>/dev/null; then
+    if command -v uv &>/dev/null; then
+        echo "    uv pip install black ruff         # Python"
+    else
+        echo "    pip install black ruff            # Python"
+    fi
+    echo "    sudo apt install python3-black    # Python (via apt)"
+else
+    echo "    pip install black ruff            # Python"
+fi
 echo "    npm i -g prettier                  # JS/TS/HTML/CSS"
 echo "    apt install clang-format           # C/C++ (oppure brew/choco)"
 echo "    rustup component add rustfmt       # Rust"
@@ -540,14 +690,22 @@ for tool in pylsp clangd rust-analyzer gopls texlab typescript-language-server; 
     fi
 done
 echo "  Installa i server mancanti:"
-echo "    pip install python-lsp-server        # Python"
+if command -v apt-get &>/dev/null; then
+    if command -v uv &>/dev/null; then
+        echo "    uv pip install python-lsp-server   # Python"
+    else
+        echo "    pip install python-lsp-server      # Python"
+    fi
+else
+    echo "    pip install python-lsp-server        # Python"
+fi
 echo "    apt install clangd                   # C/C++"
 echo "    go install golang.org/x/tools/gopls@latest  # Go"
 echo "    npm i -g typescript-language-server  # TypeScript/JavaScript"
 
 echo
 echo "--- Plugin AI Assistant ---"
-$PYTHON -c "import urllib.request; print('  urllib (stdlib): OK')"
+$VERIFY_PYTHON -c "import urllib.request; print('  urllib (stdlib): OK')"
 echo "  Configura le API key dal pannello AI (Ctrl+Alt+A → ⚙)"
 echo "  Anthropic: https://console.anthropic.com/settings/keys"
 echo "  OpenAI:    https://platform.openai.com/api-keys"
@@ -566,8 +724,16 @@ echo "│  • mammoth   — lettura DOCX (conversione a HTML)                �
 echo "│  • htmldocx  — scrittura DOCX (esportazione da HTML)            │"
 echo "│  • pypandoc  — ODT/RTF/DOCX/LaTeX (richiede pandoc di sistema)  │"
 echo "│                                                                 │"
-echo "│  Installazione rapida (pip):                                    │"
-echo "│    pip install mammoth htmldocx                                 │"
+echo "│  Installazione rapida:                                          │"
+if command -v apt-get &>/dev/null; then
+    if command -v uv &>/dev/null; then
+        echo "│    uv pip install mammoth htmldocx                               │"
+    else
+        echo "│    pip install mammoth htmldocx                                  │"
+    fi
+else
+    echo "│    pip install mammoth htmldocx                                  │"
+fi
 echo "└─────────────────────────────────────────────────────────────────┘"
 echo
 
@@ -576,7 +742,7 @@ echo "│  Plugin Code Formatter (opzionale)                              │"
 echo "│                                                                 │"
 echo "│  Per formattare il codice con Ctrl+Alt+F:                       │"
 echo "│                                                                 │"
-echo "│  • black / ruff  — Python  (pip install black ruff)             │"
+echo "│  • black / ruff  — Python  (uv pip install black ruff)          │"
 echo "│  • prettier      — JS/TS/HTML/CSS  (npm i -g prettier)          │"
 echo "│  • clang-format  — C/C++  (apt install clang-format)            │"
 echo "│  • rustfmt       — Rust  (rustup component add rustfmt)         │"
@@ -584,7 +750,15 @@ echo "│  • gofmt         — Go  (incluso nel toolchain Go)               �
 echo "│  • json.tool / minidom — JSON/XML  (stdlib Python, già incluso) │"
 echo "│                                                                 │"
 echo "│  Installazione rapida:                                          │"
-echo "│    pip install black ruff                                       │"
+if command -v apt-get &>/dev/null; then
+    if command -v uv &>/dev/null; then
+        echo "│    uv pip install black ruff                                     │"
+    else
+        echo "│    pip install black ruff                                        │"
+    fi
+else
+    echo "│    pip install black ruff                                        │"
+fi
 echo "│    npm i -g prettier                                            │"
 echo "└─────────────────────────────────────────────────────────────────┘"
 echo
@@ -597,8 +771,13 @@ echo "│  • openpyxl  — XLSX, XLSM, ODS (lettura e scrittura)           │
 echo "│  • xlrd      — XLS legacy (sola lettura)                        │"
 echo "│  • odfpy     — ODS (fallback per scrittura)                     │"
 echo "│                                                                 │"
-echo "│  Installazione rapida (pip):                                    │"
-echo "│    pip install openpyxl xlrd odfpy                              │"
+if command -v apt-get &>/dev/null; then
+    echo "│  Installazione rapida (apt):                                    │"
+    echo "│    sudo apt install python3-openpyxl python3-xlrd python3-odf   │"
+else
+    echo "│  Installazione rapida (pip):                                    │"
+    echo "│    pip install openpyxl xlrd odfpy                              │"
+fi
 echo "└─────────────────────────────────────────────────────────────────┘"
 
 if [[ "$OS" == "Linux" ]]; then

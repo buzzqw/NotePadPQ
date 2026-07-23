@@ -375,9 +375,6 @@ class _SearchResultsPanel(QWidget):
         self._filter_mode.currentIndexChanged.connect(self._apply_filter)
         fl.addWidget(self._filter_mode)
 
-        self._chk_filter_regex = QCheckBox(".*")
-        self._chk_filter_regex.hide()
-
         btn_expand = QToolButton()
         btn_expand.setText("⊞")
         btn_expand.setToolTip(_t("btn_expand"))
@@ -1092,7 +1089,10 @@ class _SearchResultsPanel(QWidget):
         return re.compile("".join(parts), re.IGNORECASE | re.DOTALL)
 
     def _apply_filter(self, text=None) -> None:
-        if text is None:
+        if not isinstance(text, str):
+            # Chiamato anche da filter_mode.currentIndexChanged(int) e da
+            # add_results() senza argomenti: in questi casi va riletto il
+            # testo corrente del campo filtro, non l'indice del combobox.
             text = self._filter_edit.text()
         mode = self._filter_mode.currentData()
         text = text.strip()

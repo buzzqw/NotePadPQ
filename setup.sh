@@ -8,7 +8,7 @@ OS=$(uname)
 PROJECT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # Pacchetti base (sempre richiesti)
-PIP_CORE="PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pyspellchecker PyGithub python-gitlab keyring"
+PIP_CORE="PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pyspellchecker PyGithub python-gitlab keyring psutil"
 
 # Pacchetti opzionali per il supporto LaTeX avanzato
 PIP_LATEX="pymupdf matplotlib sympy"
@@ -585,6 +585,7 @@ check('Spellchecker','import spellchecker')
 check('PyGithub',    'import github')
 check('GitLab',      'import gitlab')
 check('Keyring',     'import keyring')
+check('psutil',      'import psutil')
 "
 echo
 echo "--- Foglio di calcolo (opzionali) ---"

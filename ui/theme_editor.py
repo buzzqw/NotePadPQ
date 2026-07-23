@@ -233,6 +233,8 @@ class ThemeEditorDialog(QDialog):
         btns.accepted.connect(self._save)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
+        btns.button(QDialogButtonBox.StandardButton.Save).setText(tr("button.save", default="Save"))
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
         self._current_section = ""
         self._current_key     = ""

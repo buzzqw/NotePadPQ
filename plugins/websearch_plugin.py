@@ -239,6 +239,8 @@ class _SettingsDialog(QDialog):
         bb.accepted.connect(self._save_and_accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        bb.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
     def _load(self) -> None:
         s = Settings.instance()

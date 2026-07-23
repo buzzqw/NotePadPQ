@@ -147,6 +147,8 @@ class KeyBindingDialog(QDialog):
         btns.button(QDialogButtonBox.StandardButton.Reset).setText(
             tr("keybinding.btn_reset_all")
         )
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
         btns.button(QDialogButtonBox.StandardButton.Reset).clicked.connect(
             self._reset_all
         )

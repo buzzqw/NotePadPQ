@@ -1298,6 +1298,8 @@ class _LanguageToolbarWidget(QWidget):
         bbox.accepted.connect(dlg.accept)
         bbox.rejected.connect(dlg.reject)
         form.addRow(bbox)
+        bbox.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        bbox.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
         if dlg.exec() != QDialog.DialogCode.Accepted:
             editor.setFocus()

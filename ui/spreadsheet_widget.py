@@ -521,7 +521,8 @@ class ImportWizardDialog(QDialog):
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        btns.button(QDialogButtonBox.StandardButton.Ok).setText("Importa")
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
@@ -2197,6 +2198,8 @@ class SpreadsheetWidget(QWidget):
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         v.addWidget(bb)
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        bb.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         return spin.value() if r_n.isChecked() else total

@@ -113,6 +113,7 @@ class _AIAnalyzeDialog(QDialog):
         bbox.button(QDialogButtonBox.StandardButton.Ok).setText(
             tr("action.build_analyze_ai_send")
         )
+        bbox.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
         bbox.accepted.connect(self.accept)
         bbox.rejected.connect(self.reject)
         root.addWidget(bbox)

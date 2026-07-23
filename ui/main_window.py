@@ -3828,6 +3828,8 @@ class MainWindow(QMainWindow):
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         vl.addWidget(bb)
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        bb.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return

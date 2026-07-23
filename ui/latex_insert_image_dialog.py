@@ -72,6 +72,8 @@ class LatexInsertImageDialog(QDialog):
         self._btn_defaults.clicked.connect(self._reset_defaults)
 
         root.addWidget(self._bbox)
+        self._bbox.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        self._bbox.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
     def _build_file_row(self) -> QWidget:
         w = QWidget(self)

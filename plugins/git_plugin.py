@@ -311,6 +311,8 @@ class _CredentialsDialog(QDialog):
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         btns.accepted.connect(self._save); btns.rejected.connect(self.reject)
         layout.addWidget(btns)
+        btns.button(QDialogButtonBox.StandardButton.Save).setText(tr("button.save", default="Save"))
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
     def _load_values(self) -> None:
         if self._git:

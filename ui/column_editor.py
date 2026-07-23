@@ -91,6 +91,8 @@ class ColumnEditorDialog(QDialog):
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
         vl.addWidget(btns)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
         # Connessioni per aggiornamento preview
         self._rb_numbers.toggled.connect(self._on_mode_changed)

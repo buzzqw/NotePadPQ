@@ -305,6 +305,8 @@ class _PrefsDialog(QDialog):
         btns.accepted.connect(self._on_ok)
         btns.rejected.connect(self.reject)
         lay.addWidget(btns)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
     def _on_ok(self):
         for lang, edit in self._edits.items():

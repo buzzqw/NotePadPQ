@@ -1208,6 +1208,8 @@ class _SettingsDialog(QDialog):
         btns.accepted.connect(self._save)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
     def _load(self) -> None:
         for pid, edit in self._key_edits.items():

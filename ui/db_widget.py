@@ -240,6 +240,7 @@ class DBDriverInstallerDialog(QDialog):
             QDialogButtonBox.ButtonRole.AcceptRole
         )
         btns.addButton(QDialogButtonBox.StandardButton.Cancel)
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
         btns.accepted.connect(self._do_install)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
@@ -349,6 +350,8 @@ class DBConnectDialog(QDialog):
         btns.accepted.connect(self._accept)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
         self._on_type_changed()
 
@@ -1405,6 +1408,8 @@ class _QueryTab(QWidget):
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
         v.addWidget(bb)
+        bb.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        bb.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None

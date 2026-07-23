@@ -356,6 +356,8 @@ class _LaTeXTableDialog(QDialog):
         btns.accepted.connect(self._on_accept)
         btns.rejected.connect(self.reject)
         main.addWidget(btns)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
         # ── Connessioni ───────────────────────────────────────────────────────
         self._spin_cols.valueChanged.connect(self._on_cols_changed)

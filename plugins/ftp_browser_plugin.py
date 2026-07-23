@@ -118,6 +118,8 @@ class _ProfileDialog(QDialog):
         btns.accepted.connect(self._on_accept)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
         self._protocol.currentTextChanged.connect(self._on_protocol_changed)
         self._on_protocol_changed(self._protocol.currentText())
@@ -205,6 +207,8 @@ class _SmbMountDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
 
 # ─── Pannello FTP ─────────────────────────────────────────────────────────────

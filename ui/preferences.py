@@ -81,6 +81,11 @@ class PreferencesDialog(QDialog):
         buttons.button(QDialogButtonBox.StandardButton.Apply).clicked.connect(self._apply)
         layout.addWidget(buttons)
 
+        # Forza il testo tradotto (Qt usa le sue traduzioni native, non quelle dell'app)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
+        buttons.button(QDialogButtonBox.StandardButton.Apply).setText(tr("button.apply", default="Apply"))
+
     # ── Scheda Editor ─────────────────────────────────────────────────────────
 
     def _tab_editor(self) -> QWidget:

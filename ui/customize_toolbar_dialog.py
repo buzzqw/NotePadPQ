@@ -138,6 +138,8 @@ class CustomizeToolbarDialog(QDialog):
         bbox.accepted.connect(self._on_ok)
         bbox.rejected.connect(self.reject)
         bottom.addWidget(bbox)
+        bbox.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
+        bbox.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
         root.addLayout(bottom)
 
     # ── popolamento liste ─────────────────────────────────────────────────────

@@ -113,12 +113,14 @@ class LoremIpsumDialog(QDialog):
         self._spin_para = QSpinBox()
         self._spin_para.setRange(1, 20)
         self._spin_para.setValue(3)
+        self._spin_para.valueChanged.connect(self._generate)
         grid.addWidget(self._spin_para, 0, 1)
 
         grid.addWidget(QLabel(tr("lorem_ipsum.label_sentences")), 0, 2)
         self._spin_sent = QSpinBox()
         self._spin_sent.setRange(1, 12)
         self._spin_sent.setValue(4)
+        self._spin_sent.valueChanged.connect(self._generate)
         grid.addWidget(self._spin_sent, 0, 3)
 
         grid.addWidget(QLabel(tr("lorem_ipsum.label_separator")), 1, 0)
@@ -128,10 +130,12 @@ class LoremIpsumDialog(QDialog):
             tr("lorem_ipsum.sep_single_newline"),
             tr("lorem_ipsum.sep_none"),
         ])
+        self._combo_sep.currentIndexChanged.connect(self._generate)
         grid.addWidget(self._combo_sep, 1, 1)
 
         self._chk_classic = QCheckBox(tr("lorem_ipsum.chk_classic"))
         self._chk_classic.setChecked(True)
+        self._chk_classic.stateChanged.connect(self._generate)
         grid.addWidget(self._chk_classic, 1, 2, 1, 2)
 
         vl.addWidget(opt_box)
@@ -160,7 +164,7 @@ class LoremIpsumDialog(QDialog):
         idx = self._combo_sep.currentIndex()
         return ["\n\n", "\n", ""][idx]
 
-    def _generate(self) -> None:
+    def _generate(self, *_) -> None:
         text = generate(
             paragraphs=self._spin_para.value(),
             sentences_per_para=self._spin_sent.value(),

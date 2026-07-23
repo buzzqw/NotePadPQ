@@ -509,16 +509,18 @@ ESEMPI
   <[^>]+>       tag HTML generico
 """
         self._regex_help.setPlainText(_REGEX_MANUAL)
-        self._regex_help.setStyleSheet(
-            "QPlainTextEdit {"
-            "  background:#1a1f1a; color:#b5cea8;"
-            "  font-family: monospace; font-size: 11px;"
-            "  border: 1px solid #3a4a3a; border-radius: 3px;"
-            "  padding: 4px;"
-            "}"
-        )
+        self._apply_regex_help_theme()
         self._regex_help.setFixedHeight(180)
         self._regex_help.setVisible(False)
+
+        # Riapplica il tema del pannello regex quando il tema cambia
+        try:
+            from config.themes import ThemeManager
+            ThemeManager.instance().theme_changed.connect(
+                lambda _=None: self._apply_regex_help_theme()
+            )
+        except Exception:
+            pass
         g.addWidget(self._regex_help, 4, 0, 1, 2)
         self._chk_regex.toggled.connect(self._regex_help.setVisible)
 
@@ -775,13 +777,50 @@ ESEMPI
 
     # ── Logica ricerca ────────────────────────────────────────────────────────
 
+    def _apply_regex_help_theme(self) -> None:
+        """Applica i colori del tema al pannello regex help."""
+        palette = self.palette()
+        bg = palette.color(palette.ColorRole.Base).name()
+        fg = palette.color(palette.ColorRole.Text).name()
+        is_dark = palette.color(palette.ColorRole.Window).lightness() < 128
+        border = "#3a4a3a" if is_dark else "#c0c8c0"
+        bg = bg if bg != "#000000" else ("#1a1f1a" if is_dark else "#f0f5f0")
+        fg = fg if fg not in ("#000000", "#ffffff") else ("#b5cea8" if is_dark else "#334433")
+        self._regex_help.setStyleSheet(
+            "QPlainTextEdit {"
+            f"  background:{bg}; color:{fg};"
+            "  font-family: monospace; font-size: 11px;"
+            f"  border: 1px solid {border}; border-radius: 3px;"
+            "  padding: 4px;"
+            "}"
+        )
+
     def _get_flags(self) -> dict:
         return {
             "case_sensitive": self._chk_case.isChecked(),
             "whole_word":     self._chk_word.isChecked(),
             "regex":          self._chk_regex.isChecked(),
             "wrap":           self._chk_wrap.isChecked(),
+            "in_selection":   self._chk_sel.isChecked(),
         }
+
+    def _build_pattern(self, pattern_text: str,
+                        flags: dict) -> Optional[re.Pattern]:
+        """Compila un pattern regex unificato: regex/escape + whole_word + flag.
+        Restituisce None se il pattern non è valido; in tal caso il messaggio
+        d'errore è disponibile in self._last_pattern_error."""
+        self._last_pattern_error = None
+        if not pattern_text:
+            return None
+        try:
+            re_flags = 0 if flags.get("case_sensitive") else re.IGNORECASE
+            pat = pattern_text if flags.get("regex") else re.escape(pattern_text)
+            if flags.get("whole_word"):
+                pat = rf"\b{pat}\b"
+            return re.compile(pat, re_flags)
+        except re.error as e:
+            self._last_pattern_error = str(e)
+            return None
 
     def _current_editor(self) -> Optional[EditorWidget]:
         return self._mw._tab_manager.current_editor()
@@ -802,9 +841,15 @@ ESEMPI
             return False
 
         flags = self._get_flags()
-        # Comportamento "PRO editor": mantieni evidenziate TUTTE le occorrenze
-        # mentre navighi (Find Next/Prev). Le riapplichiamo ad ogni ricerca così
-        # da ripulire eventuali residui di pattern precedenti.
+        # Se in_selection è attivo e c'è testo selezionato, limita la ricerca
+        # alla selezione usando setTargetRange di QScintilla
+        if flags.get("in_selection") and editor.hasSelectedText():
+            sl, sc, el, ec, _ = editor.getSelection()
+            # Sposta il cursore all'inizio della selezione per findFirst
+            editor.setCursorPosition(sl, sc)
+            if not forward:
+                editor.setCursorPosition(el, ec)
+            # QScintilla findFirst userà la posizione corrente come partenza
         if highlight_all:
             editor.clear_indicator(INDICATOR_MARK1)
             self._highlight_all(editor, text, flags, INDICATOR_MARK1)
@@ -970,19 +1015,14 @@ ESEMPI
             return
         text = self._find_edit.currentText()
         if len(text) < 1:
-            # Query svuotata → via tutte le evidenziazioni (niente fantasmi).
             self._clear_find_highlights(editor)
             self._find_occurrences.clear()
             self._lbl_status.setText("")
             return
         flags = self._get_flags()
-        # Comportamento "PRO editor": ogni nuova ricerca azzera le evidenziazioni
-        # precedenti (niente fantasmi), poi evidenzia TUTTE le occorrenze
-        # (highlight secondario) e marca il match corrente in modo distinto
-        # (highlight forte). La pulizia di riga/match la fa highlight_find_match.
+        forward = self._radio_fwd.isChecked()
         editor.clear_indicator(INDICATOR_FIND_LINE)
-        self._do_find(self._find_edit, forward=True, highlight_all=True)
-        # Aggiorna lista occorrenze con un minimo di 2 caratteri
+        self._do_find(self._find_edit, forward=forward, highlight_all=True)
         if len(text) >= 2:
             self._populate_occurrences(editor, text, flags)
 
@@ -1016,16 +1056,11 @@ ESEMPI
         if not pattern_text:
             self._lbl_status.setText("")
             return
-        try:
-            re_flags = 0 if flags["case_sensitive"] else re.IGNORECASE
-            pat = pattern_text if flags["regex"] else re.escape(pattern_text)
-            if flags.get("whole_word"):
-                # Bugfix: prima era un no-op (rf"{pat}"), quindi "parola intera"
-                # non aveva alcun effetto su lista occorrenze e conteggio.
-                pat = rf"\b{pat}\b"
-            compiled = re.compile(pat, re_flags)
-        except re.error as e:
-            self._lbl_status.setText(tr("msg.regex_error", error=str(e)))
+        compiled = self._build_pattern(pattern_text, flags)
+        if compiled is None:
+            if self._last_pattern_error:
+                self._lbl_status.setText(
+                    tr("msg.regex_error", error=self._last_pattern_error))
             return
 
         _ROLE = Qt.ItemDataRole.UserRole
@@ -1035,6 +1070,7 @@ ESEMPI
         items_to_add = []
         file_path = str(editor.file_path) if editor.file_path else ""
         _MAX_ITEMS = 2_000
+        truncated = False
         for line_idx, line_text in enumerate(lines):
             line_matches = list(compiled.finditer(line_text))
             if not line_matches:
@@ -1061,6 +1097,8 @@ ESEMPI
                     "text": line_text,
                     "col":  m.start(),
                 })
+            else:
+                truncated = True
 
         # Inserimento batch per evitare repaint per ogni riga
         self._find_occurrences.setUpdatesEnabled(False)
@@ -1069,7 +1107,10 @@ ESEMPI
         self._find_occurrences.setUpdatesEnabled(True)
 
         if count:
-            self._lbl_status.setText(tr("msg.occurrences_n", count=count))
+            msg = tr("msg.occurrences_n", count=count)
+            if truncated:
+                msg += "  " + tr("msg.truncated", max_items=_MAX_ITEMS)
+            self._lbl_status.setText(msg)
             panel = getattr(self._mw, "_find_result_panel", None)
             if panel and file_path:
                 panel.add_results(pattern_text, panel_results)
@@ -1140,14 +1181,11 @@ ESEMPI
         if not pattern_text:
             self._lbl_replace_status.setText("")
             return
-        try:
-            re_flags = 0 if flags["case_sensitive"] else re.IGNORECASE
-            pat = pattern_text if flags["regex"] else re.escape(pattern_text)
-            if flags.get("whole_word"):
-                pat = rf"\b{pat}\b"
-            compiled = re.compile(pat, re_flags)
-        except re.error as e:
-            self._lbl_replace_status.setText(tr("msg.regex_error", error=str(e)))
+        compiled = self._build_pattern(pattern_text, flags)
+        if compiled is None:
+            if self._last_pattern_error:
+                self._lbl_replace_status.setText(
+                    tr("msg.regex_error", error=self._last_pattern_error))
             return
 
         _ROLE = Qt.ItemDataRole.UserRole
@@ -1155,10 +1193,12 @@ ESEMPI
         count = 0
         _MAX_ITEMS = 2_000
         items_to_add = []
+        truncated = False
 
         for line_idx, line_text in enumerate(lines):
             for m in compiled.finditer(line_text):
                 if len(items_to_add) >= _MAX_ITEMS:
+                    truncated = True
                     break
                 count += 1
                 display_line = line_text.strip()[:120]
@@ -1180,9 +1220,14 @@ ESEMPI
                 self._replace_occurrences.addTopLevelItem(item)
                 self._replace_occurrences.setItemWidget(item, 2, btn)
                 items_to_add.append(item)
+            if truncated:
+                break
 
         if count:
-            self._lbl_replace_status.setText(tr("msg.occurrences_n", count=count))
+            msg = tr("msg.occurrences_n", count=count)
+            if truncated:
+                msg += "  " + tr("msg.truncated", max_items=_MAX_ITEMS)
+            self._lbl_replace_status.setText(msg)
         else:
             self._lbl_replace_status.setText(tr("msg.no_results_query", query=pattern_text))
 
@@ -1222,9 +1267,23 @@ ESEMPI
         if not editor:
             return
         replace_text = self._replace_edit.currentText()
+        find_text    = self._find_edit2.currentText()
+        flags = self._get_flags_replace()
         line0 = data["line"] - 1
         char_col = data.get("col", 0)
         char_len = data.get("len", 0)
+
+        # Espande backreference (\1, \g<name>) se modalità regex,
+        # coerentemente con _do_replace_all che usa re.subn.
+        if flags["regex"]:
+            try:
+                re_flags = 0 if flags["case_sensitive"] else re.IGNORECASE
+                line_text = editor.text(line0).rstrip("\n").rstrip("\r")
+                m = re.search(find_text, line_text[char_col:], re_flags)
+                if m:
+                    replace_text = m.expand(replace_text)
+            except (re.error, IndexError):
+                pass
 
         try:
             byte_start = editor.char_col_to_byte_col(line0, char_col)
@@ -1239,7 +1298,6 @@ ESEMPI
             pass
         editor.go_to_line(data["line"])
 
-        flags = self._get_flags_replace()
         self._populate_replace_occurrences(
             editor, self._find_edit2.currentText(), flags)
 
@@ -1248,51 +1306,44 @@ ESEMPI
         """Evidenzia tutte le occorrenze con un indicatore. Restituisce il count."""
         editor.clear_indicator(indicator)
         text = editor.text()
-        try:
-            re_flags = 0 if flags["case_sensitive"] else re.IGNORECASE
-            if flags["whole_word"]:
-                pattern = rf"\b{re.escape(pattern)}\b"
-            elif not flags["regex"]:
-                pattern = re.escape(pattern)
-            compiled = re.compile(pattern, re_flags)
-            matches = list(compiled.finditer(text))
-            if not matches:
-                return 0
-
-            # Costruisce la tabella degli offset di inizio riga (in caratteri)
-            # una sola volta, invece di richiamare self.text() per ogni match.
-            line_starts = [0]
-            for i, ch in enumerate(text):
-                if ch == '\n':
-                    line_starts.append(i + 1)
-
-            def char_to_line_bytecol(char_off: int) -> tuple[int, int]:
-                char_off = max(0, min(char_off, len(text)))
-                line = bisect.bisect_right(line_starts, char_off) - 1
-                ls = line_starts[line]
-                col_bytes = len(text[ls:char_off].encode("utf-8"))
-                return line, col_bytes
-
-            # Cap: non evidenziare più di 10 000 occorrenze per non bloccare l'UI
-            _MAX = 10_000
-            for m in matches[:_MAX]:
-                ls, cs = char_to_line_bytecol(m.start())
-                le, ce = char_to_line_bytecol(m.end())
-                editor.fillIndicatorRange(ls, cs, le, ce, indicator)
-            return len(matches)
-        except re.error:
+        compiled = self._build_pattern(pattern, flags)
+        if compiled is None:
             return 0
+        matches = list(compiled.finditer(text))
+        if not matches:
+            return 0
+
+        # Costruisce la tabella degli offset di inizio riga (in caratteri)
+        line_starts = [0]
+        for i, ch in enumerate(text):
+            if ch == '\n':
+                line_starts.append(i + 1)
+
+        def char_to_line_bytecol(char_off: int) -> tuple[int, int]:
+            char_off = max(0, min(char_off, len(text)))
+            line = bisect.bisect_right(line_starts, char_off) - 1
+            ls = line_starts[line]
+            col_bytes = len(text[ls:char_off].encode("utf-8"))
+            return line, col_bytes
+
+        # Cap: non evidenziare più di 10 000 occorrenze per non bloccare l'UI
+        _MAX = 10_000
+        truncated = len(matches) > _MAX
+        for m in matches[:_MAX]:
+            ls, cs = char_to_line_bytecol(m.start())
+            le, ce = char_to_line_bytecol(m.end())
+            editor.fillIndicatorRange(ls, cs, le, ce, indicator)
+        if truncated:
+            self._lbl_status.setText(
+                self._lbl_status.text() +
+                "  " + tr("msg.truncated", max_items=_MAX))
+        return len(matches)
 
     def _count_occurrences(self, text: str, pattern: str, flags: dict) -> int:
-        try:
-            re_flags = 0 if flags["case_sensitive"] else re.IGNORECASE
-            if not flags["regex"]:
-                pattern = re.escape(pattern)
-            if flags["whole_word"]:
-                pattern = rf"\b{pattern}\b"
-            return len(re.findall(pattern, text, re_flags))
-        except re.error:
+        compiled = self._build_pattern(pattern, flags)
+        if compiled is None:
             return 0
+        return len(compiled.findall(text))
 
     def _do_replace(self) -> None:
         editor = self._current_editor()
@@ -1316,27 +1367,27 @@ ESEMPI
             "regex":          self._chk_regex2.isChecked(),
         }
         text = editor.text()
+        compiled = self._build_pattern(find_text, flags)
+        if compiled is None:
+            if self._last_pattern_error:
+                self._lbl_replace_status.setText(
+                    tr("msg.regex_invalid", error=self._last_pattern_error))
+            return
         try:
-            re_flags = 0 if flags["case_sensitive"] else re.IGNORECASE
-            pattern  = find_text if flags["regex"] else re.escape(find_text)
-            if flags["whole_word"]:
-                pattern = rf"\b{pattern}\b"
-            new_text, count = re.subn(pattern, replace_text, text, flags=re_flags)
-            if count > 0:
-                cursor = editor.getCursorPosition()
-                editor.beginUndoAction()
-                editor.selectAll()
-                editor.replaceSelectedText(new_text)
-                editor.endUndoAction()
-                line = min(cursor[0], max(0, editor.lines() - 1))
-                editor.setCursorPosition(line, cursor[1])
-            self._lbl_replace_status.setText(
-                tr("msg.replaced_n", count=count)
-            )
-        except re.error as e:
-            self._lbl_replace_status.setText(
-                tr("msg.regex_invalid", error=str(e))
-            )
+            new_text, count = compiled.subn(replace_text, text)
+        except re.error:
+            return
+        if count > 0:
+            cursor = editor.getCursorPosition()
+            editor.beginUndoAction()
+            editor.selectAll()
+            editor.replaceSelectedText(new_text)
+            editor.endUndoAction()
+            line = min(cursor[0], max(0, editor.lines() - 1))
+            editor.setCursorPosition(line, cursor[1])
+        self._lbl_replace_status.setText(
+            tr("msg.replaced_n", count=count)
+        )
 
     # ── Find in Files ─────────────────────────────────────────────────────────
 
@@ -1443,7 +1494,12 @@ ESEMPI
             if editor and line_num:
                 ln = int(line_num) - 1
                 if col_start is not None and col_end is not None:
-                    editor.setSelection(ln, col_start, ln, col_end)
+                    try:
+                        bs = editor.char_col_to_byte_col(ln, col_start)
+                        be = editor.char_col_to_byte_col(ln, col_end)
+                    except Exception:
+                        bs, be = col_start, col_end
+                    editor.setSelection(ln, bs, ln, be)
                 else:
                     editor.go_to_line(int(line_num))
                 editor.ensureLineVisible(ln)
@@ -1644,13 +1700,15 @@ ESEMPI
         if not query:
             self._all_status.setText(tr("msg.enter_search_text"))
             return
-        use_re = self._all_regex.isChecked()
-        case_s = self._all_case.isChecked()
-        re_flags = 0 if case_s else re.IGNORECASE
-        try:
-            pattern = re.compile(query if use_re else re.escape(query), re_flags)
-        except re.error as e:
-            self._all_status.setText(tr("msg.regex_error", error=str(e)))
+        flags = {
+            "case_sensitive": self._all_case.isChecked(),
+            "regex":          self._all_regex.isChecked(),
+            "whole_word":     False,
+        }
+        compiled = self._build_pattern(query, flags)
+        if compiled is None:
+            self._all_status.setText(
+                tr("msg.regex_invalid", error=self._last_pattern_error or ""))
             return
 
         self._all_results.clear()
@@ -1662,7 +1720,7 @@ ESEMPI
             name = editor.file_path.name if editor.file_path else tr("label.untitled")
             matches = []
             for i, line in enumerate(text.split("\n")):
-                m = pattern.search(line)
+                m = compiled.search(line)
                 if m:
                     matches.append((i + 1, line, m.start()))
             if not matches:
@@ -1694,20 +1752,19 @@ ESEMPI
         replace_text = self._all_replace.text()
         if not find_text:
             return
-        use_re  = self._all_regex.isChecked()
-        case_s  = self._all_case.isChecked()
-        re_flags = 0 if case_s else re.IGNORECASE
-        try:
-            pattern = re.compile(
-                find_text if use_re else re.escape(find_text), re_flags
-            )
-        except re.error:
+        flags = {
+            "case_sensitive": self._all_case.isChecked(),
+            "regex":          self._all_regex.isChecked(),
+            "whole_word":     False,
+        }
+        compiled = self._build_pattern(find_text, flags)
+        if compiled is None:
             return
 
         total = 0
         for editor in self._mw._tab_manager.all_editors():
             text = editor.text()
-            new_text, count = pattern.subn(replace_text, text)
+            new_text, count = compiled.subn(replace_text, text)
             if count > 0:
                 cursor = editor.getCursorPosition()
                 editor.beginUndoAction()

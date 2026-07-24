@@ -10,6 +10,7 @@ Supporta: testo semplice, regex PCRE, maiuscole/minuscole, parola intera,
 from __future__ import annotations
 
 import bisect
+import html
 import os
 import fnmatch
 import re
@@ -26,7 +27,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QLabel, QLineEdit, QCheckBox, QPushButton,
     QPlainTextEdit, QTreeWidget, QTreeWidgetItem, QComboBox,
     QGroupBox, QSplitter, QFileDialog, QApplication,
-    QRadioButton, QButtonGroup, QSpinBox, QSlider,
+    QRadioButton, QButtonGroup, QSpinBox, QSlider, QHeaderView,
 )
 from PyQt6.Qsci import QsciScintilla
 
@@ -261,6 +262,32 @@ class _ReplaceWriterWorker(QObject):
         self.finished.emit(total_matches, total_files, errors)
 
 
+class _ElasticTreeWidget(QTreeWidget):
+    """QTreeWidget con una colonna che riempie lo spazio residuo come farebbe
+    ResizeMode.Stretch, ma restando comunque ridimensionabile a mano
+    dall'utente (cosa che Stretch non permette)."""
+
+    def __init__(self, elastic_column: int, parent=None):
+        super().__init__(parent)
+        self._elastic_column = elastic_column
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_elastic_column()
+
+    def _fit_elastic_column(self):
+        header = self.header()
+        col = self._elastic_column
+        if header.count() <= col:
+            return
+        others = sum(
+            header.sectionSize(i) for i in range(header.count()) if i != col
+        )
+        available = self.viewport().width() - others
+        if available > 40:
+            header.resizeSection(col, available)
+
+
 class FindReplaceDialog(QDialog):
     """
     Dialog cerca/sostituisci. Singleton — una sola istanza per finestra.
@@ -452,13 +479,11 @@ class FindReplaceDialog(QDialog):
         self._btn_find_next = QPushButton(tr("button.find_next"))
         self._btn_find_prev = QPushButton(tr("button.find_prev"))
         self._btn_mark_all  = QPushButton(tr("button.mark_all"))
-        self._btn_count     = QPushButton(tr("button.count"))
         self._btn_find_next.setToolTip(tr("tooltip.find_next"))
         self._btn_find_prev.setToolTip(tr("tooltip.find_prev"))
         self._btn_mark_all.setToolTip(tr("tooltip.find_mark_all"))
-        self._btn_count.setToolTip(tr("tooltip.find_count"))
         for btn in [self._btn_find_next, self._btn_find_prev,
-                    self._btn_mark_all, self._btn_count]:
+                    self._btn_mark_all]:
             btn_layout.addWidget(btn)
         btn_layout.addStretch()
         g.addLayout(btn_layout, 3, 0, 1, 2)
@@ -551,7 +576,6 @@ ESEMPI
         self._btn_find_next.clicked.connect(self._do_find_next)
         self._btn_find_prev.clicked.connect(self._do_find_prev)
         self._btn_mark_all.clicked.connect(self._do_mark_all)
-        self._btn_count.clicked.connect(self._do_count)
         self._find_edit.lineEdit().returnPressed.connect(self._do_find_next)
 
         # Search-as-you-type con delay
@@ -617,12 +641,18 @@ ESEMPI
         g.addWidget(self._lbl_replace_status, 4, 0, 1, 2)
 
         # Lista risultati con colonna azione
-        self._replace_occurrences = QTreeWidget()
+        self._replace_occurrences = _ElasticTreeWidget(elastic_column=1)
         self._replace_occurrences.setHeaderLabels([
             tr("label.col_line"), tr("label.col_text"), ""])
+        # 3 colonne: Riga (fissa) | Testo (elastica: occupa lo spazio residuo
+        # ma resta ridimensionabile a mano) | pulsante azione (fissa).
+        rep_hdr = self._replace_occurrences.header()
+        rep_hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        rep_hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        rep_hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        rep_hdr.setStretchLastSection(False)
         self._replace_occurrences.setColumnWidth(0, 58)
         self._replace_occurrences.setColumnWidth(2, 84)
-        self._replace_occurrences.header().setStretchLastSection(True)
         self._replace_occurrences.setRootIsDecorated(False)
         self._replace_occurrences.setAlternatingRowColors(True)
         self._replace_occurrences.itemDoubleClicked.connect(self._goto_replace_occurrence)
@@ -703,8 +733,7 @@ ESEMPI
         layout.addLayout(top)
 
         # Risultati integrati nel dialog — 3 colonne: File/Riga | Testo | ↔
-        from PyQt6.QtWidgets import QHeaderView
-        self._fif_results = QTreeWidget()
+        self._fif_results = _ElasticTreeWidget(elastic_column=1)
         self._fif_results.setHeaderLabels([tr("label.col_file_line"), tr("label.col_text"), ""])
         self._fif_results.setRootIsDecorated(True)
         self._fif_results.setAlternatingRowColors(True)
@@ -713,8 +742,9 @@ ESEMPI
         self._fif_results.itemDoubleClicked.connect(self._open_fif_result)
         hdr = self._fif_results.header()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
         hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        hdr.setStretchLastSection(False)
         self._fif_results.setColumnWidth(2, 84)
         layout.addWidget(self._fif_results, 1)
 
@@ -1040,15 +1070,67 @@ ESEMPI
         # Aggiorna anche la lista occorrenze
         self._populate_occurrences(editor, text, flags)
 
-    def _do_count(self) -> None:
-        editor = self._current_editor()
-        if not editor:
-            return
-        text = self._find_edit.currentText()
-        if not text:
-            return
-        flags = self._get_flags()
-        self._populate_occurrences(editor, text, flags)
+    _CONTEXT_WORDS = 3
+    _CONTEXT_MAX_LEN = 120
+    _HL_STYLE = "background-color:#ffd54f; color:#1a1a1a;"
+
+    def _context_snippet(self, line_text: str, match_start: int, match_end: int) -> tuple[str, int, int]:
+        """Ritaglia il testo da mostrare nella colonna "Testo" delle liste
+        occorrenze, insieme alla posizione locale del match (start, end)
+        dentro il testo ritagliato — usata per evidenziarlo a colori.
+
+        Righe corte vengono mostrate per intero. Su righe molto lunghe (es.
+        JSON/CSV su una riga sola) un troncamento fisso ai primi 120
+        caratteri poteva escludere del tutto il match se questo cadeva più
+        avanti nella riga: qui invece si ritaglia una finestra di
+        _CONTEXT_WORDS parole prima e dopo il match, così il testo da
+        cercare/sostituire resta sempre visibile.
+        """
+        stripped = line_text.strip()
+        if len(stripped) <= self._CONTEXT_MAX_LEN:
+            lstrip_n = len(line_text) - len(line_text.lstrip())
+            return stripped, match_start - lstrip_n, match_end - lstrip_n
+
+        words = list(re.finditer(r"\S+", line_text))
+        if not words:
+            return stripped[:self._CONTEXT_MAX_LEN], 0, 0
+
+        first_idx = next((i for i, w in enumerate(words) if w.end() > match_start), 0)
+        last_idx = next((i for i, w in enumerate(words) if w.start() >= match_end), len(words))
+        last_idx = max(last_idx, first_idx + 1)
+
+        start_idx = max(0, first_idx - self._CONTEXT_WORDS)
+        end_idx = min(len(words), last_idx + self._CONTEXT_WORDS)
+
+        window_start = words[start_idx].start()
+        window_end   = words[end_idx - 1].end()
+        snippet = line_text[window_start:window_end]
+        local_start = match_start - window_start
+        local_end   = match_end - window_start
+
+        prefix = "… " if start_idx > 0 else ""
+        if prefix:
+            local_start += len(prefix)
+            local_end   += len(prefix)
+        suffix = " …" if end_idx < len(words) else ""
+        return prefix + snippet + suffix, local_start, local_end
+
+    def _context_snippet_label(self, line_text: str, match_start: int, match_end: int) -> QLabel:
+        """QLabel con lo snippet di contesto e il match evidenziato a colori,
+        da usare come item widget nella colonna "Testo"."""
+        snippet, local_start, local_end = self._context_snippet(line_text, match_start, match_end)
+        local_start = max(0, min(local_start, len(snippet)))
+        local_end   = max(local_start, min(local_end, len(snippet)))
+        html_text = (
+            html.escape(snippet[:local_start])
+            + (f'<span style="{self._HL_STYLE}">{html.escape(snippet[local_start:local_end])}</span>'
+               if local_end > local_start else "")
+            + html.escape(snippet[local_end:])
+        )
+        label = QLabel(html_text)
+        label.setTextFormat(Qt.TextFormat.RichText)
+        label.setStyleSheet("font-family: monospace; font-size: 12px; padding: 0 2px;")
+        return label
 
     def _populate_occurrences(self, editor, pattern_text: str, flags: dict) -> None:
         """Popola la lista occorrenze nel tab Cerca."""
@@ -1080,17 +1162,15 @@ ESEMPI
             count += len(line_matches)
             if len(items_to_add) < _MAX_ITEMS:
                 m = line_matches[0]
-                item = QTreeWidgetItem([
-                    str(line_idx + 1),
-                    line_text.strip()[:120]
-                ])
+                item = QTreeWidgetItem([str(line_idx + 1), ""])
                 item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 item.setData(0, _ROLE, {
                     "line": line_idx + 1,
                     "col":  m.start(),
                     "len":  m.end() - m.start(),
                 })
-                items_to_add.append(item)
+                label = self._context_snippet_label(line_text, m.start(), m.end())
+                items_to_add.append((item, label))
                 panel_results.append({
                     "file": file_path,
                     "line": line_idx,
@@ -1102,8 +1182,9 @@ ESEMPI
 
         # Inserimento batch per evitare repaint per ogni riga
         self._find_occurrences.setUpdatesEnabled(False)
-        for item in items_to_add:
+        for item, label in items_to_add:
             self._find_occurrences.addTopLevelItem(item)
+            self._find_occurrences.setItemWidget(item, 1, label)
         self._find_occurrences.setUpdatesEnabled(True)
 
         if count:
@@ -1201,12 +1282,7 @@ ESEMPI
                     truncated = True
                     break
                 count += 1
-                display_line = line_text.strip()[:120]
-                item = QTreeWidgetItem([
-                    str(line_idx + 1),
-                    display_line,
-                    ""
-                ])
+                item = QTreeWidgetItem([str(line_idx + 1), "", ""])
                 item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 item.setData(0, _ROLE, {
                     "line": line_idx + 1,
@@ -1218,6 +1294,8 @@ ESEMPI
                 btn.setFixedSize(78, 22)
                 btn.clicked.connect(lambda _checked, it=item: self._replace_single_occurrence(it))
                 self._replace_occurrences.addTopLevelItem(item)
+                self._replace_occurrences.setItemWidget(
+                    item, 1, self._context_snippet_label(line_text, m.start(), m.end()))
                 self._replace_occurrences.setItemWidget(item, 2, btn)
                 items_to_add.append(item)
             if truncated:
@@ -1448,14 +1526,15 @@ ESEMPI
         self._fif_results.setItemWidget(file_item, 2, btn_f)
 
         for entry in entries:
-            child = QTreeWidgetItem([
-                "  " + tr("msg.row_n", n=entry.line_num), entry.line_text.strip()[:140], ""
-            ])
+            child = QTreeWidgetItem(["  " + tr("msg.row_n", n=entry.line_num), "", ""])
             child.setData(0, _ROLE, {
                 "path": entry.abs_path, "line": entry.line_num,
                 "col_start": entry.col_start, "col_end": entry.col_end,
             })
             file_item.addChild(child)
+            self._fif_results.setItemWidget(
+                child, 1,
+                self._context_snippet_label(entry.line_text, entry.col_start, entry.col_end))
             btn_m = QPushButton(tr("button.replace"))
             btn_m.setFixedSize(80, 22)
             btn_m.setToolTip(tr("tooltip.fif_replace_match"))

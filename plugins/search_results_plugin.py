@@ -45,7 +45,8 @@ if TYPE_CHECKING:
 # ─── Costanti ─────────────────────────────────────────────────────────────────
 
 _MAX_HISTORY = 20
-_INDICATOR_MARK1 = 1  # INDICATOR_MARK1 da editor_widget.py
+_INDICATOR_MARK1  = 1  # INDICATOR_MARK1 da editor_widget.py — tutti i match (giallo)
+_INDICATOR_FILTER = 2  # INDICATOR_MARK2 da editor_widget.py — match filtrati (verde)
 
 
 # ─── Helper traduzioni e tema ─────────────────────────────────────────────────
@@ -583,38 +584,64 @@ class _SearchResultsPanel(QWidget):
 
     # ── Evidenziazione tutti i match ──────────────────────────────────────────
 
+    def _clear_indicator(self, editor, indicator: int) -> None:
+        try:
+            editor.clear_indicator(indicator)
+        except AttributeError:
+            editor.clearIndicatorRange(0, 0, editor.lines(), 0, indicator)
+
+    def _fill_indicator(self, editor, line: int, start: int, end: int, indicator: int) -> None:
+        if start is None or end is None or end <= start:
+            return
+        try:
+            if hasattr(editor, "char_col_to_byte_col"):
+                start = editor.char_col_to_byte_col(line, start)
+                end   = editor.char_col_to_byte_col(line, end)
+        except Exception:
+            pass
+        try:
+            editor.fillIndicatorRange(line, start, line, end, indicator)
+        except Exception:
+            pass
+
     def _highlight_all_matches(self) -> None:
-        """Evidenzia tutti i match nell'editor corrente usando INDICATOR_MARK1."""
+        """Evidenzia i match nell'editor corrente.
+
+        Le occorrenze della ricerca (sezione "Cerca nel documento"/"Cerca
+        nei file") sono sempre evidenziate in giallo (INDICATOR_MARK1),
+        indipendentemente dal filtro. Se la sezione "Filtra nei risultati"
+        ha un filtro attivo, in più viene evidenziata in un colore diverso
+        (INDICATOR_FILTER, verde) la porzione di riga che soddisfa il
+        filtro, solo sulle righe che il filtro lascia visibili nell'albero:
+        così si vede subito, nel testo, COSA ha fatto passare il filtro.
+        """
         editor = self._mw._current_editor()
         if editor is None:
             return
-        try:
-            editor.clear_indicator(_INDICATOR_MARK1)
-        except AttributeError:
-            editor.clearIndicatorRange(0, 0, editor.lines(), 0, _INDICATOR_MARK1)
+        self._clear_indicator(editor, _INDICATOR_MARK1)
+        self._clear_indicator(editor, _INDICATOR_FILTER)
         file_path = str(editor.file_path) if editor.file_path else ""
         pattern = self._compile_query_pattern()
         if pattern is None:
             return
+        row_matcher  = self._build_filter_matcher()
+        span_finder  = self._build_filter_span_finder()
         for r in self._all_results:
             if r["file"] != file_path:
                 continue
             line = r["line"]
             line_text = r["text"].rstrip("\n").rstrip("\r")
             col = r.get("col", 0)
+
             start, end = self._match_span(line_text, col)
-            if start is None or end is None or end <= start:
-                continue
-            try:
-                if hasattr(editor, "char_col_to_byte_col"):
-                    start = editor.char_col_to_byte_col(line, start)
-                    end   = editor.char_col_to_byte_col(line, end)
-            except Exception:
-                pass
-            try:
-                editor.fillIndicatorRange(line, start, line, end, _INDICATOR_MARK1)
-            except Exception:
-                pass
+            self._fill_indicator(editor, line, start, end, _INDICATOR_MARK1)
+
+            if row_matcher is not None and span_finder is not None:
+                row_label = _t("row_label", line=line + 1, col=col + 1)
+                combined = line_text + " " + row_label
+                if row_matcher(combined):
+                    for fs, fe in span_finder(line_text):
+                        self._fill_indicator(editor, line, fs, fe, _INDICATOR_FILTER)
 
     # ── Navigazione ───────────────────────────────────────────────────────────
 
@@ -873,10 +900,8 @@ class _SearchResultsPanel(QWidget):
         """Cancella tutti i risultati e le evidenziazioni."""
         editor = self._mw._current_editor()
         if editor is not None:
-            try:
-                editor.clear_indicator(_INDICATOR_MARK1)
-            except AttributeError:
-                editor.clearIndicatorRange(0, 0, editor.lines(), 0, _INDICATOR_MARK1)
+            self._clear_indicator(editor, _INDICATOR_MARK1)
+            self._clear_indicator(editor, _INDICATOR_FILTER)
         self._tree.clear()
         self._all_results.clear()
         self._current_query = ""
@@ -1088,7 +1113,14 @@ class _SearchResultsPanel(QWidget):
                 parts.append(re.escape(ch))
         return re.compile("".join(parts), re.IGNORECASE | re.DOTALL)
 
-    def _apply_filter(self, text=None) -> None:
+    def _build_filter_matcher(self, text=None):
+        """Costruisce il matcher della sezione "Filtra nei risultati".
+
+        Restituisce None se il filtro è vuoto/non valido (nessun filtro
+        attivo), altrimenti una callable str -> bool. Condivisa tra
+        _apply_filter (visibilità nell'albero) e _highlight_all_matches
+        (colore delle evidenziazioni nell'editor).
+        """
         if not isinstance(text, str):
             # Chiamato anche da filter_mode.currentIndexChanged(int) e da
             # add_results() senza argomenti: in questi casi va riletto il
@@ -1098,31 +1130,83 @@ class _SearchResultsPanel(QWidget):
         text = text.strip()
 
         if not text:
-            matcher = None
+            return None
         elif mode == "regex":
             try:
                 pat = re.compile(text, re.IGNORECASE)
-                matcher = lambda s: bool(pat.search(s))
+                return lambda s: bool(pat.search(s))
             except re.error:
-                matcher = None
+                return None
         elif mode == "like":
             try:
                 pat = self._like_to_regex(text)
-                matcher = lambda s: bool(pat.search(s))
+                return lambda s: bool(pat.search(s))
             except re.error:
-                matcher = None
+                return None
         else:
             # grep-like: AND (+parola) NOT (-parola o !parola)
             tokens = text.lower().split()
             must_have = [t for t in tokens if not t.startswith(("-", "!"))]
             must_not  = [t.lstrip("-!") for t in tokens if t.startswith(("-", "!"))]
-            if tokens:
-                def matcher(s: str) -> bool:
-                    sl = s.lower()
-                    return (all(w in sl for w in must_have) and
-                            not any(w in sl for w in must_not))
-            else:
-                matcher = None
+            if not tokens:
+                return None
+
+            def matcher(s: str) -> bool:
+                sl = s.lower()
+                return (all(w in sl for w in must_have) and
+                        not any(w in sl for w in must_not))
+            return matcher
+
+    def _build_filter_span_finder(self, text=None):
+        """Individua, in una riga, le porzioni di testo che soddisfano il
+        filtro "Filtra nei risultati", per evidenziarle nell'editor.
+
+        Restituisce None se il filtro è vuoto/non valido, altrimenti una
+        callable str -> list[(start, end)] (posizioni carattere).
+        """
+        if not isinstance(text, str):
+            text = self._filter_edit.text()
+        mode = self._filter_mode.currentData()
+        text = text.strip()
+
+        if not text:
+            return None
+        elif mode == "regex":
+            try:
+                pat = re.compile(text, re.IGNORECASE)
+            except re.error:
+                return None
+            return lambda s: [m.span() for m in pat.finditer(s) if m.end() > m.start()]
+        elif mode == "like":
+            try:
+                pat = self._like_to_regex(text)
+            except re.error:
+                return None
+            return lambda s: [m.span() for m in pat.finditer(s) if m.end() > m.start()]
+        else:
+            # grep-like: evidenzia le occorrenze delle parole richieste
+            # (must_have); le parole escluse (-parola) non vanno segnate.
+            tokens = text.lower().split()
+            must_have = [t for t in tokens if not t.startswith(("-", "!"))]
+            if not must_have:
+                return None
+
+            def finder(s: str):
+                sl = s.lower()
+                spans = []
+                for w in must_have:
+                    pos = 0
+                    while True:
+                        idx = sl.find(w, pos)
+                        if idx == -1:
+                            break
+                        spans.append((idx, idx + len(w)))
+                        pos = idx + len(w)
+                return spans
+            return finder
+
+    def _apply_filter(self, text=None) -> None:
+        matcher = self._build_filter_matcher(text)
 
         def _walk(item):
             is_leaf = item.childCount() == 0
@@ -1144,6 +1228,11 @@ class _SearchResultsPanel(QWidget):
 
         for i in range(self._tree.topLevelItemCount()):
             _walk(self._tree.topLevelItem(i))
+
+        # Riallinea l'evidenziazione nell'editor: i match esclusi dal filtro
+        # live perdono l'evidenziazione, quelli inclusi passano dal giallo
+        # "tutti i match" al colore dedicato del filtro.
+        self._highlight_all_matches()
 
     def _expand_all(self) -> None:
         self._tree.expandAll()

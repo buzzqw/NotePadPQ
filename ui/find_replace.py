@@ -1463,9 +1463,17 @@ ESEMPI
             editor.endUndoAction()
             line = min(cursor[0], max(0, editor.lines() - 1))
             editor.setCursorPosition(line, cursor[1])
-        self._lbl_replace_status.setText(
-            tr("msg.replaced_n", count=count)
-        )
+        status = tr("msg.replaced_n", count=count)
+        if getattr(editor, "_paged_doc", None) is not None:
+            # editor.text() è solo la pagina caricata su un tab paginato
+            # (>200MB): il conteggio riguarda solo questa pagina, non l'intero
+            # file — va detto esplicitamente per non far credere di aver
+            # sostituito su tutto il documento.
+            status += " " + tr(
+                "find_replace.paged_scope_note",
+                default="(solo nella pagina corrente)"
+            )
+        self._lbl_replace_status.setText(status)
 
     # ── Find in Files ─────────────────────────────────────────────────────────
 
@@ -1793,8 +1801,15 @@ ESEMPI
         self._all_results.clear()
         _ROLE = Qt.ItemDataRole.UserRole
         total_matches = 0
+        skipped_paged = 0
 
         for editor in self._mw._tab_manager.all_editors():
+            if getattr(editor, "_paged_doc", None) is not None:
+                # editor.text() vedrebbe solo la pagina caricata: includerlo
+                # darebbe risultati incompleti spacciati per una ricerca
+                # sull'intero file, quindi si esclude e si segnala.
+                skipped_paged += 1
+                continue
             text = editor.text()
             name = editor.file_path.name if editor.file_path else tr("label.untitled")
             matches = []
@@ -1820,10 +1835,18 @@ ESEMPI
 
         if total_matches == 0:
             QTreeWidgetItem(self._all_results, [tr("msg.no_results_found"), ""])
-            self._all_status.setText(tr("msg.zero_results", query=query))
+            status = tr("msg.zero_results", query=query)
         else:
-            self._all_status.setText(tr("msg.results_count", matches=total_matches))
+            status = tr("msg.results_count", matches=total_matches)
             self._send_to_result_panel(query, self._all_results, in_docs=True)
+        if skipped_paged:
+            status += " " + tr(
+                "find_replace.paged_docs_skipped",
+                count=skipped_paged,
+                default=f"({skipped_paged} file di grandi dimensioni esclusi: "
+                        f"si può cercare solo nella pagina corrente)"
+            )
+        self._all_status.setText(status)
         self._all_results.resizeColumnToContents(0)
 
     def _do_replace_all_docs(self) -> None:
@@ -1841,7 +1864,14 @@ ESEMPI
             return
 
         total = 0
+        skipped_paged = 0
         for editor in self._mw._tab_manager.all_editors():
+            if getattr(editor, "_paged_doc", None) is not None:
+                # editor.text() è solo la pagina caricata su un tab paginato
+                # (>200MB): sostituire e salvare qui riscriverebbe silenziosamente
+                # solo quella pagina spacciandola per l'intero file sostituito.
+                skipped_paged += 1
+                continue
             text = editor.text()
             new_text, count = compiled.subn(replace_text, text)
             if count > 0:
@@ -1853,6 +1883,14 @@ ESEMPI
                 line = min(cursor[0], max(0, editor.lines() - 1))
                 editor.setCursorPosition(line, cursor[1])
                 total += count
+
+        if skipped_paged:
+            self._all_status.setText(tr(
+                "find_replace.paged_docs_skipped",
+                count=skipped_paged,
+                default=f"({skipped_paged} file di grandi dimensioni esclusi: "
+                        f"si può sostituire solo nella pagina corrente)"
+            ))
 
     def _open_all_result(self, item: QTreeWidgetItem) -> None:
         data = item.data(0, Qt.ItemDataRole.UserRole)

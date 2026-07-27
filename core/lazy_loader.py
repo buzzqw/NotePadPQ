@@ -6,10 +6,12 @@ Per file oltre la soglia (default 50MB, configurabile), il file viene
 caricato in chunks nel thread di background. L'editor mostra subito
 il primo chunk e aggiunge il resto progressivamente senza bloccare l'UI.
 
-Per file oltre 1GB viene usata la modalità "view-only": il file viene
-letto a pagine (chunk da 4MB), con navigazione tramite un cursore
-virtuale sul disco. In questo caso l'editor è READ-ONLY per non
-corrompere file enormi.
+Per file oltre 200MB viene usata la modalità "paginata": il file viene
+letto a pagine (~4MB, allineate a fine riga) con navigazione tramite un
+cursore virtuale sul disco, senza mai caricare l'intero file in RAM.
+La pagina visibile resta modificabile; passare a un'altra pagina con
+modifiche non salvate richiede prima di salvarle (in streaming, senza
+mai materializzare l'intero file in memoria) o scartarle esplicitamente.
 
 API:
     loader = LazyLoader(path, editor, main_window)
@@ -22,14 +24,14 @@ API:
 
 from __future__ import annotations
 
-import io
 import os
 import threading
 from pathlib import Path
 from typing import Optional, Callable, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer, Qt
-from PyQt6.QtWidgets import QProgressDialog, QApplication, QLabel, QPushButton
+from PyQt6.QtWidgets import QProgressDialog, QApplication, QLabel, QPushButton, QMessageBox
+from PyQt6.Qsci import QsciScintilla
 
 from core.file_manager import FileManager
 from editor.editor_widget import LineEnding
@@ -47,12 +49,31 @@ GB  = 1024 * MB
 # Sotto questa soglia → caricamento normale sincrono
 THRESHOLD_LAZY     = 50 * MB      # 50 MB
 
-# Sopra questa soglia → modalità paged (sola lettura, cursore virtuale su disco)
-THRESHOLD_PAGED    = 1 * GB       # 1 GB
+# Sopra questa soglia → modalità paginata: editing una pagina alla volta
+# (~4MB), veloce indipendentemente dalla dimensione del file perché non lo
+# tocca mai tutto. Sotto, il file viene caricato interamente in RAM (a
+# chunk, in background) restando liberamente modificabile ovunque.
+#
+# Il limite reale qui non è la RAM ma QScintilla stesso: ogni append() su
+# un documento che cresce costa via via di più (misurato ~0,05s a 8MB fino
+# a ~0,46s a 126MB, con lo stesso pattern indipendentemente da undo/
+# folding/scroll-tracking/segnali disattivati — è intrinseco al buffer
+# interno dell'editor). Il totale cresce quindi più che linearmente con la
+# dimensione del file: 200MB tiene il caricamento sotto la decina di
+# secondi, oltre diventa rapidamente questione di minuti.
+THRESHOLD_PAGED    = 200 * MB
 
 # Dimensione chunk per loading progressivo (in bytes)
 CHUNK_SIZE_BYTES   = 4 * MB       # 4 MB per chunk
 CHUNK_SIZE_PAGED   = 4 * MB       # idem per paged mode
+
+# Lettura extra oltre CHUNK_SIZE_PAGED per allineare la fine pagina a un \n,
+# senza spezzare una riga o un carattere multibyte. Tetto per righe patologiche
+# senza alcun \n (garantisce comunque un limite fisso di memoria per pagina).
+PAGE_LOOKAHEAD_CAP = 1 * MB
+
+# Dimensione blocco per la copia byte-a-byte durante il salvataggio in streaming
+SAVE_COPY_CHUNK    = 4 * MB
 
 # Delay tra chunk successivi in ms (lascia respiro all'event loop)
 CHUNK_DELAY_MS     = 30
@@ -112,19 +133,27 @@ class _LoadWorker(QObject):
                         break
 
                     buffer += raw
+                    more_data = bool(f.peek(1))
 
                     # Decodifica sicura: ritaglia alla fine dell'ultimo \n
-                    # per non spezzare sequenze multibyte a metà
+                    # per non spezzare sequenze multibyte a metà. \n è un byte
+                    # ASCII che non può comparire come byte di continuazione
+                    # UTF-8, quindi tagliare subito dopo è sempre un confine
+                    # di carattere valido.
                     split_pos = buffer.rfind(b"\n")
-                    if split_pos == -1 or f.peek(1):
-                        # Non c'è ancora un \n o siamo nel mezzo del file:
-                        # prova a decodificare tutto
+                    if split_pos == -1 and more_data:
+                        # Nessun \n in questo blocco e il file non è ancora
+                        # esaurito: continua ad accumulare invece di
+                        # decodificare a metà di una sequenza multibyte.
+                        continue
+                    elif not more_data:
+                        # Fine file (nessun altro byte in arrivo): decodifica
+                        # tutto il buffer residuo, \n o non \n.
                         try:
                             text = buffer.decode(encoding, errors="replace")
-                            buffer = b""
                         except Exception:
                             text = buffer.decode("latin-1", errors="replace")
-                            buffer = b""
+                        buffer = b""
                     else:
                         decode_part = buffer[:split_pos + 1]
                         buffer = buffer[split_pos + 1:]
@@ -155,23 +184,33 @@ class _LoadWorker(QObject):
             self.error.emit(str(e))
 
 
-# ─── PagedFileView ────────────────────────────────────────────────────────────
+# ─── PagedDocument ────────────────────────────────────────────────────────────
 
-class PagedFileView:
+class PagedDocument:
     """
-    Vista paginata su un file enorme (>1GB). Legge pagine dal disco on-demand
-    senza mai caricare l'intero file in memoria.
+    Vista paginata e MODIFICABILE su un file enorme (>200MB). Legge pagine dal
+    disco on-demand (~4MB, allineate a fine riga) senza mai caricare l'intero
+    file in memoria, e permette di salvare in streaming le modifiche alla
+    pagina corrente senza materializzare l'intero file in RAM.
 
-    Usato da LazyLoader in modalità PAGED per attacharsi a un EditorWidget
-    e caricare la pagina corrente (read-only).
+    Nessuna scansione/indicizzazione preventiva dell'intero file: si tiene
+    traccia solo degli offset delle pagine già visitate durante la
+    navigazione (piccola lista di interi), così "pagina precedente" è
+    immediato senza dover indicizzare tutto il file all'apertura. Il numero
+    totale di pagine mostrato è quindi solo una stima (dimensione file /
+    dimensione pagina), non un conteggio esatto.
+
+    Si edita una pagina alla volta: chi usa questa classe (LazyLoader) deve
+    salvare o scartare le modifiche della pagina corrente prima di
+    navigare altrove — vedi `_attach_pager_ui` in LazyLoader.
+
+    Usato da LazyLoader in modalità PAGED per attacharsi a un EditorWidget.
     """
 
     def __init__(self, path: Path):
-        self._path = path
-        self._file_size = path.stat().st_size
-        self._page_size = CHUNK_SIZE_PAGED
-        self._current_page = 0
-        self._total_pages = max(1, self._file_size // self._page_size + 1)
+        self.path = path
+        self.file_size = path.stat().st_size
+        self.page_size = CHUNK_SIZE_PAGED
 
         # Encoding rilevato dall'header
         with open(path, "rb") as f:
@@ -179,45 +218,228 @@ class PagedFileView:
         enc, self._bom_len = FileManager._detect_bom(header)
         self._encoding = enc or FileManager._chardet_detect(header) or "UTF-8"
 
-    @property
-    def total_pages(self) -> int:
-        return self._total_pages
+        # Intervallo di byte [current_start, current_end) della pagina
+        # attualmente caricata nell'editor.
+        self.current_start = self._bom_len
+        self.current_end = self._bom_len
 
-    @property
-    def current_page(self) -> int:
-        return self._current_page
+        # Offset delle pagine visitate in ordine di navigazione (per Prev O(1)
+        # senza indice) + puntatore alla posizione corrente in questa lista.
+        self._history: list[int] = [self._bom_len]
+        self._hist_pos: int = 0
+
+    # ── Info ─────────────────────────────────────────────────────────────────
 
     @property
     def file_size_mb(self) -> float:
-        return self._file_size / MB
+        return self.file_size / MB
 
-    def read_page(self, page: int) -> str:
-        """Legge e restituisce la pagina N (0-based)."""
-        page = max(0, min(page, self._total_pages - 1))
-        self._current_page = page
+    @property
+    def total_pages_estimate(self) -> int:
+        return max(1, self.file_size // self.page_size + 1)
 
-        offset = self._bom_len + page * self._page_size
-        with open(self._path, "rb") as f:
-            f.seek(offset)
-            raw = f.read(self._page_size)
+    @property
+    def current_page_number(self) -> int:
+        return self._hist_pos + 1
 
-        try:
-            return raw.decode(self._encoding, errors="replace")
-        except Exception:
-            return raw.decode("latin-1", errors="replace")
-
-    def next_page(self) -> Optional[str]:
-        if self._current_page + 1 >= self._total_pages:
-            return None
-        return self.read_page(self._current_page + 1)
-
-    def prev_page(self) -> Optional[str]:
-        if self._current_page <= 0:
-            return None
-        return self.read_page(self._current_page - 1)
+    @property
+    def progress_fraction(self) -> float:
+        return (self.current_start / self.file_size) if self.file_size else 0.0
 
     def encoding(self) -> str:
         return self._encoding.upper().replace("-SIG", " BOM")
+
+    def encoding_raw(self) -> str:
+        return self._encoding
+
+    # ── Lettura pagine ───────────────────────────────────────────────────────
+
+    def read_page_at(self, start: int) -> str:
+        """Legge la pagina che inizia all'offset di byte `start`, allineando
+        la fine al prossimo \\n (o al tetto PAGE_LOOKAHEAD_CAP in assenza di
+        \\n). Aggiorna current_start/current_end."""
+        start = max(self._bom_len, min(start, self.file_size))
+        self.current_start = start
+
+        if start >= self.file_size:
+            self.current_end = start
+            return ""
+
+        with open(self.path, "rb") as f:
+            f.seek(start)
+            data = bytearray(f.read(self.page_size))
+            extra = 0
+            while (start + len(data)) < self.file_size and not data.endswith(b"\n") \
+                    and extra < PAGE_LOOKAHEAD_CAP:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                nl = chunk.find(b"\n")
+                if nl != -1:
+                    data += chunk[:nl + 1]
+                    extra += nl + 1
+                    break
+                data += chunk
+                extra += len(chunk)
+
+        self.current_end = start + len(data)
+        return self._decode(bytes(data))
+
+    def next_page(self) -> Optional[str]:
+        if self._hist_pos + 1 < len(self._history):
+            self._hist_pos += 1
+            return self.read_page_at(self._history[self._hist_pos])
+        if self.current_end >= self.file_size:
+            return None
+        self._history.append(self.current_end)
+        self._hist_pos += 1
+        return self.read_page_at(self.current_end)
+
+    def prev_page(self) -> Optional[str]:
+        if self._hist_pos <= 0:
+            return None
+        self._hist_pos -= 1
+        return self.read_page_at(self._history[self._hist_pos])
+
+    def jump_to_fraction(self, pct: float) -> str:
+        """Salta a un punto approssimato del file (0.0–1.0), allineando in
+        avanti al prossimo \\n. Ricomincia una nuova sequenza di navigazione
+        da lì (niente Prev verso i punti visitati prima del salto)."""
+        pct = max(0.0, min(1.0, pct))
+        target = self._bom_len + int((self.file_size - self._bom_len) * pct)
+        aligned = self._align_forward(target)
+        self._history = [aligned]
+        self._hist_pos = 0
+        return self.read_page_at(aligned)
+
+    def _align_forward(self, offset: int) -> int:
+        offset = max(self._bom_len, min(offset, self.file_size))
+        if offset <= self._bom_len or offset >= self.file_size:
+            return offset
+        with open(self.path, "rb") as f:
+            f.seek(offset)
+            data = f.read(PAGE_LOOKAHEAD_CAP)
+        nl = data.find(b"\n")
+        if nl == -1:
+            return offset
+        return offset + nl + 1
+
+    def _decode(self, data: bytes) -> str:
+        try:
+            return data.decode(self._encoding, errors="replace")
+        except Exception:
+            return data.decode("latin-1", errors="replace")
+
+    # ── Post-salvataggio ─────────────────────────────────────────────────────
+
+    def apply_save_result(self, new_start: int, new_end: int) -> None:
+        """Aggiorna lo stato dopo un salvataggio riuscito: la pagina salvata
+        potrebbe avere una lunghezza diversa dall'originale, quindi gli
+        offset delle pagine visitate DOPO quella corrente non sono più
+        validi (il file è cambiato di dimensione da quel punto in poi)."""
+        self.current_start = new_start
+        self.current_end = new_end
+        self.file_size = self.path.stat().st_size
+        self._history = self._history[: self._hist_pos + 1]
+
+
+# ─── _SaveWorker ──────────────────────────────────────────────────────────────
+
+class _SaveWorker(QObject):
+    """
+    Worker che gira in un thread separato e salva in streaming la pagina
+    corrente di un PagedDocument: copia byte-a-byte le porzioni non toccate
+    del file originale e sostituisce solo l'intervallo della pagina
+    modificata, senza mai caricare l'intero file in RAM. Scrive su un file
+    temporaneo nella stessa cartella e lo sostituisce atomicamente a fine
+    scrittura.
+    """
+
+    progress = pyqtSignal(int)             # 0–100
+    finished = pyqtSignal(int, int)        # nuovo (start, end) della pagina salvata
+    error    = pyqtSignal(str)
+
+    def __init__(self, doc: PagedDocument, new_text: str, dest_path: Optional[Path] = None):
+        super().__init__()
+        self._doc = doc
+        self._new_text = new_text
+        # dest_path diverso da doc.path → "Salva con nome": si legge sempre
+        # dal file originale ma si scrive altrove, lasciando l'originale
+        # intatto.
+        self.dest_path = dest_path or doc.path
+
+    def _encode_page(self) -> bytes:
+        enc = self._doc.encoding_raw()
+        # La porzione [0, start) copiata byte-a-byte include già un eventuale
+        # BOM originale: non va aggiunto di nuovo codificando il testo della
+        # sola pagina modificata.
+        if enc.lower().endswith("-sig"):
+            enc = enc[:-4]
+        try:
+            return self._new_text.encode(enc)
+        except (LookupError, UnicodeEncodeError):
+            return self._new_text.encode("utf-8")
+
+    def run(self) -> None:
+        doc = self._doc
+        tmp_path = self.dest_path.with_name(self.dest_path.name + ".notepadpq_tmp")
+        try:
+            # Il file non deve essere stato modificato dall'esterno da quando
+            # è stato aperto: altrimenti gli offset di pagina non sono più
+            # affidabili e continuare scriverebbe dati nel punto sbagliato.
+            current_size = doc.path.stat().st_size
+            if current_size != doc.file_size:
+                self.error.emit(tr(
+                    "lazy_loader.save_external_change",
+                    default="Il file è stato modificato da un altro programma dopo "
+                            "l'apertura: salvataggio annullato per evitare di "
+                            "corromperlo."
+                ))
+                return
+
+            start, end = doc.current_start, doc.current_end
+            new_bytes = self._encode_page()
+            total = max(1, doc.file_size)
+            copied = 0
+
+            with open(doc.path, "rb") as src, open(tmp_path, "wb") as dst:
+                # 1) [0, start) invariato
+                remaining = start
+                while remaining > 0:
+                    block = src.read(min(SAVE_COPY_CHUNK, remaining))
+                    if not block:
+                        break
+                    dst.write(block)
+                    remaining -= len(block)
+                    copied += len(block)
+                    self.progress.emit(min(99, int(copied / total * 100)))
+
+                # 2) nuovo contenuto della pagina modificata
+                dst.write(new_bytes)
+                copied += len(new_bytes)
+                self.progress.emit(min(99, int(copied / total * 100)))
+
+                # 3) [end, file_size) invariato
+                src.seek(end)
+                while True:
+                    block = src.read(SAVE_COPY_CHUNK)
+                    if not block:
+                        break
+                    dst.write(block)
+                    copied += len(block)
+                    self.progress.emit(min(99, int(copied / total * 100)))
+
+            os.replace(tmp_path, self.dest_path)
+            self.progress.emit(100)
+            self.finished.emit(start, start + len(new_bytes))
+
+        except Exception as e:
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except Exception:
+                pass
+            self.error.emit(str(e))
 
 
 # ─── LazyLoader ───────────────────────────────────────────────────────────────
@@ -227,9 +449,10 @@ class LazyLoader(QObject):
     Gestisce il caricamento di file grandi in un EditorWidget.
 
     Modalità:
-    - NORMAL  (<50MB):  caricamento sincrono standard (delega a FileManager)
-    - LAZY    (50MB–1GB): caricamento progressivo in background con progress bar
-    - PAGED   (>1GB):   vista paginata read-only, naviga con Pg↑/Pg↓
+    - NORMAL  (<50MB):     caricamento sincrono standard (delega a FileManager)
+    - LAZY    (50MB–200MB): caricamento progressivo in background con progress bar
+    - PAGED   (>200MB):    vista paginata su disco, modificabile una pagina alla
+                           volta, naviga con i pulsanti Pag. prec./succ.
 
     Uso standard:
         LazyLoader.open_file(path, editor, main_window)
@@ -255,7 +478,7 @@ class LazyLoader(QObject):
         self._worker      = None
         self._progress_dlg: Optional[QProgressDialog] = None
         self._cancelled   = False
-        self._paged_view: Optional[PagedFileView] = None
+        self._paged_view: Optional[PagedDocument] = None
         self._pager_widget: Optional[QWidget] = None
         self._accumulated = []   # chunks accumulati prima dell'append
 
@@ -324,16 +547,33 @@ class LazyLoader(QObject):
         if self._cancelled:
             return
 
-        # Primo chunk: load_content (inizializza encoding/lexer)
+        # Primo chunk: load_content (inizializza encoding/lexer, normalizza a LF)
         if chunk_idx == 0:
             self._editor.beginUndoAction()
             le = LineEnding.detect(text)
             self._editor.load_content(text, "UTF-8", le)
+            # load_content blocca i segnali solo per la durata del suo
+            # setText() interno e li riattiva subito dopo. Per un caricamento
+            # a chunk questo è il vero collo di bottiglia: ogni append() dei
+            # chunk successivi altrimenti emette textChanged/modificationChanged
+            # /linesChanged a piena potenza, e tutto ciò che vi è agganciato
+            # (margine numeri riga, git gutter, minimap, spell-check, LSP...)
+            # rilavora sull'intero documento che nel frattempo è cresciuto a
+            # centinaia di MB — con centinaia di chunk diventa quadratico e un
+            # file da 1-2GB può metterci minuti invece di secondi. Si
+            # ri-blocca qui e si riattiva una volta sola a fine caricamento.
+            self._editor.blockSignals(True)
         else:
-            # Append al fondo del documento
-            end_line = self._editor.lines() - 1
-            end_col  = len(self._editor.text(end_line))
-            self._editor.insertAt(text, end_line, end_col)
+            # Append al fondo del documento. load_content normalizza a LF solo
+            # il primo chunk: i successivi vanno normalizzati qui, altrimenti
+            # i file CRLF/CR finirebbero con line ending misti nel buffer.
+            # Usa append() (SCI_APPENDTEXT) invece di insertAt(): calcolare
+            # end_line/end_col con lines()/text(riga) ad ogni chunk e poi
+            # inserire in quel punto forza Scintilla a rileggere/riposizionarsi
+            # sul documento che cresce a centinaia di MB — costo aggiuntivo
+            # che si somma a quello dei segnali descritto sopra.
+            normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+            self._editor.append(normalized)
 
         # Aggiorna progress bar
         pct = min(99, int((chunk_idx + 1) / max(1, total_chunks) * 100))
@@ -344,6 +584,16 @@ class LazyLoader(QObject):
 
     def _on_lazy_finished(self, encoding: str, le_label: str) -> None:
         self._editor.endUndoAction()
+        # Riattiva i segnali bloccati durante i chunk (vedi _on_chunk_ready) e
+        # rifà a mano gli aggiornamenti che sarebbero dovuti scattare da soli:
+        # margine numeri riga (normalmente su linesChanged) e stato "non
+        # modificato" (ogni append() durante il caricamento, pur silenzioso
+        # sui segnali, segna comunque il documento come modificato a livello
+        # Scintilla — sarebbe scorretto per un file appena aperto).
+        self._editor.blockSignals(False)
+        self._editor.setModified(False)
+        self._editor._update_line_number_margin()
+
         # Aggiorna encoding/le definitivi
         self._editor.set_encoding(encoding)
         try:
@@ -364,18 +614,23 @@ class LazyLoader(QObject):
         self.load_started.emit("paged")
 
         try:
-            self._paged_view = PagedFileView(self._path)
+            self._paged_view = PagedDocument(self._path)
         except Exception as e:
             self.load_error.emit(str(e))
             return
 
         size_gb = file_size / GB
-        page_text = self._paged_view.read_page(0)
+        page_text = self._paged_view.read_page_at(self._paged_view.current_start)
         le = LineEnding.detect(page_text)
         self._editor.load_content(page_text, self._paged_view.encoding(), le)
+        self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
 
-        # File enorme → sola lettura per sicurezza
-        self._editor.set_read_only(True)
+        # File enorme: resta modificabile, una pagina alla volta — vedi
+        # PagedDocument e _attach_pager_ui. Altre funzionalità che assumono
+        # editor.text()/get_content() sia l'intero documento (ordina righe,
+        # sostituisci tutto, ecc.) vengono disabilitate altrove riconoscendo
+        # questo attributo.
+        self._editor._paged_doc = self._paged_view
 
         # Barra di stato con info paginazione
         self._attach_pager_ui()
@@ -387,14 +642,19 @@ class LazyLoader(QObject):
         """
         Aggiunge una barra di navigazione pagine alla statusbar di MainWindow.
         La barra persiste finché il tab rimane aperto.
+
+        Navigare mentre la pagina corrente ha modifiche non salvate chiede
+        prima di salvarle (in streaming) o scartarle — si edita sempre una
+        sola pagina alla volta, niente editing multi-pagina in coda.
         """
         if self._mw is None:
             return
 
         pv = self._paged_view
         editor = self._editor
+        mw = self._mw
 
-        from PyQt6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QLabel
+        from PyQt6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QLabel, QInputDialog
         pager = QWidget()
         layout = QHBoxLayout(pager)
         layout.setContentsMargins(4, 0, 4, 0)
@@ -403,48 +663,94 @@ class LazyLoader(QObject):
         lbl = QLabel()
 
         def _update_label():
+            pct = pv.progress_fraction * 100
             lbl.setText(
                 tr("lazy_loader.page_indicator",
-                   page=pv.current_page + 1, total=pv.total_pages,
-                   size=pv.file_size_mb,
-                   default=f"📄 Pagina {pv.current_page + 1}/{pv.total_pages}  "
-                           f"({pv.file_size_mb:.0f} MB)  [SOLA LETTURA]")
+                   page=pv.current_page_number, total=pv.total_pages_estimate,
+                   pct=pct, size=pv.file_size_mb,
+                   default=f"📄 ~Pagina {pv.current_page_number}/{pv.total_pages_estimate}  "
+                           f"(~{pct:.0f}% di {pv.file_size_mb:.0f} MB) "
+                           f"— numerazione riga locale alla pagina")
             )
 
         btn_prev = QPushButton(tr("lazy_loader.btn_prev_page", default="◀ Pag. prec."))
         btn_next = QPushButton(tr("lazy_loader.btn_next_page", default="Pag. succ. ▶"))
+        btn_jump = QPushButton(tr("lazy_loader.btn_jump_page", default="Vai a…"))
         btn_prev.setFixedHeight(20)
         btn_next.setFixedHeight(20)
+        btn_jump.setFixedHeight(20)
+
+        def _load_page_text(text: Optional[str]) -> None:
+            if text is None:
+                return
+            le = LineEnding.detect(text)
+            editor.load_content(text, pv.encoding(), le)
+            # Scope dell'undo alla sola pagina appena caricata: setText() di
+            # QScintilla non svuota da solo lo storico undo, senza questa
+            # chiamata l'undo di una pagina si mescolerebbe con la precedente.
+            editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
+            _update_label()
+
+        def _navigate(get_target_text: Callable[[], Optional[str]]) -> None:
+            if not editor.isModified():
+                _load_page_text(get_target_text())
+                return
+
+            choice = QMessageBox.question(
+                mw,
+                tr("lazy_loader.unsaved_page_title", default="Modifiche non salvate"),
+                tr("lazy_loader.unsaved_page_body",
+                   default="La pagina corrente contiene modifiche non salvate. "
+                           "Vuoi salvarle prima di continuare?"),
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel
+            )
+            if choice == QMessageBox.StandardButton.Cancel:
+                return
+            if choice == QMessageBox.StandardButton.Discard:
+                _load_page_text(get_target_text())
+                return
+            # Salva, poi naviga solo se il salvataggio è andato a buon fine
+            mw.save_paged_page(editor, on_success=lambda: _load_page_text(get_target_text()))
 
         def _go_prev():
-            text = pv.prev_page()
-            if text:
-                le = LineEnding.detect(text)
-                editor.load_content(text, pv.encoding(), le)
-                editor.set_read_only(True)
-                _update_label()
+            _navigate(pv.prev_page)
 
         def _go_next():
-            text = pv.next_page()
-            if text:
-                le = LineEnding.detect(text)
-                editor.load_content(text, pv.encoding(), le)
-                editor.set_read_only(True)
-                _update_label()
+            _navigate(pv.next_page)
+
+        def _go_jump():
+            pct, ok = QInputDialog.getInt(
+                mw,
+                tr("lazy_loader.jump_title", default="Vai a…"),
+                tr("lazy_loader.jump_body", default="Percentuale del file (0-100):"),
+                int(pv.progress_fraction * 100), 0, 100
+            )
+            if ok:
+                _navigate(lambda: pv.jump_to_fraction(pct / 100))
 
         btn_prev.clicked.connect(_go_prev)
         btn_next.clicked.connect(_go_next)
+        btn_jump.clicked.connect(_go_jump)
 
         layout.addWidget(btn_prev)
         layout.addWidget(lbl)
         layout.addWidget(btn_next)
+        layout.addWidget(btn_jump)
 
         _update_label()
 
         # Aggiunge alla statusbar come widget permanente
         try:
-            self._mw.statusBar().addPermanentWidget(pager)
+            mw.statusBar().addPermanentWidget(pager)
             self._pager_widget = pager   # tienilo vivo
+            # Riferimento anche sull'editor: LazyLoader viene scartato subito
+            # dopo il caricamento iniziale (main_window.py:open_files rimuove
+            # self._lazy_loaders[tab] non appena load_finished viene emesso),
+            # quindi alla chiusura del tab non è più raggiungibile per fare
+            # pulizia — senza questo riferimento diretto la barra di
+            # navigazione pagine resterebbe orfana nella statusbar.
+            editor._pager_widget = pager
         except Exception:
             pass
 
@@ -452,9 +758,11 @@ class LazyLoader(QObject):
         if self._mw is None:
             return
         self._mw.statusBar().showMessage(
-            tr("lazy_loader.paged_mode_notice", size_gb=size_gb, total_pages=self._paged_view.total_pages,
-               default=f"⚠ File enorme ({size_gb:.2f} GB): modalità sola lettura, "
-                       f"navigazione a pagine attiva. Pagina 1/{self._paged_view.total_pages}."),
+            tr("lazy_loader.paged_mode_notice", size_gb=size_gb,
+               total_pages=self._paged_view.total_pages_estimate,
+               default=f"⚠ File enorme ({size_gb:.2f} GB): editing una pagina "
+                       f"alla volta (~4MB). Salva o scarta le modifiche prima "
+                       f"di cambiare pagina."),
             8000
         )
 
@@ -508,5 +816,5 @@ class LazyLoader(QObject):
     def is_paged(self) -> bool:
         return self._paged_view is not None
 
-    def paged_view(self) -> Optional[PagedFileView]:
+    def paged_view(self) -> Optional[PagedDocument]:
         return self._paged_view

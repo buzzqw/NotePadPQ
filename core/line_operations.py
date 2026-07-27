@@ -78,6 +78,24 @@ def _apply_line_op(editor: "EditorWidget", op) -> None:
     Usa beginUndoAction/endUndoAction per mantenere la stack undo di Scintilla
     e replaceSelectedText invece di setText (che la azzererebbe).
     """
+    if not editor.hasSelectedText() and getattr(editor, "_paged_doc", None) is not None:
+        # Senza selezione, questa funzione riscrive editor.text() per intero:
+        # su un tab paginato (>200MB) editor.text() è solo la pagina caricata,
+        # non l'intero file — procedere spaccerebbe silenziosamente quella
+        # pagina per l'intero documento.
+        from PyQt6.QtWidgets import QMessageBox
+        from i18n.i18n import tr
+        QMessageBox.warning(
+            editor.window(),
+            tr("line_operations.paged_warning_title", default="Non disponibile"),
+            tr("line_operations.paged_warning_body",
+               default="Questa operazione sull'intero documento non è disponibile "
+                       "per file di grandi dimensioni in modalità paginata: "
+                       "opererebbe solo sulla pagina visibile. Seleziona il testo "
+                       "su cui operare, oppure lavora pagina per pagina.")
+        )
+        return
+
     editor.beginUndoAction()
     try:
         if editor.hasSelectedText():

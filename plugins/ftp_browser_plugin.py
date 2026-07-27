@@ -987,6 +987,17 @@ class _FtpPanel(QWidget):
                 tr("plugin.ftp_browser.not_connected_upload")
             )
             return
+        if getattr(editor, "_paged_doc", None) is not None:
+            # editor.get_content() è solo la pagina caricata su un tab
+            # paginato (>200MB): caricare qui sostituirebbe silenziosamente il
+            # file remoto con la sola pagina corrente.
+            QMessageBox.warning(
+                self, "FTP/SFTP/SMB",
+                tr("plugin.ftp_browser.paged_upload_unavailable",
+                   default="Non disponibile per file di grandi dimensioni in "
+                           "modalità paginata.")
+            )
+            return
         raw = editor.get_content().encode(editor.encoding, errors="replace")
         if self._do_upload(remote_path, raw, getattr(editor, "_ftp_profile", None)):
             editor.setModified(False)

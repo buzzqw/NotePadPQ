@@ -15,8 +15,9 @@ NON gestisce: logica I/O file (→ core/file_manager.py),
 """
 
 import sys
+import threading
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Callable
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QObject, QEvent
 from PyQt6.QtGui import (
@@ -26,7 +27,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QMainWindow, QMenuBar, QMenu, QToolBar, QStatusBar, QDockWidget,
     QWidget, QVBoxLayout, QApplication, QMessageBox,
-    QFileDialog, QInputDialog, QLabel, QSizePolicy, QPushButton,
+    QFileDialog, QInputDialog, QLabel, QSizePolicy, QPushButton, QProgressDialog,
 )
 from PyQt6.QtPrintSupport import QPrinter, QPrintPreviewDialog, QPageSetupDialog
 
@@ -264,6 +265,10 @@ class MainWindow(QMainWindow):
 
         self._prev_editor: Optional[EditorWidget] = None
 
+        # Loader in corso per file grandi (lazy/paged), tenuti vivi qui
+        # per poterli cancellare se il tab viene chiuso durante il caricamento.
+        self._lazy_loaders: dict[EditorWidget, "LazyLoader"] = {}
+
         self.setAcceptDrops(True)
 
     # ── Setup ─────────────────────────────────────────────────────────────────
@@ -478,6 +483,9 @@ class MainWindow(QMainWindow):
         I18n.instance().language_changed.connect(self._rebuild_menus)
         self._on_editor_changed(tm.current_editor())
 
+        # Se un tab con caricamento lazy in corso viene chiuso, annulla il loader
+        tm.tab_closed.connect(self._on_tab_closed_cancel_lazy_load)
+
         # Auto-save su perdita fuoco — segnale cross-platform più affidabile di changeEvent
         QApplication.instance().applicationStateChanged.connect(
             self._on_application_state_changed
@@ -515,6 +523,13 @@ class MainWindow(QMainWindow):
             return
         if not editor.file_path:
             return
+        if getattr(editor, "_paged_doc", None) is not None:
+            # editor.get_content() è solo la pagina caricata su un tab
+            # paginato (>200MB): un backup periodico scriverebbe solo quella
+            # pagina spacciandola per l'intero file, un backup fuorviante in
+            # caso di ripristino da crash — meglio nessun backup automatico
+            # che uno silenziosamente incompleto.
+            return
         backup_dir = self._get_backup_dir()
         try:
             backup_dir.mkdir(parents=True, exist_ok=True)
@@ -541,6 +556,11 @@ class MainWindow(QMainWindow):
             if not editor.file_path:
                 continue
             if not editor.is_modified():
+                continue
+            if getattr(editor, "_paged_doc", None) is not None:
+                # editor.get_content() è solo la pagina caricata su un tab
+                # paginato (>200MB): un backup automatico scriverebbe solo
+                # quella pagina spacciandola per l'intero file.
                 continue
             try:
                 content = editor.get_content()
@@ -1892,6 +1912,23 @@ class MainWindow(QMainWindow):
             act.setChecked(getattr(editor, "_tail_mode", False))
             act.blockSignals(False)
 
+        # Disabilita le operazioni che riscrivono l'intero documento senza
+        # selezione: su un tab paginato (>200MB) editor.text() è solo la
+        # pagina caricata, non l'intero file — vedi anche il controllo
+        # equivalente in core/line_operations.py:_apply_line_op (che resta
+        # la protezione di fondo anche se un'azione qui non fosse elencata).
+        is_paged_tab = getattr(editor, "_paged_doc", None) is not None
+        for key in self._WHOLE_DOCUMENT_ACTION_KEYS:
+            if key in self._actions:
+                act = self._actions[key]
+                act.setEnabled(not is_paged_tab)
+                act.setToolTip(
+                    tr("action.paged_tab_disabled_tooltip",
+                       default="Non disponibile per file di grandi dimensioni "
+                               "in modalità paginata")
+                    if is_paged_tab else ""
+                )
+
         # Aggiorna dock anteprima se visibile
         # Aggiorna SEMPRE il dock anteprima, indipendentemente dalla visibilità di Qt
         if hasattr(self, "_preview_panel_dock"):
@@ -2103,9 +2140,19 @@ class MainWindow(QMainWindow):
     _RICHTEXT_EXTS    = frozenset({".doc", ".docx", ".odt", ".rtf", ".html", ".htm"})
     _PDF_EXTS         = frozenset({".pdf"})
 
+    # Azioni che, senza una selezione, riscrivono l'intero editor.text():
+    # su un tab paginato (>200MB) sarebbe solo la pagina caricata, non l'intero
+    # file. Disabilitate quando il tab attivo è paginato (vedi _on_editor_changed).
+    _WHOLE_DOCUMENT_ACTION_KEYS = frozenset({
+        "sort_lines_menu", "sort_asc", "sort_desc",
+        "sort_by_length_asc", "sort_by_length_desc", "sort_random",
+        "remove_dup_sorted", "remove_dup_ordered",
+        "remove_unique", "keep_unique",
+        "remove_empty", "remove_whitespace", "remove_every_nth",
+    })
+
     def open_files(self, paths: list[Path]) -> None:
         """Apre una lista di file in nuovi tab (chiamato anche da drag&drop)."""
-        from core.file_manager import FileManager
         for path in paths:
             if not path.is_file():
                 continue
@@ -2136,23 +2183,40 @@ class MainWindow(QMainWindow):
                 self._tab_manager.set_current_index(existing)
                 continue
             try:
-                content, encoding, line_ending = FileManager.read(path)
+                from core.lazy_loader import LazyLoader
                 tab = self._tab_manager.new_tab(path=path)
-                tab.load_content(content, encoding, line_ending)
-                self._autosave_file_to_backup(tab)
-                # Notifica plugin: file aperto
-                self._notify_plugins_file_opened(path)
-                # Se il lexer non è stato rilevato dall'estensione,
-                # tenta il rilevamento dal contenuto (shebang, magic numbers)
-                if tab.lexer() is None and content:
-                    try:
-                        from editor.lexers import set_lexer_by_path
-                        set_lexer_by_path(tab, path)
-                    except Exception:
-                        pass
-                # Aggiorna statusbar con il linguaggio rilevato
-                if hasattr(self, "_statusbar"):
-                    self._statusbar._update_lang(tab)
+                loader = LazyLoader(path, tab, self)
+                self._lazy_loaders[tab] = loader
+
+                def _on_finished(tab=tab, path=path, loader=loader) -> None:
+                    self._lazy_loaders.pop(tab, None)
+                    self._autosave_file_to_backup(tab)
+                    # Notifica plugin: file aperto
+                    self._notify_plugins_file_opened(path)
+                    # Se il lexer non è stato rilevato dall'estensione,
+                    # tenta il rilevamento dal contenuto (shebang, magic numbers).
+                    # Usa length() invece di text() per non forzare in memoria
+                    # l'intero contenuto di file enormi solo per il test di verità.
+                    if tab.lexer() is None and tab.length() > 0:
+                        try:
+                            from editor.lexers import set_lexer_by_path
+                            set_lexer_by_path(tab, path)
+                        except Exception:
+                            pass
+                    # Aggiorna statusbar con il linguaggio rilevato
+                    if hasattr(self, "_statusbar"):
+                        self._statusbar._update_lang(tab)
+
+                def _on_error(msg: str, tab=tab, path=path) -> None:
+                    self._lazy_loaders.pop(tab, None)
+                    QMessageBox.critical(
+                        self, self.APP_NAME,
+                        tr("msg.file_read_error", path=str(path), error=msg)
+                    )
+
+                loader.load_finished.connect(_on_finished)
+                loader.load_error.connect(_on_error)
+                loader.start()
             except Exception as e:
                 QMessageBox.critical(
                     self, self.APP_NAME,
@@ -2175,6 +2239,12 @@ class MainWindow(QMainWindow):
                 return True
         # ------------------------------------------
 
+        # --- FILE PAGINATO (>200MB): salvataggio in streaming di una pagina ---
+        if getattr(editor, "_paged_doc", None) is not None:
+            self.save_paged_page(editor)
+            return True
+        # ------------------------------------------
+
         if editor.file_path is None:
             return self.action_save_as()
         return self._save_editor(editor, editor.file_path)
@@ -2189,16 +2259,113 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return False
+
+        # --- FILE PAGINATO (>200MB): "Salva con nome" scrive una copia con la
+        # pagina corrente applicata, senza mai caricare l'intero file in RAM ---
+        if getattr(editor, "_paged_doc", None) is not None:
+            self.save_paged_page(editor, dest_path=Path(path))
+            return True
+        # ------------------------------------------
+
         return self._save_editor(editor, Path(path))
 
     def action_save_all(self) -> None:
         for editor in self._tab_manager.all_editors():
             if editor.is_modified():
-                if editor.file_path:
+                if getattr(editor, "_paged_doc", None) is not None:
+                    self.save_paged_page(editor)
+                elif editor.file_path:
                     self._save_editor(editor, editor.file_path)
                 else:
                     self._tab_manager.set_current_editor(editor)
                     self.action_save_as()
+
+    def save_paged_page(self, editor: EditorWidget, dest_path: Optional[Path] = None,
+                        on_success: Optional[Callable[[], None]] = None,
+                        on_error: Optional[Callable[[str], None]] = None) -> None:
+        """
+        Salva in streaming la pagina corrente di un tab paginato (file >200MB),
+        senza mai caricare l'intero file in RAM: copia byte-a-byte le parti
+        invariate del file originale e sostituisce solo l'intervallo della
+        pagina modificata. Chiamato sia da Salva/Salva con nome sia dalla
+        navigazione tra pagine quando ci sono modifiche non salvate
+        (core/lazy_loader.py:_attach_pager_ui).
+        """
+        from core.lazy_loader import PagedDocument, _SaveWorker
+
+        paged_doc: Optional[PagedDocument] = getattr(editor, "_paged_doc", None)
+        if paged_doc is None:
+            return
+
+        # Stesso pattern di _save_editor: segnala che stiamo salvando noi e
+        # sospendi temporaneamente il watcher, per evitare che veda apparire
+        # il file temporaneo o lo scambio finale e proponga un reload.
+        editor._is_saving = True
+        watched: list[str] = []
+        if hasattr(editor, "_watcher"):
+            watched = editor._watcher.files()
+            if watched:
+                editor._watcher.removePaths(watched)
+
+        new_text = editor.get_content()
+        original_path = paged_doc.path
+        target = dest_path or original_path
+
+        dlg = QProgressDialog(
+            tr("lazy_loader.saving_file", default="Salvataggio in corso…"),
+            None, 0, 100, self
+        )
+        dlg.setWindowTitle(self.APP_NAME)
+        dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        dlg.setMinimumDuration(300)
+        dlg.setValue(0)
+        dlg.show()
+
+        worker = _SaveWorker(paged_doc, new_text, dest_path=target)
+        thread = threading.Thread(target=worker.run, daemon=True)
+
+        def _restore_watcher() -> None:
+            editor._is_saving = False
+            if hasattr(editor, "_watcher") and watched:
+                for p in watched:
+                    if p == str(original_path) and target != original_path:
+                        continue  # il vecchio path non esiste più sotto questo nome
+                    editor._watcher.addPath(p)
+                if target != original_path:
+                    editor._watcher.addPath(str(target))
+
+        def _on_progress(pct: int) -> None:
+            dlg.setValue(pct)
+            QApplication.processEvents()
+
+        def _on_finished(new_start: int, new_end: int) -> None:
+            dlg.close()
+            paged_doc.path = target
+            paged_doc.apply_save_result(new_start, new_end)
+            editor.file_path = target
+            editor.mark_saved()
+            self._on_tab_modified(editor, False)
+            self._update_recent(target)
+            self._notify_plugins_file_saved(target)
+            QTimer.singleShot(1000, _restore_watcher)
+            if on_success:
+                on_success()
+
+        def _on_error(msg: str) -> None:
+            dlg.close()
+            _restore_watcher()
+            QMessageBox.critical(
+                self, self.APP_NAME,
+                tr("msg.file_save_error", path=str(target), error=msg,
+                   default=f"Errore durante il salvataggio: {msg}")
+            )
+            if on_error:
+                on_error(msg)
+
+        worker.progress.connect(_on_progress)
+        worker.finished.connect(_on_finished)
+        worker.error.connect(_on_error)
+        thread.start()
 
     def _save_editor(self, editor: EditorWidget, path: Path) -> bool:
         from core.file_manager import FileManager
@@ -3957,6 +4124,23 @@ class MainWindow(QMainWindow):
             PluginManager.instance().notify_file_opened(path)
         except Exception:
             pass
+
+    def _on_tab_closed_cancel_lazy_load(self, editor) -> None:
+        """Annulla un eventuale caricamento lazy/paged ancora in corso per il tab
+        chiuso e rimuove la barra di navigazione pagine dalla statusbar se il
+        tab era in modalità paginata (>200MB). Il riferimento diretto su
+        editor._pager_widget serve perché il LazyLoader stesso viene già
+        scartato subito dopo il caricamento iniziale (vedi open_files)."""
+        loader = self._lazy_loaders.pop(editor, None)
+        if loader is not None:
+            loader.cancel()
+        pager = getattr(editor, "_pager_widget", None)
+        if pager is not None:
+            try:
+                self.statusBar().removeWidget(pager)
+                pager.deleteLater()
+            except Exception:
+                pass
 
 
     # ── Multi-cursore ─────────────────────────────────────────────────────────

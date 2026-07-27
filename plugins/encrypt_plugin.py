@@ -347,6 +347,19 @@ class _EncryptDialog(QDialog):
 def _get_target(editor: "EditorWidget"):
     if editor.hasSelectedText():
         return editor.selectedText(), True
+    if getattr(editor, "_paged_doc", None) is not None:
+        # Senza selezione, editor.text() è solo la pagina caricata su un tab
+        # paginato (>200MB): cifrare/decifrare e sovrascrivere qui
+        # distruggerebbe silenziosamente il resto del file.
+        QMessageBox.warning(
+            editor.window(),
+            tr("plugin.encrypt.paged_warning_title", default="Non disponibile"),
+            tr("plugin.encrypt.paged_warning_body",
+               default="Questa operazione sull'intero documento non è "
+                       "disponibile per file di grandi dimensioni in modalità "
+                       "paginata. Seleziona il testo su cui operare.")
+        )
+        return None, False
     return editor.text(), False
 
 

@@ -1153,6 +1153,7 @@ class ThemeManager(QObject):
         # ── Scrollbar handle ──
         sb_handle = ui.get("scrollbar_handle")
         is_dark = theme.get("meta", {}).get("dark", True)
+        editor.set_find_line_indicator_theme(is_dark)
         if not sb_handle:
             sb_handle = "#5a6070" if is_dark else "#aaaaaa"
         bg_hex = bg.name() if bg else ("#1e1e1e" if is_dark else "#f0f0f0")

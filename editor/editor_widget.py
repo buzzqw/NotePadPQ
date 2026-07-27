@@ -575,19 +575,18 @@ class EditorWidget(QsciScintilla):
         # --- FINE SPELL CHECKER ---
 
         # Indicatore "riga del risultato" — usato quando si naviga un risultato
-        # dal pannello Trova. Evidenzia l'INTERA riga con una fascia ambra tenue
-        # ma ben visibile su qualunque tema (chiaro o scuro), così la riga di
-        # destinazione salta all'occhio anche quando il caret-line del tema è
-        # troppo leggero. Disegnata SOTTO il testo per non coprirlo.
+        # dal pannello Trova. Evidenzia l'INTERA riga così la riga di destinazione
+        # salta all'occhio anche quando il caret-line del tema è troppo leggero.
+        # Il colore è neutro (bianco/nero traslucido, non ambra) e dipende dal
+        # tema: una tinta ambra fissa, sommata al caret-line scuro, produceva un
+        # marrone/oliva che abbassava il contrasto coi token sintattici gialli/
+        # arancioni dei temi scuri. set_find_line_indicator_theme() viene
+        # richiamato anche da ThemeManager.apply_to_editor() ad ogni cambio tema.
         self.indicatorDefine(
             QsciScintilla.IndicatorStyle.StraightBoxIndicator, INDICATOR_FIND_LINE
         )
-        self.setIndicatorForegroundColor(QColor(255, 200, 60, 70), INDICATOR_FIND_LINE)
-        try:
-            self.setIndicatorOutlineColor(QColor(255, 160, 0, 120), INDICATOR_FIND_LINE)
-        except Exception:
-            pass
         self.setIndicatorDrawUnder(True, INDICATOR_FIND_LINE)
+        self.set_find_line_indicator_theme(True)
 
         # Indicatore colonne tabella LaTeX: squiggly ambra sotto il testo.
         # Simile allo spell checker ma giallo/ambra per differenziare i warning
@@ -1283,6 +1282,25 @@ class EditorWidget(QsciScintilla):
             QsciScintilla.SCI_POSITIONFROMLINE, line
         )
         return line, col
+
+    def set_find_line_indicator_theme(self, is_dark: bool) -> None:
+        """Aggiorna il colore della fascia INDICATOR_FIND_LINE in base al tema.
+
+        Usa un overlay neutro (bianco su temi scuri, nero su temi chiari) invece
+        di una tinta colorata: schiarisce/scurisce lo sfondo della riga senza
+        introdurre una tonalità che possa confliggere con i colori dei token
+        sintattici del tema attivo (es. stringhe/numeri ambra/gialli nei temi
+        scuri, che con una fascia ambra diventavano illeggibili).
+        """
+        if is_dark:
+            fill, outline = QColor(255, 255, 255, 35), QColor(255, 255, 255, 80)
+        else:
+            fill, outline = QColor(0, 0, 0, 25), QColor(0, 0, 0, 70)
+        self.setIndicatorForegroundColor(fill, INDICATOR_FIND_LINE)
+        try:
+            self.setIndicatorOutlineColor(outline, INDICATOR_FIND_LINE)
+        except Exception:
+            pass
 
     def highlight_find_match(self, line: int, start_col: int,
                              end_col: int) -> None:

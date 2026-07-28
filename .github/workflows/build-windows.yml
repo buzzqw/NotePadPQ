@@ -46,7 +46,7 @@ jobs:
         shell: python
         run: |
           import re, os
-          content = open('main.py').read()
+          content = open('main.py', encoding='utf-8').read()
           m = re.search(r"""setApplicationVersion\(['"](.+?)['"]\)""", content)
           ver = m.group(1) if m else '0.0.0'
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
@@ -94,8 +94,8 @@ jobs:
               content = f.read()
           content = re.sub(r'filevers=\([\d, ]+\)', f'filevers={ver_tuple}', content)
           content = re.sub(r'prodvers=\([\d, ]+\)', f'prodvers={ver_tuple}', content)
-          content = re.sub(r"'FileVersion',\s+'[\d.]+'", f"'FileVersion', '{version}.0'", content)
-          content = re.sub(r"'ProductVersion',\s+'[\d.]+'", f"'ProductVersion', '{version}'", content)
+          content = re.sub(r"'FileVersion',\s+u?'[\d.]+'", f"'FileVersion',      u'{version}.0'", content)
+          content = re.sub(r"'ProductVersion',\s+u?'[\d.]+'", f"'ProductVersion',   u'{version}'", content)
           with open('windowsbuild/version_info.txt', 'w', encoding='utf-8') as f:
               f.write(content)
 

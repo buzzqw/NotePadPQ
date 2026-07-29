@@ -220,11 +220,30 @@ def main():
     # ma PRIMA di caricare la MainWindow.
     _si = SingleInstance("NotePadPQ")
     files_to_send = [str(Path(p).resolve()) for p in sys.argv[1:] if Path(p).exists()]
-    
+
     if _si.send_args_if_secondary(files_to_send):
         # Se la prima istanza è accesa, riceverà i file in un lampo.
         # Noi possiamo spegnerci silenziosamente.
         sys.exit(0)
+
+    # Avviamo SUBITO il server, prima di qualunque inizializzazione pesante
+    # (MainWindow, i18n, plugin, QtWebEngine...). Se il server partisse solo
+    # a fine inizializzazione, un doppio click arrivato nel frattempo
+    # troverebbe la porta ancora chiusa, si crederebbe "primo" a sua volta e
+    # ruberebbe il socket: esattamente il bug delle finestre doppie senza
+    # file. I file ricevuti prima che la finestra esista vengono bufferizzati
+    # e aperti non appena `win` è pronta (vedi `_win_holder` più sotto).
+    _win_holder: dict = {"win": None}
+    _pending_from_ipc: list = []
+
+    def _on_files_received_early(paths) -> None:
+        w = _win_holder["win"]
+        if w is None:
+            _pending_from_ipc.append(paths)
+        else:
+            w.open_files([Path(p) for p in paths])
+
+    _si.start_server(callback=_on_files_received_early)
     # ─────────────────────────────────────────────────────────────────────────
 
     base_dir = Path(__file__).resolve().parent
@@ -264,6 +283,14 @@ def main():
     # Crea finestra principale
     win = MainWindow()
     win.show()
+
+    # Il server single-instance è già attivo (avviato subito dopo il check
+    # di secondarietà, vedi sopra): ora che `win` esiste, colleghiamo il
+    # riferimento e scarichiamo eventuali file arrivati nel frattempo.
+    _win_holder["win"] = win
+    for _paths in _pending_from_ipc:
+        win.open_files([Path(p) for p in _paths])
+    _pending_from_ipc.clear()
 
     # ── Post-startup deferred ─────────────────────────────────────────────────
     # Eseguito dopo che tutti i plugin sono stati caricati (uno per tick).
@@ -336,13 +363,6 @@ def main():
     except Exception as e:
         print(f"[main] Errore caricamento plugin: {e}")
         _finish_startup()
-
-    # ── Avvia server single-instance ────────────────────────────────────────
-    # Fatto dopo win.show() così open_files funziona subito
-    _si.start_server(
-        callback=lambda paths: win.open_files([Path(p) for p in paths])
-    )
-    # ─────────────────────────────────────────────────────────────────────────
 
     # 1. Recupera i file passati dall'esterno (es. doppio clic su un file)
     files_from_cli = [Path(p) for p in sys.argv[1:] if Path(p).is_file()]

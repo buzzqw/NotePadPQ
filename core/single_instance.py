@@ -55,25 +55,44 @@ class SingleInstance(QObject):
         sock.deleteLater()
         return False
 
-    def start_server(self, callback: Callable[[List[str]], None]) -> None:
-        """Avvia il server locale sulla prima istanza."""
+    def start_server(self, callback: Callable[[List[str]], None]) -> bool:
+        """
+        Avvia il server locale sulla prima istanza.
+        Restituisce True se il server è stato avviato con successo (siamo
+        davvero la prima istanza), False se esiste già un server vivo
+        (siamo in realtà una seconda istanza arrivata qui per una race
+        di avvio) o se l'avvio fallisce per un altro motivo.
+        """
         self._callback = callback
         self.files_received.connect(callback)
 
-        # Rimuovi eventuale socket orfano da un crash precedente
-        QLocalServer.removeServer(self._app_name)
-
         self._server = QLocalServer(self)
-        
+
         # FIX IMPORTANTE: Ho rimosso "self._server.setSocketOptions(...)".
         # Su Windows questa opzione può bloccare totalmente la comunicazione
         # tra le istanze, causando l'apertura di finestre doppie.
-        
+
         if not self._server.listen(self._app_name):
-            print(f"[SingleInstance] Impossibile avviare il server: {self._server.errorString()}")
-            return
+            # Il path del socket esiste già: prima di rimuoverlo verifichiamo
+            # se appartiene a un server VIVO (siamo noi i secondi arrivati,
+            # non dobbiamo rubare il socket) oppure è un residuo orfano di
+            # un crash precedente (allora è sicuro rimuoverlo e riprovare).
+            probe = QLocalSocket()
+            probe.connectToServer(self._app_name)
+            if probe.waitForConnected(500):
+                probe.disconnectFromServer()
+                probe.deleteLater()
+                print("[SingleInstance] Server già attivo altrove: non avvio un secondo listener.")
+                return False
+            probe.deleteLater()
+
+            QLocalServer.removeServer(self._app_name)
+            if not self._server.listen(self._app_name):
+                print(f"[SingleInstance] Impossibile avviare il server: {self._server.errorString()}")
+                return False
 
         self._server.newConnection.connect(self._on_new_connection)
+        return True
 
     def _on_new_connection(self) -> None:
         conn = self._server.nextPendingConnection()

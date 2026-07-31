@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
 )
 
 from i18n.i18n import tr
+from ui.busy_indicator import BusyIndicator
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -219,24 +220,47 @@ class _SqlHighlighter(QSyntaxHighlighter):
 class _PipInstallWorker(QThread):
     """Esegue 'pip install <package>' in background (può richiedere fino a 120s)."""
 
-    completed = pyqtSignal(bool, str, bool)  # ok, message, is_exception
+    completed = pyqtSignal(bool, str, bool, bool)  # ok, message, is_exception, cancelled
 
     def __init__(self, package: str):
         super().__init__()
         self._package = package
+        self._proc: Optional[subprocess.Popen] = None
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        # Segna "annullato" solo se il subprocess è stato davvero terminato:
+        # se pip ha già finito (con successo o meno) proprio mentre l'utente
+        # clicca Annulla, l'esito reale va comunque riportato invece di
+        # essere sovrascritto da un falso annullamento.
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+                self._cancelled = True
+            except Exception:
+                pass
 
     def run(self) -> None:
         try:
-            result = subprocess.run(
+            self._proc = subprocess.Popen(
                 [sys.executable, "-m", "pip", "install", self._package],
-                capture_output=True, text=True, timeout=120
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             )
-            if result.returncode == 0:
-                self.completed.emit(True, "", False)
+            try:
+                _stdout, stderr = self._proc.communicate(timeout=120)
+            except subprocess.TimeoutExpired:
+                self._proc.kill()
+                self.completed.emit(False, "Timeout", False, self._cancelled)
+                return
+            if self._cancelled:
+                self.completed.emit(False, "", False, True)
+            elif self._proc.returncode == 0:
+                self.completed.emit(True, "", False, False)
             else:
-                self.completed.emit(False, result.stderr[-500:], False)
+                self.completed.emit(False, stderr[-500:], False, False)
         except Exception as exc:
-            self.completed.emit(False, str(exc), True)
+            self.completed.emit(False, str(exc), True, self._cancelled)
 
 
 class DBDriverInstallerDialog(QDialog):
@@ -256,8 +280,9 @@ class DBDriverInstallerDialog(QDialog):
         lbl.setWordWrap(True)
         layout.addWidget(lbl)
 
-        self._status = QLabel("")
+        self._status = BusyIndicator()
         self._status.setStyleSheet("color: gray; font-size: 11px;")
+        self._status.cancelled.connect(self._cancel_install)
         layout.addWidget(self._status)
 
         btns = QDialogButtonBox()
@@ -268,16 +293,21 @@ class DBDriverInstallerDialog(QDialog):
         self._btn_cancel = btns.addButton(QDialogButtonBox.StandardButton.Cancel)
         self._btn_cancel.setText(tr("button.cancel", default="Cancel"))
         btns.accepted.connect(self._do_install)
-        btns.rejected.connect(self.reject)
+        btns.rejected.connect(self._on_dialog_reject)
         layout.addWidget(btns)
+
+    def _on_dialog_reject(self) -> None:
+        if self._install_worker is not None:
+            self._install_worker.cancel()
+        self.reject()
 
     def _do_install(self) -> None:
         if self._install_worker is not None:
             return
         drv = _DRIVERS[self._db_type]
         self._btn_install.setEnabled(False)
-        self._btn_cancel.setEnabled(False)
         self._status.setText(tr("db.installing_pip", pip=drv['pip']))
+        self._status.set_busy(True, cancellable=True)
 
         worker = _PipInstallWorker(drv["pip"])
         worker.completed.connect(self._on_install_completed)
@@ -285,19 +315,28 @@ class DBDriverInstallerDialog(QDialog):
         self._install_worker = worker
         worker.start()
 
-    def _on_install_completed(self, ok: bool, message: str, is_exception: bool) -> None:
+    def _cancel_install(self) -> None:
+        if self._install_worker is not None:
+            self._status.setText(tr("db.installing_cancelling", default="Annullamento in corso…"))
+            self._install_worker.cancel()
+
+    def _on_install_completed(self, ok: bool, message: str, is_exception: bool,
+                               cancelled: bool) -> None:
         self._install_worker = None
+        self._status.set_busy(False)
         if ok:
             self._status.setText(tr("db.install_completed"))
             self.accept()
+            return
+        self._btn_install.setEnabled(True)
+        if cancelled:
+            self._status.setText(tr("db.install_cancelled", default="Installazione annullata."))
             return
         self._status.setText(tr("db.install_error"))
         if is_exception:
             QMessageBox.critical(self, "NotePadPQ", message)
         else:
             QMessageBox.critical(self, "NotePadPQ", tr("db.pip_install_failed", stderr=message))
-        self._btn_install.setEnabled(True)
-        self._btn_cancel.setEnabled(True)
 
 
 # ── Connect dialog ────────────────────────────────────────────────────────────

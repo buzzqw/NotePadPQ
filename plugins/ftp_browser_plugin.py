@@ -33,6 +33,7 @@ from PyQt6.QtGui import QIcon, QFont, QColor
 
 from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from ui.busy_indicator import BusyIndicator
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -255,19 +256,22 @@ class _FtpPanel(QWidget):
         self._current_dir = "/"
         self._worker: Optional[_FtpOpWorker] = None
         self._closed    = False
+        self._cancel_requested = False
 
         self._load_profiles()
         self._build_ui()
 
     # ── Esecuzione asincrona ─────────────────────────────────────────────────
 
-    def _run_async(self, fn, on_ok=None, on_err=None, busy_msg: str = "") -> bool:
+    def _run_async(self, fn, on_ok=None, on_err=None, busy_msg: str = "",
+                    cancellable: bool = False) -> bool:
         """Esegue fn() su un worker in background. Un'operazione alla volta."""
         if self._worker is not None and self._worker.isRunning():
             return False
         if busy_msg:
             self._status.setText(busy_msg)
-        self._set_busy(True)
+        self._cancel_requested = False
+        self._set_busy(True, cancellable)
 
         worker = _FtpOpWorker(fn)
         worker.finished_ok.connect(lambda result: self._on_async_ok(worker, on_ok, result))
@@ -288,6 +292,15 @@ class _FtpPanel(QWidget):
         self._set_busy(False)
         if self._closed:
             return
+        if self._cancel_requested:
+            # L'errore è l'effetto atteso della chiusura forzata della
+            # connessione da _abort_current_op, non un fallimento reale.
+            self._cancel_requested = False
+            self._conn = None
+            self._btn_connect.setText(tr("plugin.ftp_browser.connect_btn"))
+            self._status.setText(
+                tr("plugin.ftp_browser.status_cancelled", default="Operazione annullata."))
+            return
         if on_err:
             on_err(err)
         else:
@@ -299,9 +312,30 @@ class _FtpPanel(QWidget):
             self._worker = None
         worker.deleteLater()
 
-    def _set_busy(self, busy: bool) -> None:
+    def _set_busy(self, busy: bool, cancellable: bool = False) -> None:
         self._btn_connect.setEnabled(not busy)
         self._tree.setEnabled(not busy)
+        self._status.set_busy(busy, cancellable)
+
+    def _abort_current_op(self) -> None:
+        """Tenta di interrompere l'operazione in corso chiudendo la
+        connessione: sblocca la chiamata socket bloccante nel worker,
+        che terminerà con un errore intercettato come cancellazione."""
+        if self._worker is None or not self._worker.isRunning():
+            return
+        self._cancel_requested = True
+        conn = self._conn
+        if conn is None:
+            return
+        try:
+            kind = conn[0]
+            if kind == "ftp":
+                conn[1].close()
+            elif kind == "sftp":
+                conn[1].close()
+                conn[2].close()
+        except Exception:
+            pass
 
     def _notify_busy(self) -> None:
         self._status.setText(
@@ -395,9 +429,11 @@ class _FtpPanel(QWidget):
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         layout.addWidget(self._tree, 1)
 
-        # Barra di stato
-        self._status = QLabel(tr("plugin.ftp_not_connected", default="Non connesso"))
+        # Barra di stato (etichetta + indicatore di attività + Annulla)
+        self._status = BusyIndicator()
+        self._status.setText(tr("plugin.ftp_not_connected", default="Non connesso"))
         self._status.setStyleSheet("font-size: 11px; color: #888;")
+        self._status.cancelled.connect(self._abort_current_op)
         layout.addWidget(self._status)
 
     def _populate_combo(self) -> None:
@@ -816,6 +852,7 @@ class _FtpPanel(QWidget):
         started = self._run_async(
             lambda: self._fetch_listing(path), _on_ok, _on_err,
             busy_msg=tr("plugin.ftp_browser.status_listing", path=path),
+            cancellable=True,
         )
         if not started:
             # Un'altra operazione è già in corso (es. connessione appena avviata
@@ -898,6 +935,7 @@ class _FtpPanel(QWidget):
         self._run_async(
             lambda: self._fetch_file(remote_path), _on_ok, _on_err,
             busy_msg=tr("plugin.ftp_browser.status_downloading", path=remote_path),
+            cancellable=True,
         )
 
     def _fetch_file(self, remote_path: str) -> bytes:
@@ -1003,7 +1041,8 @@ class _FtpPanel(QWidget):
         def _on_err(err):
             QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.rename_failed", error=err))
 
-        if not self._run_async(_do, lambda _r: self._list_directory(self._current_dir), _on_err):
+        if not self._run_async(_do, lambda _r: self._list_directory(self._current_dir), _on_err,
+                                cancellable=True):
             self._notify_busy()
 
     def _delete(self, path: str, name: str) -> None:
@@ -1028,7 +1067,8 @@ class _FtpPanel(QWidget):
         def _on_err(err):
             QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.delete_failed", error=err))
 
-        if not self._run_async(_do, lambda _r: self._list_directory(self._current_dir), _on_err):
+        if not self._run_async(_do, lambda _r: self._list_directory(self._current_dir), _on_err,
+                                cancellable=True):
             self._notify_busy()
 
     def _mkdir(self) -> None:
@@ -1048,7 +1088,8 @@ class _FtpPanel(QWidget):
         def _on_err(err):
             QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.mkdir_failed", error=err))
 
-        if not self._run_async(_do, lambda _r: self._list_directory(self._current_dir), _on_err):
+        if not self._run_async(_do, lambda _r: self._list_directory(self._current_dir), _on_err,
+                                cancellable=True):
             self._notify_busy()
 
     def _new_file(self) -> None:
@@ -1077,7 +1118,7 @@ class _FtpPanel(QWidget):
         def _on_err(err):
             QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.new_file_failed", error=err))
 
-        if not self._run_async(_do, _on_ok, _on_err):
+        if not self._run_async(_do, _on_ok, _on_err, cancellable=True):
             self._notify_busy()
 
     # ── Upload file corrente ──────────────────────────────────────────────────
@@ -1123,7 +1164,10 @@ class _FtpPanel(QWidget):
 
         busy_msg = (tr("plugin.ftp_browser.status_reconnecting", host=p.host)
                     if reconnecting and p else "")
-        return self._run_async(_do, _on_ok, _on_err, busy_msg=busy_msg)
+        # Annulla non disponibile durante la riconnessione: non c'è ancora
+        # una connessione da chiudere per interrompere la chiamata bloccante.
+        return self._run_async(_do, _on_ok, _on_err, busy_msg=busy_msg,
+                                cancellable=not reconnecting)
 
     def upload_current(self) -> None:
         """Carica il file corrente dell'editor sul server (se proveniente da FTP)."""

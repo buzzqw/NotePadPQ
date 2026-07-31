@@ -33,6 +33,7 @@ from PyQt6.QtPrintSupport import QPrinter, QPrintPreviewDialog, QPageSetupDialog
 
 from editor.editor_widget import EditorWidget, LineEnding
 from i18n.i18n import tr, I18n
+from ui.busy_indicator import show_busy, hide_busy
 from core.platform import IS_WINDOWS, get_config_dir
 from core.external_open import open_url as _open_url
 
@@ -226,17 +227,36 @@ class _ExportAsWorker(QThread):
     """Esegue la conversione di 'Esporta come...' in background (pandoc può
     richiedere fino a 30s su documenti grandi)."""
 
-    completed = pyqtSignal(str)  # messaggio di errore, "" se riuscito
+    completed = pyqtSignal(str, bool)  # messaggio di errore ("" se riuscito), cancelled
 
     def __init__(self, content: str, fmt_in: str, dest):
         super().__init__()
         self._content = content
         self._fmt_in  = fmt_in
         self._dest    = dest
+        self._proc    = None
+        self._cancelled = False
+
+    def _register_proc(self, proc) -> None:
+        self._proc = proc
+
+    def cancel(self) -> None:
+        # Segna "annullato" solo se esiste davvero un subprocess in corso da
+        # interrompere: alcuni formati (HTML, DOCX via htmldocx) non passano
+        # mai da pandoc, quindi non c'è nulla da terminare e l'esportazione
+        # va comunque completata e riportata con il suo esito reale.
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+                self._cancelled = True
+            except Exception:
+                pass
 
     def run(self) -> None:
-        err = MainWindow._export_text_as(self._content, self._fmt_in, self._dest)
-        self.completed.emit(err)
+        err = MainWindow._export_text_as(
+            self._content, self._fmt_in, self._dest, register_proc=self._register_proc)
+        self.completed.emit(err, self._cancelled)
 
 
 class MainWindow(QMainWindow):
@@ -2676,14 +2696,21 @@ class MainWindow(QMainWindow):
                 tr("msg.export_busy", default="Esportazione già in corso…"), 3000)
             return
 
-        self.statusBar().showMessage(
-            tr("msg.export_in_progress", default="Esportazione in corso…"))
-
         worker = _ExportAsWorker(content, fmt_in, p)
+        busy = show_busy(
+            self.statusBar(),
+            tr("msg.export_in_progress", default="Esportazione in corso…"),
+            cancellable=True, on_cancel=worker.cancel,
+        )
 
-        def _on_done(err: str) -> None:
-            self._export_as_worker = None
-            if err:
+        def _on_done(err: str, cancelled: bool) -> None:
+            if self._export_as_worker is worker:
+                self._export_as_worker = None
+            hide_busy(self.statusBar(), busy)
+            if cancelled:
+                self.statusBar().showMessage(
+                    tr("msg.export_cancelled", default="Esportazione annullata."), 3000)
+            elif err:
                 _QMB.critical(self, tr("action.export_as", default="Esporta come…"), err)
             else:
                 _QMB.information(self, tr("action.export_as", default="Esporta come…"),
@@ -2695,8 +2722,13 @@ class MainWindow(QMainWindow):
         worker.start()
 
     @staticmethod
-    def _export_text_as(content: str, fmt_in: str, dest: "Path") -> str:
-        """Converte testo/Markdown nel formato di dest. Ritorna stringa errore o ''."""
+    def _export_text_as(content: str, fmt_in: str, dest: "Path", register_proc=None) -> str:
+        """Converte testo/Markdown nel formato di dest. Ritorna stringa errore o ''.
+
+        Se fornita, register_proc(proc) viene chiamata subito dopo l'avvio
+        del subprocess pandoc: permette al chiamante (su un altro thread)
+        di annullare l'operazione con proc.terminate().
+        """
         import subprocess, tempfile
         from pathlib import Path as _Path
 
@@ -2744,18 +2776,27 @@ class MainWindow(QMainWindow):
             fmt_out = ext.lstrip(".")
             if fmt_out == "tex":
                 fmt_out = "latex"
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 ["pandoc", "-f", fmt_in, "-t", fmt_out, tmp, "-o", str(dest)],
-                capture_output=True, text=True, timeout=30
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             )
-            if result.returncode != 0:
-                return result.stderr or f"pandoc exit {result.returncode}"
+            if register_proc:
+                register_proc(proc)
+            try:
+                _stdout, stderr = proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                return "Timeout: pandoc ha impiegato troppo tempo."
+            if proc.returncode != 0:
+                return stderr or f"pandoc exit {proc.returncode}"
             return ""
         except FileNotFoundError:
             return tr("msg.pandoc_not_found")
         except Exception as e:
             return str(e)
         finally:
+            if register_proc:
+                register_proc(None)
             try:
                 _Path(tmp).unlink(missing_ok=True)
             except Exception:

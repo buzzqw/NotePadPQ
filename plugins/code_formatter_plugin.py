@@ -50,6 +50,7 @@ from PyQt6.QtWidgets import (
 from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
 from editor.lexers import get_language_name
+from ui.busy_indicator import show_busy, hide_busy
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -208,10 +209,15 @@ def _format_xml(text: str) -> Tuple[bool, str]:
 
 # ─── Chiamata subprocess ─────────────────────────────────────────────────────
 
-def _run_formatter(cmd: List[str], text: str) -> Tuple[bool, str, str]:
+def _run_formatter(cmd: List[str], text: str,
+                    register_proc: Optional[callable] = None) -> Tuple[bool, str, str]:
     """
     Esegue il formatter passando il testo via stdin.
     Ritorna (successo, stdout, stderr).
+
+    Se fornita, register_proc(proc) viene chiamata subito dopo l'avvio del
+    processo: permette al chiamante (su un altro thread) di annullare
+    l'operazione con proc.terminate().
     """
     exe = cmd[0]
     exe_path = _find_exe(exe)
@@ -219,21 +225,28 @@ def _run_formatter(cmd: List[str], text: str) -> Tuple[bool, str, str]:
         return False, "", f"Formatter '{exe}' non trovato nel PATH.\nInstallalo prima di usarlo."
     cmd = [exe_path] + cmd[1:]
 
+    proc = None
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            input=text.encode("utf-8"),
-            capture_output=True,
-            timeout=30,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
-        stdout = result.stdout.decode("utf-8", errors="replace")
-        stderr = result.stderr.decode("utf-8", errors="replace")
-        ok = result.returncode == 0
+        if register_proc:
+            register_proc(proc)
+        stdout_b, stderr_b = proc.communicate(input=text.encode("utf-8"), timeout=30)
+        stdout = stdout_b.decode("utf-8", errors="replace")
+        stderr = stderr_b.decode("utf-8", errors="replace")
+        ok = proc.returncode == 0
         return ok, stdout, stderr
     except subprocess.TimeoutExpired:
+        if proc is not None:
+            proc.kill()
         return False, "", "Timeout: il formatter ha impiegato troppo tempo."
     except Exception as exc:
         return False, "", str(exc)
+    finally:
+        if register_proc:
+            register_proc(None)
 
 
 # ─── Dialog preferenze ───────────────────────────────────────────────────────
@@ -339,7 +352,8 @@ class _Formatter:
             return stored.split()
         return cfg.get("cmd")
 
-    def format_text(self, text: str, lang: str) -> Tuple[bool, str, str]:
+    def format_text(self, text: str, lang: str,
+                     register_proc: Optional[callable] = None) -> Tuple[bool, str, str]:
         """
         Formatta `text` per il linguaggio `lang`.
         Ritorna (successo, testo_formattato, messaggio_errore).
@@ -361,14 +375,14 @@ class _Formatter:
         if not cmd:
             return False, text, f"Nessun comando configurato per '{lang}'."
 
-        ok, stdout, stderr = _run_formatter(cmd, text)
+        ok, stdout, stderr = _run_formatter(cmd, text, register_proc=register_proc)
         if ok and stdout.strip():
             return True, stdout, ""
         if not ok:
             # prova alternativa (es. ruff se black non c'è)
             alt = cfg.get("alt")
             if alt and not _find_exe(cmd[0]):
-                ok2, stdout2, stderr2 = _run_formatter(alt, text)
+                ok2, stdout2, stderr2 = _run_formatter(alt, text, register_proc=register_proc)
                 if ok2 and stdout2.strip():
                     return True, stdout2, ""
                 return False, text, stderr2 or stderr
@@ -383,17 +397,36 @@ class _FormatWorker(QThread):
     """Esegue _Formatter.format_text() in background (il formatter esterno
     può richiedere fino a 30s, o 60s con fallback su formatter alternativo)."""
 
-    completed = pyqtSignal(bool, str, str)  # ok, formatted, err
+    completed = pyqtSignal(bool, str, str, bool)  # ok, formatted, err, cancelled
 
     def __init__(self, formatter: "_Formatter", text: str, lang: str):
         super().__init__()
         self._formatter = formatter
         self._text = text
         self._lang = lang
+        self._proc = None
+        self._cancelled = False
+
+    def _register_proc(self, proc) -> None:
+        self._proc = proc
+
+    def cancel(self) -> None:
+        # Segna "annullato" solo se esiste davvero un subprocess da
+        # terminare: i formatter built-in (JSON/XML) non ne avviano mai uno,
+        # quindi il risultato va comunque applicato invece di essere
+        # scartato come se fosse stato interrotto.
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+                self._cancelled = True
+            except Exception:
+                pass
 
     def run(self) -> None:
-        ok, formatted, err = self._formatter.format_text(self._text, self._lang)
-        self.completed.emit(ok, formatted, err)
+        ok, formatted, err = self._formatter.format_text(
+            self._text, self._lang, register_proc=self._register_proc)
+        self.completed.emit(ok, formatted, err, self._cancelled)
 
 
 # ─── Plugin ───────────────────────────────────────────────────────────────────
@@ -433,10 +466,10 @@ class CodeFormatterPlugin(BasePlugin):
 
     def on_unload(self) -> None:
         if getattr(self, "_active_worker", None) is not None:
-            try:
-                self._active_worker.completed.disconnect()
-            except (TypeError, RuntimeError):
-                pass
+            # cancel() termina il subprocess: _on_done scatterà comunque e
+            # rimuoverà il BusyIndicator dalla status bar (altrimenti
+            # resterebbe visibile per sempre se disconnessa qui).
+            self._active_worker.cancel()
         super().on_unload()
 
     def on_file_saved(self, path) -> None:
@@ -493,8 +526,20 @@ class CodeFormatterPlugin(BasePlugin):
 
         worker = _FormatWorker(self._formatter, text, lang)
 
-        def _on_done(ok: bool, formatted: str, err: str) -> None:
-            self._active_worker = None
+        busy = None if silent else show_busy(
+            self._mw.statusBar(),
+            tr("plugin.code_formatter.in_progress", default="Formattazione in corso…"),
+            cancellable=True, on_cancel=worker.cancel,
+        )
+
+        def _on_done(ok: bool, formatted: str, err: str, cancelled: bool) -> None:
+            if self._active_worker is worker:
+                self._active_worker = None
+            hide_busy(self._mw.statusBar(), busy)
+            if cancelled:
+                self._mw.statusBar().showMessage(
+                    tr("plugin.code_formatter.cancelled", default="Formattazione annullata."), 3000)
+                return
             self._apply_format_result(editor, text, formatted, ok, err, selection, silent)
 
         worker.completed.connect(_on_done)

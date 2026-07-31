@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget,
     QTreeWidgetItem, QPushButton, QLabel, QLineEdit, QSpinBox,
     QComboBox, QDialog, QFormLayout, QDialogButtonBox,
-    QMessageBox, QApplication, QProgressDialog, QMenu, QInputDialog,
+    QMessageBox, QProgressDialog, QMenu, QInputDialog,
     QCheckBox,
 )
 from PyQt6.QtGui import QIcon, QFont, QColor
@@ -36,6 +36,34 @@ from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
+
+
+# ─── Worker generico per operazioni FTP/SFTP/SMB bloccanti ───────────────────
+
+class _FtpOpWorker(QThread):
+    """Esegue in background una funzione bloccante (socket I/O, subprocess).
+
+    Un solo worker alla volta per pannello: connect/list/download/upload
+    condividono lo stesso oggetto connessione, non thread-safe per uso
+    concorrente.
+    """
+
+    finished_ok  = pyqtSignal(object)
+    finished_err = pyqtSignal(str)
+
+    def __init__(self, fn, *args, **kwargs):
+        super().__init__(None)
+        self._fn     = fn
+        self._args   = args
+        self._kwargs = kwargs
+
+    def run(self) -> None:
+        try:
+            result = self._fn(*self._args, **self._kwargs)
+        except Exception as e:
+            self.finished_err.emit(str(e))
+            return
+        self.finished_ok.emit(result)
 
 
 # ─── Modello connessione ──────────────────────────────────────────────────────
@@ -225,9 +253,77 @@ class _FtpPanel(QWidget):
         self._conn      = None    # ftplib.FTP o paramiko.SFTPClient
         self._current_profile: Optional[FtpProfile] = None
         self._current_dir = "/"
+        self._worker: Optional[_FtpOpWorker] = None
+        self._closed    = False
 
         self._load_profiles()
         self._build_ui()
+
+    # ── Esecuzione asincrona ─────────────────────────────────────────────────
+
+    def _run_async(self, fn, on_ok=None, on_err=None, busy_msg: str = "") -> bool:
+        """Esegue fn() su un worker in background. Un'operazione alla volta."""
+        if self._worker is not None and self._worker.isRunning():
+            return False
+        if busy_msg:
+            self._status.setText(busy_msg)
+        self._set_busy(True)
+
+        worker = _FtpOpWorker(fn)
+        worker.finished_ok.connect(lambda result: self._on_async_ok(worker, on_ok, result))
+        worker.finished_err.connect(lambda err: self._on_async_err(worker, on_err, err))
+        worker.finished.connect(lambda: self._clear_worker(worker))
+        self._worker = worker
+        worker.start()
+        return True
+
+    def _on_async_ok(self, worker, on_ok, result) -> None:
+        self._set_busy(False)
+        if self._closed:
+            return
+        if on_ok:
+            on_ok(result)
+
+    def _on_async_err(self, worker, on_err, err: str) -> None:
+        self._set_busy(False)
+        if self._closed:
+            return
+        if on_err:
+            on_err(err)
+        else:
+            self._status.setText(tr("plugin.ftp_browser.status_conn_error"))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", err)
+
+    def _clear_worker(self, worker) -> None:
+        if self._worker is worker:
+            self._worker = None
+        worker.deleteLater()
+
+    def _set_busy(self, busy: bool) -> None:
+        self._btn_connect.setEnabled(not busy)
+        self._tree.setEnabled(not busy)
+
+    def _notify_busy(self) -> None:
+        self._status.setText(
+            tr("plugin.ftp_browser.status_busy", default="Operazione FTP già in corso…"))
+
+    def shutdown(self) -> None:
+        """Scollega i callback pendenti; il worker in corso termina da solo.
+
+        Disconnette anche 'finished' (non solo finished_ok/finished_err):
+        è agganciato a _clear_worker tramite lambda, quindi non viene
+        auto-disconnesso da Qt quando il pannello viene distrutto — se il
+        worker termina dopo la chiusura del pannello, quella lambda
+        chiamerebbe un metodo su un oggetto Qt già cancellato.
+        """
+        self._closed = True
+        if self._worker is not None:
+            try:
+                self._worker.finished_ok.disconnect()
+                self._worker.finished_err.disconnect()
+                self._worker.finished.disconnect()
+            except (TypeError, RuntimeError):
+                pass
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -442,23 +538,27 @@ class _FtpPanel(QWidget):
             self._smb_mount_helper(profile)
             return
 
-        self._status.setText(tr("plugin.ftp_browser.status_connecting", host=profile.host))
-        QApplication.processEvents()
-
-        try:
+        def _do_connect():
             if profile.protocol == "SFTP":
-                self._conn = self._connect_sftp(profile)
-            else:
-                self._conn = self._connect_ftp(profile)
+                return self._connect_sftp(profile)
+            return self._connect_ftp(profile)
 
+        def _on_ok(conn):
+            self._conn = conn
             self._btn_connect.setText(tr("plugin.ftp_browser.disconnect_btn"))
             self._status.setText(tr("plugin.ftp_browser.status_connected", user=profile.user,
                                     host=profile.host, port=profile.port))
             self._list_directory(profile.remote_dir)
-        except Exception as e:
+
+        def _on_err(err):
             self._conn = None
             self._status.setText(tr("plugin.ftp_browser.status_conn_error"))
-            QMessageBox.critical(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.status_download_failed", error=e))
+            QMessageBox.critical(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.status_download_failed", error=err))
+
+        self._run_async(
+            _do_connect, _on_ok, _on_err,
+            busy_msg=tr("plugin.ftp_browser.status_connecting", host=profile.host),
+        )
 
     def _smb_mount_helper(self, profile: FtpProfile) -> None:
         """Controlla se la share SMB è già montata; se no, propone opzioni di mount.
@@ -505,101 +605,119 @@ class _FtpPanel(QWidget):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
 
-        # ── Mount ─────────────────────────────────────────────────────────────
-        self._status.setText(tr("plugin.ftp_browser.smb_mounting", host=host, share=share))
-        QApplication.processEvents()
-
-        try:
-            if sys.platform.startswith("win"):
-                # Windows: net use \\host\share /user:domain\user
-                # La password è passata via STDIN — non visibile in ps/Task Manager
-                unc = f"\\\\{host}\\{share}"
-                cmd = ["net", "use", unc, f"/user:{dom}\\{user}"]
-                result = subprocess.run(
-                    cmd,
-                    input=(pwd + "\n") if pwd else "\n",
-                    capture_output=True, text=True, timeout=20
-                )
-                if result.returncode == 0:
-                    mounted_path = unc
-                    self._status.setText(tr("plugin.ftp_browser.smb_mount_ok", path=mounted_path))
-                    QMessageBox.information(self, tr("plugin.ftp_browser.smb_already_mounted_title"),
-                        tr("plugin.ftp_browser.smb_mount_ok_win", path=mounted_path))
-                    os.startfile(mounted_path)
-                else:
-                    raise RuntimeError(result.stderr.strip() or result.stdout.strip())
-
-            elif sys.platform == "darwin":
-                # macOS: apre la URL smb://user@host/share SENZA password nell'URL.
-                # Il sistema operativo mostra il suo dialog nativo per la password.
-                smb_url = f"smb://{user}@{host}/{share}" if share else f"smb://{user}@{host}"
-                result = subprocess.run(
-                    ["open", smb_url],
-                    capture_output=True, text=True, timeout=10
-                )
-                if result.returncode != 0:
-                    raise RuntimeError(result.stderr.strip() or "open smb:// fallito")
-                self._status.setText(tr("plugin.ftp_browser.smb_mount_ok", path=smb_url))
+        # ── Mount (in background: pkexec/net use possono impiegare fino a 30s) ──
+        def _on_ok(result):
+            mounted_path, open_kind = result
+            if open_kind == "win":
+                self._status.setText(tr("plugin.ftp_browser.smb_mount_ok", path=mounted_path))
                 QMessageBox.information(self, tr("plugin.ftp_browser.smb_already_mounted_title"),
-                    tr("plugin.ftp_browser.smb_mount_ok_msg", path=smb_url))
-
+                    tr("plugin.ftp_browser.smb_mount_ok_win", path=mounted_path))
+                os.startfile(mounted_path)
+            elif open_kind == "darwin":
+                self._status.setText(tr("plugin.ftp_browser.smb_mount_ok", path=mounted_path))
+                QMessageBox.information(self, tr("plugin.ftp_browser.smb_already_mounted_title"),
+                    tr("plugin.ftp_browser.smb_mount_ok_msg", path=mounted_path))
             else:
-                # Linux: usa un file credenziali temporaneo in /run/user/UID (tmpfs).
-                # La password NON appare come argomento del processo (non visibile in ps).
-                if not shutil.which("mount.cifs") and not shutil.which("mount"):
-                    raise RuntimeError(tr("plugin.ftp_browser.smb_cifs_missing"))
+                self._status.setText(tr("plugin.ftp_browser.smb_mount_ok", path=mounted_path))
+                QMessageBox.information(self, tr("plugin.ftp_browser.smb_already_mounted_title"),
+                    tr("plugin.ftp_browser.smb_mount_ok_msg", path=mounted_path))
+                xdg = shutil.which("xdg-open") or shutil.which("nautilus") or shutil.which("dolphin")
+                if xdg:
+                    subprocess.Popen([xdg, mounted_path])
 
-                mnt_dir = f"/mnt/smb_{host}_{share}".replace(" ", "_")
-                os.makedirs(mnt_dir, exist_ok=True)
-
-                # Directory sicura in tmpfs (non sul disco fisso)
-                run_dir = f"/run/user/{os.getuid()}"
-                if not os.path.isdir(run_dir):
-                    run_dir = "/tmp"  # fallback
-
-                import tempfile, stat
-                cred_fd, cred_path = tempfile.mkstemp(prefix="npq_smb_", dir=run_dir)
-                try:
-                    # Scrivi il file credenziali con permessi 0600 (solo owner)
-                    os.chmod(cred_path, stat.S_IRUSR | stat.S_IWUSR)
-                    cred_content = (
-                        f"username={user}\n"
-                        f"password={pwd}\n"
-                        f"domain={dom}\n"
-                    )
-                    os.write(cred_fd, cred_content.encode())
-                    os.close(cred_fd)
-
-                    opts = (
-                        f"credentials={cred_path},"
-                        f"uid={os.getuid()},gid={os.getgid()}"
-                    )
-                    cmd = ["pkexec", "mount", "-t", "cifs",
-                           f"//{host}/{share}", mnt_dir,
-                           "-o", opts]
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                finally:
-                    # Elimina sempre il file credenziali, anche in caso di errore
-                    try:
-                        os.unlink(cred_path)
-                    except Exception:
-                        pass
-
-                if result.returncode == 0:
-                    self._status.setText(tr("plugin.ftp_browser.smb_mount_ok", path=mnt_dir))
-                    QMessageBox.information(self, tr("plugin.ftp_browser.smb_already_mounted_title"),
-                        tr("plugin.ftp_browser.smb_mount_ok_msg", path=mnt_dir))
-                    xdg = shutil.which("xdg-open") or shutil.which("nautilus") or shutil.which("dolphin")
-                    if xdg:
-                        subprocess.Popen([xdg, mnt_dir])
-                else:
-                    err = result.stderr.strip() or "mount fallito"
-                    raise RuntimeError(err)
-
-        except Exception as exc:
+        def _on_err(err):
             self._status.setText(tr("plugin.ftp_browser.status_conn_error"))
             QMessageBox.critical(self, tr("plugin.ftp_browser.smb_mount_failed_title"),
-                tr("plugin.ftp_browser.smb_mount_failed_msg", error=exc))
+                tr("plugin.ftp_browser.smb_mount_failed_msg", error=err))
+
+        self._run_async(
+            lambda: self._smb_mount_blocking(host, share, user, pwd, dom),
+            _on_ok, _on_err,
+            busy_msg=tr("plugin.ftp_browser.smb_mounting", host=host, share=share),
+        )
+
+    @staticmethod
+    def _smb_mount_blocking(host: str, share: str, user: str, pwd: str, dom: str):
+        """Esegue il mount SMB (bloccante — va chiamato da worker in background).
+
+        Ritorna (mounted_path, platform_kind) dove platform_kind indica al
+        chiamante (sul thread UI) quale dialog/azione post-mount eseguire.
+        """
+        import sys
+        import subprocess
+        import shutil
+
+        if sys.platform.startswith("win"):
+            # Windows: net use \\host\share /user:domain\user
+            # La password è passata via STDIN — non visibile in ps/Task Manager
+            unc = f"\\\\{host}\\{share}"
+            cmd = ["net", "use", unc, f"/user:{dom}\\{user}"]
+            result = subprocess.run(
+                cmd,
+                input=(pwd + "\n") if pwd else "\n",
+                capture_output=True, text=True, timeout=20
+            )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or result.stdout.strip())
+            return unc, "win"
+
+        elif sys.platform == "darwin":
+            # macOS: apre la URL smb://user@host/share SENZA password nell'URL.
+            # Il sistema operativo mostra il suo dialog nativo per la password.
+            smb_url = f"smb://{user}@{host}/{share}" if share else f"smb://{user}@{host}"
+            result = subprocess.run(
+                ["open", smb_url],
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or "open smb:// fallito")
+            return smb_url, "darwin"
+
+        else:
+            # Linux: usa un file credenziali temporaneo in /run/user/UID (tmpfs).
+            # La password NON appare come argomento del processo (non visibile in ps).
+            if not shutil.which("mount.cifs") and not shutil.which("mount"):
+                raise RuntimeError(tr("plugin.ftp_browser.smb_cifs_missing"))
+
+            mnt_dir = f"/mnt/smb_{host}_{share}".replace(" ", "_")
+            os.makedirs(mnt_dir, exist_ok=True)
+
+            # Directory sicura in tmpfs (non sul disco fisso)
+            run_dir = f"/run/user/{os.getuid()}"
+            if not os.path.isdir(run_dir):
+                run_dir = "/tmp"  # fallback
+
+            import tempfile, stat
+            cred_fd, cred_path = tempfile.mkstemp(prefix="npq_smb_", dir=run_dir)
+            try:
+                # Scrivi il file credenziali con permessi 0600 (solo owner)
+                os.chmod(cred_path, stat.S_IRUSR | stat.S_IWUSR)
+                cred_content = (
+                    f"username={user}\n"
+                    f"password={pwd}\n"
+                    f"domain={dom}\n"
+                )
+                os.write(cred_fd, cred_content.encode())
+                os.close(cred_fd)
+
+                opts = (
+                    f"credentials={cred_path},"
+                    f"uid={os.getuid()},gid={os.getgid()}"
+                )
+                cmd = ["pkexec", "mount", "-t", "cifs",
+                       f"//{host}/{share}", mnt_dir,
+                       "-o", opts]
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            finally:
+                # Elimina sempre il file credenziali, anche in caso di errore
+                try:
+                    os.unlink(cred_path)
+                except Exception:
+                    pass
+
+            if result.returncode != 0:
+                raise RuntimeError(result.stderr.strip() or "mount fallito")
+            return mnt_dir, "linux"
 
     @staticmethod
     def _smb_find_mount(host: str, share: str) -> Optional[str]:
@@ -676,29 +794,33 @@ class _FtpPanel(QWidget):
         self._current_dir = path
         self._path_label.setText(path)
         self._tree.clear()
-        self._status.setText(tr("plugin.ftp_browser.status_listing", path=path))
-        QApplication.processEvents()
 
-        try:
-            entries = self._fetch_listing(path)
-        except Exception as e:
+        def _on_ok(entries):
+            for name, size, date, is_dir in sorted(
+                    entries, key=lambda x: (not x[3], x[0].lower())
+            ):
+                item = QTreeWidgetItem([
+                    ("📁 " if is_dir else "📄 ") + name,
+                    "" if is_dir else self._fmt_size(size),
+                    date,
+                ])
+                item.setData(0, Qt.ItemDataRole.UserRole, (path, name, is_dir))
+                self._tree.addTopLevelItem(item)
+            count = len(entries)
+            self._status.setText(tr("plugin.ftp_browser.status_listing_count", count=count, path=path))
+
+        def _on_err(err):
             self._status.setText(tr("plugin.ftp_browser.status_read_error"))
-            QMessageBox.warning(self, "FTP/SFTP/SMB", str(e))
-            return
+            QMessageBox.warning(self, "FTP/SFTP/SMB", err)
 
-        for name, size, date, is_dir in sorted(
-                entries, key=lambda x: (not x[3], x[0].lower())
-        ):
-            item = QTreeWidgetItem([
-                ("📁 " if is_dir else "📄 ") + name,
-                "" if is_dir else self._fmt_size(size),
-                date,
-            ])
-            item.setData(0, Qt.ItemDataRole.UserRole, (path, name, is_dir))
-            self._tree.addTopLevelItem(item)
-
-        count = len(entries)
-        self._status.setText(tr("plugin.ftp_browser.status_listing_count", count=count, path=path))
+        started = self._run_async(
+            lambda: self._fetch_listing(path), _on_ok, _on_err,
+            busy_msg=tr("plugin.ftp_browser.status_listing", path=path),
+        )
+        if not started:
+            # Un'altra operazione è già in corso (es. connessione appena avviata
+            # che sta per richiamare questo stesso metodo): riprova a breve.
+            QTimer.singleShot(200, lambda: self._list_directory(path))
 
     def _fetch_listing(self, path: str) -> list:
         """Restituisce [(name, size, date, is_dir), ...]"""
@@ -765,15 +887,18 @@ class _FtpPanel(QWidget):
 
     def _download_and_open(self, remote_path: str) -> None:
         """Scarica il file remoto e lo apre in un tab."""
-        self._status.setText(tr("plugin.ftp_browser.status_downloading", path=remote_path))
-        QApplication.processEvents()
-        try:
-            content = self._fetch_file(remote_path)
+        def _on_ok(content):
             self._open_in_editor(remote_path, content)
             self._status.setText(tr("plugin.ftp_browser.status_download_ok", path=remote_path))
-        except Exception as e:
+
+        def _on_err(err):
             self._status.setText(tr("plugin.ftp_browser.status_download_error"))
-            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.status_download_failed", error=e))
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.status_download_failed", error=err))
+
+        self._run_async(
+            lambda: self._fetch_file(remote_path), _on_ok, _on_err,
+            busy_msg=tr("plugin.ftp_browser.status_downloading", path=remote_path),
+        )
 
     def _fetch_file(self, remote_path: str) -> bytes:
         kind = self._conn[0]
@@ -869,15 +994,17 @@ class _FtpPanel(QWidget):
         if not ok or not new_name.strip() or new_name == old_name:
             return
         new_path = str(PurePosixPath(path).parent / new_name)
-        try:
+
+        def _do():
             kind = self._conn[0]
-            if kind == "ftp":
+            if kind in ("ftp", "sftp"):
                 self._conn[1].rename(path, new_path)
-            elif kind == "sftp":
-                self._conn[1].rename(path, new_path)
-            self._list_directory(self._current_dir)
-        except Exception as e:
-            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.rename_failed", error=e))
+
+        def _on_err(err):
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.rename_failed", error=err))
+
+        if not self._run_async(_do, lambda _r: self._list_directory(self._current_dir), _on_err):
+            self._notify_busy()
 
     def _delete(self, path: str, name: str) -> None:
         reply = QMessageBox.question(
@@ -887,7 +1014,8 @@ class _FtpPanel(QWidget):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
-        try:
+
+        def _do():
             kind = self._conn[0]
             if kind == "ftp":
                 try:
@@ -896,9 +1024,12 @@ class _FtpPanel(QWidget):
                     self._conn[1].rmd(path)
             elif kind == "sftp":
                 self._conn[1].remove(path)
-            self._list_directory(self._current_dir)
-        except Exception as e:
-            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.delete_failed", error=e))
+
+        def _on_err(err):
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.delete_failed", error=err))
+
+        if not self._run_async(_do, lambda _r: self._list_directory(self._current_dir), _on_err):
+            self._notify_busy()
 
     def _mkdir(self) -> None:
         name, ok = QInputDialog.getText(self, tr("plugin.ftp_browser.mkdir_dialog_title"),
@@ -906,15 +1037,19 @@ class _FtpPanel(QWidget):
         if not ok or not name.strip():
             return
         new_path = str(PurePosixPath(self._current_dir) / name)
-        try:
+
+        def _do():
             kind = self._conn[0]
             if kind == "ftp":
                 self._conn[1].mkd(new_path)
             elif kind == "sftp":
                 self._conn[1].mkdir(new_path)
-            self._list_directory(self._current_dir)
-        except Exception as e:
-            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.mkdir_failed", error=e))
+
+        def _on_err(err):
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.mkdir_failed", error=err))
+
+        if not self._run_async(_do, lambda _r: self._list_directory(self._current_dir), _on_err):
+            self._notify_busy()
 
     def _new_file(self) -> None:
         if not self._conn:
@@ -925,55 +1060,70 @@ class _FtpPanel(QWidget):
         if not ok or not name.strip():
             return
         remote_path = str(PurePosixPath(self._current_dir) / name.strip())
-        try:
+
+        def _do():
             kind = self._conn[0]
             buf = io.BytesIO(b"")
             if kind == "ftp":
                 self._conn[1].storbinary(f"STOR {remote_path}", buf)
             elif kind == "sftp":
                 self._conn[1].putfo(buf, remote_path)
+
+        def _on_ok(_result):
             self._list_directory(self._current_dir)
             self._open_in_editor(remote_path, b"")
             self._status.setText(tr("plugin.ftp_browser.status_file_created", path=remote_path))
-        except Exception as e:
-            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.new_file_failed", error=e))
+
+        def _on_err(err):
+            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.new_file_failed", error=err))
+
+        if not self._run_async(_do, _on_ok, _on_err):
+            self._notify_busy()
 
     # ── Upload file corrente ──────────────────────────────────────────────────
 
-    def _do_upload(self, remote_path: str, raw: bytes, profile=None) -> bool:
-        """Low-level upload: send raw bytes to remote_path, reconnect if needed.
+    def _do_upload(self, remote_path: str, raw: bytes, profile=None, on_done=None) -> bool:
+        """Upload asincrono: invia raw bytes a remote_path, riconnettendo se serve.
 
-        Does NOT touch editor state (setModified, mark_saved, etc.).
-        Returns True on success.
+        Non tocca lo stato dell'editor (setModified, mark_saved, ecc.):
+        a operazione completata chiama on_done(ok: bool) se fornita.
+        Ritorna True se l'operazione è stata avviata (non l'esito dell'upload,
+        disponibile solo in on_done).
         """
-        if self._conn is None:
-            p = profile or self._current_profile
-            if not p:
-                return False
-            self._status.setText(tr("plugin.ftp_browser.status_reconnecting", host=p.host))
-            QApplication.processEvents()
-            try:
-                if p.protocol == "SFTP":
-                    self._conn = self._connect_sftp(p)
-                else:
-                    self._conn = self._connect_ftp(p)
-                self._btn_connect.setText(tr("plugin.ftp_browser.disconnect_btn"))
-                self._current_profile = p
-            except Exception as e:
-                self._status.setText(tr("plugin.ftp_browser.status_upload_failed", error=e))
-                return False
-        try:
-            kind = self._conn[0]
+        p = profile or self._current_profile
+        reconnecting = self._conn is None
+
+        def _do():
+            conn = self._conn
+            if conn is None:
+                if not p:
+                    raise RuntimeError(tr("plugin.ftp_browser.not_connected_upload"))
+                conn = self._connect_sftp(p) if p.protocol == "SFTP" else self._connect_ftp(p)
+            kind = conn[0]
             buf = io.BytesIO(raw)
             if kind == "ftp":
-                self._conn[1].storbinary(f"STOR {remote_path}", buf)
+                conn[1].storbinary(f"STOR {remote_path}", buf)
             elif kind == "sftp":
-                self._conn[1].putfo(buf, remote_path)
-            return True
-        except Exception as e:
-            self._status.setText(tr("plugin.ftp_browser.status_upload_failed", error=e))
+                conn[1].putfo(buf, remote_path)
+            return conn
+
+        def _on_ok(conn):
+            if self._conn is None:
+                self._conn = conn
+                self._btn_connect.setText(tr("plugin.ftp_browser.disconnect_btn"))
+                self._current_profile = p
+            if on_done:
+                on_done(True)
+
+        def _on_err(err):
+            self._status.setText(tr("plugin.ftp_browser.status_upload_failed", error=err))
             self._conn = None
-            return False
+            if on_done:
+                on_done(False)
+
+        busy_msg = (tr("plugin.ftp_browser.status_reconnecting", host=p.host)
+                    if reconnecting and p else "")
+        return self._run_async(_do, _on_ok, _on_err, busy_msg=busy_msg)
 
     def upload_current(self) -> None:
         """Carica il file corrente dell'editor sul server (se proveniente da FTP)."""
@@ -999,12 +1149,18 @@ class _FtpPanel(QWidget):
             )
             return
         raw = editor.get_content().encode(editor.encoding, errors="replace")
-        if self._do_upload(remote_path, raw, getattr(editor, "_ftp_profile", None)):
-            editor.setModified(False)
-            self._mw._on_editor_changed(editor)
-            self._upload_ok(remote_path)
-        else:
-            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.upload_failed_msg"))
+
+        def _on_done(ok: bool) -> None:
+            if ok:
+                editor.setModified(False)
+                self._mw._on_editor_changed(editor)
+                self._upload_ok(remote_path)
+            else:
+                QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.upload_failed_msg"))
+
+        if not self._do_upload(remote_path, raw, getattr(editor, "_ftp_profile", None), _on_done):
+            self._mw.statusBar().showMessage(
+                tr("plugin.ftp_browser.status_busy", default="Operazione FTP già in corso…"), 3000)
 
     def upload_editor(self, editor) -> None:
         """Upload a local editor file to the currently browsed FTP directory."""
@@ -1019,12 +1175,18 @@ class _FtpPanel(QWidget):
             return
         remote_path = self._current_dir.rstrip("/") + "/" + editor.file_path.name
         raw = editor.get_content().encode(editor.encoding, errors="replace")
-        if self._do_upload(remote_path, raw):
-            editor.setModified(False)
-            self._mw._on_editor_changed(editor)
-            self._upload_ok(remote_path)
-        else:
-            QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.upload_failed_msg"))
+
+        def _on_done(ok: bool) -> None:
+            if ok:
+                editor.setModified(False)
+                self._mw._on_editor_changed(editor)
+                self._upload_ok(remote_path)
+            else:
+                QMessageBox.warning(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.upload_failed_msg"))
+
+        if not self._do_upload(remote_path, raw, on_done=_on_done):
+            self._mw.statusBar().showMessage(
+                tr("plugin.ftp_browser.status_busy", default="Operazione FTP già in corso…"), 3000)
 
     def _upload_ok(self, remote_path: str) -> None:
         """Show upload success feedback and refresh the directory listing."""
@@ -1089,6 +1251,8 @@ class FtpBrowserPlugin(BasePlugin):
         main_window._menus["plugins"].menuAction().setVisible(True)
 
     def on_unload(self) -> None:
+        if hasattr(self, "_panel"):
+            self._panel.shutdown()
         if hasattr(self, "_dock"):
             self._dock.setParent(None)
             self._dock.deleteLater()

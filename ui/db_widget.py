@@ -216,10 +216,34 @@ class _SqlHighlighter(QSyntaxHighlighter):
 
 # ── Driver installer dialog ───────────────────────────────────────────────────
 
+class _PipInstallWorker(QThread):
+    """Esegue 'pip install <package>' in background (può richiedere fino a 120s)."""
+
+    completed = pyqtSignal(bool, str, bool)  # ok, message, is_exception
+
+    def __init__(self, package: str):
+        super().__init__()
+        self._package = package
+
+    def run(self) -> None:
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", self._package],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode == 0:
+                self.completed.emit(True, "", False)
+            else:
+                self.completed.emit(False, result.stderr[-500:], False)
+        except Exception as exc:
+            self.completed.emit(False, str(exc), True)
+
+
 class DBDriverInstallerDialog(QDialog):
     def __init__(self, db_type: str, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._db_type = db_type
+        self._install_worker: Optional[_PipInstallWorker] = None
         drv = _DRIVERS[db_type]
         self.setWindowTitle(tr("db.driver_missing_title", default="Driver mancante"))
         self.setMinimumWidth(440)
@@ -241,35 +265,39 @@ class DBDriverInstallerDialog(QDialog):
             tr("db.install_driver", default="✦ Installa ora"),
             QDialogButtonBox.ButtonRole.AcceptRole
         )
-        btns.addButton(QDialogButtonBox.StandardButton.Cancel)
-        btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
+        self._btn_cancel = btns.addButton(QDialogButtonBox.StandardButton.Cancel)
+        self._btn_cancel.setText(tr("button.cancel", default="Cancel"))
         btns.accepted.connect(self._do_install)
         btns.rejected.connect(self.reject)
         layout.addWidget(btns)
 
     def _do_install(self) -> None:
+        if self._install_worker is not None:
+            return
         drv = _DRIVERS[self._db_type]
         self._btn_install.setEnabled(False)
+        self._btn_cancel.setEnabled(False)
         self._status.setText(tr("db.installing_pip", pip=drv['pip']))
-        QApplication.processEvents()
-        try:
-            result = subprocess.run(
-                [sys.executable, "-m", "pip", "install", drv["pip"]],
-                capture_output=True, text=True, timeout=120
-            )
-            if result.returncode == 0:
-                self._status.setText(tr("db.install_completed"))
-                QApplication.processEvents()
-                self.accept()
-            else:
-                self._status.setText(tr("db.install_error"))
-                QMessageBox.critical(self, "NotePadPQ",
-                                     tr("db.pip_install_failed", stderr=result.stderr[-500:]))
-                self._btn_install.setEnabled(True)
-        except Exception as exc:
-            self._status.setText(tr("db.install_error"))
-            QMessageBox.critical(self, "NotePadPQ", str(exc))
-            self._btn_install.setEnabled(True)
+
+        worker = _PipInstallWorker(drv["pip"])
+        worker.completed.connect(self._on_install_completed)
+        worker.finished.connect(worker.deleteLater)
+        self._install_worker = worker
+        worker.start()
+
+    def _on_install_completed(self, ok: bool, message: str, is_exception: bool) -> None:
+        self._install_worker = None
+        if ok:
+            self._status.setText(tr("db.install_completed"))
+            self.accept()
+            return
+        self._status.setText(tr("db.install_error"))
+        if is_exception:
+            QMessageBox.critical(self, "NotePadPQ", message)
+        else:
+            QMessageBox.critical(self, "NotePadPQ", tr("db.pip_install_failed", stderr=message))
+        self._btn_install.setEnabled(True)
+        self._btn_cancel.setEnabled(True)
 
 
 # ── Connect dialog ────────────────────────────────────────────────────────────

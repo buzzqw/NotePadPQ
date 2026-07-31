@@ -40,7 +40,7 @@ import xml.dom.minidom
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QMessageBox, QPushButton, QTabWidget,
@@ -377,6 +377,25 @@ class _Formatter:
         return True, stdout or text, ""
 
 
+# ─── Worker per invocazione asincrona del formatter ──────────────────────────
+
+class _FormatWorker(QThread):
+    """Esegue _Formatter.format_text() in background (il formatter esterno
+    può richiedere fino a 30s, o 60s con fallback su formatter alternativo)."""
+
+    completed = pyqtSignal(bool, str, str)  # ok, formatted, err
+
+    def __init__(self, formatter: "_Formatter", text: str, lang: str):
+        super().__init__()
+        self._formatter = formatter
+        self._text = text
+        self._lang = lang
+
+    def run(self) -> None:
+        ok, formatted, err = self._formatter.format_text(self._text, self._lang)
+        self.completed.emit(ok, formatted, err)
+
+
 # ─── Plugin ───────────────────────────────────────────────────────────────────
 
 class CodeFormatterPlugin(BasePlugin):
@@ -389,6 +408,7 @@ class CodeFormatterPlugin(BasePlugin):
         super().on_load(main_window)
         self._settings = self._load_settings()
         self._formatter = _Formatter(self._settings)
+        self._active_worker: Optional[_FormatWorker] = None
 
         self.add_menu_action(
             main_window, "tools",
@@ -412,6 +432,11 @@ class CodeFormatterPlugin(BasePlugin):
         )
 
     def on_unload(self) -> None:
+        if getattr(self, "_active_worker", None) is not None:
+            try:
+                self._active_worker.completed.disconnect()
+            except (TypeError, RuntimeError):
+                pass
         super().on_unload()
 
     def on_file_saved(self, path) -> None:
@@ -433,27 +458,8 @@ class CodeFormatterPlugin(BasePlugin):
                     tr("plugin.code_formatter.no_lang")
                 )
             return
-
         text = editor.text()
-        ok, formatted, err = self._formatter.format_text(text, lang)
-
-        if ok:
-            if formatted != text:
-                # sostituisce tutto il testo preservando la posizione del cursore
-                line, col = editor.getCursorPosition()
-                editor.selectAll()
-                editor.replaceSelectedText(formatted)
-                # riposiziona il cursore (approssimativamente)
-                total_lines = editor.lines()
-                line = min(line, total_lines - 1)
-                editor.setCursorPosition(line, 0)
-        else:
-            if not silent:
-                QMessageBox.warning(
-                    self._mw, tr("plugin.code_formatter.title_doc"),
-                    tr("plugin.code_formatter.error", err=err) + "\n\n" +
-                    tr("plugin.code_formatter.doc_unchanged")
-                )
+        self._run_format_async(editor, text, lang, selection=False, silent=silent)
 
     def _format_selection(self):
         editor = self._mw._tab_manager.current_editor()
@@ -472,19 +478,71 @@ class CodeFormatterPlugin(BasePlugin):
                 tr("plugin.code_formatter.no_lang")
             )
             return
-
         text = editor.selectedText()
-        ok, formatted, err = self._formatter.format_text(text, lang)
+        self._run_format_async(editor, text, lang, selection=True, silent=False)
+
+    def _run_format_async(self, editor, text: str, lang: str,
+                           selection: bool, silent: bool) -> None:
+        """Avvia il formatter esterno su un thread dedicato (fino a 30-60s)."""
+        if self._active_worker is not None and self._active_worker.isRunning():
+            if not silent:
+                self._mw.statusBar().showMessage(
+                    tr("plugin.code_formatter.busy",
+                       default="Formattazione già in corso…"), 3000)
+            return
+
+        worker = _FormatWorker(self._formatter, text, lang)
+
+        def _on_done(ok: bool, formatted: str, err: str) -> None:
+            self._active_worker = None
+            self._apply_format_result(editor, text, formatted, ok, err, selection, silent)
+
+        worker.completed.connect(_on_done)
+        worker.finished.connect(worker.deleteLater)
+        self._active_worker = worker
+        worker.start()
+
+    def _apply_format_result(self, editor, original_text: str, formatted: str,
+                              ok: bool, err: str, selection: bool, silent: bool) -> None:
+        title = tr("plugin.code_formatter.title_sel") if selection else tr("plugin.code_formatter.title_doc")
+        try:
+            current = editor.selectedText() if selection else editor.text()
+        except RuntimeError:
+            return  # il tab è stato chiuso mentre il formatter era in esecuzione
+
+        if current != original_text:
+            # Il documento è stato modificato mentre il formatter era in corso:
+            # applicare il risultato sovrascriverebbe le modifiche dell'utente.
+            if not silent:
+                QMessageBox.warning(
+                    self._mw, title,
+                    tr("plugin.code_formatter.changed_during_format",
+                       default="Il documento è stato modificato durante la "
+                               "formattazione: risultato scartato.")
+                )
+            return
 
         if ok:
-            if formatted != text:
-                editor.replaceSelectedText(formatted)
+            if formatted != original_text:
+                if selection:
+                    editor.replaceSelectedText(formatted)
+                else:
+                    # sostituisce tutto il testo preservando la posizione del cursore
+                    line, _col = editor.getCursorPosition()
+                    editor.selectAll()
+                    editor.replaceSelectedText(formatted)
+                    total_lines = editor.lines()
+                    line = min(line, total_lines - 1)
+                    editor.setCursorPosition(line, 0)
         else:
-            QMessageBox.warning(
-                self._mw, tr("plugin.code_formatter.title_sel"),
-                tr("plugin.code_formatter.error", err=err) + "\n\n" +
-                tr("plugin.code_formatter.sel_unchanged")
-            )
+            if not silent:
+                unchanged_key = "plugin.code_formatter.sel_unchanged" if selection \
+                    else "plugin.code_formatter.doc_unchanged"
+                QMessageBox.warning(
+                    self._mw, title,
+                    tr("plugin.code_formatter.error", err=err) + "\n\n" +
+                    tr(unchanged_key)
+                )
 
     def _open_prefs(self):
         dlg = _PrefsDialog(self._settings, parent=self._mw)

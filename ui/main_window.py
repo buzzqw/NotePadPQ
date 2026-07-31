@@ -19,7 +19,7 @@ import threading
 from pathlib import Path
 from typing import Optional, Callable
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QObject, QEvent
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QObject, QEvent, QThread, pyqtSignal
 from PyQt6.QtGui import (
     QAction, QIcon, QKeySequence, QCloseEvent, QDragEnterEvent, QDropEvent, QPageSize,
     QShortcut,
@@ -220,6 +220,24 @@ class TripleClickFilter(QObject):
 
     def reset(self):
         self.clicks = 0
+
+
+class _ExportAsWorker(QThread):
+    """Esegue la conversione di 'Esporta come...' in background (pandoc può
+    richiedere fino a 30s su documenti grandi)."""
+
+    completed = pyqtSignal(str)  # messaggio di errore, "" se riuscito
+
+    def __init__(self, content: str, fmt_in: str, dest):
+        super().__init__()
+        self._content = content
+        self._fmt_in  = fmt_in
+        self._dest    = dest
+
+    def run(self) -> None:
+        err = MainWindow._export_text_as(self._content, self._fmt_in, self._dest)
+        self.completed.emit(err)
+
 
 class MainWindow(QMainWindow):
 
@@ -2472,9 +2490,16 @@ class MainWindow(QMainWindow):
             panel = ftp_entry["instance"]._panel
             raw = editor.get_content().encode(editor.encoding, errors="replace")
             profile = getattr(editor, "_ftp_profile", None)
-            if panel._do_upload(remote_path, raw, profile):
-                panel._upload_ok(remote_path)
-            else:
+
+            def _on_done(ok: bool) -> None:
+                if ok:
+                    panel._upload_ok(remote_path)
+                else:
+                    self.statusBar().showMessage(
+                        tr("msg.ftp_sync_failed", default="FTP sync fallito — vedi pannello FTP"), 5000
+                    )
+
+            if not panel._do_upload(remote_path, raw, profile, _on_done):
                 self.statusBar().showMessage(
                     tr("msg.ftp_sync_failed", default="FTP sync fallito — vedi pannello FTP"), 5000
                 )
@@ -2646,12 +2671,28 @@ class MainWindow(QMainWindow):
             if reply != _QMB.StandardButton.Yes:
                 return
 
-        err = self._export_text_as(content, fmt_in, p)
-        if err:
-            _QMB.critical(self, tr("action.export_as", default="Esporta come…"), err)
-        else:
-            _QMB.information(self, tr("action.export_as", default="Esporta come…"),
-                             tr("msg.export_done", path=str(p)))
+        if getattr(self, "_export_as_worker", None) is not None and self._export_as_worker.isRunning():
+            self.statusBar().showMessage(
+                tr("msg.export_busy", default="Esportazione già in corso…"), 3000)
+            return
+
+        self.statusBar().showMessage(
+            tr("msg.export_in_progress", default="Esportazione in corso…"))
+
+        worker = _ExportAsWorker(content, fmt_in, p)
+
+        def _on_done(err: str) -> None:
+            self._export_as_worker = None
+            if err:
+                _QMB.critical(self, tr("action.export_as", default="Esporta come…"), err)
+            else:
+                _QMB.information(self, tr("action.export_as", default="Esporta come…"),
+                                 tr("msg.export_done", path=str(p)))
+
+        worker.completed.connect(_on_done)
+        worker.finished.connect(worker.deleteLater)
+        self._export_as_worker = worker
+        worker.start()
 
     @staticmethod
     def _export_text_as(content: str, fmt_in: str, dest: "Path") -> str:

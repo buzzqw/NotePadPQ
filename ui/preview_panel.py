@@ -279,6 +279,37 @@ class _SyncTeXFwdWorker(QThread):
                 self.done.emit(self._gen, None)
 
 
+class _SyncTeXBwdWorker(QThread):
+    """Esegue `synctex edit` (pdf -> tex) in background: il click sul PDF
+    per saltare al sorgente invocava il subprocess sul thread GUI."""
+
+    done = pyqtSignal(int, object)  # (generation, result_dict or None)
+
+    def __init__(self, tex_path, pdf_path, page: int, x: float, y: float, generation: int):
+        super().__init__(None)
+        self._tex_path  = tex_path
+        self._pdf_path  = pdf_path
+        self._page      = page
+        self._x         = x
+        self._y         = y
+        self._gen       = generation
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        try:
+            from editor.synctex import SyncTeX
+            sx     = SyncTeX(self._tex_path, self._pdf_path)
+            result = sx.pdf_to_tex(self._page, self._x, self._y)
+            if not self._cancelled:
+                self.done.emit(self._gen, result)
+        except Exception:
+            if not self._cancelled:
+                self.done.emit(self._gen, None)
+
+
 class _SyncTeXSelWorker(QThread):
     """Esegue le chiamate `synctex view` per l'evidenziazione della
     selezione in background: `_do_selection_sync` veniva eseguita sul
@@ -534,6 +565,11 @@ class PreviewPanel(QWidget):
         self._synctex_sel_worker: Optional[_SyncTeXSelWorker] = None
         self._old_synctex_sel_workers: list = []   # tenuti vivi fino a finished
         self._synctex_sel_gen: int = 0
+
+        # Worker asincrono per SyncTeX backward (pdf→tex, click sul PDF)
+        self._synctex_bwd_worker: Optional[_SyncTeXBwdWorker] = None
+        self._old_synctex_bwd_workers: list = []   # tenuti vivi fino a finished
+        self._synctex_bwd_gen: int = 0
 
         self._md_worker = None             # thread markdown corrente
         self._md_old_workers: list = []    # worker superati: tenuti vivi fino al termine
@@ -2222,16 +2258,9 @@ class PreviewPanel(QWidget):
         # Backward SyncTeX
         if not self._sync_cursor:
             return
-        try:
-            from editor.synctex import SyncTeX
-            from pathlib import Path as _Path
-            pdf_p  = _Path(self._pdf_path)
-            sx     = SyncTeX(pdf_p.with_suffix(".tex"), pdf_p)
-            result = sx.pdf_to_tex(page_idx + 1, pdf_x, pdf_y)
-            if result and "line" in result:
-                self._goto_tex_line(result.get("file"), result["line"])
-        except Exception:
-            pass
+        from pathlib import Path as _Path
+        pdf_p = _Path(self._pdf_path)
+        self._run_synctex_bwd(pdf_p.with_suffix(".tex"), pdf_p, page_idx + 1, pdf_x, pdf_y)
 
     def _pdf_on_cont_scrollbar_changed(self, _value: int = 0) -> None:
         """Fa partire il timer di aggiornamento pagina solo se non è già in
@@ -2345,13 +2374,10 @@ class PreviewPanel(QWidget):
         if not self._sync_cursor:
             return
         try:
-            from editor.synctex import SyncTeX
             from pathlib import Path as _Path
             pdf_p = _Path(self._pdf_path)
-            sx = SyncTeX(pdf_p.with_suffix(".tex"), pdf_p)
-            result = sx.pdf_to_tex(self._pdf_page_num + 1, pdf_x, pdf_y)
-            if result and "line" in result:
-                self._goto_tex_line(result.get("file"), result["line"])
+            self._run_synctex_bwd(pdf_p.with_suffix(".tex"), pdf_p,
+                                   self._pdf_page_num + 1, pdf_x, pdf_y)
         except Exception:
             pass
 
@@ -2374,6 +2400,35 @@ class PreviewPanel(QWidget):
             editor = mw._tab_manager.current_editor()
         if editor:
             editor.go_to_line(line)
+
+    def _run_synctex_bwd(self, tex_path, pdf_path, page: int, x: float, y: float) -> None:
+        """Avvia `synctex edit` (pdf→tex) in background e naviga al risultato."""
+        if self._synctex_bwd_worker is not None:
+            self._synctex_bwd_worker.cancel()
+            self._park_worker(self._synctex_bwd_worker, self._old_synctex_bwd_workers)
+            self._synctex_bwd_worker = None
+
+        self._synctex_bwd_gen += 1
+        worker = _SyncTeXBwdWorker(tex_path, pdf_path, page, x, y, self._synctex_bwd_gen)
+        worker.done.connect(self._on_synctex_bwd_done)
+        self._synctex_bwd_worker = worker
+        self._old_synctex_bwd_workers.append(worker)
+
+        def _cleanup(w=worker):
+            try:
+                self._old_synctex_bwd_workers.remove(w)
+            except ValueError:
+                pass
+        worker.finished.connect(_cleanup)
+        worker.start()
+
+    def _on_synctex_bwd_done(self, gen: int, result) -> None:
+        if gen != self._synctex_bwd_gen:
+            return
+        if self._synctex_bwd_worker is not None:
+            self._synctex_bwd_worker = None  # cleanup dalla old_list avviene su finished
+        if result and "line" in result:
+            self._goto_tex_line(result.get("file"), result["line"])
 
     def go_to_pdf_page_for_line(self, line: int) -> None:
         """
@@ -2548,9 +2603,17 @@ class PreviewPanel(QWidget):
             except Exception:
                 pass
         self._old_synctex_sel_workers.clear()
+        for w in list(self._old_synctex_bwd_workers):
+            w.cancel()
+            try:
+                w.wait(300)
+            except Exception:
+                pass
+        self._old_synctex_bwd_workers.clear()
         self._render_worker       = None
         self._synctex_fwd_worker  = None
         self._synctex_sel_worker  = None
+        self._synctex_bwd_worker  = None
         # Chiudi documento PDF
         if self._pdf_doc is not None:
             try:

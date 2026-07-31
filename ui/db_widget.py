@@ -14,9 +14,11 @@ Driver mancanti: offerta di installazione via pip.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -733,6 +735,15 @@ def _wrap_page(sql: str, page_size: int, offset: int, db_type: str) -> str:
     return f"SELECT * FROM ({inner}) AS _npq_ LIMIT {page_size + 1} OFFSET {offset}"
 
 
+def _wrap_export_limit(sql: str, limit: int, db_type: str) -> str:
+    inner = sql.rstrip("; \t\n")
+    if not limit:
+        return inner
+    if db_type == "oracle":
+        return f"SELECT * FROM ({inner}) WHERE ROWNUM <= {limit}"
+    return f"SELECT * FROM ({inner}) AS _npq_export LIMIT {limit}"
+
+
 class _QueryWorker(QThread):
     # headers, rows, error, elapsed, has_more
     finished = pyqtSignal(list, list, str, float, bool)
@@ -748,6 +759,7 @@ class _QueryWorker(QThread):
     def run(self) -> None:
         t0 = time.perf_counter()
         conn = None
+        cur = None
         try:
             conn = _open_connection(self._conn_info)
             cur = conn.cursor()
@@ -761,6 +773,8 @@ class _QueryWorker(QThread):
                 exec_sql = self._sql
 
             cur.execute(exec_sql)
+            if self.isInterruptionRequested():
+                return
             if cur.description:
                 headers = [d[0] for d in cur.description]
                 if paginate:
@@ -780,10 +794,182 @@ class _QueryWorker(QThread):
                     conn.commit()
                 except Exception:
                     pass
-            self.finished.emit(headers, rows, "", time.perf_counter() - t0, has_more)
+            if not self.isInterruptionRequested():
+                self.finished.emit(headers, rows, "", time.perf_counter() - t0, has_more)
         except Exception as exc:
-            self.finished.emit([], [], str(exc), time.perf_counter() - t0, False)
+            if not self.isInterruptionRequested():
+                self.finished.emit([], [], str(exc), time.perf_counter() - t0, False)
         finally:
+            if cur is not None:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+
+class _ExportWorker(QThread):
+    """Esegue query e serializzazione nello stesso worker, a batch limitati."""
+
+    progress = pyqtSignal(int)
+    completed = pyqtSignal(str, int, bool)
+    BATCH_SIZE = 1000
+
+    def __init__(self, path: Path, opts: dict, conn_info: dict,
+                 sql: str = "", headers: Optional[list] = None,
+                 rows: Optional[list] = None):
+        super().__init__()
+        self._path = path
+        self._opts = dict(opts)
+        self._conn_info = dict(conn_info)
+        self._sql = sql
+        self._headers = list(headers or [])
+        self._rows = [tuple(row) for row in rows] if rows is not None else None
+        self._active_temporary_path: Optional[Path] = None
+
+    def _temporary_path(self) -> Path:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, name = tempfile.mkstemp(
+            prefix=f".{self._path.name}.", suffix=self._path.suffix,
+            dir=self._path.parent)
+        os.close(descriptor)
+        return Path(name)
+
+    def cleanup_temporary(self) -> None:
+        path = self._active_temporary_path
+        if path is not None:
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            self._active_temporary_path = None
+
+    def _batches(self, cursor):
+        if self._rows is not None:
+            for start in range(0, len(self._rows), self.BATCH_SIZE):
+                if self.isInterruptionRequested():
+                    return
+                yield self._rows[start:start + self.BATCH_SIZE]
+            return
+        while not self.isInterruptionRequested():
+            batch = cursor.fetchmany(self.BATCH_SIZE)
+            if not batch:
+                return
+            yield batch
+
+    @staticmethod
+    def _strings(row) -> list[str]:
+        return [str(value) if value is not None else "" for value in row]
+
+    def _write(self, path: Path, headers: list, cursor) -> int:
+        fmt = self._opts.get("format", "csv")
+        include_header = bool(self._opts.get("header", True))
+        count = 0
+
+        if fmt in ("csv", "tsv"):
+            import csv as _csv
+            delimiter = "\t" if fmt == "tsv" else self._opts.get("delimiter", ",")
+            encoding = self._opts.get("encoding", "utf-8") or "utf-8"
+            with open(path, "w", encoding=encoding, newline="") as output:
+                writer = _csv.writer(output, delimiter=delimiter)
+                if include_header:
+                    writer.writerow(headers)
+                for batch in self._batches(cursor):
+                    writer.writerows(self._strings(row) for row in batch)
+                    count += len(batch)
+                    self.progress.emit(count)
+            return count
+
+        if fmt == "xlsx":
+            try:
+                import openpyxl
+            except ImportError as exc:
+                raise RuntimeError("openpyxl non installato.  pip install openpyxl") from exc
+            workbook = openpyxl.Workbook(write_only=True)
+            sheet = workbook.create_sheet("Risultati")
+            if include_header:
+                sheet.append(headers)
+            for batch in self._batches(cursor):
+                for row in batch:
+                    sheet.append(self._strings(row))
+                count += len(batch)
+                self.progress.emit(count)
+            if not self.isInterruptionRequested():
+                workbook.save(path)
+            return count
+
+        if fmt == "ods":
+            try:
+                from odf.opendocument import OpenDocumentSpreadsheet
+                from odf.table import Table, TableCell, TableRow
+                from odf.text import P
+            except ImportError as exc:
+                raise RuntimeError("odfpy non installato.  pip install odfpy") from exc
+            document = OpenDocumentSpreadsheet()
+            table = Table(name="Risultati")
+            document.spreadsheet.addElement(table)
+
+            def append_row(values) -> None:
+                table_row = TableRow()
+                table.addElement(table_row)
+                for value in values:
+                    cell = TableCell()
+                    cell.addElement(P(text=str(value)))
+                    table_row.addElement(cell)
+
+            if include_header:
+                append_row(headers)
+            for batch in self._batches(cursor):
+                for row in batch:
+                    append_row(self._strings(row))
+                count += len(batch)
+                self.progress.emit(count)
+            if not self.isInterruptionRequested():
+                document.save(str(path))
+            return count
+
+        raise ValueError(f"Formato export non supportato: {fmt}")
+
+    def run(self) -> None:
+        conn = None
+        cursor = None
+        temporary_path = None
+        try:
+            headers = self._headers
+            if self._rows is None:
+                # La connessione nasce e muore nel thread che la usa.
+                conn = _open_connection(self._conn_info)
+                cursor = conn.cursor()
+                sql = _wrap_export_limit(
+                    self._sql, int(self._opts.get("limit", 0)),
+                    self._conn_info.get("type", ""))
+                cursor.execute(sql)
+                if not cursor.description:
+                    raise RuntimeError("La query non restituisce righe esportabili")
+                headers = [description[0] for description in cursor.description]
+            temporary_path = self._temporary_path()
+            self._active_temporary_path = temporary_path
+            count = self._write(temporary_path, headers, cursor)
+            cancelled = self.isInterruptionRequested()
+            if not cancelled:
+                os.replace(temporary_path, self._path)
+                temporary_path = None
+                self._active_temporary_path = None
+            self.completed.emit("", count, cancelled)
+        except Exception as exc:
+            self.completed.emit(str(exc), 0, False)
+        finally:
+            if temporary_path is not None:
+                self.cleanup_temporary()
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
             if conn is not None:
                 try:
                     conn.close()
@@ -898,6 +1084,8 @@ class _QueryTab(QWidget):
         self._mw           = main_window
         self._tab_index    = tab_index
         self._worker: Optional[_QueryWorker] = None
+        self._export_worker: Optional[_ExportWorker] = None
+        self._closing = False
         self._result_widget: Optional[QWidget] = None
         self._raw_sql:   str  = ""
         self._page_offset: int = 0
@@ -1165,6 +1353,8 @@ class _QueryTab(QWidget):
             self._execute()
 
     def _execute(self) -> None:
+        if self._closing:
+            return
         if not self._conn_info:
             return
         if self._worker and self._worker.isRunning():
@@ -1190,15 +1380,25 @@ class _QueryTab(QWidget):
         self._worker.start()
 
     def _cancel(self) -> None:
+        if self._export_worker and self._export_worker.isRunning():
+            self._export_worker.requestInterruption()
+            self._btn_cancel.setEnabled(False)
+            self._status_lbl.setText(
+                tr("db_widget.cancelling", default="Annullamento export..."))
+            return
         if self._worker and self._worker.isRunning():
-            self._worker.terminate()
-            self._worker.wait(2000)
+            self._worker.requestInterruption()
+            if not self._worker.wait(2000):
+                self._worker.terminate()
+                self._worker.wait()
         self._btn_run.setEnabled(True)
         self._btn_cancel.setEnabled(False)
         self._status_lbl.setText(tr("db_widget.cancelled"))
 
     def _on_done(self, headers: list, rows: list,
                  error: str, elapsed: float, has_more: bool) -> None:
+        if self._closing:
+            return
         self._btn_run.setEnabled(True)
         self._btn_cancel.setEnabled(False)
 
@@ -1276,17 +1476,124 @@ class _QueryTab(QWidget):
         if opts is None:
             return
 
-        # Recupera le righe in base alla scelta (pagina / tutte / prime N).
-        if opts["rows"] == "page":
-            headers, rows = self._last_headers, self._last_rows
-        else:
-            limit = opts["limit"] if opts["rows"] == "first_n" else 0
-            fetched = self._export_fetch(limit)
-            if fetched is None:
-                return
-            headers, rows = fetched
+        path = self._choose_export_path(opts)
+        if path is None:
+            return
 
-        self._save_rows_to_file(headers, rows, opts)
+        worker_opts = dict(opts)
+        worker_opts["limit"] = opts["limit"] if opts["rows"] == "first_n" else 0
+        if opts["rows"] == "page":
+            worker = _ExportWorker(
+                path, worker_opts, self._conn_info,
+                headers=self._last_headers, rows=self._last_rows)
+        else:
+            worker = _ExportWorker(
+                path, worker_opts, self._conn_info, sql=self._raw_sql)
+        self._export_worker = worker
+        self._btn_run.setEnabled(False)
+        self._btn_export.setEnabled(False)
+        self._btn_cancel.setEnabled(True)
+        self._status_lbl.setStyleSheet("color: gray; font-size: 11px;")
+        self._status_lbl.setText(
+            tr("db_widget.exporting", default="Export in corso..."))
+        worker.progress.connect(
+            self._on_export_progress, type=Qt.ConnectionType.QueuedConnection)
+        worker.completed.connect(
+            self._on_export_done, type=Qt.ConnectionType.QueuedConnection)
+        worker.finished.connect(self._on_export_thread_finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _on_export_progress(self, count: int) -> None:
+        if not self._closing:
+            self._status_lbl.setText(
+                tr("db_widget.exporting_rows", default="Export in corso: {n} righe",
+                   n=count))
+
+    def _choose_export_path(self, opts: dict) -> Optional[Path]:
+        fmt = opts.get("format", "csv")
+        ext = "." + fmt
+        conn_name = self._conn_info.get("name", "query")
+        filters = {
+            "csv": "CSV (*.csv)", "tsv": "TSV (*.tsv)",
+            "xlsx": "Excel (*.xlsx)", "ods": "OpenDocument (*.ods)",
+        }
+        path_str, _selected = QFileDialog.getSaveFileName(
+            self, tr("db_widget.export_title", default="Esporta risultati"),
+            f"{conn_name}_export{ext}", filters.get(fmt, "CSV (*.csv)"))
+        if not path_str:
+            return None
+        path = Path(path_str)
+        return path if path.suffix else path.with_suffix(ext)
+
+    def _on_export_done(self, error: str, count: int, cancelled: bool) -> None:
+        if self._closing or self.sender() is not self._export_worker:
+            return
+        self._btn_run.setEnabled(True)
+        self._btn_cancel.setEnabled(False)
+        self._btn_export.setEnabled(bool(self._last_rows))
+        if cancelled:
+            self._status_lbl.setStyleSheet("color: gray; font-size: 11px;")
+            self._status_lbl.setText(tr("db_widget.cancelled", default="Annullato"))
+            return
+        if error:
+            self._status_lbl.setStyleSheet("color: red; font-size: 11px;")
+            self._status_lbl.setText(tr("db_widget.export_error", default="Errore export"))
+            QMessageBox.critical(
+                self, "NotePadPQ",
+                tr("db_widget.export_error", default="Errore export") + f":\n{error}")
+            return
+        self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
+        self._status_lbl.setText(
+            "✓ " + tr("db_widget.export_done",
+                       default="Esportate {n} righe", n=count))
+
+    def _on_export_thread_finished(self) -> None:
+        if self.sender() is self._export_worker:
+            self._export_worker = None
+
+    @staticmethod
+    def _stop_worker(worker: Optional[QThread]) -> None:
+        if worker is None:
+            return
+        if worker.isRunning():
+            worker.requestInterruption()
+            if not worker.wait(2000):
+                worker.terminate()
+                worker.wait()
+        cleanup = getattr(worker, "cleanup_temporary", None)
+        if callable(cleanup):
+            cleanup()
+
+    def shutdown(self) -> None:
+        if self._closing:
+            return
+        self._closing = True
+        query_worker = self._worker
+        export_worker = self._export_worker
+        if query_worker is not None:
+            try:
+                query_worker.finished.disconnect(self._on_done)
+            except (TypeError, RuntimeError):
+                pass
+        if export_worker is not None:
+            for signal, slot in (
+                (export_worker.progress, self._on_export_progress),
+                (export_worker.completed, self._on_export_done),
+                (export_worker.finished, self._on_export_thread_finished),
+            ):
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    pass
+        self._stop_worker(query_worker)
+        self._stop_worker(export_worker)
+        self._worker = None
+        self._export_worker = None
+
+    def closeEvent(self, event) -> None:
+        self.shutdown()
+        super().closeEvent(event)
 
     def _ask_export_options(self):
         """Mostra il dialogo unico in stile DBeaver e restituisce un dict con
@@ -1437,100 +1744,6 @@ class _QueryTab(QWidget):
             "rows":     rows_mode,
             "limit":    spin.value(),
         }
-
-    def _export_fetch(self, limit: int):
-        """Ri-esegue la query senza paginazione (o con LIMIT N) e restituisce
-        `(headers, rows)`; `None` in caso di errore. NON modifica la griglia
-        mostrata: i dati servono al salvataggio su file.
-        """
-        if not self._raw_sql or not self._conn_info:
-            return None
-        try:
-            conn = _open_connection(self._conn_info)
-            cur  = conn.cursor()
-            db_type = self._conn_info.get("type", "")
-            if limit > 0:
-                sql = _wrap_page(self._raw_sql, limit, 0, db_type).replace(
-                    f"LIMIT {limit + 1}", f"LIMIT {limit}"
-                )
-            else:
-                sql = self._raw_sql
-            cur.execute(sql)
-            headers, rows = [], []
-            if cur.description:
-                headers = [d[0] for d in cur.description]
-                rows    = [[str(v) if v is not None else "" for v in r]
-                           for r in cur.fetchall()]
-            conn.close()
-            return headers, rows
-        except Exception as exc:
-            QMessageBox.critical(
-                self, "NotePadPQ",
-                tr("db_widget.export_error", default="Errore export") + f":\n{exc}")
-            return None
-
-    def _save_rows_to_file(self, headers: list, rows: list, opts: dict) -> None:
-        """Salva (headers, rows) su un file scelto dall'utente onorando le
-        `opts` scelte nel dialogo di export (formato, separatore, intestazioni,
-        encoding).
-
-        Per CSV/TSV scrive con uno scrittore custom che rispetta separatore,
-        encoding e intestazioni sì/no; per XLSX/ODS delega a `SpreadsheetIO`.
-        """
-        if headers is None:
-            return
-        fmt        = opts.get("format", "csv")
-        delimiter  = opts.get("delimiter", ",")
-        encoding   = opts.get("encoding", "utf-8") or "utf-8"
-        with_header = bool(opts.get("header", True))
-        ext        = "." + fmt
-
-        conn_name = self._conn_info.get("name", "query")
-        suggested = f"{conn_name}_export{ext}"
-        filters = {
-            "csv":  "CSV (*.csv)",
-            "tsv":  "TSV (*.tsv)",
-            "xlsx": "Excel (*.xlsx)",
-            "ods":  "OpenDocument (*.ods)",
-        }
-        path_str, _selected = QFileDialog.getSaveFileName(
-            self,
-            tr("db_widget.export_title", default="Esporta risultati"),
-            suggested,
-            filters.get(fmt, "CSV (*.csv)"),
-        )
-        if not path_str:
-            return
-        path = Path(path_str)
-        if not path.suffix:
-            path = path.with_suffix(ext)
-
-        err = None
-        try:
-            if fmt in ("csv", "tsv"):
-                # Scrittore custom: rispetta separatore, encoding e header
-                # opzionale (SpreadsheetIO.save scrive sempre l'header in utf-8).
-                import csv as _csv
-                with open(path, "w", encoding=encoding, newline="") as f:
-                    writer = _csv.writer(f, delimiter=delimiter)
-                    if with_header:
-                        writer.writerow(list(headers))
-                    writer.writerows(list(rows))
-            else:
-                from ui.spreadsheet_widget import SpreadsheetIO
-                out_headers = list(headers) if with_header else []
-                err = SpreadsheetIO.save(path, out_headers, list(rows), delimiter)
-        except Exception as exc:
-            err = str(exc)
-        if err:
-            QMessageBox.critical(
-                self, "NotePadPQ",
-                tr("db_widget.export_error", default="Errore export") + f":\n{err}")
-            return
-        self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
-        self._status_lbl.setText(
-            "✓ " + tr("db_widget.export_done",
-                      default="Esportate {n} righe", n=len(rows)))
 
     def _open_converted_text(self, content: str, suggested_name: str) -> None:
         """Apre in una nuova scheda editor il contenuto convertito (Markdown /
@@ -2521,7 +2734,12 @@ class DBBrowserWidget(QWidget):
         if self._query_tabs.count() <= 1:
             # Keep at least one tab
             return
+        tab = self._query_tabs.widget(index)
+        if isinstance(tab, _QueryTab):
+            tab.shutdown()
         self._query_tabs.removeTab(index)
+        if tab is not None:
+            tab.deleteLater()
 
     # ── Stubs ─────────────────────────────────────────────────────────────────
 
@@ -2532,6 +2750,10 @@ class DBBrowserWidget(QWidget):
         return True
 
     def closeEvent(self, event) -> None:
+        for index in range(self._query_tabs.count()):
+            tab = self._query_tabs.widget(index)
+            if isinstance(tab, _QueryTab):
+                tab.shutdown()
         if self._conn:
             try:
                 self._conn.close()

@@ -609,16 +609,27 @@ class BuildManager(QObject):
 
         return tasks
 
-    def run_task(self, cmd: str, cwd: Path) -> None:
+    def run_task(self, cmd: str, cwd: Path) -> bool:
         """Esegue un comando task arbitrario (come run/compile ma senza profilo)."""
-        from core.platform import get_default_shell, get_shell_exec_flag
-        shell = get_default_shell()
-        flag  = get_shell_exec_flag()
+        if self._worker and self._worker.isRunning():
+            return False
+
         env   = {**os.environ}
         self._worker = BuildWorker(cmd, str(cwd), env)
-        self._worker.output.connect(self.build_output)
-        self._worker.finished.connect(lambda ok: self.build_done.emit(ok, tr("build.task_finished") if ok else tr("build.task_failed")))
+        self._worker.output_line.connect(self.build_output)
+        self._worker.finished_ok.connect(
+            lambda _secs: self.build_done.emit(True, tr("build.task_finished"))
+        )
+        self._worker.finished_err.connect(
+            lambda _code: self.build_done.emit(False, tr("build.task_failed"))
+        )
+        self._worker.stopped.connect(
+            lambda: self.build_done.emit(False, tr("build.interrupted"))
+        )
+        self.build_started.emit("task")
+        self.build_output.emit(tr("msg.build_started", command=cmd))
         self._worker.start()
+        return True
 
     def parse_errors(self, output: str, profile_name: str,
                      source_file: Path | None = None) -> list[dict]:

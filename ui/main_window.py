@@ -596,7 +596,13 @@ class MainWindow(QMainWindow):
         for editor in self._tab_manager.all_editors():
             if editor.isModified() and editor.file_path:
                 try:
-                    self.action_save()
+                    # action_save() opera sul tab corrente, non sull'editor
+                    # iterato, e potrebbe quindi salvare/backupare più volte
+                    # lo stesso documento lasciando invariati gli altri.
+                    if getattr(editor, "_paged_doc", None) is not None:
+                        self.save_paged_page(editor)
+                    else:
+                        self._save_editor(editor, editor.file_path)
                 except Exception:
                     pass
 
@@ -614,18 +620,30 @@ class MainWindow(QMainWindow):
             from editor.lexers import get_language_name
             lang      = get_language_name(editor).lower()
             workspace = str(editor.file_path.parent)
+            old_client = getattr(editor, "_lsp_client", None)
+            old_path = getattr(editor, "_lsp_path", None)
             client    = LSPClient.get(lang, workspace)
             if client is None:
+                if old_client is not None and old_path is not None:
+                    old_client.close_file(old_path)
+                editor._lsp_client = None
+                editor._lsp_path = None
                 return
 
-            # Evita di riconnettere se già attivo sullo stesso client
-            if getattr(editor, "_lsp_client", None) is client:
+            # Evita di acquisire due volte lo stesso documento per questo tab.
+            if old_client is client and old_path == editor.file_path:
                 return
+
             editor._lsp_client = client
+            editor._lsp_path = editor.file_path
 
-            # Open file nel server (idempotente)
+            # Acquisisci il nuovo URI prima di rilasciare il precedente: in un
+            # Save As nello stesso workspace il client non resta mai senza file
+            # e non viene arrestato per poi essere riutilizzato già fermo.
             content = editor.get_content()
             client.open_file(editor.file_path, content, lang_to_id(lang))
+            if old_client is not None and old_path is not None:
+                old_client.close_file(old_path)
 
             # Diagnostics → pannello
             try:
@@ -2402,6 +2420,10 @@ class MainWindow(QMainWindow):
                     if hasattr(self, "_statusbar"):
                         self._statusbar._update_lang(editor)
 
+            # Aggiorna didOpen/didClose anche per Save As. Il metodo è un no-op
+            # quando path, client e linguaggio non sono cambiati.
+            self._lsp_connect_editor(editor)
+
             # 4. Aggiorna lo stato dell'editor
             editor.mark_saved()
             self._on_tab_modified(editor, False)
@@ -4051,6 +4073,7 @@ class MainWindow(QMainWindow):
                     if ed.is_modified()]
         if not modified:
             self._save_session()
+            self._shutdown_lsp()
             event.accept()
             return
 
@@ -4073,10 +4096,20 @@ class MainWindow(QMainWindow):
         elif reply == QMessageBox.StandardButton.Save:
             self.action_save_all()
             self._save_session()
+            self._shutdown_lsp()
             event.accept()
         else:
             self._save_session()
+            self._shutdown_lsp()
             event.accept()
+
+    def _shutdown_lsp(self) -> None:
+        """Arresta una sola volta tutti i client LSP condivisi."""
+        try:
+            from editor.lsp_client import LSPClient
+            LSPClient.shutdown_all()
+        except Exception as e:
+            print(f"[LSP] shutdown: {e}")
 
     def _save_session(self) -> None:
         try:
@@ -4141,6 +4174,16 @@ class MainWindow(QMainWindow):
                 pager.deleteLater()
             except Exception:
                 pass
+
+        client = getattr(editor, "_lsp_client", None)
+        path = getattr(editor, "_lsp_path", None)
+        if client is not None and path is not None:
+            try:
+                client.close_file(path)
+            except Exception as e:
+                print(f"[LSP] close file: {e}")
+        editor._lsp_client = None
+        editor._lsp_path = None
 
 
     # ── Multi-cursore ─────────────────────────────────────────────────────────

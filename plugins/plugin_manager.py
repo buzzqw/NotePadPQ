@@ -8,6 +8,7 @@ gestisce enable/disable, e mostra il dialog di gestione.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import sys
@@ -107,43 +108,28 @@ class PluginManager:
     def _load_plugin_file(self, path: Path,
                           main_window: "MainWindow") -> bool:
         """Carica un singolo file plugin."""
+        meta = self._read_static_metadata(path)
+        if meta is not None and meta["name"] in self._disabled:
+            self._plugins[meta["name"]] = {
+                "instance": None,
+                "enabled": False,
+                "path": path,
+                "meta": meta,
+            }
+            return True
+
         try:
-            spec = importlib.util.spec_from_file_location(
-                path.stem, str(path)
-            )
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-
-            # Cerca una classe che estende BasePlugin
-            from plugins.base_plugin import BasePlugin
-            plugin_class = None
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
-                try:
-                    if (isinstance(attr, type) and
-                            issubclass(attr, BasePlugin) and
-                            attr is not BasePlugin):
-                        plugin_class = attr
-                        break
-                except TypeError:
-                    continue
-
-            if plugin_class is None:
+            loaded = self._import_plugin(path)
+            if loaded is None:
                 return False
-
-            instance = plugin_class()
-            name = getattr(plugin_class, "NAME", path.stem)
+            instance, meta = loaded
+            name = meta["name"]
 
             self._plugins[name] = {
                 "instance": instance,
-                "enabled":  name not in self._disabled,
-                "path":     path,
-                "meta": {
-                    "name":        name,
-                    "version":     getattr(plugin_class, "VERSION", "?"),
-                    "description": getattr(plugin_class, "DESCRIPTION", ""),
-                    "author":      getattr(plugin_class, "AUTHOR", ""),
-                },
+                "enabled": name not in self._disabled,
+                "path": path,
+                "meta": meta,
             }
 
             if name not in self._disabled:
@@ -156,14 +142,122 @@ class PluginManager:
             print(tr("msg.plugin_load_error", name=path.stem, error=str(e)))
             return False
 
+    @staticmethod
+    def _read_static_metadata(path: Path) -> Optional[dict]:
+        """Legge i metadata letterali senza importare o eseguire il plugin."""
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeError):
+            return None
+
+        plugin_classes = []
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if any(
+                (isinstance(base, ast.Name) and base.id == "BasePlugin") or
+                (isinstance(base, ast.Attribute) and base.attr == "BasePlugin")
+                for base in node.bases
+            ):
+                plugin_classes.append(node)
+
+        if not plugin_classes:
+            return None
+
+        # Il loader storico sceglie la prima classe restituita da dir(module).
+        plugin_class = min(plugin_classes, key=lambda node: node.name)
+        values = {}
+        for statement in plugin_class.body:
+            targets = []
+            value = None
+            if isinstance(statement, ast.Assign):
+                targets = statement.targets
+                value = statement.value
+            elif isinstance(statement, ast.AnnAssign):
+                targets = [statement.target]
+                value = statement.value
+            if value is None:
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id in {
+                    "NAME", "VERSION", "DESCRIPTION", "AUTHOR"
+                }:
+                    try:
+                        literal = ast.literal_eval(value)
+                    except (ValueError, TypeError):
+                        continue
+                    if isinstance(literal, str):
+                        values[target.id] = literal
+
+        # Senza un nome letterale non è possibile associarlo con certezza alla
+        # lista dei disabilitati; in quel caso resta il loader compatibile.
+        if "NAME" not in values:
+            return None
+        return {
+            "name": values["NAME"],
+            "version": values.get("VERSION", "0.0"),
+            "description": values.get("DESCRIPTION", ""),
+            "author": values.get("AUTHOR", ""),
+        }
+
+    @staticmethod
+    def _import_plugin(path: Path):
+        """Importa e istanzia un plugin, senza attivarne il ciclo di vita."""
+        spec = importlib.util.spec_from_file_location(path.stem, str(path))
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        from plugins.base_plugin import BasePlugin
+        plugin_class = None
+        for attr_name in dir(module):
+            attr = getattr(module, attr_name)
+            try:
+                if (isinstance(attr, type) and
+                        issubclass(attr, BasePlugin) and
+                        attr is not BasePlugin):
+                    plugin_class = attr
+                    break
+            except TypeError:
+                continue
+
+        if plugin_class is None:
+            return None
+
+        instance = plugin_class()
+        name = getattr(plugin_class, "NAME", path.stem)
+        return instance, {
+            "name": name,
+            "version": getattr(plugin_class, "VERSION", "?"),
+            "description": getattr(plugin_class, "DESCRIPTION", ""),
+            "author": getattr(plugin_class, "AUTHOR", ""),
+        }
+
     def enable_plugin(self, name: str) -> bool:
         entry = self._plugins.get(name)
         if not entry or entry["enabled"]:
             return False
         try:
+            if entry["instance"] is None:
+                loaded = self._import_plugin(entry["path"])
+                if loaded is None:
+                    return False
+                instance, meta = loaded
+                actual_name = meta["name"]
+                if actual_name != name and actual_name in self._plugins:
+                    raise ValueError(f"Nome plugin duplicato: {actual_name}")
+                entry["instance"] = instance
+                entry["meta"] = meta
+
             entry["instance"].on_load(self._main_window)
             entry["enabled"] = True
             self._disabled.discard(name)
+            actual_name = entry["meta"]["name"]
+            self._disabled.discard(actual_name)
+            if actual_name != name:
+                del self._plugins[name]
+                self._plugins[actual_name] = entry
             self._save_disabled()
             return True
         except Exception as e:

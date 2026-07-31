@@ -2,7 +2,7 @@
 core/lazy_loader.py — Caricamento lazy per file di grandi dimensioni
 NotePadPQ
 
-Per file oltre la soglia (default 50MB, configurabile), il file viene
+Per file oltre la soglia (default 4MB, configurabile), il file viene
 caricato in chunks nel thread di background. L'editor mostra subito
 il primo chunk e aggiunge il resto progressivamente senza bloccare l'UI.
 
@@ -47,7 +47,7 @@ MB  = 1024 * 1024
 GB  = 1024 * MB
 
 # Sotto questa soglia → caricamento normale sincrono
-THRESHOLD_LAZY     = 50 * MB      # 50 MB
+THRESHOLD_LAZY     = 4 * MB       # 4 MB
 
 # Sopra questa soglia → modalità paginata: editing una pagina alla volta
 # (~4MB), veloce indipendentemente dalla dimensione del file perché non lo
@@ -449,8 +449,8 @@ class LazyLoader(QObject):
     Gestisce il caricamento di file grandi in un EditorWidget.
 
     Modalità:
-    - NORMAL  (<50MB):     caricamento sincrono standard (delega a FileManager)
-    - LAZY    (50MB–200MB): caricamento progressivo in background con progress bar
+    - NORMAL  (<4MB):      caricamento sincrono standard (delega a FileManager)
+    - LAZY    (4MB–200MB): caricamento progressivo in background con progress bar
     - PAGED   (>200MB):    vista paginata su disco, modificabile una pagina alla
                            volta, naviga con i pulsanti Pag. prec./succ.
 

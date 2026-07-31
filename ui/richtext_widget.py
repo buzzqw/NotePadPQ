@@ -27,7 +27,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QObject, QTimer, QEventLoop, QUrl, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import Qt, QObject, QThread, QTimer, QEventLoop, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QWidget,
@@ -40,7 +40,6 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QMessageBox,
     QProgressDialog,
-    QApplication,
     QSizePolicy,
 )
 
@@ -93,67 +92,140 @@ _JODIT_CSS_URL = "https://cdn.jsdelivr.net/npm/jodit/es2021/jodit.min.css"
 
 _JODIT_JS = _ASSETS_DIR / "jodit.min.js"
 _JODIT_CSS = _ASSETS_DIR / "jodit.min.css"
+_ACTIVE_THREADS: set[QThread] = set()
 
 
-def _download_jodit(parent: Optional[QWidget] = None) -> bool:
-    """Scarica i file Jodit nella cache. Ritorna True se tutto ok."""
-    _ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+def _keep_thread_alive(thread: QThread) -> None:
+    _ACTIVE_THREADS.add(thread)
+    thread.finished.connect(lambda thread=thread: _ACTIVE_THREADS.discard(thread))
 
-    dlg = QProgressDialog(
-        tr("richtext.downloading_jodit"), tr("button.cancel"), 0, 100, parent
-    )
-    dlg.setWindowTitle("NotePadPQ")
-    dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
-    dlg.setMinimumDuration(0)
-    dlg.setValue(0)
-    dlg.show()
-    QApplication.processEvents()
 
-    files = [(_JODIT_JS_URL, _JODIT_JS), (_JODIT_CSS_URL, _JODIT_CSS)]
-    try:
-        for i, (url, dest) in enumerate(files):
-            if dlg.wasCanceled():
-                return False
-            dlg.setLabelText(f"Download {dest.name}…")
-            dlg.setValue(i * 45)
-            QApplication.processEvents()
+class _JoditDownloadWorker(QThread):
+    progress = pyqtSignal(int, str)
+    completed = pyqtSignal(bool, str)
 
-            # Scarica con progress reale; gestisce redirect automaticamente
-            req = urllib.request.Request(
-                url, headers={"User-Agent": "NotePadPQ/1.0 (richtext downloader)"}
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                total = int(resp.headers.get("Content-Length", 0))
-                downloaded = 0
-                chunk_size = 32768
-                with open(dest, "wb") as f:
-                    while True:
-                        if dlg.wasCanceled():
-                            dest.unlink(missing_ok=True)
-                            return False
-                        chunk = resp.read(chunk_size)
+    def __init__(self):
+        super().__init__()
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        files = [(_JODIT_JS_URL, _JODIT_JS), (_JODIT_CSS_URL, _JODIT_CSS)]
+        try:
+            _ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+            for i, (url, dest) in enumerate(files):
+                if self._cancelled:
+                    raise InterruptedError
+                label = f"Download {dest.name}..."
+                self.progress.emit(i * 50, label)
+                req = urllib.request.Request(
+                    url, headers={"User-Agent": "NotePadPQ/1.0 (richtext downloader)"}
+                )
+                part = dest.with_suffix(dest.suffix + ".part")
+                with urllib.request.urlopen(req, timeout=30) as resp, open(part, "wb") as f:
+                    total = int(resp.headers.get("Content-Length", 0))
+                    downloaded = 0
+                    while not self._cancelled:
+                        chunk = resp.read(32768)
                         if not chunk:
                             break
                         f.write(chunk)
                         downloaded += len(chunk)
                         if total:
-                            pct = i * 45 + int(downloaded / total * 45)
-                            dlg.setValue(pct)
-                            QApplication.processEvents()
+                            self.progress.emit(
+                                i * 50 + int(downloaded / total * 50), label
+                            )
+                if self._cancelled:
+                    part.unlink(missing_ok=True)
+                    raise InterruptedError
+                part.replace(dest)
+            self.completed.emit(True, "")
+        except InterruptedError:
+            for _, dest in files:
+                dest.with_suffix(dest.suffix + ".part").unlink(missing_ok=True)
+            self.completed.emit(False, "")
+        except Exception as exc:
+            for _, dest in files:
+                dest.with_suffix(dest.suffix + ".part").unlink(missing_ok=True)
+            self.completed.emit(False, str(exc))
 
-            dlg.setValue(i * 45 + 45)
-            QApplication.processEvents()
 
-        dlg.setValue(100)
-        return True
-    except Exception as exc:
-        dlg.close()
-        for _, dest in files:
-            dest.unlink(missing_ok=True)
-        QMessageBox.critical(
-            parent, "NotePadPQ", tr("richtext.download_failed", exc=exc)
+class JoditDownload(QObject):
+    """Gestisce la UI del download, eseguito interamente nel worker."""
+
+    finished = pyqtSignal(bool)
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._ok = False
+        self._error = ""
+        self._cancelled = False
+        self._worker = _JoditDownloadWorker()
+        self._dialog = QProgressDialog(
+            tr("richtext.downloading_jodit"), tr("button.cancel"), 0, 100, parent
         )
-        return False
+        self._dialog.setWindowTitle("NotePadPQ")
+        self._dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self._dialog.setMinimumDuration(0)
+        self._dialog.canceled.connect(self._worker.cancel)
+        self._worker.progress.connect(self._on_progress)
+        self._worker.completed.connect(self._on_completed)
+        self._worker.finished.connect(self._on_thread_finished)
+        self._worker.finished.connect(self._worker.deleteLater)
+
+    def start(self) -> None:
+        self._dialog.show()
+        _keep_thread_alive(self._worker)
+        self._worker.start()
+
+    def cancel(self) -> None:
+        """Annulla il download senza mostrare errori per la cancellazione."""
+        self._cancelled = True
+        self._worker.cancel()
+        self._dialog.close()
+
+    @pyqtSlot(int, str)
+    def _on_progress(self, value: int, label: str) -> None:
+        self._dialog.setLabelText(label)
+        self._dialog.setValue(value)
+
+    @pyqtSlot(bool, str)
+    def _on_completed(self, ok: bool, error: str) -> None:
+        self._ok = ok and not self._cancelled
+        self._error = "" if self._cancelled else error
+
+    @pyqtSlot()
+    def _on_thread_finished(self) -> None:
+        self._dialog.close()
+        if self._error:
+            QMessageBox.critical(
+                self.parent(), "NotePadPQ",
+                tr("richtext.download_failed", exc=self._error),
+            )
+        self.finished.emit(self._ok)
+
+
+def download_jodit(parent: Optional[QWidget] = None) -> JoditDownload:
+    controller = JoditDownload(parent)
+    controller.start()
+    return controller
+
+
+def _download_jodit(parent: Optional[QWidget] = None) -> bool:
+    """API storica: attende l'esito mantenendo reattivo l'event loop Qt."""
+    result = [False]
+    loop = QEventLoop()
+    controller = download_jodit(parent)
+
+    def done(ok: bool) -> None:
+        result[0] = ok
+        loop.quit()
+
+    controller.finished.connect(done)
+    loop.exec()
+    return result[0]
 
 
 def ensure_jodit(parent: Optional[QWidget] = None) -> bool:
@@ -406,6 +478,35 @@ class RichTextIO:
         )
 
 
+class _RichTextIOWorker(QThread):
+    """Esegue lettura e conversione senza accedere a oggetti UI."""
+
+    completed = pyqtSignal(str, str, bool)  # result, error, cancelled
+
+    def __init__(self, operation: str, path: Path, html: str = ""):
+        super().__init__()
+        self._operation = operation
+        self._path = path
+        self._html = html
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        if self._cancelled:
+            self.completed.emit("", "", True)
+            return
+        try:
+            if self._operation == "load":
+                result, error = RichTextIO.load_html(self._path)
+            else:
+                result, error = "", RichTextIO.save_html(self._html, self._path)
+        except Exception as exc:
+            result, error = "", str(exc)
+        self.completed.emit(result, error, self._cancelled)
+
+
 # ── QWebChannel bridge ────────────────────────────────────────────────────────
 
 
@@ -617,6 +718,8 @@ class RichTextWidget(QWidget):
 
     modified_changed = pyqtSignal(bool)
     convert_to_text = pyqtSignal(str, str)  # (content, suggested_name)
+    load_finished = pyqtSignal(bool)
+    save_finished = pyqtSignal(bool, object)  # success, Path
 
     def __init__(self, path: Optional[Path] = None, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -625,6 +728,16 @@ class RichTextWidget(QWidget):
         self._js_ready = False
         self._pending_html: Optional[str] = None
         self._tmpdir: Optional[Path] = None
+        self._io_worker: Optional[_RichTextIOWorker] = None
+        self._progress_dlg: Optional[QProgressDialog] = None
+        self._io_operation = ""
+        self._io_path: Optional[Path] = None
+        self._io_save_as = False
+        self._io_pending = False
+        self._io_ok = False
+        self._save_change_serial = 0
+        self._change_serial = 0
+        self._closed = False
 
         self._build_ui()
         self._load_jodit_page()
@@ -813,15 +926,7 @@ class RichTextWidget(QWidget):
             data = bytes(f.readAll()).decode("utf-8")
             f.close()
             return data
-        # Fallback: scarica da CDN
-        try:
-            with urllib.request.urlopen(
-                "https://raw.githubusercontent.com/qt/qtwebchannel/dev/src/webchannel/qwebchannel.js",
-                timeout=5,
-            ) as r:
-                return r.read().decode()
-        except Exception:
-            return ""
+        return ""
 
     # ── Slot ──────────────────────────────────────────────────────────────────
 
@@ -833,6 +938,7 @@ class RichTextWidget(QWidget):
         self._update_status()
 
     def _on_content_changed(self) -> None:
+        self._change_serial += 1
         # Aggiorna word count ogni 2s per non appesantire
         if not hasattr(self, "_wc_timer"):
             self._wc_timer = QTimer(self)
@@ -843,16 +949,8 @@ class RichTextWidget(QWidget):
     # ── API pubblica ──────────────────────────────────────────────────────────
 
     def load_document(self, path: Path) -> bool:
-        """Carica il documento dal path. Ritorna True se ok."""
-        html, err = RichTextIO.load_html(path)
-        if err:
-            QMessageBox.critical(self, "NotePadPQ", tr("richtext.load_error", err=err))
-            return False
-        self.file_path = path
-        self.set_html(html)
-        self._set_modified(False)
-        self._update_status()
-        return True
+        """Avvia il caricamento. False indica che un'altra operazione è attiva."""
+        return self._start_io("load", path)
 
     def set_html(self, html: str) -> None:
         """Imposta il contenuto HTML nell'editor."""
@@ -879,18 +977,17 @@ class RichTextWidget(QWidget):
     def is_modified(self) -> bool:
         return self._modified
 
+    def is_save_in_progress(self) -> bool:
+        """Indica se il contenuto viene acquisito o scritto su disco."""
+        return self._io_pending or (
+            self._io_worker is not None and self._io_operation == "save"
+        )
+
     def save(self) -> bool:
-        """Salva nel formato originale. Ritorna True se riuscito."""
+        """Avvia il salvataggio nel formato originale."""
         if self.file_path is None:
             return self.save_as()
-        html = self.get_html()
-        err = RichTextIO.save_html(html, self.file_path)
-        if err:
-            QMessageBox.critical(self, "NotePadPQ", tr("richtext.save_error", err=err))
-            return False
-        self._set_modified(False)
-        self._update_status()
-        return True
+        return self._request_save(self.file_path, False)
 
     def save_as(self) -> bool:
         import re as _re
@@ -914,16 +1011,10 @@ class RichTextWidget(QWidget):
             if p.suffix.lower() != ext:
                 p = p.with_suffix(ext)
         if p.suffix.lower() == ".pdf":
-            return self._export_pdf(p)
-        html = self.get_html()
-        err = RichTextIO.save_html(html, p)
-        if err:
-            QMessageBox.critical(self, "NotePadPQ", tr("richtext.save_error", err=err))
-            return False
-        self.file_path = p
-        self._set_modified(False)
-        self._update_status()
-        return True
+            ok = self._export_pdf(p)
+            self.save_finished.emit(ok, p)
+            return ok
+        return self._request_save(p, True)
 
     def print_document(self) -> None:
         """Metodo pubblico: apre la dialog di stampa di sistema (File > Stampa)."""
@@ -1012,6 +1103,93 @@ class RichTextWidget(QWidget):
 
     # ── Helpers interni ───────────────────────────────────────────────────────
 
+    def _request_save(self, path: Path, save_as: bool) -> bool:
+        if (
+            self._closed
+            or self._io_worker is not None
+            or self._io_pending
+            or not WEBENGINE_OK
+            or not self._js_ready
+        ):
+            return False
+        self._io_pending = True
+        self._toolbar.setEnabled(False)
+        self._status_lbl.setText(tr("richtext.saving", default="Salvataggio in corso..."))
+
+        def _got_html(html: str) -> None:
+            if not self._closed and self._io_pending and self._io_worker is None:
+                self._io_pending = False
+                self._save_change_serial = self._change_serial
+                self._io_save_as = save_as
+                self._start_io("save", path, html or "")
+
+        self._view.page().runJavaScript("window.getContent()", _got_html)
+        return True
+
+    def _start_io(self, operation: str, path: Path, html: str = "") -> bool:
+        if self._closed or self._io_worker is not None or self._io_pending:
+            return False
+        self._io_operation = operation
+        self._io_path = path
+        self._toolbar.setEnabled(False)
+        self._progress_dlg = QProgressDialog(
+            tr("richtext.loading", default="Operazione rich text in corso..."),
+            tr("button.cancel", default="Annulla"), 0, 0, self,
+        )
+        self._progress_dlg.setWindowTitle("NotePadPQ")
+        self._progress_dlg.setWindowModality(Qt.WindowModality.WindowModal)
+        self._progress_dlg.setMinimumDuration(300)
+        worker = _RichTextIOWorker(operation, path, html)
+        self._io_worker = worker
+        self._progress_dlg.canceled.connect(worker.cancel)
+        worker.completed.connect(self._on_io_completed)
+        worker.finished.connect(self._on_io_thread_finished)
+        _keep_thread_alive(worker)
+        worker.start()
+        return True
+
+    @pyqtSlot(str, str, bool)
+    def _on_io_completed(self, result: str, error: str, cancelled: bool) -> None:
+        operation, path = self._io_operation, self._io_path
+        ok = not cancelled and not error
+        self._io_ok = ok
+        if error:
+            key = "richtext.load_error" if operation == "load" else "richtext.save_error"
+            QMessageBox.critical(self, "NotePadPQ", tr(key, err=error))
+        elif ok and operation == "load" and path is not None:
+            self.file_path = path
+            self.set_html(result)
+            self._set_modified(False)
+            self._update_status()
+        elif ok and operation == "save" and path is not None:
+            if self._io_save_as:
+                self.file_path = path
+            if self._change_serial == self._save_change_serial:
+                self._set_modified(False)
+            self._update_status()
+
+    @pyqtSlot()
+    def _on_io_thread_finished(self) -> None:
+        operation, path, ok = self._io_operation, self._io_path, self._io_ok
+        if self._progress_dlg is not None:
+            self._progress_dlg.close()
+            self._progress_dlg.deleteLater()
+            self._progress_dlg = None
+        worker = self._io_worker
+        self._io_worker = None
+        self._io_operation = ""
+        self._io_path = None
+        self._io_save_as = False
+        self._io_ok = False
+        self._toolbar.setEnabled(True)
+        self._update_status()
+        if worker is not None:
+            worker.deleteLater()
+        if operation == "load":
+            self.load_finished.emit(ok)
+        else:
+            self.save_finished.emit(ok, path)
+
     def _js_set_content(self, html: str) -> None:
         if self._view is None:
             return
@@ -1059,11 +1237,28 @@ class RichTextWidget(QWidget):
 
     # ── Cleanup ───────────────────────────────────────────────────────────────
 
-    def closeEvent(self, event):
+    def cleanup(self) -> None:
+        """Ferma callback e operazioni pendenti prima di rimuovere il tab."""
+        if self._closed:
+            return
+        self._closed = True
+        self._io_pending = False
+        if self._io_worker is not None:
+            self._io_worker.cancel()
+        if self._progress_dlg is not None:
+            self._progress_dlg.close()
+        timer = getattr(self, "_wc_timer", None)
+        if timer is not None:
+            timer.stop()
         if self._tmpdir and self._tmpdir.exists():
             shutil.rmtree(self._tmpdir, ignore_errors=True)
+        self._tmpdir = None
+
+    def closeEvent(self, event):
+        self.cleanup()
         super().closeEvent(event)
 
     def __del__(self):
-        if self._tmpdir and self._tmpdir.exists():
-            shutil.rmtree(self._tmpdir, ignore_errors=True)
+        tmpdir = getattr(self, "_tmpdir", None)
+        if tmpdir and tmpdir.exists():
+            shutil.rmtree(tmpdir, ignore_errors=True)

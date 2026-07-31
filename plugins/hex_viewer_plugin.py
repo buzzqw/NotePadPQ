@@ -13,10 +13,12 @@ Attivazione:
 
 from __future__ import annotations
 
+import mmap
+import threading
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import BinaryIO, Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QLineEdit, QSpinBox,
@@ -34,6 +36,60 @@ if TYPE_CHECKING:
 
 BYTES_PER_ROW = 16
 MAX_BYTES     = 4 * 1024 * 1024   # Mostra max 4MB (oltre è lento con QTextEdit)
+SEARCH_CHUNK  = 4 * 1024 * 1024
+
+_ORPHANED_SEARCH_WORKERS: set[QThread] = set()
+
+
+class _HexSearchWorker(QThread):
+    """Cerca a blocchi, con un mapping indipendente e cancellabile."""
+
+    completed = pyqtSignal(int, str)
+
+    def __init__(self, source: Path | bytes, needle: bytes):
+        super().__init__()
+        self._source = source
+        self._needle = needle
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def run(self) -> None:
+        handle = None
+        mapped = None
+        try:
+            if isinstance(self._source, Path):
+                handle = self._source.open("rb")
+                size = self._source.stat().st_size
+                if not size:
+                    self.completed.emit(-1, "")
+                    return
+                mapped = mmap.mmap(handle.fileno(), length=0, access=mmap.ACCESS_READ)
+                source = mapped
+            else:
+                source = self._source
+                size = len(source)
+
+            overlap = max(0, len(self._needle) - 1)
+            offset = 0
+            while offset < size and not self._cancelled.is_set():
+                end = min(size, offset + SEARCH_CHUNK + overlap)
+                found = source[offset:end].find(self._needle)
+                if found >= 0:
+                    self.completed.emit(offset + found, "")
+                    return
+                offset += SEARCH_CHUNK
+            if not self._cancelled.is_set():
+                self.completed.emit(-1, "")
+        except (OSError, ValueError) as exc:
+            if not self._cancelled.is_set():
+                self.completed.emit(-1, str(exc))
+        finally:
+            if mapped is not None:
+                mapped.close()
+            if handle is not None:
+                handle.close()
 
 
 # ─── _HexPanel ────────────────────────────────────────────────────────────────
@@ -43,7 +99,13 @@ class _HexPanel(QWidget):
     def __init__(self, main_window: "MainWindow", parent=None):
         super().__init__(parent)
         self._mw = main_window
-        self._raw: bytes = b""
+        self._raw: Optional[bytes] = b""
+        self._file: Optional[BinaryIO] = None
+        self._mapped: Optional[mmap.mmap] = None
+        self._source_path: Optional[Path] = None
+        self._size = 0
+        self._search_worker: Optional[_HexSearchWorker] = None
+        self._search_generation = 0
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -70,10 +132,10 @@ class _HexPanel(QWidget):
         self._search_input.setPlaceholderText("es. 4D 5A  oppure  FF FE")
         self._search_input.setMaximumWidth(200)
         search_row.addWidget(self._search_input)
-        btn_search = QPushButton("Cerca")
-        btn_search.setFixedWidth(70)
-        btn_search.clicked.connect(self._search_bytes)
-        search_row.addWidget(btn_search)
+        self._btn_search = QPushButton("Cerca")
+        self._btn_search.setFixedWidth(70)
+        self._btn_search.clicked.connect(self._search_bytes)
+        search_row.addWidget(self._btn_search)
         search_row.addStretch()
 
         search_row.addWidget(QLabel("Offset iniziale:"))
@@ -101,6 +163,7 @@ class _HexPanel(QWidget):
 
     def load_current(self) -> None:
         """Carica il file del tab corrente."""
+        self.close_source()
         editor = self._mw._tab_manager.current_editor()
         if not editor or not editor.file_path:
             self._view.setPlainText("(Nessun file aperto)")
@@ -112,12 +175,20 @@ class _HexPanel(QWidget):
             return
 
         try:
-            self._raw = path.read_bytes()
+            self._file = path.open("rb")
+            self._size = path.stat().st_size
+            if self._size:
+                self._mapped = mmap.mmap(
+                    self._file.fileno(), length=0, access=mmap.ACCESS_READ
+                )
+            self._raw = None
+            self._source_path = path
         except Exception as e:
+            self.close_source()
             self._view.setPlainText(f"Errore lettura: {e}")
             return
 
-        size = len(self._raw)
+        size = self._size
         self._file_label.setText(f"{path.name}  ({size:,} byte)")
         self._offset_spin.setMaximum(max(0, size - BYTES_PER_ROW))
         self._offset_spin.setValue(0)
@@ -131,7 +202,10 @@ class _HexPanel(QWidget):
 
     def load_bytes(self, raw: bytes, label: str = "") -> None:
         """Carica bytes direttamente (usato da test/altri plugin)."""
+        self.close_source()
         self._raw = raw
+        self._source_path = None
+        self._size = len(raw)
         self._file_label.setText(label or f"{len(raw):,} byte")
         self._offset_spin.setMaximum(max(0, len(raw) - BYTES_PER_ROW))
         self._offset_spin.setValue(0)
@@ -140,7 +214,7 @@ class _HexPanel(QWidget):
     # ── Rendering ─────────────────────────────────────────────────────────────
 
     def _render_from_offset(self, offset: int) -> None:
-        data = self._raw[offset:offset + MAX_BYTES]
+        data = self._read_window(offset, MAX_BYTES)
         lines = []
         for i in range(0, len(data), BYTES_PER_ROW):
             chunk = data[i:i + BYTES_PER_ROW]
@@ -152,9 +226,34 @@ class _HexPanel(QWidget):
 
         self._view.setPlainText("\n".join(lines))
 
+    def _read_window(self, offset: int, length: int) -> bytes:
+        end = min(self._size, offset + length)
+        if offset < 0 or offset >= end:
+            return b""
+        if self._mapped is not None:
+            return self._mapped[offset:end]
+        return (self._raw or b"")[offset:end]
+
+    def close_source(self) -> None:
+        """Rilascia mapping e descrittore prima di caricare un'altra sorgente."""
+        self._stop_search_worker()
+        if self._mapped is not None:
+            self._mapped.close()
+            self._mapped = None
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+        self._raw = b""
+        self._source_path = None
+        self._size = 0
+
     # ── Ricerca byte ──────────────────────────────────────────────────────────
 
     def _search_bytes(self) -> None:
+        if self._search_worker and self._search_worker.isRunning():
+            self._search_worker.cancel()
+            self._info.setText("Annullamento ricerca…")
+            return
         hex_str = self._search_input.text().strip()
         if not hex_str:
             return
@@ -164,7 +263,28 @@ class _HexPanel(QWidget):
             self._info.setText("⚠ Sequenza hex non valida")
             return
 
-        pos = self._raw.find(needle)
+        source: Path | bytes
+        source = self._source_path if self._source_path is not None else (self._raw or b"")
+        self._search_generation += 1
+        generation = self._search_generation
+        worker = _HexSearchWorker(source, needle)
+        self._search_worker = worker
+        self._btn_search.setText("Annulla")
+        self._info.setText("Ricerca in corso…")
+        worker.completed.connect(
+            lambda pos, error, g=generation, text=hex_str:
+                self._search_completed(pos, error, text, g))
+        worker.finished.connect(lambda w=worker: self._search_thread_finished(w))
+        worker.start()
+
+    def _search_completed(self, pos: int, error: str, hex_str: str,
+                          generation: int) -> None:
+        if generation != self._search_generation:
+            return
+        self._btn_search.setText("Cerca")
+        if error:
+            self._info.setText(f"Errore ricerca: {error}")
+            return
         if pos == -1:
             self._info.setText(f"Byte non trovati: {hex_str}")
             return
@@ -185,6 +305,29 @@ class _HexPanel(QWidget):
         cursor.setCharFormat(fmt)
         self._view.setTextCursor(cursor)
         self._view.ensureCursorVisible()
+
+    def _search_thread_finished(self, worker: _HexSearchWorker) -> None:
+        if self._search_worker is worker:
+            self._search_worker = None
+            self._btn_search.setText("Cerca")
+        worker.deleteLater()
+
+    def _stop_search_worker(self) -> None:
+        worker = self._search_worker
+        self._search_generation += 1
+        if worker:
+            if worker.isRunning():
+                worker.cancel()
+            worker.disconnect()
+            if worker.isRunning() and not worker.wait(2000):
+                _ORPHANED_SEARCH_WORKERS.add(worker)
+                worker.finished.connect(
+                    lambda w=worker: _ORPHANED_SEARCH_WORKERS.discard(w))
+                if not worker.isRunning():
+                    _ORPHANED_SEARCH_WORKERS.discard(worker)
+        self._search_worker = None
+        if hasattr(self, "_btn_search"):
+            self._btn_search.setText("Cerca")
 
 
 # ─── Plugin ───────────────────────────────────────────────────────────────────
@@ -238,6 +381,8 @@ class HexViewerPlugin(BasePlugin):
             self._panel.load_current()
 
     def on_unload(self) -> None:
+        if hasattr(self, "_panel"):
+            self._panel.close_source()
         if hasattr(self, "_dock"):
             self._dock.setParent(None)
             self._dock.deleteLater()

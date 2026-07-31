@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+import tempfile
 from pathlib import Path
 from typing import Optional, List, TYPE_CHECKING
 
@@ -44,9 +44,10 @@ if TYPE_CHECKING:
 
 # ─── Costanti ─────────────────────────────────────────────────────────────────
 
-MAX_HISTORY    = 50      # massimo elementi in cronologia
-MAX_PREVIEW    = 120     # caratteri di anteprima per elemento
-POLL_INTERVAL  = 500     # ms tra un controllo e l'altro degli appunti
+MAX_HISTORY    = 50             # massimo elementi in cronologia
+MAX_PREVIEW    = 120            # caratteri di anteprima per elemento
+MAX_ITEM_BYTES = 1024 * 1024    # non conservare clipboard accidentalmente enormi
+SAVE_DEBOUNCE  = 750            # raggruppa copie ravvicinate in una sola scrittura
 
 
 # ─── _ClipboardPanel ──────────────────────────────────────────────────────────
@@ -58,14 +59,17 @@ class _ClipboardPanel(QWidget):
         self._mw       = main_window
         self._history: List[str] = []    # testi completi
         self._last_text = ""
+        self._fernet: Optional[Fernet] = None
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(SAVE_DEBOUNCE)
+        self._save_timer.timeout.connect(self._write_history)
 
         self._load_history()
         self._build_ui()
 
-        # Timer polling appunti
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._poll_clipboard)
-        self._timer.start(POLL_INTERVAL)
+        self._clipboard = QApplication.clipboard()
+        self._clipboard.dataChanged.connect(self._on_clipboard_changed)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -122,18 +126,26 @@ class _ClipboardPanel(QWidget):
         self._list.currentItemChanged.connect(self._on_selection_changed)
         self._refresh_list()
 
-    # ── Polling appunti ───────────────────────────────────────────────────────
+    # ── Notifiche appunti ─────────────────────────────────────────────────────
 
-    def _poll_clipboard(self) -> None:
-        """Controlla se il contenuto degli appunti è cambiato."""
-        cb = QApplication.clipboard()
-        text = cb.text()
+    def _on_clipboard_changed(self) -> None:
+        """Acquisisce il testo quando Qt notifica un reale cambiamento."""
+        mime = self._clipboard.mimeData()
+        if not mime or not mime.hasText():
+            return
+        text = mime.text()
         if text and text != self._last_text:
             self._last_text = text
             self._add_to_history(text)
 
     def _add_to_history(self, text: str) -> None:
         if not text.strip():
+            return
+        if len(text) > MAX_ITEM_BYTES:
+            return
+        if len(text.encode("utf-8")) > MAX_ITEM_BYTES:
+            return
+        if self._history and text == self._history[0]:
             return
         # Rimuovi duplicato se presente
         if text in self._history:
@@ -249,20 +261,25 @@ class _ClipboardPanel(QWidget):
     def _get_fernet(self) -> Fernet:
         """Carica o genera la chiave Fernet usando il keyring di sistema (come FTP/Git).
         Fallback su file .key se keyring non è disponibile."""
+        if self._fernet is not None:
+            return self._fernet
+
         _SERVICE = "NotePadPQ_Clipboard"
         _KEY_NAME = "fernet_key"
         try:
             import keyring
             raw = keyring.get_password(_SERVICE, _KEY_NAME)
             if raw:
-                return Fernet(raw.encode("ascii"))
+                self._fernet = Fernet(raw.encode("ascii"))
+                return self._fernet
             key = Fernet.generate_key()
             keyring.set_password(_SERVICE, _KEY_NAME, key.decode("ascii"))
             # Rimuovi il vecchio file .key se esiste
             kp = self._key_path()
             if kp.exists():
                 kp.unlink(missing_ok=True)
-            return Fernet(key)
+            self._fernet = Fernet(key)
+            return self._fernet
         except Exception:
             pass
         # Fallback: file .key su disco con permessi 0o600
@@ -271,12 +288,30 @@ class _ClipboardPanel(QWidget):
             key = kp.read_bytes()
         else:
             key = Fernet.generate_key()
-            kp.write_bytes(key)
-            try:
-                os.chmod(kp, 0o600)
-            except Exception:
-                pass
-        return Fernet(key)
+            self._atomic_write(kp, key, mode=0o600)
+        self._fernet = Fernet(key)
+        return self._fernet
+
+    @staticmethod
+    def _atomic_write(path: Path, data: bytes, mode: int | None = None) -> None:
+        """Scrive e sostituisce il file senza lasciare contenuti parziali."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_name = ""
+        try:
+            with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as tmp:
+                tmp_name = tmp.name
+                tmp.write(data)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            if mode is not None:
+                os.chmod(tmp_name, mode)
+            os.replace(tmp_name, path)
+        finally:
+            if tmp_name:
+                try:
+                    os.unlink(tmp_name)
+                except FileNotFoundError:
+                    pass
 
     def _load_history(self) -> None:
         try:
@@ -286,27 +321,40 @@ class _ClipboardPanel(QWidget):
             if legacy.exists() and not p.exists():
                 self._history = json.loads(legacy.read_text(encoding="utf-8"))
                 self._last_text = self._history[0] if self._history else ""
-                self._save_history()   # riscrive cifrato
+                self._write_history()   # riscrive cifrato prima di rimuovere l'originale
                 legacy.unlink(missing_ok=True)
                 return
             if p.exists():
                 fernet = self._get_fernet()
                 decrypted = fernet.decrypt(p.read_bytes())
                 self._history = json.loads(decrypted.decode("utf-8"))
+                self._history = [text for text in self._history[:MAX_HISTORY]
+                                 if isinstance(text, str)
+                                 and len(text) <= MAX_ITEM_BYTES
+                                 and len(text.encode("utf-8")) <= MAX_ITEM_BYTES]
                 self._last_text = self._history[0] if self._history else ""
         except Exception:
             self._history = []
 
     def _save_history(self) -> None:
+        self._save_timer.start()
+
+    def _write_history(self) -> None:
         try:
             fernet = self._get_fernet()
             data = json.dumps(self._history[:MAX_HISTORY], ensure_ascii=False).encode("utf-8")
-            self._history_path().write_bytes(fernet.encrypt(data))
+            self._atomic_write(self._history_path(), fernet.encrypt(data), mode=0o600)
         except Exception:
             pass
 
     def stop(self) -> None:
-        self._timer.stop()
+        try:
+            self._clipboard.dataChanged.disconnect(self._on_clipboard_changed)
+        except (RuntimeError, TypeError):
+            pass
+        if self._save_timer.isActive():
+            self._save_timer.stop()
+            self._write_history()
 
 
 # ─── Plugin ───────────────────────────────────────────────────────────────────

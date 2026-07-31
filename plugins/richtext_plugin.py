@@ -44,6 +44,10 @@ class RichTextPlugin(BasePlugin):
 
     def on_load(self, main_window: "MainWindow") -> None:
         super().on_load(main_window)
+        self._unloading = False
+        self._jodit_download = None
+        self._jodit_callbacks = []
+        self._jodit_notify = False
 
         m = main_window._menus.get("plugins")
         if m is None:
@@ -103,7 +107,9 @@ class RichTextPlugin(BasePlugin):
 
     def open_document(self, path: Path) -> None:
         """Carica il file e apre un tab rich text. Chiamato da main_window.open_files."""
-        from ui.richtext_widget import RichTextWidget, WEBENGINE_OK, ensure_jodit
+        if getattr(self, "_unloading", False):
+            return
+        from ui.richtext_widget import RichTextWidget, WEBENGINE_OK
 
         if not WEBENGINE_OK:
             QMessageBox.warning(
@@ -122,24 +128,26 @@ class RichTextPlugin(BasePlugin):
 
         self._maybe_show_format_warning(path)
 
-        if not ensure_jodit(self._mw):
+        if not self._ensure_jodit_then(lambda: self.open_document(path)):
             return
 
         widget = RichTextWidget(path, parent=self._mw)
         widget.convert_to_text.connect(self._open_as_text)
+        widget.load_finished.connect(
+            lambda ok, w=widget: self._on_load_finished(w, ok)
+        )
 
         title = path.name
         self._mw._tab_manager.add_spreadsheet_tab(widget, title, path)
 
         if not widget.load_document(path):
-            # Se il caricamento fallisce, chiudi il tab
-            idx = self._mw._tab_manager.find_tab_by_path(path)
-            if idx is not None:
-                self._mw._tab_manager.close_tab(idx)
+            self._on_load_finished(widget, False)
 
     def new_document(self) -> None:
         """Apre un documento richtext vuoto."""
-        from ui.richtext_widget import RichTextWidget, WEBENGINE_OK, ensure_jodit
+        if getattr(self, "_unloading", False):
+            return
+        from ui.richtext_widget import RichTextWidget, WEBENGINE_OK
 
         if not WEBENGINE_OK:
             QMessageBox.warning(
@@ -150,7 +158,7 @@ class RichTextPlugin(BasePlugin):
             )
             return
 
-        if not ensure_jodit(self._mw):
+        if not self._ensure_jodit_then(self.new_document):
             return
 
         widget = RichTextWidget(None, parent=self._mw)
@@ -169,26 +177,89 @@ class RichTextPlugin(BasePlugin):
             self.open_document(Path(p))
 
     def _download_deps(self) -> None:
-        from ui.richtext_widget import _download_jodit, _JODIT_JS, _JODIT_CSS
+        from ui.richtext_widget import _JODIT_JS, _JODIT_CSS
         if _JODIT_JS.exists() and _JODIT_CSS.exists():
             QMessageBox.information(
                 self._mw, "NotePadPQ",
                 tr("plugin.richtext.deps_ok", default="Jodit è già disponibile.")
             )
             return
-        ok = _download_jodit(self._mw)
+        self._start_jodit_download(True)
+
+    def _ensure_jodit_then(self, callback) -> bool:
+        from ui.richtext_widget import _JODIT_JS, _JODIT_CSS
+        if _JODIT_JS.exists() and _JODIT_CSS.exists():
+            return True
+        self._start_jodit_download(False, callback)
+        return False
+
+    def _start_jodit_download(self, notify: bool, callback=None) -> None:
+        if getattr(self, "_unloading", False):
+            return
+        from ui.richtext_widget import download_jodit
+        if getattr(self, "_jodit_download", None) is not None:
+            if callback is not None:
+                self._jodit_callbacks.append(callback)
+            self._jodit_notify = self._jodit_notify or notify
+            return
+        self._jodit_callbacks = [callback] if callback is not None else []
+        self._jodit_notify = notify
+        controller = download_jodit(self._mw)
+        self._jodit_download = controller
+
+        def _finished(ok: bool) -> None:
+            self._jodit_download = None
+            callbacks = self._jodit_callbacks
+            self._jodit_callbacks = []
+            notify_done = self._jodit_notify
+            self._jodit_notify = False
+            if getattr(self, "_unloading", False):
+                return
+            if ok and notify_done:
+                QMessageBox.information(
+                    self._mw, "NotePadPQ",
+                    tr("plugin.richtext.deps_downloaded", default="Jodit scaricato con successo.")
+                )
+            if ok:
+                for pending_callback in callbacks:
+                    pending_callback()
+
+        controller.finished.connect(_finished)
+
+    def _on_load_finished(self, widget, ok: bool) -> None:
         if ok:
-            QMessageBox.information(
-                self._mw, "NotePadPQ",
-                tr("plugin.richtext.deps_downloaded", default="Jodit scaricato con successo.")
-            )
+            return
+        manager = self._mw._tab_manager
+        if hasattr(manager, "_panels"):
+            for panel in manager._panels():
+                idx = panel.tab_manager.indexOf(widget)
+                if idx >= 0:
+                    panel.tab_manager._close_tab_at(idx)
+                    return
+        elif hasattr(manager, "_close_tab_at"):
+            idx = manager.indexOf(widget)
+            if idx >= 0:
+                manager._close_tab_at(idx)
 
     def _open_as_text(self, content: str, suggested_name: str) -> None:
+        if getattr(self, "_unloading", False):
+            return
         ext = Path(suggested_name).suffix.lower()
         editor = self._mw._tab_manager.new_tab(template_ext=ext)
         editor.load_content(content)
 
     def on_unload(self) -> None:
+        self._unloading = True
+        self._jodit_callbacks = []
+        self._jodit_notify = False
+        controller = getattr(self, "_jodit_download", None)
+        self._jodit_download = None
+        if controller is not None:
+            try:
+                controller.finished.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            controller.cancel()
         if hasattr(self._mw, "_richtext_plugin"):
             del self._mw._richtext_plugin
         super().on_unload()

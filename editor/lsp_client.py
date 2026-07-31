@@ -108,16 +108,26 @@ class LSPWorker(QThread):
         self._proto     = LSPProtocol()
         self._running   = False
         self._send_lock = threading.Lock()
+        self._startup_lock = threading.Lock()
+        self._stop_requested = threading.Event()
+        self._shutdown_id: Optional[int] = None
+        self._exit_msg: Optional[dict] = None
 
     def run(self) -> None:
         try:
-            self._proc = subprocess.Popen(
-                self._cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-            self._running = True
+            with self._startup_lock:
+                if self._stop_requested.is_set():
+                    return
+                self._proc = subprocess.Popen(
+                    self._cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                )
+                if self._stop_requested.is_set():
+                    self._terminate_process(self._proc)
+                    return
+                self._running = True
 
             self._send(self._proto.request("initialize", {
                 "processId": None,
@@ -147,7 +157,7 @@ class LSPWorker(QThread):
             }, req_id=self._proto.next_id()))
 
             stdout = self._proc.stdout
-            while self._running and self._proc.poll() is None:
+            while not self._stop_requested.is_set() and self._proc.poll() is None:
                 # Read header byte-by-byte until \r\n\r\n
                 header_bytes = b""
                 while True:
@@ -182,6 +192,10 @@ class LSPWorker(QThread):
                 try:
                     msg = json.loads(body)
                     self.response_received.emit(msg)
+                    if msg.get("id") == self._shutdown_id and self._exit_msg:
+                        self._send(self._exit_msg)
+                        self._shutdown_id = None
+                        self._exit_msg = None
                 except Exception:
                     pass
 
@@ -203,12 +217,38 @@ class LSPWorker(QThread):
                 pass
 
     def stop(self) -> None:
-        self._running = False
-        if self._proc:
+        self._stop_requested.set()
+        with self._startup_lock:
+            self._running = False
+            proc = self._proc
+        self._terminate_process(proc)
+
+    def kill_process(self) -> None:
+        """Forza la chiusura dopo un terminate che non si è concluso."""
+        self._stop_requested.set()
+        with self._startup_lock:
+            self._running = False
+            proc = self._proc
+        if proc and proc.poll() is None:
             try:
-                self._proc.terminate()
+                proc.kill()
             except Exception:
                 pass
+
+    @staticmethod
+    def _terminate_process(proc: Optional[subprocess.Popen]) -> None:
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+    def shutdown(self, shutdown_msg: dict, exit_msg: dict) -> None:
+        """Invia shutdown; il reader invierà exit dopo la relativa risposta."""
+        with self._send_lock:
+            self._shutdown_id = shutdown_msg.get("id")
+            self._exit_msg = exit_msg
+            self._send(shutdown_msg)
 
 
 # ─── LSPClient — interfaccia pubblica ────────────────────────────────────────
@@ -226,6 +266,7 @@ class LSPClient(QObject):
     signature_ready   = pyqtSignal(str)             # label testo
 
     _instances: dict[str, "LSPClient"] = {}
+    _instances_lock = threading.Lock()
 
     def __init__(self, language: str, workspace: str):
         super().__init__()
@@ -235,18 +276,41 @@ class LSPClient(QObject):
         self._proto       = LSPProtocol()
         self._pending: dict[int, str] = {}
         self._initialized = False
-        self._open_files: set[str] = set()
+        # uri -> [numero tab, contenuto iniziale, language id]. Conservare le
+        # aperture prima di initialize evita di perdere didOpen sui server lenti.
+        self._open_files: dict[str, list] = {}
+        self._stopped = False
 
     @classmethod
     def get(cls, language: str, workspace: str = "") -> Optional["LSPClient"]:
         if not is_server_available(language):
             return None
         key = f"{language}:{workspace}"
-        if key not in cls._instances:
-            client = cls(language, workspace or str(Path.home()))
-            client._start()
-            cls._instances[key] = client
-        return cls._instances[key]
+        with cls._instances_lock:
+            if key not in cls._instances:
+                client = cls(language, workspace or str(Path.home()))
+                client._start()
+                cls._instances[key] = client
+            return cls._instances[key]
+
+    @classmethod
+    def shutdown_all(cls) -> None:
+        """Rimuove e arresta tutti i client; sicuro anche se chiamato più volte."""
+        with cls._instances_lock:
+            clients = list(cls._instances.values())
+            cls._instances.clear()
+        for client in clients:
+            client.stop()
+
+    def _release_if_unused(self) -> None:
+        if self._open_files:
+            return
+        cls = type(self)
+        with cls._instances_lock:
+            for key, client in list(cls._instances.items()):
+                if client is self:
+                    cls._instances.pop(key, None)
+        self.stop()
 
     def _start(self) -> None:
         cmd = LSP_SERVERS[self._language]["cmd"]
@@ -258,6 +322,8 @@ class LSPClient(QObject):
         self._worker.start()
 
     def _handle_response(self, msg: dict) -> None:
+        if self._stopped:
+            return
         method = msg.get("method", "")
         msg_id = msg.get("id")
 
@@ -314,20 +380,32 @@ class LSPClient(QObject):
                 label = sigs[0].get("label", "") if sigs else ""
                 self.signature_ready.emit(label)
 
+            elif req_type == "shutdown":
+                return
+
         elif msg_id == 1:
             self._initialized = True
             if self._worker:
                 self._worker.send(self._proto.notification("initialized", {}))
+                for uri, (_count, content, language_id) in self._open_files.items():
+                    self._send_did_open(uri, content, language_id)
 
     # ── API pubblica ──────────────────────────────────────────────────────────
 
     def open_file(self, path: Path, content: str, language_id: str) -> None:
-        if not self._initialized or not self._worker:
+        if self._stopped:
             return
         uri = path.as_uri()
         if uri in self._open_files:
+            self._open_files[uri][0] += 1
             return
-        self._open_files.add(uri)
+        self._open_files[uri] = [1, content, language_id]
+        if self._initialized and self._worker:
+            self._send_did_open(uri, content, language_id)
+
+    def _send_did_open(self, uri: str, content: str, language_id: str) -> None:
+        if not self._worker:
+            return
         self._worker.send(self._proto.notification("textDocument/didOpen", {
             "textDocument": {"uri": uri, "languageId": language_id, "version": 1, "text": content}
         }))
@@ -341,11 +419,19 @@ class LSPClient(QObject):
         }))
 
     def close_file(self, path: Path) -> None:
-        if not self._initialized or not self._worker:
-            return
         uri = path.as_uri()
-        self._open_files.discard(uri)
-        self._worker.send(self._proto.notification("textDocument/didClose", {"textDocument": {"uri": uri}}))
+        opened = self._open_files.get(uri)
+        if opened is None:
+            return
+        opened[0] -= 1
+        if opened[0] > 0:
+            return
+        self._open_files.pop(uri, None)
+        if self._initialized and self._worker:
+            self._worker.send(self._proto.notification(
+                "textDocument/didClose", {"textDocument": {"uri": uri}}
+            ))
+        self._release_if_unused()
 
     def request_completions(self, path: Path, line: int, col: int) -> None:
         if not self._initialized or not self._worker:
@@ -420,6 +506,24 @@ class LSPClient(QObject):
         }, req_id=req_id))
 
     def stop(self) -> None:
-        if self._worker:
-            self._worker.stop()
-            self._worker.wait(2000)
+        if self._stopped:
+            return
+        self._stopped = True
+        worker = self._worker
+        was_initialized = self._initialized
+        self._worker = None
+        self._initialized = False
+        self._open_files.clear()
+        self._pending.clear()
+        if worker:
+            if was_initialized and worker.isRunning():
+                req_id = self._proto.next_id()
+                worker.shutdown(
+                    self._proto.request("shutdown", {}, req_id=req_id),
+                    self._proto.notification("exit", {}),
+                )
+                worker.wait(1000)
+            worker.stop()
+            if not worker.wait(2000):
+                worker.kill_process()
+                worker.wait()

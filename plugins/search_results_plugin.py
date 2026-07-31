@@ -23,10 +23,13 @@ from __future__ import annotations
 
 import os
 import re
+import stat
+import tempfile
+import threading
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
 from PyQt6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QTreeWidget, QTreeWidgetItem, QPushButton, QLabel,
@@ -45,8 +48,27 @@ if TYPE_CHECKING:
 # ─── Costanti ─────────────────────────────────────────────────────────────────
 
 _MAX_HISTORY = 20
+_FILE_SEARCH_BATCH_SIZE = 100
+_FILE_SEARCH_RESULT_LIMIT = 10_000
+_FILE_REPLACE_MAX_BYTES = 8 * 1024 * 1024
 _INDICATOR_MARK1  = 1  # INDICATOR_MARK1 da editor_widget.py — tutti i match (giallo)
 _INDICATOR_FILTER = 2  # INDICATOR_MARK2 da editor_widget.py — match filtrati (verde)
+
+_ORPHANED_WORKERS: set[QThread] = set()
+
+
+def _adopt_running_worker(worker: QThread) -> None:
+    """Mantiene vivo un worker disconnesso finche termina dopo uno shutdown."""
+    _ORPHANED_WORKERS.add(worker)
+    worker.finished.connect(lambda w=worker: _ORPHANED_WORKERS.discard(w))
+    if not worker.isRunning():
+        _ORPHANED_WORKERS.discard(worker)
+
+
+def _merge_search_results(existing: list[dict], results: list[dict],
+                          append: bool, search_id: int) -> list[dict]:
+    tagged = [dict(result, _search_id=search_id) for result in results]
+    return [*existing, *tagged] if append else tagged
 
 
 # ─── Helper traduzioni e tema ─────────────────────────────────────────────────
@@ -141,6 +163,193 @@ def _tree_stylesheet(c: dict) -> str:
     """
 
 
+class _FileSearchWorker(QThread):
+    """Enumera e cerca nei file senza accedere a oggetti Qt della UI."""
+
+    batch_ready = pyqtSignal(list)
+    progress = pyqtSignal(int)
+    completed = pyqtSignal(dict)
+
+    def __init__(self, base: Path, glob_str: str, recursive: bool,
+                 include_hidden: bool, pattern_data: tuple,
+                 result_limit: int = _FILE_SEARCH_RESULT_LIMIT):
+        super().__init__()
+        self._base = base
+        self._glob_str = glob_str
+        self._recursive = recursive
+        self._include_hidden = include_hidden
+        self._pattern_data = pattern_data
+        self._result_limit = result_limit
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def run(self) -> None:
+        must_pats, must_not_pats, smart_mode = self._pattern_data
+        batch = []
+        files_scanned = 0
+        total = 0
+        limited = False
+        error = ""
+        try:
+            if self._base.is_file():
+                candidates = iter((self._base,))
+            elif self._recursive:
+                candidates = self._base.rglob(self._glob_str)
+            else:
+                candidates = self._base.glob(self._glob_str)
+
+            for path in candidates:
+                if self._cancelled.is_set():
+                    break
+                try:
+                    if (not path.is_file() or
+                            (not self._include_hidden and
+                             _is_hidden_relative(path, self._base))):
+                        continue
+                except OSError:
+                    continue
+
+                files_scanned += 1
+                try:
+                    with path.open("r", encoding="utf-8", errors="replace") as handle:
+                        for line_idx, raw_line in enumerate(handle):
+                            if self._cancelled.is_set():
+                                break
+                            line_text = raw_line.rstrip("\r\n")
+                            if smart_mode:
+                                if not all(p.search(line_text) for p in must_pats):
+                                    continue
+                                if any(p.search(line_text) for p in must_not_pats):
+                                    continue
+                                first = must_pats[0].search(line_text) if must_pats else None
+                                matches = (first.start() if first else 0,)
+                            else:
+                                matches = (m.start() for m in must_pats[0].finditer(line_text))
+
+                            for col in matches:
+                                batch.append({
+                                    "file": str(path),
+                                    "line": line_idx,
+                                    "text": line_text,
+                                    "col": col,
+                                })
+                                total += 1
+                                if len(batch) >= _FILE_SEARCH_BATCH_SIZE:
+                                    self.batch_ready.emit(batch)
+                                    batch = []
+                                if total >= self._result_limit:
+                                    limited = True
+                                    break
+                            if limited:
+                                break
+                except (OSError, UnicodeError):
+                    pass
+
+                if files_scanned % 25 == 0:
+                    self.progress.emit(files_scanned)
+                if limited:
+                    break
+        except (OSError, ValueError) as exc:
+            error = str(exc)
+        finally:
+            if batch:
+                self.batch_ready.emit(batch)
+            self.completed.emit({
+                "cancelled": self._cancelled.is_set(),
+                "error": error,
+                "files": files_scanned,
+                "limited": limited,
+                "results": total,
+            })
+
+
+class _FileReplaceWorker(QThread):
+    """Sostituisce su disco con scritture atomiche e cancellazione tra file."""
+
+    progress = pyqtSignal(int, int)
+    completed = pyqtSignal(dict)
+
+    def __init__(self, files: list[str], pattern: re.Pattern, replacement: str):
+        super().__init__()
+        self._files = files
+        self._pattern = pattern
+        self._replacement = replacement
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def run(self) -> None:
+        total_count = 0
+        changed_files = []
+        errors = []
+        for index, file_path in enumerate(self._files, 1):
+            if self._cancelled.is_set():
+                break
+            path = Path(file_path)
+            temp_name = None
+            try:
+                if path.is_symlink() or not path.is_file():
+                    raise OSError("not a regular file")
+                before = path.stat()
+                if before.st_size > _FILE_REPLACE_MAX_BYTES:
+                    raise OSError(
+                        f"file exceeds safe replace limit ({_FILE_REPLACE_MAX_BYTES} bytes)")
+                with path.open("r", encoding="utf-8", errors="strict", newline="") as handle:
+                    content = handle.read()
+                if self._cancelled.is_set():
+                    break
+                new_content, count = self._pattern.subn(self._replacement, content)
+                if count:
+                    if self._cancelled.is_set():
+                        break
+                    current = path.stat()
+                    if (current.st_mtime_ns != before.st_mtime_ns or
+                            current.st_size != before.st_size or
+                            current.st_ino != before.st_ino):
+                        raise OSError("file changed while replacement was running")
+                    with tempfile.NamedTemporaryFile(
+                            "w", encoding="utf-8", newline="", dir=path.parent,
+                            prefix=f".{path.name}.", suffix=".tmp", delete=False) as handle:
+                        temp_name = handle.name
+                        handle.write(new_content)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    if self._cancelled.is_set():
+                        break
+                    os.chmod(temp_name, stat.S_IMODE(before.st_mode))
+                    current = path.stat()
+                    if (current.st_mtime_ns != before.st_mtime_ns or
+                            current.st_size != before.st_size or
+                            current.st_ino != before.st_ino):
+                        raise OSError("file changed before replacement could be saved")
+                    if self._cancelled.is_set():
+                        break
+                    os.replace(temp_name, path)
+                    temp_name = None
+                    total_count += count
+                    changed_files.append(file_path)
+            except (OSError, UnicodeError, re.error) as exc:
+                errors.append(f"{file_path}: {exc}")
+            finally:
+                if temp_name:
+                    try:
+                        os.unlink(temp_name)
+                    except OSError:
+                        pass
+            self.progress.emit(index, len(self._files))
+
+        self.completed.emit({
+            "cancelled": self._cancelled.is_set(),
+            "count": total_count,
+            "changed_files": changed_files,
+            "errors": errors,
+            "files": len(self._files),
+        })
+
+
 # ─── Pannello risultati ───────────────────────────────────────────────────────
 
 class _SearchResultsPanel(QWidget):
@@ -154,6 +363,15 @@ class _SearchResultsPanel(QWidget):
         self._current_query: str = ""
         self._search_history: list[str] = []
         self._colors = _theme_colors()
+        self._file_search_worker: Optional[_FileSearchWorker] = None
+        self._file_replace_worker: Optional[_FileReplaceWorker] = None
+        self._file_search_root: Optional[QTreeWidgetItem] = None
+        self._file_search_items: dict[str, QTreeWidgetItem] = {}
+        self._file_search_generation = 0
+        self._file_search_result_id = 0
+        self._result_generation = 0
+        self._current_result_id = 0
+        self._shutting_down = False
         self._debounce_timer = QTimer(self)
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.setInterval(300)
@@ -339,11 +557,11 @@ class _SearchResultsPanel(QWidget):
         self._chk_files_hidden.setFixedHeight(22)
         ff2.addWidget(self._chk_files_hidden)
 
-        btn_search_files = QPushButton(_t("btn_search_files"))
-        btn_search_files.setFixedHeight(22)
-        btn_search_files.setToolTip(_t("btn_search_files_tooltip"))
-        btn_search_files.clicked.connect(self._do_search_in_files)
-        ff2.addWidget(btn_search_files)
+        self._btn_search_files = QPushButton(_t("btn_search_files"))
+        self._btn_search_files.setFixedHeight(22)
+        self._btn_search_files.setToolTip(_t("btn_search_files_tooltip"))
+        self._btn_search_files.clicked.connect(self._do_search_in_files)
+        ff2.addWidget(self._btn_search_files)
 
         ff2.addStretch(1)
         vl.addLayout(ff2)
@@ -528,11 +746,17 @@ class _SearchResultsPanel(QWidget):
                 self._lbl_summary.setText(_t("msg_no_results_doc", query=query))
             return
         self._current_query = query
-        self._all_results = list(results)
+        self._result_generation += 1
+        self._current_result_id = self._result_generation
+        tagged_results = _merge_search_results(
+            [], results, False, self._current_result_id)
+        self._all_results = _merge_search_results(
+            self._all_results, results, self._chk_append.isChecked(),
+            self._current_result_id)
         self._add_to_history(query)
 
         by_file: dict[str, list] = {}
-        for r in results:
+        for r in tagged_results:
             by_file.setdefault(r["file"], []).append(r)
 
         total = len(results)
@@ -553,6 +777,7 @@ class _SearchResultsPanel(QWidget):
             "case": self._chk_case.isChecked() if hasattr(self, '_chk_case') else False,
             "whole_word": self._chk_whole_word.isChecked() if hasattr(self, '_chk_whole_word') else False,
             "is_file_search": color == "files_header",
+            "search_id": self._current_result_id,
         })
 
         for file_path, file_results in by_file.items():
@@ -626,7 +851,7 @@ class _SearchResultsPanel(QWidget):
             return
         row_matcher  = self._build_filter_matcher()
         span_finder  = self._build_filter_span_finder()
-        for r in self._all_results:
+        for r in self._current_results():
             if r["file"] != file_path:
                 continue
             line = r["line"]
@@ -707,6 +932,8 @@ class _SearchResultsPanel(QWidget):
     def _restore_search_params(self, params: dict) -> None:
         """Ripristina i campi di ricerca con i parametri di una ricerca precedente."""
         self._search_edit.setText(params.get("query", ""))
+        self._current_query = params.get("query", "")
+        self._current_result_id = params.get("search_id", self._current_result_id)
         mode = params.get("mode", "text")
         idx = self._search_mode.findData(mode)
         if idx >= 0:
@@ -898,6 +1125,14 @@ class _SearchResultsPanel(QWidget):
 
     def clear_all(self) -> None:
         """Cancella tutti i risultati e le evidenziazioni."""
+        if self._file_search_worker and self._file_search_worker.isRunning():
+            self._file_search_worker.cancel()
+        if self._file_replace_worker and self._file_replace_worker.isRunning():
+            self._file_replace_worker.cancel()
+        self._file_search_generation += 1
+        self._file_search_root = None
+        self._file_search_items.clear()
+        self._btn_search_files.setText(_t("btn_search_files"))
         editor = self._mw._current_editor()
         if editor is not None:
             self._clear_indicator(editor, _INDICATOR_MARK1)
@@ -943,6 +1178,12 @@ class _SearchResultsPanel(QWidget):
 
     def _do_search_in_doc(self) -> None:
         """Cerca nel documento/editor attivo."""
+        if self._file_search_worker and self._file_search_worker.isRunning():
+            self._file_search_worker.cancel()
+            self._file_search_generation += 1
+            self._file_search_root = None
+            self._file_search_items.clear()
+            self._btn_search_files.setText(_t("btn_search_files"))
         query = self._search_edit.text()
         if not query:
             return
@@ -1007,7 +1248,12 @@ class _SearchResultsPanel(QWidget):
             self._files_path_edit.setText(path)
 
     def _do_search_in_files(self) -> None:
-        """Cerca in tutti i file che matchano il glob nella directory indicata."""
+        """Avvia, oppure annulla, la ricerca asincrona nei file."""
+        if self._file_search_worker and self._file_search_worker.isRunning():
+            self._file_search_worker.cancel()
+            self._lbl_summary.setText(tr("action.cancel") + "…")
+            return
+
         base_path = self._files_path_edit.text().strip()
         if not base_path:
             QMessageBox.information(self, _t("btn_search_files"), _t("msg_no_path"))
@@ -1027,76 +1273,134 @@ class _SearchResultsPanel(QWidget):
         pattern_data = self._compile_full_pattern()
         if pattern_data is None:
             return
-        must_pats, must_not_pats, smart_mode = pattern_data
-
-        # Raccogli i file
-        if recursive:
-            candidates = list(base.rglob(glob_str))
-        else:
-            candidates = list(base.glob(glob_str))
-
-        # Filtra: solo file regolari, escludi hidden se non richiesti
-        files_to_search = []
-        for f in candidates:
-            if not f.is_file():
-                continue
-            if not include_hidden and _is_hidden_relative(f, base):
-                continue
-            files_to_search.append(f)
-
-        if not files_to_search:
-            self._lbl_summary.setText(
-                _t("msg_no_files_matched", path=str(base), glob=glob_str))
-            return
-
-        # Esegui la ricerca
         if not self._chk_append.isChecked():
             self._tree.clear()
             self._all_results.clear()
+        self._result_generation += 1
+        self._current_result_id = self._result_generation
+        self._file_search_result_id = self._current_result_id
+        self._file_search_items.clear()
+        self._file_search_root = QTreeWidgetItem(self._tree)
+        self._file_search_root.setForeground(
+            0, QBrush(QColor(self._colors["files_header"])))
+        self._file_search_root.setData(0, Qt.ItemDataRole.UserRole, {
+            "_is_search_header": True,
+            "query": query,
+            "mode": self._search_mode.currentData(),
+            "case": self._chk_case.isChecked(),
+            "whole_word": self._chk_whole_word.isChecked(),
+            "is_file_search": True,
+            "file_path": str(base),
+            "search_id": self._current_result_id,
+        })
+        self._file_search_root.setExpanded(True)
+        self._update_file_search_root()
+        self._add_to_history(query)
+        self._btn_search_files.setText(tr("action.cancel"))
+        self._btn_replace_all_files.setEnabled(False)
+        self._lbl_summary.setText(_t("msg_searching_files", count=0))
 
-        self._lbl_summary.setText(_t("msg_searching_files", count=len(files_to_search)))
-        QApplication.processEvents()
+        worker = _FileSearchWorker(
+            base, glob_str, recursive, include_hidden, pattern_data)
+        self._file_search_worker = worker
+        self._file_search_generation += 1
+        generation = self._file_search_generation
+        worker.batch_ready.connect(
+            lambda batch, gen=generation: self._append_file_search_batch(batch, gen))
+        worker.progress.connect(
+            lambda count, gen=generation: self._file_search_progress(count, gen))
+        worker.completed.connect(
+            lambda status, b=base, g=glob_str, gen=generation:
+                self._file_search_completed(status, query, b, g, gen))
+        worker.finished.connect(lambda w=worker: self._file_search_thread_finished(w))
+        worker.start()
 
-        all_results = []
-        for f in files_to_search:
-            try:
-                content = f.read_text(encoding="utf-8", errors="replace")
-            except (OSError, UnicodeDecodeError):
-                continue
-            lines = content.split("\n")
-            for line_idx, line_text in enumerate(lines):
-                if smart_mode:
-                    if not all(p.search(line_text) for p in must_pats):
-                        continue
-                    if any(p.search(line_text) for p in must_not_pats):
-                        continue
-                    first_match = must_pats[0].search(line_text) if must_pats else None
-                    col = first_match.start() if first_match else 0
-                else:
-                    for m in must_pats[0].finditer(line_text):
-                        all_results.append({
-                            "file": str(f),
-                            "line": line_idx,
-                            "text": line_text,
-                            "col": m.start(),
-                        })
-                    continue
-                all_results.append({
-                    "file": str(f),
-                    "line": line_idx,
-                    "text": line_text,
-                    "col": col,
-                })
-            QApplication.processEvents()
+    def _update_file_search_root(self) -> None:
+        if self._file_search_root is None:
+            return
+        total = sum(1 for result in self._all_results
+                    if result.get("_search_id") == self._file_search_result_id)
+        params = self._file_search_root.data(0, Qt.ItemDataRole.UserRole) or {}
+        self._file_search_root.setText(
+            0, _t("root_label", query=params.get("query", self._current_query), total=total,
+                  n_files=len(self._file_search_items)))
 
-        if not all_results:
+    def _append_file_search_batch(self, batch: list[dict], generation: int) -> None:
+        """Inserisce un batch nel tree; viene eseguito nel thread UI."""
+        if generation != self._file_search_generation:
+            return
+        root = self._file_search_root
+        if root is None:
+            return
+        tagged_batch = _merge_search_results(
+            [], batch, False, self._file_search_result_id)
+        self._all_results = _merge_search_results(
+            self._all_results, batch, True, self._file_search_result_id)
+        for result in tagged_batch:
+            file_path = result["file"]
+            file_item = self._file_search_items.get(file_path)
+            if file_item is None:
+                file_item = QTreeWidgetItem(root)
+                file_item.setText(1, file_path)
+                file_item.setForeground(0, QBrush(QColor(self._colors["file"])))
+                file_item.setToolTip(1, file_path)
+                file_item.setExpanded(True)
+                self._file_search_items[file_path] = file_item
+            item = QTreeWidgetItem(file_item)
+            line_no = result["line"] + 1
+            col = result.get("col", 0)
+            item.setText(0, _t("row_label", line=line_no, col=col + 1))
+            item.setText(1, result["text"].rstrip())
+            item.setFont(1, self._mono)
+            item.setData(0, Qt.ItemDataRole.UserRole,
+                         (file_path, result["line"], col))
+            file_item.setText(0, _t(
+                "file_label", fname=os.path.basename(file_path),
+                count=file_item.childCount()))
+        self._update_file_search_root()
+
+    def _file_search_progress(self, count: int, generation: int) -> None:
+        if generation == self._file_search_generation:
+            self._lbl_summary.setText(_t("msg_searching_files", count=count))
+
+    def _file_search_completed(self, status: dict, query: str,
+                               base: Path, glob_str: str,
+                               generation: int) -> None:
+        if generation != self._file_search_generation:
+            return
+        self._btn_search_files.setText(_t("btn_search_files"))
+        self._btn_replace_all_files.setEnabled(True)
+        if status["files"] == 0 and not status["cancelled"]:
+            self._lbl_summary.setText(
+                _t("msg_no_files_matched", path=str(base), glob=glob_str))
+        else:
+            search_results = [
+                result for result in self._all_results
+                if result.get("_search_id") == self._file_search_result_id
+            ]
+        if status["files"] != 0 and not search_results:
             self._lbl_summary.setText(
                 _t("msg_no_results_files", query=query, path=str(base)))
-            self._update_replace_buttons_visibility()
-            return
+        elif status["files"] != 0:
+            total = len(search_results)
+            count_text = tr(
+                "msg.results_count_files", matches=total,
+                files=len(self._file_search_items))
+            summary = f'🔍 "{query}" — {total} {count_text}'
+            if status["limited"]:
+                summary += f" (limit: {_FILE_SEARCH_RESULT_LIMIT})"
+            elif status["cancelled"]:
+                summary += f" ({tr('action.cancel')})"
+            self._lbl_summary.setText(summary)
+        if status["error"]:
+            self._lbl_summary.setToolTip(status["error"])
+        self._apply_filter(self._filter_edit.text())
+        self._update_replace_buttons_visibility()
 
-        self._current_query = query
-        self.add_results(query, all_results, color="files_header")
+    def _file_search_thread_finished(self, worker: _FileSearchWorker) -> None:
+        if self._file_search_worker is worker:
+            self._file_search_worker = None
+        worker.deleteLater()
 
     # ── Filtro ────────────────────────────────────────────────────────────────
 
@@ -1250,11 +1554,21 @@ class _SearchResultsPanel(QWidget):
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if not isinstance(data, tuple):
             return None
+        root = item
+        while root.parent() is not None:
+            root = root.parent()
+        params = root.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(params, dict) and params.get("_is_search_header"):
+            self._restore_search_params(params)
         return data
+
+    def _current_results(self) -> list[dict]:
+        return [result for result in self._all_results
+                if result.get("_search_id") == self._current_result_id]
 
     def _has_multiple_files(self) -> bool:
         """Verifica se i risultati correnti coprono più file."""
-        files = set(r["file"] for r in self._all_results)
+        files = set(r["file"] for r in self._current_results())
         return len(files) > 1
 
     def _update_replace_buttons_visibility(self) -> None:
@@ -1323,7 +1637,8 @@ class _SearchResultsPanel(QWidget):
 
         # Conta le occorrenze nel file corrente
         editor_file = str(editor.file_path) if editor.file_path else ""
-        count_in_file = sum(1 for r in self._all_results if r["file"] == editor_file)
+        count_in_file = sum(1 for r in self._current_results()
+                            if r["file"] == editor_file)
         if count_in_file == 0:
             QMessageBox.information(self, _t("btn_replace_all"),
                                     _t("msg_no_results_for_file"))
@@ -1365,7 +1680,11 @@ class _SearchResultsPanel(QWidget):
         self._do_search_in_doc()
 
     def _replace_all_in_files(self) -> None:
-        """Sostituisce tutte le occorrenze in TUTTI i file dei risultati."""
+        """Avvia, oppure annulla, la sostituzione asincrona nei file."""
+        if self._file_replace_worker and self._file_replace_worker.isRunning():
+            self._file_replace_worker.cancel()
+            self._lbl_summary.setText(tr("action.cancel") + "…")
+            return
         if not self._has_multiple_files():
             QMessageBox.information(self, _t("btn_replace_all_files"),
                                     _t("msg_multiple_files_needed"))
@@ -1377,7 +1696,8 @@ class _SearchResultsPanel(QWidget):
             return
         replace_text = self._replace_edit.text()
 
-        unique_files = list(dict.fromkeys(r["file"] for r in self._all_results))
+        unique_files = list(dict.fromkeys(
+            r["file"] for r in self._current_results()))
         answer = QMessageBox.question(
             self,
             _t("msg_replace_files_confirm_title"),
@@ -1394,40 +1714,62 @@ class _SearchResultsPanel(QWidget):
         mode = self._search_mode.currentData()
         repl = replace_text if mode == "regex" else replace_text.replace("\\", "\\\\")
 
-        total_count = 0
-        for file_path_str in unique_files:
-            fpath = Path(file_path_str)
-            if not fpath.is_file():
-                continue
-            try:
-                content = fpath.read_text(encoding="utf-8", errors="replace")
-            except (OSError, UnicodeDecodeError):
-                continue
-            try:
-                new_content, cnt = pat.subn(repl, content)
-            except re.error:
-                continue
-            if cnt > 0:
-                total_count += cnt
-                try:
-                    fpath.write_text(new_content, encoding="utf-8")
-                except OSError:
-                    pass
-            QApplication.processEvents()
+        self._btn_replace_all_files.setText(tr("action.cancel"))
+        self._btn_search_files.setEnabled(False)
+        worker = _FileReplaceWorker(unique_files, pat, repl)
+        self._file_replace_worker = worker
+        worker.progress.connect(
+            lambda done, total: self._lbl_summary.setText(f"{done}/{total}"))
+        worker.completed.connect(self._file_replace_completed)
+        worker.finished.connect(lambda w=worker: self._file_replace_thread_finished(w))
+        worker.start()
 
-        # Apri il primo file per mostrare il risultato
-        if unique_files:
-            self._mw.open_files([Path(unique_files[0])])
-
-        QMessageBox.information(
-            self, _t("btn_replace_all_files"),
-            _t("msg_replaced_n_files", count=total_count, n_files=len(unique_files)))
-
-        # Ricerca per aggiornare l'albero
+    def _file_replace_completed(self, status: dict) -> None:
+        if self._shutting_down:
+            return
+        self._btn_replace_all_files.setText(_t("btn_replace_all_files"))
+        self._btn_search_files.setEnabled(True)
+        changed = status["changed_files"]
+        message = _t(
+            "msg_replaced_n_files", count=status["count"], n_files=len(changed))
+        if status["cancelled"]:
+            message += f"\n{tr('action.cancel')}."
+        if status["errors"]:
+            shown = status["errors"][:10]
+            message += "\n\n" + "\n".join(shown)
+            if len(status["errors"]) > len(shown):
+                message += f"\n… +{len(status['errors']) - len(shown)}"
+        QMessageBox.information(self, _t("btn_replace_all_files"), message)
+        if changed:
+            self._mw.open_files([Path(changed[0])])
         if not self._chk_append.isChecked():
             self._tree.clear()
             self._all_results.clear()
-        self._do_search_in_doc()
+            self._file_search_root = None
+            self._file_search_items.clear()
+        self._update_replace_buttons_visibility()
+
+    def _file_replace_thread_finished(self, worker: _FileReplaceWorker) -> None:
+        if self._file_replace_worker is worker:
+            self._file_replace_worker = None
+        worker.deleteLater()
+
+    def shutdown(self) -> None:
+        """Richiede l'arresto dei worker prima di distruggere il pannello."""
+        self._shutting_down = True
+        self._file_search_generation += 1
+        workers = (self._file_search_worker, self._file_replace_worker)
+        for worker in workers:
+            if worker:
+                if worker.isRunning():
+                    worker.cancel()
+                worker.disconnect()
+        for worker in workers:
+            if worker and worker.isRunning():
+                if not worker.wait(2000):
+                    _adopt_running_worker(worker)
+        self._file_search_worker = None
+        self._file_replace_worker = None
 
     # ── Context menu ──────────────────────────────────────────────────────────
 
@@ -1598,6 +1940,7 @@ class SearchResultsPlugin(BasePlugin):
     def on_unload(self) -> None:
         main_window = self._mw
         if hasattr(self, "_dock"):
+            self._panel.shutdown()
             self._dock.hide()
             main_window.removeDockWidget(self._dock)
             self._dock.deleteLater()

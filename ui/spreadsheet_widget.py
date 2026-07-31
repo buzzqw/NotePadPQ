@@ -7,10 +7,10 @@ from __future__ import annotations
 import csv
 import re as _re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from PyQt6.QtCore import (
-    Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QTimer,
+    Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QThread, QTimer,
     pyqtSignal,
 )
 from PyQt6.QtGui import QFont
@@ -424,7 +424,8 @@ class ImportWizardDialog(QDialog):
     def _detect_encoding(self) -> None:
         try:
             import chardet
-            raw = self._path.read_bytes()
+            with open(self._path, "rb") as f:
+                raw = f.read(1024 * 1024)
             detected = chardet.detect(raw)
             self._encoding = detected.get("encoding") or "utf-8"
         except (ImportError, Exception):
@@ -647,10 +648,11 @@ class _FilterProxy(QSortFilterProxyModel):
 class SpreadsheetModel(QAbstractTableModel):
     modified_changed = pyqtSignal(bool)
 
-    def __init__(self, headers: list[str], data: list[list[str]], parent=None):
+    def __init__(self, headers: list[str], data: list[list[str]], parent=None,
+                 take_ownership: bool = False):
         super().__init__(parent)
-        self._headers: list[str] = headers[:]
-        self._data: list[list[str]] = [row[:] for row in data]
+        self._headers: list[str] = headers if take_ownership else headers[:]
+        self._data: list[list[str]] = data if take_ownership else [row[:] for row in data]
         self._modified = False
         self._sort_keys: list[tuple[int, Qt.SortOrder]] = []
         self._engine: Optional[FormulaEngine] = None
@@ -847,6 +849,140 @@ class SpreadsheetModel(QAbstractTableModel):
 
 class SpreadsheetIO:
     EXTENSIONS = frozenset({".csv", ".tsv", ".xlsx", ".xlsm", ".xls", ".ods"})
+    LARGE_DATASET_CELLS = 500_000
+    OPEN_CELL_LIMIT = 500_000
+
+    @staticmethod
+    def _large_dataset_warning(headers: list[str], data: list[list[str]]) -> Optional[str]:
+        cells = len(headers) * (len(data) + 1)
+        if cells < SpreadsheetIO.LARGE_DATASET_CELLS:
+            return None
+        return (
+            f"Dataset molto grande: {len(data):,} righe x {len(headers):,} colonne "
+            f"({cells:,} celle). Il foglio usa un modello in memoria: filtri, "
+            "ordinamento e modifiche possono richiedere tempo e molta RAM."
+        )
+
+    @staticmethod
+    def _bounded_table(
+            rows: Iterable[list[str]], first_row_header: bool,
+            should_cancel: Optional[Callable[[], bool]] = None,
+            ) -> tuple[list[str], list[list[str]], bool]:
+        """Materializza al massimo OPEN_CELL_LIMIT celle durante la lettura."""
+        iterator = iter(rows)
+        first = next(iterator, None)
+        if first is None or (should_cancel and should_cancel()):
+            return [], [], False
+
+        limit = max(1, SpreadsheetIO.OPEN_CELL_LIMIT)
+        first = first[:limit]
+        if first_row_header:
+            headers = first or [""]
+            width = len(headers)
+            data: list[list[str]] = []
+            max_rows = max(0, limit // width - 1)
+            truncated = False
+            for row in iterator:
+                if should_cancel and should_cancel():
+                    break
+                if len(data) >= max_rows:
+                    truncated = True
+                    break
+                data.append((row + [""] * width)[:width])
+            return headers, data, truncated
+
+        data = [first or [""]]
+        width = len(data[0])
+        truncated = False
+        for row in iterator:
+            if should_cancel and should_cancel():
+                break
+            new_width = min(limit, max(width, len(row), 1))
+            if (len(data) + 2) * new_width > limit:
+                truncated = True
+                break
+            width = new_width
+            data.append(row[:width])
+        headers = [f"Col{i + 1}" for i in range(width)]
+        data = [(row + [""] * width)[:width] for row in data]
+        return headers, data, truncated
+
+    @staticmethod
+    def _open_warning(headers: list[str], data: list[list[str]], truncated: bool) -> Optional[str]:
+        if truncated:
+            return (
+                f"File aperto parzialmente: caricate {len(data):,} righe e "
+                f"{len(headers):,} colonne (limite {SpreadsheetIO.OPEN_CELL_LIMIT:,} celle)."
+            )
+        return SpreadsheetIO._large_dataset_warning(headers, data)
+
+    @staticmethod
+    def load_for_open(path: Path, delimiter: str = ",", encoding: str = "utf-8-sig",
+                      first_row_header: bool = True, sheet: Optional[str] = None,
+                      defer_multi_sheet: bool = True,
+                      should_cancel: Optional[Callable[[], bool]] = None,
+                      ) -> tuple[list[str], list[list[str]], Optional[str], list[str], str]:
+        """Ispeziona e carica con una sola apertura quando non serve scegliere un foglio."""
+        ext = path.suffix.lower()
+        try:
+            if ext in (".xlsx", ".xlsm"):
+                try:
+                    import openpyxl
+                except ImportError:
+                    return [], [], "openpyxl non installato.  pip install openpyxl", [], ""
+                wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+                try:
+                    names = list(wb.sheetnames)
+                    if defer_multi_sheet and sheet is None and len(names) > 1:
+                        return [], [], None, names, ""
+                    ws = wb[sheet] if sheet and sheet in names else wb.active
+                    rows = (
+                        [str(value) if value is not None else "" for value in row]
+                        for row in ws.iter_rows(values_only=True)
+                    )
+                    headers, data, truncated = SpreadsheetIO._bounded_table(
+                        rows, True, should_cancel)
+                    return (headers, data, SpreadsheetIO._open_warning(
+                            headers, data, truncated), names, ws.title)
+                finally:
+                    wb.close()
+            if ext == ".xls":
+                try:
+                    import xlrd
+                except ImportError:
+                    return [], [], "xlrd non installato.  pip install xlrd", [], ""
+                wb = xlrd.open_workbook(str(path), on_demand=True)
+                try:
+                    names = wb.sheet_names()
+                    if defer_multi_sheet and sheet is None and len(names) > 1:
+                        return [], [], None, names, ""
+                    ws = wb.sheet_by_name(sheet) if sheet else wb.sheet_by_index(0)
+                    rows = (
+                        [str(ws.cell_value(row, col)) for col in range(ws.ncols)]
+                        for row in range(ws.nrows)
+                    )
+                    headers, data, truncated = SpreadsheetIO._bounded_table(
+                        rows, True, should_cancel)
+                    return (headers, data, SpreadsheetIO._open_warning(
+                            headers, data, truncated), names, ws.name)
+                finally:
+                    wb.release_resources()
+
+            if ext in (".csv", ".tsv"):
+                with open(path, "r", encoding=encoding, newline="", errors="replace") as f:
+                    rows = csv.reader(f, delimiter=delimiter)
+                    headers, data, truncated = SpreadsheetIO._bounded_table(
+                        rows, first_row_header, should_cancel)
+                return (headers, data, SpreadsheetIO._open_warning(
+                        headers, data, truncated), [], "")
+            if ext == ".ods":
+                headers, data, error, truncated = SpreadsheetIO._load_ods_for_open(
+                    path, should_cancel)
+                return (headers, data, error or SpreadsheetIO._open_warning(
+                        headers, data, truncated), [], "")
+            return [], [], f"Formato non supportato: {ext}", [], ""
+        except Exception as exc:
+            return [], [], str(exc), [], ""
 
     @staticmethod
     def get_sheet_names(path: Path) -> list[str]:
@@ -890,18 +1026,21 @@ class SpreadsheetIO:
                   first_row_header: bool) -> tuple[list[str], list[list[str]], Optional[str]]:
         with open(path, "r", encoding=encoding, newline="", errors="replace") as f:
             reader = csv.reader(f, delimiter=delimiter)
-            rows = list(reader)
-        if not rows:
-            return [], [], None
-        if first_row_header:
-            headers = rows[0]
-            data = rows[1:]
-        else:
-            n = max((len(r) for r in rows), default=1)
-            headers = [f"Col{i + 1}" for i in range(n)]
-            data = rows
-        n = len(headers)
-        data = [(row + [""] * n)[:n] for row in data]
+            first = next(reader, None)
+            if first is None:
+                return [], [], None
+            if first_row_header:
+                headers = first
+                width = len(headers)
+                data = [(row + [""] * width)[:width] for row in reader]
+            else:
+                data = [first]
+                width = len(first)
+                for row in reader:
+                    data.append(row)
+                    width = max(width, len(row))
+                headers = [f"Col{i + 1}" for i in range(width)]
+                data = [(row + [""] * width)[:width] for row in data]
         return headers, data, None
 
     @staticmethod
@@ -1001,6 +1140,32 @@ class SpreadsheetIO:
             return [], [], "odfpy non installato.  pip install odfpy"
 
     @staticmethod
+    def _load_ods_for_open(
+            path: Path, should_cancel: Optional[Callable[[], bool]] = None,
+            ) -> tuple[list[str], list[list[str]], Optional[str], bool]:
+        try:
+            from odf.opendocument import load as ods_load
+            from odf.table import Table, TableCell, TableRow
+            from odf.text import P
+        except ImportError:
+            return [], [], "odfpy non installato.  pip install odfpy", False
+        try:
+            doc = ods_load(str(path))
+            sheets = doc.spreadsheet.getElementsByType(Table)
+            if not sheets:
+                return [], [], "Nessun foglio trovato", False
+            rows = (
+                [str(ps[0]) if (ps := cell.getElementsByType(P)) else ""
+                 for cell in trow.getElementsByType(TableCell)]
+                for trow in sheets[0].getElementsByType(TableRow)
+            )
+            headers, data, truncated = SpreadsheetIO._bounded_table(
+                rows, True, should_cancel)
+            return headers, data, None, truncated
+        except Exception as exc:
+            return [], [], str(exc), False
+
+    @staticmethod
     def save(path: Path, headers: list[str], data: list[list[str]],
              delimiter: str = ",") -> Optional[str]:
         ext = path.suffix.lower()
@@ -1063,6 +1228,57 @@ class SpreadsheetIO:
                 tc.addElement(P(text=str(val)))
         doc.save(str(path))
         return None
+
+
+class SpreadsheetLoadWorker(QThread):
+    """Carica dati puri nel worker; nessun QObject/modello Qt viene creato qui."""
+
+    loaded = pyqtSignal(list, list, str, list, str)
+    _active_workers: set["SpreadsheetLoadWorker"] = set()
+    _shutdown_connected = False
+
+    def __init__(self, path: Path, delimiter: str = ",", encoding: str = "utf-8-sig",
+                 first_row_header: bool = True, sheet: Optional[str] = None,
+                 defer_multi_sheet: bool = True, parent=None):
+        super().__init__(parent)
+        self._path = path
+        self._delimiter = delimiter
+        self._encoding = encoding
+        self._first_row_header = first_row_header
+        self._sheet = sheet
+        self._defer_multi_sheet = defer_multi_sheet
+
+    def start(self, priority=QThread.Priority.InheritPriority) -> None:
+        if not self._shutdown_connected:
+            app = QApplication.instance()
+            if app is not None:
+                app.aboutToQuit.connect(self.shutdown_all)
+                type(self)._shutdown_connected = True
+        self._active_workers.add(self)
+        super().start(priority)
+
+    @classmethod
+    def shutdown_all(cls) -> None:
+        workers = list(cls._active_workers)
+        for worker in workers:
+            try:
+                worker.loaded.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            worker.requestInterruption()
+        for worker in workers:
+            worker.wait()
+            cls._active_workers.discard(worker)
+
+    def run(self) -> None:
+        try:
+            headers, data, message, names, current = SpreadsheetIO.load_for_open(
+                self._path, self._delimiter, self._encoding, self._first_row_header,
+                self._sheet, self._defer_multi_sheet, self.isInterruptionRequested)
+            if not self.isInterruptionRequested():
+                self.loaded.emit(headers, data, message or "", names, current)
+        finally:
+            self._active_workers.discard(self)
 
 
 # ─── ChartDialog ─────────────────────────────────────────────────────────────
@@ -1237,6 +1453,7 @@ class SpreadsheetWidget(QWidget):
                  read_only: bool = False, delimiter: str = ",",
                  encoding: str = "utf-8-sig", first_row_header: bool = True,
                  sheet_names: Optional[list[str]] = None, current_sheet: str = "",
+                 take_data_ownership: bool = False,
                  parent=None):
         super().__init__(parent)
         self.file_path = path
@@ -1253,7 +1470,9 @@ class SpreadsheetWidget(QWidget):
         self._sheet_names: list[str] = sheet_names or []
         self._current_sheet: str = current_sheet
 
-        self._model = SpreadsheetModel(headers, data)
+        self._closing = False
+        self._sheet_worker: Optional[SpreadsheetLoadWorker] = None
+        self._model = SpreadsheetModel(headers, data, take_ownership=take_data_ownership)
         self._model.modified_changed.connect(self._on_model_modified)
 
         self._proxy = _FilterProxy(self)
@@ -1861,17 +2080,45 @@ class SpreadsheetWidget(QWidget):
             )
 
     def _load_sheet(self, sheet_name: str) -> None:
-        if sheet_name == self._current_sheet:
+        if sheet_name == self._current_sheet or (
+                self._sheet_worker is not None and self._sheet_worker.isRunning()):
             return
-        headers, data, error = SpreadsheetIO.load(self.file_path, sheet=sheet_name)
-        if error and not headers:
-            QMessageBox.warning(self, "Errore caricamento foglio", error)
+        self._status.setText(f"Caricamento foglio «{sheet_name}»...")
+        if hasattr(self, "_sheet_buttons"):
+            for btn in self._sheet_buttons.values():
+                btn.setEnabled(False)
+        worker = SpreadsheetLoadWorker(
+            self.file_path, sheet=sheet_name, defer_multi_sheet=False)
+        self._sheet_worker = worker
+        worker.loaded.connect(
+            lambda headers, data, message, _names, current, w=worker:
+            self._on_sheet_loaded(w, sheet_name, headers, data, message, current),
+            type=Qt.ConnectionType.QueuedConnection)
+        worker.finished.connect(lambda w=worker: self._on_sheet_worker_finished(w))
+        worker.start()
+
+    def _on_sheet_worker_finished(self, worker: SpreadsheetLoadWorker) -> None:
+        if self._sheet_worker is worker:
+            self._sheet_worker = None
+        worker.deleteLater()
+
+    def _on_sheet_loaded(self, worker: SpreadsheetLoadWorker, requested_sheet: str,
+                         headers: list[str],
+                         data: list[list[str]], message: str, current: str) -> None:
+        if self._closing or self._sheet_worker is not worker or worker.isInterruptionRequested():
+            return
+        if hasattr(self, "_sheet_buttons"):
+            for btn in self._sheet_buttons.values():
+                btn.setEnabled(True)
+        if message and not headers:
+            self._status.setText("Errore caricamento")
+            QMessageBox.warning(self, "Errore caricamento foglio", message)
             return
         if not headers and not data:
             headers = [f"Col{i+1}" for i in range(5)]
             data = [[""] * 5 for _ in range(20)]
         self._model.modified_changed.disconnect(self._on_model_modified)
-        self._model = SpreadsheetModel(headers, data)
+        self._model = SpreadsheetModel(headers, data, take_ownership=True)
         self._model.modified_changed.connect(self._on_model_modified)
         self._proxy = _FilterProxy(self)
         self._proxy.setSourceModel(self._model)
@@ -1879,14 +2126,31 @@ class SpreadsheetWidget(QWidget):
         self._view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._view.selectionModel().currentChanged.connect(self._on_current_cell_changed)
         self._sort_keys = []
-        self._current_sheet = sheet_name
+        self._current_sheet = current or requested_sheet
         self._formula_bar.setText("")
         self._cell_ref.setText("")
         self._status.setText("Pronto")
         if hasattr(self, "_sheet_buttons"):
             for name, btn in self._sheet_buttons.items():
-                btn.setChecked(name == sheet_name)
-                self._update_sheet_btn_style(btn, name == sheet_name)
+                btn.setChecked(name == self._current_sheet)
+                self._update_sheet_btn_style(btn, name == self._current_sheet)
+        if message:
+            QMessageBox.warning(self, "Foglio di calcolo", message)
+
+    def closeEvent(self, event) -> None:
+        self._closing = True
+        worker = self._sheet_worker
+        if worker is not None:
+            try:
+                worker.loaded.disconnect()
+                worker.finished.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            worker.requestInterruption()
+            worker.wait()
+            self._sheet_worker = None
+            worker.deleteLater()
+        super().closeEvent(event)
 
     # ── Selezione / Status ────────────────────────────────────────────────────
 

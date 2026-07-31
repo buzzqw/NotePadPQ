@@ -45,6 +45,8 @@ _HAS_MATPLOTLIB: bool | None = None
 
 # Pattern per spell check — Unicode, copre IT/EN/DE/FR/ES e qualsiasi alfabeto latino esteso
 _RE_SPELL = re.compile(r"(?<![\\])\b[^\W\d_]+\b", re.UNICODE)
+_SPELL_CONTEXT_LINES = 40
+_SPELL_MAX_SNAPSHOT_BYTES = 256 * 1024
 
 
 class _SpellWorker(QThread):
@@ -52,12 +54,14 @@ class _SpellWorker(QThread):
 
     done = pyqtSignal(int, list)   # (generation, list[tuple[int,int,int,int]])
 
-    def __init__(self, text: str, spell_checker, personal: frozenset, generation: int):
+    def __init__(self, text: str, spell_checker, personal: frozenset,
+                 generation: int, base_line: int = 0):
         super().__init__(None)
         self._text       = text
         self._checker    = spell_checker
         self._personal   = personal
         self._generation = generation
+        self._base_line  = base_line
         self._cancelled  = False
 
     def cancel(self) -> None:
@@ -110,7 +114,8 @@ class _SpellWorker(QThread):
             col_s  = start - (newlines[line_s - 1] + 1 if line_s > 0 else 0)
             line_e = bisect.bisect_right(newlines, end)
             col_e  = end - (newlines[line_e - 1] + 1 if line_e > 0 else 0)
-            result.append((line_s, col_s, line_e, col_e))
+            result.append((line_s + self._base_line, col_s,
+                           line_e + self._base_line, col_e))
 
         if not self._cancelled:
             self.done.emit(self._generation, result)
@@ -366,8 +371,13 @@ class EditorWidget(QsciScintilla):
         self._spell_text_hash: int = 0
         self._spell_worker: Optional[_SpellWorker] = None
         self._spell_gen: int = 0
+        self._spell_check_range: tuple[int, int] | None = None
+        self._spell_marked_range: tuple[int, int] | None = None
         self._old_spell_workers: set = set()
-        self.textChanged.connect(self._spell_timer.start)
+        self.textChanged.connect(self._on_spell_text_changed)
+        self.verticalScrollBar().valueChanged.connect(
+            lambda _value: self._spell_timer.start() if self._spell_checker else None
+        )
         # --- FINE SPELL CHECKER ---
 
         # --- HOVER POPUP: rete di sicurezza anti-persistenza ---
@@ -1678,6 +1688,15 @@ class EditorWidget(QsciScintilla):
                 print("[SpellCheck] Installa con: pip install pyspellchecker")
         else:
             self._spell_checker = None
+            self._spell_timer.stop()
+            self._spell_gen += 1
+            if self._spell_worker is not None:
+                try:
+                    self._spell_worker.cancel()
+                except RuntimeError:
+                    pass
+            self._spell_check_range = None
+            self._spell_marked_range = None
             self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SPELL)
 
     def set_spell_language(self, lang: str) -> None:
@@ -1696,16 +1715,48 @@ class EditorWidget(QsciScintilla):
             pass
 
     def _do_spell_check(self) -> None:
-        """Avvia il controllo ortografico in un thread separato (non blocca la UI)."""
+        """Controlla in background solo il viewport e un piccolo contesto."""
         if not self._spell_checker:
             return
 
-        text = self.text()
+        first_visual = self.SendScintilla(self.SCI_GETFIRSTVISIBLELINE)
+        visible_count = max(1, self.SendScintilla(self.SCI_LINESONSCREEN))
+        first_line = self.SendScintilla(self.SCI_DOCLINEFROMVISIBLE, first_visual)
+        last_line = self.SendScintilla(
+            self.SCI_DOCLINEFROMVISIBLE, first_visual + visible_count
+        )
+        if last_line < first_line:
+            last_line = self.lines() - 1
+        start_line = max(0, first_line - _SPELL_CONTEXT_LINES)
+        end_line = min(self.lines(), last_line + _SPELL_CONTEXT_LINES + 1)
+
+        # Evita anche la copia di una singola riga patologicamente grande. Le
+        # righe saltate restano rappresentate da una riga vuota, quindi gli
+        # indici assoluti prodotti dal worker rimangono corretti.
+        parts: list[str] = []
+        used_bytes = 0
+        actual_end = start_line
+        for line in range(start_line, end_line):
+            line_bytes = self.SendScintilla(self.SCI_LINELENGTH, line)
+            if line_bytes > _SPELL_MAX_SNAPSHOT_BYTES:
+                parts.append("")
+            elif used_bytes + line_bytes > _SPELL_MAX_SNAPSHOT_BYTES:
+                break
+            else:
+                part = self.text(line).rstrip("\r\n")
+                parts.append(part)
+                used_bytes += line_bytes
+            actual_end = line + 1
+        text = "\n".join(parts)
         if not text:
             self._spell_text_hash = 0
+            if self._spell_marked_range:
+                start, end = self._spell_marked_range
+                self.clearIndicatorRange(start, 0, end, 0, INDICATOR_SPELL)
+                self._spell_marked_range = None
             return
 
-        h = hash(text)
+        h = hash((start_line, actual_end, text))
         if h == self._spell_text_hash:
             return
         self._spell_text_hash = h
@@ -1728,12 +1779,24 @@ class EditorWidget(QsciScintilla):
             self._spell_checker,
             frozenset(self._spell_personal),
             self._spell_gen,
+            start_line,
         )
         worker.done.connect(self._on_spell_check_done)
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(lambda w=worker: self._clear_spell_worker(w))
         self._spell_worker = worker
+        self._spell_check_range = (start_line, actual_end)
         worker.start()
+
+    def _on_spell_text_changed(self) -> None:
+        """Invalida subito risultati relativi a coordinate ormai superate."""
+        self._spell_gen += 1
+        if self._spell_worker is not None:
+            try:
+                self._spell_worker.cancel()
+            except RuntimeError:
+                pass
+        self._spell_timer.start()
 
     def _clear_spell_worker(self, worker) -> None:
         if self._spell_worker is worker:
@@ -1742,7 +1805,13 @@ class EditorWidget(QsciScintilla):
     def _on_spell_check_done(self, gen: int, positions: list) -> None:
         if gen != self._spell_gen:
             return
-        self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SPELL)
+        if self._spell_marked_range:
+            start, end = self._spell_marked_range
+            self.clearIndicatorRange(start, 0, end, 0, INDICATOR_SPELL)
+        if self._spell_check_range:
+            start, end = self._spell_check_range
+            self.clearIndicatorRange(start, 0, end, 0, INDICATOR_SPELL)
+            self._spell_marked_range = self._spell_check_range
         for line_s, col_s, line_e, col_e in positions:
             self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SPELL)
 

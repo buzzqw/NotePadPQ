@@ -316,9 +316,9 @@ class _SyncTeXSelWorker(QThread):
 
 class _PdfRenderWorker(QThread):
     """Rasterizza una pagina PDF con fitz in background.
-    Emette done(gen, QImage_or_None, clip_rect, links)."""
+    Emette done(gen, page_idx, QImage_or_None, clip_rect, links)."""
 
-    done = pyqtSignal(int, object, object, list)
+    done = pyqtSignal(int, int, object, object, list)
 
     def __init__(self, pdf_path: str, page_idx: int, zoom: float,
                  crop_params: dict, cursor_hl, selection_hl,
@@ -367,7 +367,7 @@ class _PdfRenderWorker(QThread):
             pix = page.get_pixmap(matrix=mat, alpha=False, clip=clip_rect)
             # bytes() copia i samples prima che doc.close() li liberi
             img = QImage(bytes(pix.samples), pix.width, pix.height,
-                         pix.stride, QImage.Format.Format_RGB888)
+                         pix.stride, QImage.Format.Format_RGB888).copy()
 
             links = page.get_links()
             doc.close()
@@ -429,10 +429,25 @@ class _PdfRenderWorker(QThread):
                 p.end()
 
             if not self._cancelled:
-                self.done.emit(self._gen, img, clip_rect, links)
+                self.done.emit(self._gen, self._page_idx, img, clip_rect, links)
         except Exception:
             if not self._cancelled:
-                self.done.emit(self._gen, None, None, [])
+                self.done.emit(self._gen, self._page_idx, None, None, [])
+
+
+# Il pannello puo essere distrutto mentre fitz.get_pixmap() e ancora dentro a
+# codice nativo non interrompibile. Questo registro indipendente dai widget
+# impedisce che il wrapper QThread venga raccolto prima del segnale finished.
+_PDF_ACTIVE_WORKERS: set[_PdfRenderWorker] = set()
+
+
+def _retain_pdf_worker(worker: _PdfRenderWorker) -> None:
+    _PDF_ACTIVE_WORKERS.add(worker)
+
+    def _release(w=worker):
+        _PDF_ACTIVE_WORKERS.discard(w)
+
+    worker.finished.connect(_release)
 
 
 class _PdfContContainer(QWidget):
@@ -466,6 +481,7 @@ class PreviewPanel(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
+        self._closing = False
         self._editor = None
         self._mode: str = "text"
         self._delay_ms: int = Settings.instance().get("preview/delay_ms", 500)
@@ -506,6 +522,7 @@ class PreviewPanel(QWidget):
         self._render_worker: Optional[_PdfRenderWorker] = None
         self._old_render_workers: list = []   # tenuti vivi fino a finished
         self._render_gen: int = 0
+        self._pdf_single_render_pending: bool = False
         self._synctex_scroll_y_pt: Optional[float] = None  # scroll da applicare dopo render
 
         # Worker asincrono per SyncTeX forward (tex→pdf)
@@ -756,6 +773,11 @@ class PreviewPanel(QWidget):
         self._pdf_cont_page_labels: list = []   # _ClickableLabel per ogni pagina in modo continuo
         self._pdf_cont_clip_rects: list = []    # fitz.Rect clip per ogni pagina (coordinate conversion)
         self._pdf_cont_rendered: set = set()    # indici delle pagine già rasterizzate (rendering lazy)
+        self._pdf_cont_render_workers: dict = {}  # worker -> indice pagina
+        self._pdf_cont_pending: set = set()       # pagine attualmente in esecuzione
+        self._pdf_cont_wanted: set = set()        # finestra corrente di prefetch/cache
+        self._pdf_cont_priority: set = set()      # re-render urgenti (es. highlight)
+        self._pdf_cont_render_queue: list = []
 
         vl.addWidget(self._stack)
 
@@ -917,6 +939,13 @@ class PreviewPanel(QWidget):
     def _set_mode(self, mode: str) -> None:
         if mode != "pdf":
             self._pdf_selection_highlight = None
+            self._pdf_single_render_pending = False
+            if hasattr(self, "_pdf_cont_render_workers"):
+                self._pdf_cancel_cont_renders(invalidate=True)
+            if self._render_worker is not None:
+                self._render_worker.cancel()
+                self._park_worker(self._render_worker, self._old_render_workers)
+                self._render_worker = None
         self._mode = mode if mode in _SUPPORTED_MODES else "text"
         labels = {
             "markdown": "Markdown",
@@ -936,8 +965,7 @@ class PreviewPanel(QWidget):
             # L'anteprima PDF riflette il file compilato su disco, non il
             # buffer dell'editor: BuildPanel la aggiorna esplicitamente via
             # set_pdf_path() dopo ogni compilazione riuscita. Rilanciare qui
-            # il render (che in modo continuo ridisegna TUTTE le pagine, una
-            # per una, in modo sincrono) ad ogni tasto premuto è inutile e
+            # il render del file compilato ad ogni tasto premuto è inutile e
             # rallenta pesantemente l'editing sui documenti con molte pagine.
             return
         if self.isVisible():
@@ -1624,6 +1652,11 @@ class PreviewPanel(QWidget):
             self._render_worker = None
 
         self._render_gen += 1
+        if self._pdf_running_worker_count() >= self._PDF_MAX_WORKERS:
+            self._pdf_single_render_pending = True
+            self._stack.setCurrentIndex(3)
+            return
+        self._pdf_single_render_pending = False
         worker = _PdfRenderWorker(
             self._pdf_path,
             self._pdf_page_num,
@@ -1635,14 +1668,10 @@ class PreviewPanel(QWidget):
             self._render_gen,
         )
         worker.done.connect(self._on_pdf_page_rendered)
+        worker.finished.connect(self._on_pdf_render_worker_finished)
         self._render_worker = worker
         self._old_render_workers.append(worker)
-        def _cleanup_render(w=worker):
-            try:
-                self._old_render_workers.remove(w)
-            except ValueError:
-                pass
-        worker.finished.connect(_cleanup_render)
+        _retain_pdf_worker(worker)
         worker.start()
         self._stack.setCurrentIndex(3)
 
@@ -1650,13 +1679,19 @@ class PreviewPanel(QWidget):
         """Sposta un worker nella lista di quelli in attesa di terminare.
         Mantiene il riferimento Python vivo finché il thread C++ non termina,
         evitando il crash 'QThread: Destroyed while still running'."""
-        old_list.append(worker)
+        if worker not in old_list:
+            old_list.append(worker)
         def _cleanup(w=worker, lst=old_list):
             try:
                 lst.remove(w)
             except ValueError:
                 pass
         worker.finished.connect(_cleanup)
+
+    def _pdf_running_worker_count(self) -> int:
+        # isRunning() puo essere ancora False subito dopo start(); isFinished()
+        # conta correttamente anche quel breve intervallo ed evita di superare 2.
+        return sum(1 for worker in self._old_render_workers if not worker.isFinished())
 
     def _get_crop_params(self) -> dict:
         if not getattr(self, "_pdf_crop_margins", False):
@@ -1669,10 +1704,10 @@ class PreviewPanel(QWidget):
             "r": self._crop_r.value(),
         }
 
-    def _on_pdf_page_rendered(self, gen: int, img, clip_rect, links: list) -> None:
-        if gen != self._render_gen:
+    def _on_pdf_page_rendered(self, gen: int, _page_idx: int, img, clip_rect, links: list) -> None:
+        if self._closing or self._mode != "pdf" or gen != self._render_gen:
             return
-        if self._render_worker is not None:
+        if self.sender() is self._render_worker:
             self._render_worker = None   # il cleanup dalla old_list avviene su finished
         if img is None:
             self._stack.setCurrentIndex(2)
@@ -1694,6 +1729,21 @@ class PreviewPanel(QWidget):
             vbar   = self._pdf_scroll.verticalScrollBar()
             QTimer.singleShot(0, lambda: vbar.setValue(
                 max(0, cy - self._pdf_scroll.viewport().height() // 2)))
+
+    def _on_pdf_render_worker_finished(self) -> None:
+        worker = self.sender()
+        if worker is self._render_worker:
+            self._render_worker = None
+        try:
+            self._old_render_workers.remove(worker)
+        except ValueError:
+            pass
+        if self._closing or self._mode != "pdf":
+            return
+        if self._pdf_continuous:
+            self._pdf_start_cont_render_workers()
+        elif self._pdf_single_render_pending:
+            self._pdf_show_page()
 
     
 
@@ -1786,6 +1836,10 @@ class PreviewPanel(QWidget):
         self._pdf_btn_prev.setVisible(not checked)
         self._pdf_btn_next.setVisible(not checked)
         if checked:
+            if self._render_worker is not None:
+                self._render_worker.cancel()
+                self._park_worker(self._render_worker, self._old_render_workers)
+                self._render_worker = None
             page_to_restore = self._pdf_page_num
             y_pt_restore = (
                 self._pdf_cursor_highlight[1]
@@ -1818,6 +1872,7 @@ class PreviewPanel(QWidget):
             # Nasconde la vista pagina singola solo ora (nessun flash visibile)
             self._pdf_scroll.setVisible(False)
         else:
+            self._pdf_cancel_cont_renders(invalidate=True)
             self._pdf_scroll_cont.setVisible(False)
             self._pdf_scroll.setVisible(True)
             self._update_synctex_label(self._pdf_path if self._pdf_path else None)
@@ -1833,6 +1888,7 @@ class PreviewPanel(QWidget):
         e poi ad ogni scroll, solo per le pagine vicine a quelle visibili."""
         if self._pdf_doc is None or not _get_fitz():
             return
+        self._pdf_cancel_cont_renders(invalidate=True)
         self._pdf_building = True
         try:
             # Scollega tutti i segnali dai vecchi widget prima di rimuoverli:
@@ -1883,14 +1939,12 @@ class PreviewPanel(QWidget):
         self._pdf_cont_render_visible()
 
     def _pdf_cont_render_visible(self) -> None:
-        """Rasterizza le pagine visibili nello scroll continuo (più un
-        margine di una schermata sopra/sotto) che non lo sono già state.
-        Collegata sia allo scroll (senza debounce: è solo un controllo su un
-        set, economico) sia richiamata esplicitamente dopo aver ricostruito
-        i placeholder o dopo un salto di pagina.
+        """Aggiorna la coda asincrona delle pagine vicine al viewport.
 
-        Libera anche i pixmap delle pagine ormai lontane dal viewport per
-        non accumulare memoria mentre l'utente scorre l'intero documento."""
+        Le pagine realmente visibili precedono il prefetch; i pixmap lontani
+        vengono rimossi e i job non più utili cancellati. La rasterizzazione
+        produce solo QImage nei worker, mentre QPixmap viene creato nello slot
+        sul thread GUI."""
         if self._mode != "pdf" or not self._pdf_continuous or not self._pdf_cont_page_labels:
             return
         if getattr(self, "_pdf_building", False):
@@ -1918,30 +1972,124 @@ class PreviewPanel(QWidget):
         hi_y   = vp_top + vp_h + vp_h
         evict_lo = vp_top - 4 * vp_h
         evict_hi = vp_top + 6 * vp_h
+        visible_lo = vp_top
+        visible_hi = vp_top + vp_h
+        viewport_center = vp_top + vp_h / 2
         evicted = 0
+        wanted = set(self._pdf_cont_priority)
+        visible = set()
         for idx, lbl in enumerate(self._pdf_cont_page_labels):
+            top = lbl.y()
+            bot = top + lbl.height()
             if idx in self._pdf_cont_rendered:
-                top = lbl.y()
-                bot = top + lbl.height()
                 if bot < evict_lo or top > evict_hi:
                     lbl.clear()
                     lbl.setPixmap(self._null_pixmap())
                     self._pdf_cont_rendered.discard(idx)
                     evicted += 1
-                continue
-            top = lbl.y()
-            bot = top + lbl.height()
-            if bot < lo_y or top > hi_y:
-                continue
-            pm, clip_rect = self._render_page_pixmap(idx)
-            self._pdf_cont_rendered.add(idx)
-            if pm is not None:
-                lbl.setPixmap(pm)
-                if idx < len(self._pdf_cont_clip_rects):
-                    self._pdf_cont_clip_rects[idx] = clip_rect
+            if bot >= lo_y and top <= hi_y:
+                wanted.add(idx)
+            if bot >= visible_lo and top <= visible_hi:
+                visible.add(idx)
+
+        self._pdf_cont_wanted = wanted
+        for worker, idx in list(self._pdf_cont_render_workers.items()):
+            if idx not in wanted:
+                worker.cancel()
+                self._pdf_cont_pending.discard(idx)
+
+        active_pages = {
+            idx for worker, idx in self._pdf_cont_render_workers.items()
+            if not worker._cancelled
+        }
+        candidates = wanted - self._pdf_cont_rendered - active_pages
+        self._pdf_cont_render_queue = sorted(
+            candidates,
+            key=lambda idx: (
+                0 if idx in self._pdf_cont_priority else 1 if idx in visible else 2,
+                abs((self._pdf_cont_page_labels[idx].y()
+                     + self._pdf_cont_page_labels[idx].height() / 2) - viewport_center),
+            ),
+        )
+        self._pdf_start_cont_render_workers()
         if evicted > 10:
             import gc
             gc.collect()
+
+    _PDF_MAX_WORKERS = 2
+
+    def _pdf_start_cont_render_workers(self) -> None:
+        """Avvia al massimo pochi rasterizer, rispettando l'ordine della coda."""
+        if self._closing or self._mode != "pdf" or not self._pdf_continuous:
+            return
+        while (self._pdf_cont_render_queue
+               and self._pdf_running_worker_count() < self._PDF_MAX_WORKERS):
+            idx = self._pdf_cont_render_queue.pop(0)
+            if (idx not in self._pdf_cont_wanted or idx in self._pdf_cont_rendered
+                    or not self._pdf_path):
+                self._pdf_cont_pending.discard(idx)
+                continue
+            worker = _PdfRenderWorker(
+                self._pdf_path,
+                idx,
+                self._pdf_zoom,
+                self._get_crop_params(),
+                self._pdf_cursor_highlight,
+                self._pdf_selection_highlight,
+                self._pdf_show_links,
+                self._render_gen,
+            )
+            worker.done.connect(self._on_pdf_cont_page_rendered)
+            worker.finished.connect(self._on_pdf_cont_worker_finished)
+            self._pdf_cont_pending.add(idx)
+            self._pdf_cont_render_workers[worker] = idx
+            self._old_render_workers.append(worker)
+            _retain_pdf_worker(worker)
+            worker.start()
+
+    def _on_pdf_cont_page_rendered(self, gen: int, page_idx: int,
+                                   img, clip_rect, _links: list) -> None:
+        """Converte e applica il risultato sul thread GUI, se ancora attuale."""
+        if (self._closing or self._mode != "pdf" or not self._pdf_continuous
+                or gen != self._render_gen or img is None
+                or page_idx not in self._pdf_cont_wanted
+                or page_idx >= len(self._pdf_cont_page_labels)):
+            return
+        from PyQt6.QtGui import QPixmap
+        self._pdf_cont_page_labels[page_idx].setPixmap(QPixmap.fromImage(img))
+        self._pdf_cont_rendered.add(page_idx)
+        self._pdf_cont_priority.discard(page_idx)
+        if clip_rect is not None and page_idx < len(self._pdf_cont_clip_rects):
+            self._pdf_cont_clip_rects[page_idx] = clip_rect
+
+    def _on_pdf_cont_worker_finished(self) -> None:
+        worker = self.sender()
+        page_idx = self._pdf_cont_render_workers.get(worker)
+        self._pdf_cont_render_workers.pop(worker, None)
+        try:
+            self._old_render_workers.remove(worker)
+        except ValueError:
+            pass
+        # Non rimuovere il marker se nel frattempo la stessa pagina è stata
+        # nuovamente accodata con una generazione più recente.
+        if page_idx is not None and page_idx not in self._pdf_cont_render_workers.values():
+            self._pdf_cont_pending.discard(page_idx)
+        if (not self._closing and self._mode == "pdf"
+                and not self._pdf_continuous and self._pdf_single_render_pending):
+            self._pdf_show_page()
+        elif not self._closing:
+            self._pdf_start_cont_render_workers()
+
+    def _pdf_cancel_cont_renders(self, invalidate: bool = False) -> None:
+        """Invalida coda/risultati senza attendere i thread in esecuzione."""
+        if invalidate:
+            self._render_gen += 1
+        for worker in list(self._pdf_cont_render_workers):
+            worker.cancel()
+        self._pdf_cont_render_queue = []
+        self._pdf_cont_pending.clear()
+        self._pdf_cont_wanted.clear()
+        self._pdf_cont_priority.clear()
 
     def _pdf_cont_relayout(self) -> None:
         """Ridimensiona i placeholder già esistenti al nuovo zoom/crop invece
@@ -1958,6 +2106,7 @@ class PreviewPanel(QWidget):
             self._pdf_show_all_pages()
             self._pdf_on_cont_scroll()
             return
+        self._pdf_cancel_cont_renders(invalidate=True)
         self._pdf_building = True
         try:
             self._stack.setCurrentIndex(3)
@@ -1989,7 +2138,7 @@ class PreviewPanel(QWidget):
             self._pdf_show_page()
 
     def _pdf_update_cont_highlight(self, new_page, old_page) -> None:
-        """Re-renderizza le pagine interessate dall'aggiornamento dell'highlight nel modo continuo."""
+        """Accoda senza bloccare le pagine interessate dal nuovo highlight."""
         if not _get_fitz() or not self._pdf_cont_page_labels:
             return
         pages = set()
@@ -1997,14 +2146,15 @@ class PreviewPanel(QWidget):
             pages.add(old_page)
         if new_page is not None:
             pages.add(new_page)
+        pages = {idx for idx in pages if 0 <= idx < len(self._pdf_cont_page_labels)}
+        if not pages:
+            return
+        self._pdf_cancel_cont_renders(invalidate=True)
         for idx in pages:
-            if idx < len(self._pdf_cont_page_labels):
-                pm, clip_rect = self._render_page_pixmap(idx)
-                self._pdf_cont_rendered.add(idx)
-                if pm is not None:
-                    self._pdf_cont_page_labels[idx].setPixmap(pm)
-                    if idx < len(self._pdf_cont_clip_rects):
-                        self._pdf_cont_clip_rects[idx] = clip_rect
+            self._pdf_cont_page_labels[idx].clear()
+            self._pdf_cont_rendered.discard(idx)
+        self._pdf_cont_priority = pages
+        self._pdf_cont_render_visible()
 
     def _scroll_cont_to_page(self, page_idx: int) -> None:
         """In modalità continua, scrolla alla pagina indicata."""
@@ -2332,6 +2482,11 @@ class PreviewPanel(QWidget):
         super().wheelEvent(event)        
 
     def closeEvent(self, event) -> None:
+        if self._closing:
+            super().closeEvent(event)
+            return
+        self._closing = True
+        self._pdf_cancel_cont_renders(invalidate=True)
         # Attendi i vecchi worker ancora in esecuzione
         for w in list(self._md_old_workers):
             try:
@@ -2348,14 +2503,37 @@ class PreviewPanel(QWidget):
             except Exception:
                 pass
             self._md_worker = None
-        # Ferma worker PDF e SyncTeX, attendi che tutti terminino
-        for w in list(self._old_render_workers):
+        # get_pixmap() non e interrompibile: disconnetti il pannello e attendi
+        # solo brevemente. I thread ancora attivi restano nel registro globale
+        # _PDF_ACTIVE_WORKERS fino al loro finished.
+        pdf_workers = set(self._old_render_workers)
+        pdf_workers.update(self._pdf_cont_render_workers)
+        if self._render_worker is not None:
+            pdf_workers.add(self._render_worker)
+        for w in pdf_workers:
             w.cancel()
+            try:
+                w.done.disconnect(self._on_pdf_page_rendered)
+            except Exception:
+                pass
+            try:
+                w.done.disconnect(self._on_pdf_cont_page_rendered)
+            except Exception:
+                pass
+            try:
+                w.finished.disconnect(self._on_pdf_render_worker_finished)
+            except Exception:
+                pass
+            try:
+                w.finished.disconnect(self._on_pdf_cont_worker_finished)
+            except Exception:
+                pass
             try:
                 w.wait(300)
             except Exception:
                 pass
         self._old_render_workers.clear()
+        self._pdf_cont_render_workers.clear()
         for w in list(self._old_synctex_fwd_workers):
             w.cancel()
             try:

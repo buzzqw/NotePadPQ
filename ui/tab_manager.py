@@ -129,6 +129,8 @@ class TabManager(QTabWidget):
         self._containers: dict[EditorWidget, QWidget] = {}
         # Tab custom non-editor (es. SpreadsheetWidget): widget → path opzionale
         self._custom_tabs: dict[QWidget, Optional[Path]] = {}
+        # Chiusure in attesa dell'esito di un salvataggio asincrono.
+        self._pending_custom_closes: dict[QWidget, object] = {}
         # Preview panel attivo
         self._preview_enabled = False
         # Ordine di ultimo utilizzo dei tab (widget container), usato dal
@@ -349,6 +351,38 @@ class TabManager(QTabWidget):
 
     # ── Chiusura tab ─────────────────────────────────────────────────────────
 
+    def _defer_custom_close(self, widget: QWidget) -> bool:
+        """Chiude un tab custom solo dopo il successo del save asincrono."""
+        if widget in self._pending_custom_closes:
+            return True
+        signal = getattr(widget, "save_finished", None)
+        if signal is None:
+            return False
+
+        def _on_saved(ok: bool, *_args) -> None:
+            self._pending_custom_closes.pop(widget, None)
+            try:
+                signal.disconnect(_on_saved)
+            except (TypeError, RuntimeError):
+                pass
+            if ok and widget in self._custom_tabs:
+                index = self.indexOf(widget)
+                if index >= 0:
+                    self._close_tab_at(index)
+
+        signal.connect(_on_saved)
+        self._pending_custom_closes[widget] = _on_saved
+        return True
+
+    def _cancel_deferred_custom_close(self, widget: QWidget) -> None:
+        callback = self._pending_custom_closes.pop(widget, None)
+        signal = getattr(widget, "save_finished", None)
+        if callback is not None and signal is not None:
+            try:
+                signal.disconnect(callback)
+            except (TypeError, RuntimeError):
+                pass
+
     def _on_close_requested(self, index: int) -> None:
         editor = self.editor_at(index)
         if editor and editor.is_modified():
@@ -372,6 +406,10 @@ class TabManager(QTabWidget):
         elif editor is None:
             # Potrebbe essere un tab custom (spreadsheet) con modifiche non salvate
             widget = self.widget(index)
+            saving = getattr(widget, "is_save_in_progress", None)
+            if widget in self._custom_tabs and callable(saving) and saving():
+                self._defer_custom_close(widget)
+                return
             if widget in self._custom_tabs and hasattr(widget, "is_modified") and widget.is_modified():
                 path = self._custom_tabs.get(widget)
                 name = path.name if path else "foglio di calcolo"
@@ -386,13 +424,26 @@ class TabManager(QTabWidget):
                     return
                 elif reply == QMessageBox.StandardButton.Save:
                     if hasattr(widget, "save"):
+                        deferred = self._defer_custom_close(widget)
                         if not widget.save():
+                            if deferred:
+                                self._cancel_deferred_custom_close(widget)
+                            return
+                        if deferred:
                             return
 
         self._close_tab_at(index)
 
     def _close_tab_at(self, index: int) -> None:
         container = self.widget(index)
+        saving = getattr(container, "is_save_in_progress", None)
+        if (
+            container in self._custom_tabs
+            and callable(saving)
+            and saving()
+            and self._defer_custom_close(container)
+        ):
+            return
         if container in self._mru:
             self._mru.remove(container)
         editor = self._editors.pop(container, None)
@@ -405,8 +456,15 @@ class TabManager(QTabWidget):
                     watcher.removePath(p)
             self.tab_closed.emit(editor)
         # Pulizia tab custom
+        is_custom = container in self._custom_tabs
+        self._cancel_deferred_custom_close(container)
         self._custom_tabs.pop(container, None)
         self.removeTab(index)
+        if is_custom:
+            cleanup = getattr(container, "cleanup", None)
+            if callable(cleanup):
+                cleanup()
+            container.close()
         if self.count() == 0:
             self.new_tab()
 

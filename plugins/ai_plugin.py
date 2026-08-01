@@ -1401,6 +1401,7 @@ class _AIPanel(QWidget):
     _gemini_ready     = pyqtSignal(object)  # list[str] | None — thread-safe
     _deepseek_ready   = pyqtSignal(object)  # list[str] | None — thread-safe
     _llamacpp_ready   = pyqtSignal(object)  # list[str] | None — thread-safe
+    _models_prefetched = pyqtSignal()       # discovery multi-provider completata — thread-safe
 
     def __init__(self, main_window: "MainWindow", parent=None):
         super().__init__(parent)
@@ -1430,6 +1431,7 @@ class _AIPanel(QWidget):
         self._gemini_ready.connect(self._set_gemini_models)
         self._deepseek_ready.connect(self._set_deepseek_models)
         self._llamacpp_ready.connect(self._set_llamacpp_models)
+        self._models_prefetched.connect(self._on_models_prefetched)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -1766,10 +1768,6 @@ class _AIPanel(QWidget):
             except Exception:
                 pass
 
-        def _done():
-            # Re-populate current provider's model combo with fresh data
-            self._on_provider_changed(self._provider_combo.currentIndex())
-
         def _run_all():
             threads = []
             for fn in [_fetch_anthropic, _fetch_openai, _fetch_gemini, _fetch_deepseek]:
@@ -1778,10 +1776,16 @@ class _AIPanel(QWidget):
                 threads.append(t)
             for t in threads:
                 t.join(timeout=8)
-            # Signal main thread
-            QTimer.singleShot(0, _done)
+            # QTimer.singleShot da un thread senza event loop Qt non scatta
+            # in modo affidabile: usa un pyqtSignal (thread-safe) per tornare
+            # sul thread GUI.
+            self._models_prefetched.emit()
 
         threading.Thread(target=_run_all, daemon=True).start()
+
+    def _on_models_prefetched(self) -> None:
+        # Re-popola il combo del modello del provider attivo con i dati freschi
+        self._on_provider_changed(self._provider_combo.currentIndex())
 
     # ── Gestione eventi ───────────────────────────────────────────────────────
 
@@ -2334,34 +2338,19 @@ class _AIPanel(QWidget):
         editor = self._mw._tab_manager.current_editor()
         if not editor:
             return
-        original = editor.text()
         if not self._last_text:
             return
-        modified = self._last_text
+        original = editor.text()
+        modified = _extract_code_block(self._last_text)
         if original == modified:
             QMessageBox.information(self, "Diff", "Nessuna modifica rilevata.")
             return
 
-        try:
-            import tempfile
-            original_path = Path(tempfile.mktemp(suffix=".original"))
-            modified_path = Path(tempfile.mktemp(suffix=".modified"))
-            original_path.write_text(original, encoding="utf-8")
-            modified_path.write_text(modified, encoding="utf-8")
-
-            from plugins.compare_merge_plugin import CompareMergePlugin
-            # Apri il compare tool
-            self._mw.open_files([original_path, modified_path])
-            # Sovrascrivi il secondo file con la versione modificata
-            modified_path.write_text(modified, encoding="utf-8")
-            self._mw.open_files([original_path, modified_path])
-        except ImportError:
-            # Fallback semplice
-            msg = QMessageBox(self)
-            msg.setWindowTitle("Diff")
-            msg.setText("Preview delle modifiche:\n\nFile originale → Nuova versione")
-            msg.setDetailedText(f"--- ORIGINALE ---\n{original[:2000]}\n\n--- MODIFICATO ---\n{modified[:2000]}")
-            msg.exec()
+        from plugins.compare_plugin import ComparePlugin
+        name = editor.file_path.name if editor.file_path else "originale"
+        ComparePlugin.compare_texts(
+            original, modified,
+            label_a=name, label_b=f"{name} (AI)")
 
     def _handle_slash_command(self, text: str) -> Optional[str]:
         """Gestisce i comandi slash. Ritorna il prompt trasformato o None."""

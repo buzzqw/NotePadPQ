@@ -901,30 +901,28 @@ class MainWindow(QMainWindow):
         # Usa il plugin Compare se disponibile, altrimenti apri il file su disco in un nuovo tab
         try:
             from plugins.compare_plugin import ComparePlugin
-            plugin = ComparePlugin.instance() if hasattr(ComparePlugin, "instance") else None
-        except ImportError:
-            plugin = None
-
-        if plugin and hasattr(plugin, "compare_texts"):
-            plugin.compare_texts(
+            ComparePlugin.compare_texts(
                 disk_content, current_content,
                 label_a=f"{editor.file_path.name} (disco)",
                 label_b=f"{editor.file_path.name} (buffer)",
             )
-        else:
-            # Fallback: apri la versione su disco in un nuovo tab affiancato
-            import tempfile, os
-            suffix = editor.file_path.suffix
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=suffix, delete=False,
-                encoding="utf-8", prefix="saved_"
-            ) as tmp:
-                tmp.write(disk_content)
-                tmp_path = Path(tmp.name)
-            self.open_files([tmp_path])
-            self.statusBar().showMessage(
-                tr("msg.disk_version_opened_for_comparison"), 4000
-            )
+            return
+        except ImportError:
+            pass
+
+        # Fallback: apri la versione su disco in un nuovo tab affiancato
+        import tempfile, os
+        suffix = editor.file_path.suffix
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=suffix, delete=False,
+            encoding="utf-8", prefix="saved_"
+        ) as tmp:
+            tmp.write(disk_content)
+            tmp_path = Path(tmp.name)
+        self.open_files([tmp_path])
+        self.statusBar().showMessage(
+            tr("msg.disk_version_opened_for_comparison"), 4000
+        )
 
     def _setup_i18n(self) -> None:
         """Applica le traduzioni iniziali a tutti i widget."""

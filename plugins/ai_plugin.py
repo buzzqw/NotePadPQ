@@ -1667,6 +1667,122 @@ class _AIPanel(QWidget):
 
         self._on_provider_changed(0)
 
+        # Auto-fetch dynamic model lists from all APIs at startup
+        QTimer.singleShot(500, self._auto_refresh_all_models)
+
+    # ── Auto-refresh all provider models at startup ─────────────────────────────
+
+    def _auto_refresh_all_models(self) -> None:
+        """Fetch real model lists from all configured APIs in background threads."""
+        import threading, urllib.request as ur
+        from config.settings import Settings as _S
+        s = _S.instance()
+
+        def _fetch_anthropic():
+            key = s.get("ai/anthropic_key", "").strip()
+            if not key:
+                return
+            try:
+                req = ur.Request("https://api.anthropic.com/v1/models", method="GET",
+                                 headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
+                with ur.urlopen(req, timeout=8, context=_make_ssl_ctx()) as resp:
+                    data = json.loads(resp.read())
+                models = sorted([
+                    m["id"] for m in data.get("data", [])
+                    if m.get("id", "").startswith("claude-")
+                ], reverse=True)
+                if models:
+                    PROVIDERS["Anthropic (Claude)"]["models"] = models
+                    PROVIDERS["Anthropic (Claude)"]["default"] = models[0]
+                    PROVIDERS["Anthropic (Claude)"]["thinking_models"] = [
+                        m for m in models if "opus" in m.lower() or "sonnet" in m.lower()
+                    ][:2]
+            except Exception:
+                pass  # keep static fallback
+
+        def _fetch_openai():
+            key = s.get("ai/openai_key", "").strip()
+            if not key:
+                return
+            try:
+                req = ur.Request("https://api.openai.com/v1/models", method="GET",
+                                 headers={"Authorization": f"Bearer {key}"})
+                with ur.urlopen(req, timeout=8, context=_make_ssl_ctx()) as resp:
+                    data = json.loads(resp.read())
+                models = sorted([
+                    m["id"] for m in data.get("data", [])
+                    if any(p in m["id"] for p in ("gpt-", "o1", "o3", "o4"))
+                    and "audio" not in m["id"] and "realtime" not in m["id"]
+                    and "embedding" not in m["id"] and "dall-e" not in m["id"]
+                ], reverse=True)
+                if models:
+                    PROVIDERS["OpenAI (ChatGPT)"]["models"] = models
+                    PROVIDERS["OpenAI (ChatGPT)"]["default"] = next(
+                        (m for m in models if "gpt-5" in m), models[0])
+            except Exception:
+                pass
+
+        def _fetch_gemini():
+            key = s.get("ai/gemini_key", "").strip()
+            if not key:
+                return
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+                req = ur.Request(url, method="GET")
+                with ur.urlopen(req, timeout=8, context=_make_ssl_ctx()) as resp:
+                    data = json.loads(resp.read())
+                models = sorted([
+                    m["name"].replace("models/", "")
+                    for m in data.get("models", [])
+                    if "generateContent" in m.get("supportedGenerationMethods", [])
+                    and "gemini" in m.get("name", "")
+                ], reverse=True)
+                if models:
+                    PROVIDERS["Google Gemini"]["models"] = models
+                    PROVIDERS["Google Gemini"]["default"] = next(
+                        (m for m in models if "pro" in m.lower()), models[0])
+            except Exception:
+                pass
+
+        def _fetch_deepseek():
+            key = s.get("ai/deepseek_key", "").strip()
+            if not key:
+                return
+            try:
+                req = ur.Request("https://api.deepseek.com/v1/models", method="GET",
+                                 headers={"Authorization": f"Bearer {key}"})
+                with ur.urlopen(req, timeout=8, context=_make_ssl_ctx()) as resp:
+                    data = json.loads(resp.read())
+                models = sorted([
+                    m["id"] for m in data.get("data", [])
+                    if "deepseek" in m.get("id", "")
+                ], reverse=True)
+                if models:
+                    PROVIDERS["DeepSeek"]["models"] = models
+                    PROVIDERS["DeepSeek"]["default"] = models[0]
+                    PROVIDERS["DeepSeek"]["thinking_models"] = [
+                        m for m in models if "pro" in m.lower() or "reasoner" in m.lower()
+                    ][:2]
+            except Exception:
+                pass
+
+        def _done():
+            # Re-populate current provider's model combo with fresh data
+            self._on_provider_changed(self._provider_combo.currentIndex())
+
+        def _run_all():
+            threads = []
+            for fn in [_fetch_anthropic, _fetch_openai, _fetch_gemini, _fetch_deepseek]:
+                t = threading.Thread(target=fn, daemon=True)
+                t.start()
+                threads.append(t)
+            for t in threads:
+                t.join(timeout=8)
+            # Signal main thread
+            QTimer.singleShot(0, _done)
+
+        threading.Thread(target=_run_all, daemon=True).start()
+
     # ── Gestione eventi ───────────────────────────────────────────────────────
 
     def eventFilter(self, obj, event) -> bool:

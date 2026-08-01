@@ -262,7 +262,7 @@ class _ExportAsWorker(QThread):
 class MainWindow(QMainWindow):
 
     APP_NAME    = "NotePadPQ"
-    APP_VERSION = "1.7.4"
+    APP_VERSION = "1.7.5"
 
     def __init__(self):
         super().__init__()

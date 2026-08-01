@@ -63,6 +63,7 @@ versiona.sh
 CLAUDE.md
 tests/*
 !tests/test_richtext_async.py
+!tests/test_build_manager.py
 retroactive_notes.sh
 test.sh
 .junie/.venv-build/

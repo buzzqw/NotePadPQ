@@ -2,15 +2,18 @@
 ui/build_panel.py — Pannello output compilazione
 NotePadPQ
 
-Panel con output del build, lista errori cliccabili e
-dialog configurazione profili.
+Panel con output del build, lista errori cliccabili,
+dialog configurazione profili con env/hook/pipeline,
+unified errors (LSP + build), pipeline progress.
 
-Fix rispetto alla versione precedente:
-- Il profilo attivo è sempre visibile e sincronizzato con il file corrente
-- I pulsanti mostrano il comando che verrà eseguito nel tooltip
-- Salva profilo con feedback visivo (colore + messaggio)
-- Il combo del pannello e il BuildManager sono sempre allineati
-- Pulsanti Compile/Run/Build disabilitati se il comando è vuoto per quel profilo
+Nuove feature:
+- Variabili d'ambiente per profilo (campo env)
+- Hook pre/post build per profilo
+- Pipeline multi-step configurabili
+- Error regex capture group configurabili da UI
+- Build interattive con input inline
+- Output limit configurabile
+- Unified errors (LSP + build)
 """
 
 from __future__ import annotations
@@ -25,8 +28,11 @@ from PyQt6.QtWidgets import (
     QLabel, QComboBox, QDialog, QDialogButtonBox,
     QFormLayout, QLineEdit, QPushButton, QSplitter,
     QGroupBox, QListWidget, QListWidgetItem, QMessageBox,
-    QStatusBar, QFrame, QTextEdit,
+    QStatusBar, QFrame, QTextEdit, QSpinBox, QTabWidget,
+    QProgressBar, QCheckBox, QScrollArea, QSizePolicy,
+    QInputDialog,
 )
+from PyQt6.QtCore import Qt as QtCoreQt
 
 from i18n.i18n import tr
 from core.build_manager import BuildManager, DEFAULT_PROFILES
@@ -37,13 +43,8 @@ if TYPE_CHECKING:
 
 
 class _AIAnalyzeDialog(QDialog):
-    """
-    Dialogo di conferma per 'Analizza con AI'.
-    Recupera i modelli Ollama/Anthropic live, esattamente come fa il plugin AI.
-    """
-
-    _ollama_ready    = pyqtSignal(object)   # list[str] | None
-    _anthropic_ready = pyqtSignal(object)   # list[str] | None
+    _ollama_ready    = pyqtSignal(object)
+    _anthropic_ready = pyqtSignal(object)
     _MAX_PREVIEW     = 3000
 
     def __init__(self, log_text: str, providers: dict, parent=None):
@@ -57,14 +58,11 @@ class _AIAnalyzeDialog(QDialog):
         self.setMinimumHeight(460)
         self._build_ui()
 
-    # ── UI ────────────────────────────────────────────────────────────────────
-
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setSpacing(8)
         root.setContentsMargins(12, 12, 12, 8)
 
-        # Provider + modello + pulsante refresh
         row = QHBoxLayout()
         row.addWidget(QLabel(tr("label.ai_provider")))
         self._provider_combo = QComboBox()
@@ -77,20 +75,18 @@ class _AIAnalyzeDialog(QDialog):
         self._model_combo.setMinimumWidth(160)
         row.addWidget(self._model_combo, 1)
 
-        self._btn_refresh = QPushButton("↻")
+        self._btn_refresh = QPushButton("\u21bb")
         self._btn_refresh.setFixedWidth(28)
         self._btn_refresh.setToolTip(tr("tooltip.build_reload_tasks"))
         self._btn_refresh.clicked.connect(self._manual_refresh)
         row.addWidget(self._btn_refresh)
         root.addLayout(row)
 
-        # Istruzione
         root.addWidget(QLabel(tr("label.ai_instruction")))
         self._instruction = QLineEdit()
         self._instruction.setText(tr("msg.build_ai_default_prompt"))
         root.addWidget(self._instruction)
 
-        # Anteprima log
         root.addWidget(QLabel(tr("label.build_log_preview")))
         self._preview = QTextEdit()
         self._preview.setReadOnly(True)
@@ -106,7 +102,6 @@ class _AIAnalyzeDialog(QDialog):
             note.setStyleSheet("color: gray; font-size: 11px;")
             root.addWidget(note)
 
-        # Bottoni
         bbox = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
@@ -118,7 +113,6 @@ class _AIAnalyzeDialog(QDialog):
         bbox.rejected.connect(self.reject)
         root.addWidget(bbox)
 
-        # Ripristina ultima scelta poi triggera il refresh
         from config.settings import Settings
         s = Settings.instance()
         last_p = s.get("build/ai_provider", "")
@@ -127,15 +121,12 @@ class _AIAnalyzeDialog(QDialog):
             idx = self._provider_combo.findText(last_p)
             if idx >= 0:
                 self._provider_combo.setCurrentIndex(idx)
-                # _on_provider_changed già chiamato dal setCurrentIndex → non richiamare
                 if last_m:
                     self._model_combo.setCurrentText(last_m)
                 return
         self._on_provider_changed()
         if last_m:
             self._model_combo.setCurrentText(last_m)
-
-    # ── Provider / modello ────────────────────────────────────────────────────
 
     def _on_provider_changed(self) -> None:
         name = self._provider_combo.currentText()
@@ -162,8 +153,6 @@ class _AIAnalyzeDialog(QDialog):
         elif pid == "anthropic":
             self._refresh_anthropic()
 
-    # ── Ollama — identico al plugin AI ───────────────────────────────────────
-
     def _refresh_ollama(self) -> None:
         import threading, urllib.request, json as _json
         from config.settings import Settings
@@ -189,23 +178,21 @@ class _AIAnalyzeDialog(QDialog):
             return
         self._model_combo.clear()
         if models is None:
-            self._model_combo.addItem(tr("msg.ollama_unreachable", default="⚠ ollama non raggiungibile"))
+            self._model_combo.addItem(tr("msg.ollama_unreachable", default="\u26a0 ollama non raggiungibile"))
             self._model_combo.setEnabled(False)
             return
         self._model_combo.setEnabled(True)
         for m in models:
             self._model_combo.addItem(m)
 
-    # ── Anthropic — identico al plugin AI ────────────────────────────────────
-
     def _refresh_anthropic(self) -> None:
         import threading, urllib.request, json as _json
         from config.settings import Settings
         api_key = Settings.instance().get("ai/anthropic_key", "").strip()
         if not api_key:
-            return  # nessuna chiave — lascia i modelli statici
+            return
         self._btn_refresh.setEnabled(False)
-        self._btn_refresh.setText("…")
+        self._btn_refresh.setText("\u2026")
 
         def _fetch():
             try:
@@ -231,7 +218,7 @@ class _AIAnalyzeDialog(QDialog):
 
     def _set_anthropic_models(self, models) -> None:
         self._btn_refresh.setEnabled(True)
-        self._btn_refresh.setText("↻")
+        self._btn_refresh.setText("\u21bb")
         if self._providers.get(self._provider_combo.currentText(), {}).get("id") != "anthropic":
             return
         if not models:
@@ -242,8 +229,6 @@ class _AIAnalyzeDialog(QDialog):
             self._model_combo.addItem(m)
         idx = self._model_combo.findText(current)
         self._model_combo.setCurrentIndex(idx if idx >= 0 else 0)
-
-    # ── Dati finali ───────────────────────────────────────────────────────────
 
     def selected_provider(self) -> str:
         return self._provider_combo.currentText()
@@ -267,19 +252,6 @@ class _AIAnalyzeDialog(QDialog):
 
 
 class BuildPanel(QWidget):
-    """
-    Widget pannello build. Viene aggiunto come dock o widget inferiore
-    dalla MainWindow quando viene avviata una compilazione.
-
-    Contiene solo la toolbar (profilo/azioni) e il log grezzo di
-    compilazione. La lista errori (`_error_tree`) e il tab task
-    (`_task_widget`) sono creati qui ma vengono montati dalla MainWindow
-    come tab di pari livello del pannello inferiore (accanto a
-    "Diagnostics"), non annidati in un secondo QTabWidget: un secondo
-    livello di tab dietro una toolbar-corner-widget lasciava le linguette
-    inaccessibili (nessuno scrolling) quando lo spazio era stretto.
-    """
-
     error_count_changed = pyqtSignal(int)
 
     def __init__(self, main_window: "MainWindow", parent=None):
@@ -287,20 +259,14 @@ class BuildPanel(QWidget):
         self._mw = main_window
         self._bm = BuildManager.instance()
         self._current_profile: str = ""
+        self._current_run_id: str = ""
         self._current_error_idx: int = -1
-        # Log completo per il parsing errori: self._output non ha limiti di
-        # righe, ma leggere migliaia di righe da un QPlainTextEdit ad ogni
-        # fine-build (per estrarre gli errori) è più lento e più fragile
-        # (richiede toPlainText()) che tenerle già pronte in una lista Python.
-        # parse_errors() lavora quindi su questa lista, non sul widget.
         self._full_log: list[str] = []
+        self._running_workers: dict[str, bool] = {}
 
         self._build_ui()
         self._connect_signals()
-        # Sincronizza il profilo con il tab corrente dopo l'avvio
         QTimer.singleShot(0, self._sync_profile_to_editor)
-
-    # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         self.setMinimumHeight(0)
@@ -308,18 +274,11 @@ class BuildPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # ── Barra superiore: profilo attivo + azioni ──────────────────────────
-        # Vera QToolBar (non corner-widget di un QTabWidget): se lo spazio
-        # manca, Qt mostra automaticamente una freccia "»" di overflow invece
-        # di nascondere i pulsanti/tab senza alcun modo di raggiungerli.
         tb = QToolBar()
         tb.setMovable(False)
-        # Di default QToolBar mostra solo l'icona per le QAction: le nostre
-        # (▲ ▼ e "Analizza con AI") hanno anche testo che deve restare visibile.
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._toolbar = tb
 
-        # Etichetta profilo attivo — colorata e visibile
         self._lbl_profile = QLabel()
         self._lbl_profile.setStyleSheet(
             "font-weight: bold; padding: 2px 6px; "
@@ -327,7 +286,6 @@ class BuildPanel(QWidget):
         )
         self._lbl_profile.setToolTip(tr("tooltip.build_profile_label"))
 
-        # Combo override manuale
         self._profile_combo = QComboBox()
         self._profile_combo.setToolTip(tr("tooltip.build_profile_combo"))
         self._profile_combo.addItem(tr("build_panel.auto_profile"), userData=None)
@@ -341,7 +299,6 @@ class BuildPanel(QWidget):
         tb.addWidget(self._profile_combo)
         tb.addSeparator()
 
-        # Pulsanti azione — le etichette includono la shortcut reale, letta dinamicamente
         self._btn_compile = QPushButton(tr("action.compile", default="Compila"))
         self._btn_run     = QPushButton(tr("action.run",     default="Esegui"))
         self._btn_build   = QPushButton(tr("action.build",   default="Build"))
@@ -355,13 +312,9 @@ class BuildPanel(QWidget):
                     self._btn_build, self._btn_stop, self._btn_clear]:
             tb.addWidget(btn)
 
-        # Azioni secondarie come QAction (non QPushButton via addWidget): se lo
-        # spazio manca e finiscono nel menu "»" di overflow di QToolBar, solo
-        # le QAction restano cliccabili li' dentro — i widget custom aggiunti
-        # con addWidget() nell'overflow smettono di rispondere ai click.
         tb.setIconSize(QSize(16, 16))
-        self._btn_prev_error = QAction("▲", self)
-        self._btn_next_error = QAction("▼", self)
+        self._btn_prev_error = QAction("\u25b2", self)
+        self._btn_next_error = QAction("\u25bc", self)
         self._btn_prev_error.setToolTip(tr("tooltip.build_prev_error"))
         self._btn_next_error.setToolTip(tr("tooltip.build_next_error"))
         self._btn_prev_error.setEnabled(False)
@@ -372,16 +325,26 @@ class BuildPanel(QWidget):
         self._btn_analyze_ai.setEnabled(False)
         self._set_analyze_ai_icon()
 
+        self._btn_interactive = QAction("PTY", self)
+        self._btn_interactive.setToolTip(tr("tooltip.build_interactive"))
+        self._btn_interactive.setCheckable(True)
+
         tb.addAction(self._btn_prev_error)
         tb.addAction(self._btn_next_error)
         tb.addAction(self._btn_analyze_ai)
+        tb.addAction(self._btn_interactive)
 
         layout.addWidget(tb)
 
-        # ── Log grezzo di compilazione ────────────────────────────────────────
-        # Resta sempre il contenuto di questo pannello: non c'è più uno switch
-        # automatico verso un'altra tab in caso di errore, così il log con
-        # l'errore reale del compilatore non sparisce mai dalla vista.
+        self._pipeline_bar = QProgressBar()
+        self._pipeline_bar.setMaximumHeight(16)
+        self._pipeline_bar.setVisible(False)
+        self._pipeline_bar.setStyleSheet("""
+            QProgressBar { border: 1px solid #3c3c3c; background: #1e1e1e; text-align: center; }
+            QProgressBar::chunk { background: #264f78; }
+        """)
+        layout.addWidget(self._pipeline_bar)
+
         self._output = QPlainTextEdit()
         self._output.setMinimumHeight(0)
         self._output.setReadOnly(True)
@@ -396,7 +359,22 @@ class BuildPanel(QWidget):
         """)
         layout.addWidget(self._output, 1)
 
-        # ── Barra stato build ─────────────────────────────────────────────────
+        self._input_row = QHBoxLayout()
+        self._input_row.setContentsMargins(4, 2, 4, 4)
+        self._input_edit = QLineEdit()
+        self._input_edit.setPlaceholderText(tr("build_panel.task_input_placeholder", default="Scrivi input per il processo..."))
+        self._input_edit.setStyleSheet("background:#1e1e1e; color:#d4d4d4; border:1px solid #3c3c3c; padding:2px 4px;")
+        self._input_edit.returnPressed.connect(self._send_input)
+        self._input_send_btn = QPushButton(tr("button.send", default="Invia"))
+        self._input_send_btn.clicked.connect(self._send_input)
+        self._input_row.addWidget(self._input_edit, 1)
+        self._input_row.addWidget(self._input_send_btn)
+        input_container = QWidget()
+        input_container.setLayout(self._input_row)
+        input_container.setVisible(False)
+        self._input_container = input_container
+        layout.addWidget(input_container)
+
         self._status_bar = QLabel()
         self._status_bar.setStyleSheet(
             "padding: 2px 8px; font-size: 11px; "
@@ -405,7 +383,6 @@ class BuildPanel(QWidget):
         self._status_bar.setText(tr("msg.ready", default="Pronto."))
         layout.addWidget(self._status_bar)
 
-        # ── Errori (montato dalla MainWindow come tab a parte) ────────────────
         self._error_tree = QTreeWidget()
         self._error_tree.setMinimumHeight(0)
         self._error_tree.setStyleSheet("""
@@ -425,16 +402,18 @@ class BuildPanel(QWidget):
         """)
         self._error_tree.setAlternatingRowColors(True)
         self._error_tree.setHeaderLabels([
-            tr("label.file", default="File"), tr("label.line", default="Riga"),
-            tr("label.message", default="Messaggio")
+            tr("label.file", default="File"),
+            tr("label.line", default="Riga"),
+            tr("label.message", default="Messaggio"),
+            tr("label.source", default="Origine"),
         ])
-        self._error_tree.setColumnWidth(0, 220)
-        self._error_tree.setColumnWidth(1, 60)
+        self._error_tree.setColumnWidth(0, 200)
+        self._error_tree.setColumnWidth(1, 50)
+        self._error_tree.setColumnWidth(2, 250)
+        self._error_tree.setColumnWidth(3, 60)
         self._error_tree.itemDoubleClicked.connect(self._on_error_clicked)
 
-        # ── Task rapido (montato dalla MainWindow come tab a parte) ───────────
         self._task_widget = _TaskTab(self._mw)
-
         QTimer.singleShot(0, self._refresh_button_labels)
 
     def _connect_signals(self) -> None:
@@ -443,17 +422,17 @@ class BuildPanel(QWidget):
         bm.build_output.connect(self._append_output)
         bm.build_done.connect(self._on_build_done)
         bm.build_errors.connect(self._show_errors)
+        bm.pipeline_step.connect(self._on_pipeline_step)
 
         self._btn_compile.clicked.connect(lambda: self._run_action("compile"))
         self._btn_run.clicked.connect(    lambda: self._run_action("run"))
         self._btn_build.clicked.connect(  lambda: self._run_action("build"))
-        self._btn_stop.clicked.connect(bm.stop)
+        self._btn_stop.clicked.connect(self._stop_current)
         self._btn_clear.clicked.connect(self._clear_output)
         self._btn_analyze_ai.triggered.connect(self._analyze_with_ai)
         self._btn_next_error.triggered.connect(self.goto_next_error)
         self._btn_prev_error.triggered.connect(self.goto_prev_error)
 
-        # Sincronizza il profilo quando cambia il tab nell'editor
         try:
             self._mw._tab_manager.current_editor_changed.connect(
                 self._sync_profile_to_editor
@@ -462,7 +441,6 @@ class BuildPanel(QWidget):
             pass
 
     def _refresh_button_labels(self) -> None:
-        """Aggiorna le etichette dei pulsanti con la shortcut attuale letta da _actions."""
         actions = getattr(self._mw, "_actions", {})
         mapping = {
             self._btn_compile: ("compile", tr("action.compile", default="Compila")),
@@ -492,8 +470,6 @@ class BuildPanel(QWidget):
         icons_dir = Path(__file__).parent.parent / "icons" / "lucide"
         icon_path = icons_dir / "sparkles.svg"
         if not icon_path.exists():
-            icon_path = Path(__file__).parent.parent / "icons" / "lucide" / "sparkles.svg"
-        if not icon_path.exists():
             return
         color = self.palette().color(QPalette.ColorRole.WindowText).name()
         try:
@@ -504,13 +480,7 @@ class BuildPanel(QWidget):
         except Exception:
             pass
 
-    # ── Gestione profilo attivo ───────────────────────────────────────────────
-
     def _sync_profile_to_editor(self) -> None:
-        """
-        Aggiorna profilo attivo e combo in base al file corrente.
-        Se esiste un override per-estensione lo mostra nel combo, altrimenti usa auto-detect.
-        """
         editor = self._mw._tab_manager.current_editor()
         if editor is None:
             self._profile_combo.blockSignals(True)
@@ -531,14 +501,12 @@ class BuildPanel(QWidget):
         override = self._bm._profile_overrides.get(ext, "")
 
         if override and override in self._bm.get_profiles():
-            # Estensione ha override esplicito → mostralo nel combo
             idx = self._profile_combo.findData(override)
             self._profile_combo.blockSignals(True)
             self._profile_combo.setCurrentIndex(idx if idx > 0 else 0)
             self._profile_combo.blockSignals(False)
             self._set_active_profile(override)
         else:
-            # Auto-detect
             self._profile_combo.blockSignals(True)
             self._profile_combo.setCurrentIndex(0)
             self._profile_combo.blockSignals(False)
@@ -546,13 +514,11 @@ class BuildPanel(QWidget):
             self._set_active_profile(name or "")
 
     def _on_combo_changed(self, index: int) -> None:
-        """L'utente ha scelto un profilo manuale (o resettato ad automatico)."""
         editor = self._mw._tab_manager.current_editor() if hasattr(self._mw, "_tab_manager") else None
         path = getattr(editor, "file_path", None) if editor else None
         ext = path.suffix.lower() if path else ""
 
         if index == 0:
-            # Auto: rimuovi override per questa estensione e risincronizza
             if ext:
                 self._bm.clear_profile_override(ext)
             self._sync_profile_to_editor()
@@ -564,7 +530,6 @@ class BuildPanel(QWidget):
                 self._set_active_profile(name)
 
     def _set_active_profile(self, name: str) -> None:
-        """Imposta il profilo attivo e aggiorna tutti gli elementi UI."""
         self._current_profile = name
 
         if name:
@@ -580,48 +545,51 @@ class BuildPanel(QWidget):
                 "background: #3c3c3c; color: #858585; border-radius: 3px;"
             )
 
-        # Aggiorna tooltip e stato enabled dei pulsanti
         self._update_button_states(name)
 
     def _update_button_states(self, profile_name: str) -> None:
-        """Abilita/disabilita i pulsanti e aggiorna i tooltip con i comandi."""
         profile = self._bm.get_profiles().get(profile_name, {})
 
         compile_cmd = profile.get("compile", "")
         run_cmd     = profile.get("run",     "")
         build_cmd   = profile.get("build",   "")
+        has_pipeline = bool(profile.get("pipeline"))
 
-        self._btn_compile.setEnabled(bool(compile_cmd))
-        self._btn_run.setEnabled(    bool(run_cmd))
-        self._btn_build.setEnabled(  bool(build_cmd))
+        self._btn_compile.setEnabled(bool(compile_cmd) or has_pipeline)
+        self._btn_run.setEnabled(    bool(run_cmd)     or has_pipeline)
+        self._btn_build.setEnabled(  bool(build_cmd)   or has_pipeline)
 
-        self._btn_compile.setToolTip(compile_cmd or tr("build_panel.no_compile_cmd"))
-        self._btn_run.setToolTip(    run_cmd     or tr("build_panel.no_run_cmd"))
-        self._btn_build.setToolTip(  build_cmd   or tr("build_panel.no_build_cmd"))
+        self._btn_compile.setToolTip(compile_cmd or "(pipeline)")
+        self._btn_run.setToolTip(    run_cmd     or "(pipeline)")
+        self._btn_build.setToolTip(  build_cmd   or "(pipeline)")
 
         if not profile_name:
             for btn in [self._btn_compile, self._btn_run, self._btn_build]:
                 btn.setEnabled(False)
                 btn.setToolTip(tr("tooltip.build_no_file"))
 
-    # ── Esecuzione ────────────────────────────────────────────────────────────
-
     def _run_action(self, action: str) -> None:
-        """Lancia compile/run/build usando il profilo attivo."""
         editor = self._mw._tab_manager.current_editor()
         if editor is None:
             return
 
-        self._bm.run(action, editor)
+        interactive = self._btn_interactive.isChecked()
+        self._current_run_id = f"build_{id(self)}"
+        self._bm.run(action, editor, run_id=self._current_run_id, interactive=interactive)
 
-    @pyqtSlot(str)
-    def _on_build_started(self, action: str) -> None:
-        """Reset di log/errori/pulsanti a inizio build. Agganciato al segnale
-        BuildManager.build_started invece che al solo click sui pulsanti del
-        pannello, così lo stato si azzera anche quando la build parte da una
-        scorciatoia/menu che chiama BuildManager.run() direttamente (altrimenti
-        il log e gli errori della build precedente restavano visibili/misti a
-        quelli nuovi)."""
+    def _stop_current(self) -> None:
+        self._bm.stop(self._current_run_id)
+
+    def _send_input(self) -> None:
+        text = self._input_edit.text()
+        if text:
+            self._bm.send_input(self._current_run_id, text + "\n")
+            self._input_edit.clear()
+
+    @pyqtSlot(str, str)
+    def _on_build_started(self, run_id: str, action: str) -> None:
+        if run_id != self._current_run_id:
+            return
         self._output.clear()
         self._full_log.clear()
         self._error_tree.clear()
@@ -634,6 +602,8 @@ class BuildPanel(QWidget):
         self._btn_compile.setEnabled(False)
         self._btn_run.setEnabled(False)
         self._btn_build.setEnabled(False)
+        self._running_workers[run_id] = True
+        self._input_container.setVisible(self._btn_interactive.isChecked())
         self._status_bar.setText(
             tr("build_panel.in_progress", action=action.capitalize(), profile=self._current_profile)
         )
@@ -642,10 +612,25 @@ class BuildPanel(QWidget):
             "background: #1e3a1e; color: #4caf50; border-top: 1px solid #3c3c3c;"
         )
 
-    # ── Output ────────────────────────────────────────────────────────────────
+    @pyqtSlot(str, int, int, str)
+    def _on_pipeline_step(self, run_id: str, step: int, total: int, name: str) -> None:
+        if run_id != self._current_run_id:
+            return
+        self._pipeline_bar.setVisible(True)
+        self._pipeline_bar.setMaximum(total)
+        self._pipeline_bar.setValue(step)
+        self._pipeline_bar.setFormat(f"Pipeline: {step}/{total} — {name}")
 
-    @pyqtSlot(str)
-    def _append_output(self, line: str) -> None:
+    @pyqtSlot(str, str)
+    def _append_output(self, run_id: str, line: str) -> None:
+        if run_id != self._current_run_id:
+            return
+        max_lines = self._bm.get_output_limit()
+        if max_lines > 0 and len(self._full_log) >= max_lines:
+            removed = self._full_log[max_lines // 2:]
+            self._full_log = self._full_log[:max_lines // 2]
+            self._full_log.append(f"... [{len(removed)} righe troncate] ...")
+
         self._full_log.append(line)
 
         cursor = self._output.textCursor()
@@ -657,8 +642,10 @@ class BuildPanel(QWidget):
             fmt.setForeground(QColor("#f44747"))
         elif "warning" in lower:
             fmt.setForeground(QColor("#ffcc00"))
-        elif line.startswith("["):
+        elif line.startswith("[") or line.startswith("Pipeline"):
             fmt.setForeground(QColor("#9cdcfe"))
+        elif "hook" in lower:
+            fmt.setForeground(QColor("#ce9178"))
         else:
             fmt.setForeground(QColor("#d4d4d4"))
 
@@ -666,36 +653,30 @@ class BuildPanel(QWidget):
         self._output.setTextCursor(cursor)
         self._output.ensureCursorVisible()
 
-    @pyqtSlot(bool, str)
-    def _on_build_done(self, success: bool, message: str) -> None:
-        # Ripristina pulsanti
+    @pyqtSlot(str, bool, str)
+    def _on_build_done(self, run_id: str, success: bool, message: str) -> None:
+        if run_id != self._current_run_id:
+            return
+
         self._btn_stop.setEnabled(False)
         self._update_button_states(self._current_profile)
+        self._pipeline_bar.setVisible(False)
+        self._input_container.setVisible(False)
+        self._running_workers.pop(run_id, None)
 
         color_bg  = "#1e3a1e" if success else "#3a1e1e"
         color_fg  = "#4caf50" if success else "#f44747"
-        icon      = "✓" if success else "✗"
+        icon      = "\u2713" if success else "\u2717"
 
         self._output.appendHtml(
             f'<span style="color:{color_fg}"><b>{icon} {message}</b></span>'
         )
-        self._status_bar.setText(f"{icon} {message}  — {self._current_profile}")
+        self._status_bar.setText(f"{icon} {message}  \u2014 {self._current_profile}")
         self._status_bar.setStyleSheet(
             f"padding: 2px 8px; font-size: 11px; "
             f"background: {color_bg}; color: {color_fg}; border-top: 1px solid #3c3c3c;"
         )
 
-        # Se il build è riuscito e ha generato un PDF, aggiorna l'anteprima.
-        # Non condizionato a mw._preview_dock.isVisible(): se il dock
-        # Anteprima è tabificato con quello di Build (comune, dato che li
-        # apriamo entrambi durante una compilazione), isVisible() è False
-        # ogni volta che la tab in primo piano è quella di Build — quindi la
-        # condizione saltava l'aggiornamento quasi sempre, lasciando
-        # l'anteprima sul PDF pre-compilazione (o vuota) finché l'utente non
-        # forzava un refresh riselezionando manualmente il file .tex.
-        # set_pdf_path() non ha bisogno che il pannello sia visibile: prepara
-        # comunque il contenuto corretto, pronto non appena l'utente
-        # riporta in primo piano quella tab.
         if success:
             pdf_path = self._find_generated_pdf()
             if pdf_path:
@@ -707,18 +688,8 @@ class BuildPanel(QWidget):
                 if Settings.instance().get("build/clean_aux_after_compile", False):
                     self._clean_aux_files(pdf_path)
 
-        # Abilita "Analizza con AI" — utile sia in caso di errore sia di successo
         self._btn_analyze_ai.setEnabled(True)
 
-        # Parsing errori automatico — il log resta comunque la vista attiva:
-        # la tab "Errori compilazione" si limita a mostrare un badge col
-        # conteggio, senza sostituire la vista sul log grezzo.
-        #
-        # Non ci basiamo sul solo `success` (exit code): strumenti come
-        # latexmk possono terminare con codice 0 anche quando pdflatex ha
-        # riportato errori TeX nel log (es. "! Undefined control sequence"),
-        # perché considerano "successo" l'aver comunque prodotto un PDF.
-        # Analizziamo quindi sempre l'output quando c'è un parser configurato.
         n = 0
         if self._current_profile:
             output_text = "\n".join(self._full_log)
@@ -726,13 +697,18 @@ class BuildPanel(QWidget):
             editor = self._mw._tab_manager.current_editor() if hasattr(self._mw, "_tab_manager") else None
             if editor:
                 source = getattr(editor, "file_path", None)
-            errors = self._bm.parse_errors(output_text, self._current_profile, source)
-            self._show_errors(errors)
+
+            from config.settings import Settings
+            lsp_diags = None
+            if Settings.instance().get("build/unified_errors", True) and source:
+                lsp_diags = self._bm.get_lsp_diagnostics(source)
+
+            errors = self._bm.parse_errors(output_text, self._current_profile, source, lsp_diags)
+            self._show_errors(run_id, errors)
             n = len(errors)
         self.error_count_changed.emit(n)
 
     def _find_generated_pdf(self):
-        """Trova il PDF generato dal file corrente (stesso nome, stessa directory)."""
         from pathlib import Path
         mw = self.window()
         editor = None
@@ -747,13 +723,6 @@ class BuildPanel(QWidget):
         return pdf if pdf.exists() else None
 
     def _clean_aux_files(self, pdf_path) -> None:
-        """
-        Elimina i file ausiliari accanto al PDF appena generato (stesso nome,
-        stessa cartella). Chiamata solo dopo una compilazione riuscita e solo
-        se l'opzione è attiva — il PDF stesso non è mai toccato.
-        Se "build/keep_synctex" è attivo, .synctex.gz è escluso dalla pulizia
-        perché serve alla sincronizzazione sorgente↔PDF anche dopo il build.
-        """
         from config.settings import Settings
         from core.build_manager import clean_aux_files
         keep_synctex = Settings.instance().get("build/keep_synctex", True)
@@ -761,7 +730,7 @@ class BuildPanel(QWidget):
         removed = clean_aux_files(base, keep_synctex=keep_synctex)
         if removed:
             self._output.appendHtml(
-                '<span style="color:#858585">🧹 '
+                '<span style="color:#858585">\U0001f9f9 '
                 f'{tr("build_panel.aux_cleaned", n=len(removed), files=", ".join(removed))}'
                 '</span>'
             )
@@ -772,7 +741,6 @@ class BuildPanel(QWidget):
         self._btn_analyze_ai.setEnabled(False)
 
     def _analyze_with_ai(self) -> None:
-        """Apre il dialogo di conferma e invia il log all'AI selezionata."""
         log_text = self._output.toPlainText().strip()
         if not log_text:
             return
@@ -792,7 +760,6 @@ class BuildPanel(QWidget):
         model_name    = dlg.selected_model()
         prompt        = dlg.prompt()
 
-        # Recupera il pannello AI dal plugin manager
         try:
             from plugins.plugin_manager import PluginManager
             ai_entry  = PluginManager.instance().get_all().get("AI Assistant", {})
@@ -806,7 +773,6 @@ class BuildPanel(QWidget):
                                 f"Impossibile accedere al plugin AI:\n{exc}")
             return
 
-        # Imposta provider
         idx = panel._provider_combo.findText(provider_name)
         if idx >= 0:
             panel._provider_combo.setCurrentIndex(idx)
@@ -820,7 +786,6 @@ class BuildPanel(QWidget):
             panel._send()
 
         if pid == "ollama" and panel._model_combo.findText(model_name) < 0:
-            # Il provider change ha avviato un fetch asincrono; aspettiamo il segnale.
             _fired = [False]
             def _on_ready(_models):
                 if _fired[0]:
@@ -835,26 +800,34 @@ class BuildPanel(QWidget):
         else:
             _launch()
 
-    @pyqtSlot(list)
-    def _show_errors(self, errors: list) -> None:
+    @pyqtSlot(str, list)
+    def _show_errors(self, run_id: str, errors: list) -> None:
+        if run_id != self._current_run_id:
+            return
         self._error_tree.clear()
         for err in errors:
+            source = err.get("source", err.get("severity", "Build"))
             item = QTreeWidgetItem(self._error_tree, [
                 str(err.get("file", "")),
                 str(err.get("line", "")),
                 err.get("message", "")[:200],
+                source,
             ])
             item.setData(0, Qt.ItemDataRole.UserRole, err)
             if "error" in err.get("message", "").lower():
                 item.setForeground(0, QColor("#f44747"))
                 item.setForeground(2, QColor("#f44747"))
+            elif "warn" in err.get("message", "").lower():
+                item.setForeground(0, QColor("#ffcc00"))
+                item.setForeground(2, QColor("#ffcc00"))
+            if source == "LSP":
+                item.setForeground(3, QColor("#9cdcfe"))
+                item.setToolTip(3, "LSP Diagnostic")
 
         self._current_error_idx = -1
         has_errors = self._error_tree.topLevelItemCount() > 0
         self._btn_next_error.setEnabled(has_errors)
         self._btn_prev_error.setEnabled(has_errors)
-
-    # ── Navigazione errori (stile TeXstudio F4) ─────────────────────────────────
 
     def goto_next_error(self) -> None:
         self._goto_error(+1)
@@ -873,7 +846,7 @@ class BuildPanel(QWidget):
         self._error_tree.scrollToItem(item)
         self._on_error_clicked(item)
         self._status_bar.setText(
-            f"⚠  Errore {self._current_error_idx + 1}/{n}: {item.text(2)}"
+            f"\u26a0  Errore {self._current_error_idx + 1}/{n}: {item.text(2)}"
         )
         self._status_bar.setStyleSheet(
             "padding: 2px 8px; font-size: 11px; "
@@ -910,12 +883,12 @@ class BuildPanel(QWidget):
 # ─── Task rapido ─────────────────────────────────────────────────────────────
 
 class _TaskTab(QWidget):
-    """Tab per eseguire task arbitrari (Makefile, npm, pyproject, comando libero)."""
-
     def __init__(self, main_window, parent=None):
         super().__init__(parent)
         self._mw = main_window
         self._worker = None
+        self._bm = BuildManager.instance()
+        self._run_id = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -923,7 +896,6 @@ class _TaskTab(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(4)
 
-        # Riga: input + pulsanti
         row = QHBoxLayout()
         self._cmd_edit = QLineEdit()
         self._cmd_edit.setPlaceholderText(tr("build_panel.task_cmd_placeholder"))
@@ -937,17 +909,21 @@ class _TaskTab(QWidget):
         self._btn_stop.setEnabled(False)
         self._btn_stop.setStyleSheet("color:#f44747;")
         self._btn_stop.clicked.connect(self._stop)
-        self._btn_refresh = QPushButton("↺")
+        self._btn_refresh = QPushButton("\u21ba")
         self._btn_refresh.setFixedWidth(30)
         self._btn_refresh.setToolTip(tr("tooltip.build_reload_tasks"))
         self._btn_refresh.clicked.connect(self._discover)
+        self._btn_interactive = QPushButton("PTY")
+        self._btn_interactive.setFixedWidth(36)
+        self._btn_interactive.setCheckable(True)
+        self._btn_interactive.setToolTip(tr("tooltip.build_interactive"))
         row.addWidget(self._cmd_edit, 1)
         row.addWidget(self._btn_run)
         row.addWidget(self._btn_stop)
+        row.addWidget(self._btn_interactive)
         row.addWidget(self._btn_refresh)
         layout.addLayout(row)
 
-        # Lista task scoperti
         self._task_list = QListWidget()
         self._task_list.setStyleSheet("""
             QListWidget {
@@ -962,7 +938,6 @@ class _TaskTab(QWidget):
         )
         layout.addWidget(self._task_list)
 
-        # Output
         self._output = QPlainTextEdit()
         self._output.setReadOnly(True)
         self._output.setFont(QFont("Monospace", 10))
@@ -975,6 +950,13 @@ class _TaskTab(QWidget):
         """)
         layout.addWidget(self._output, 1)
 
+        self._input_edit = QLineEdit()
+        self._input_edit.setPlaceholderText(tr("build_panel.task_input_placeholder", default="Scrivi input..."))
+        self._input_edit.setStyleSheet("background:#1e1e1e; color:#d4d4d4; border:1px solid #3c3c3c; padding:2px 4px;")
+        self._input_edit.returnPressed.connect(self._send_input)
+        self._input_edit.setVisible(False)
+        layout.addWidget(self._input_edit)
+
         QTimer.singleShot(500, self._discover)
 
     def _discover(self) -> None:
@@ -985,8 +967,7 @@ class _TaskTab(QWidget):
         if not directory:
             self._task_list.addItem(tr("build_panel.task_open_file"))
             return
-        from core.build_manager import BuildManager
-        tasks = BuildManager.discover_tasks(directory)
+        tasks = self._bm.discover_tasks(directory)
         if not tasks:
             self._task_list.addItem(tr("build_panel.no_task", dir=directory.name))
             return
@@ -1005,32 +986,40 @@ class _TaskTab(QWidget):
             return
         editor = self._mw._tab_manager.current_editor() if hasattr(self._mw, "_tab_manager") else None
         path   = getattr(editor, "file_path", None) if editor else None
-        cwd    = str(path.parent) if path else "."
+        cwd    = path.parent if path else Path.cwd()
         self._output.clear()
         self._output.appendPlainText(f"$ {cmd}\n")
         self._btn_run.setEnabled(False)
         self._btn_stop.setEnabled(True)
 
-        from core.build_manager import BuildWorker
-        import os
-        self._worker = BuildWorker(cmd, cwd, dict(os.environ))
-        self._worker.output_line.connect(self._on_output)
-        self._worker.finished_ok.connect(lambda _secs: self._on_done(True))
-        self._worker.finished_err.connect(lambda _code: self._on_done(False))
-        self._worker.stopped.connect(lambda: self._on_done(False))
-        self._worker.start()
+        interactive = self._btn_interactive.isChecked()
+        self._input_edit.setVisible(interactive)
+
+        self._run_id = f"task_{id(self)}"
+        self._bm.run_task(cmd, cwd, run_id=self._run_id, interactive=interactive)
+
+        self._bm.build_output.connect(self._on_output)
+        self._bm.build_done.connect(self._on_done)
 
     def _stop(self) -> None:
-        if self._worker:
-            self._worker.abort()
+        self._bm.stop(self._run_id)
 
-    def _on_output(self, line: str) -> None:
+    def _send_input(self) -> None:
+        text = self._input_edit.text()
+        if text:
+            self._bm.send_input(self._run_id, text + "\n")
+            self._input_edit.clear()
+
+    def _on_output(self, run_id: str, line: str) -> None:
+        if run_id != self._run_id:
+            return
         cursor = self._output.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         fmt = QTextCharFormat()
-        if "error" in line.lower():
+        lower = line.lower()
+        if "error" in lower:
             fmt.setForeground(QColor("#f44747"))
-        elif "warning" in line.lower():
+        elif "warning" in lower:
             fmt.setForeground(QColor("#ffcc00"))
         else:
             fmt.setForeground(QColor("#d4d4d4"))
@@ -1038,37 +1027,40 @@ class _TaskTab(QWidget):
         self._output.setTextCursor(cursor)
         self._output.ensureCursorVisible()
 
-    def _on_done(self, ok: bool) -> None:
+    def _on_done(self, run_id: str, ok: bool, msg: str) -> None:
+        if run_id != self._run_id:
+            return
         self._btn_run.setEnabled(True)
         self._btn_stop.setEnabled(False)
+        self._input_edit.setVisible(False)
+        try:
+            self._bm.build_output.disconnect(self._on_output)
+            self._bm.build_done.disconnect(self._on_done)
+        except Exception:
+            pass
         color = "#4caf50" if ok else "#f44747"
-        icon  = "✓" if ok else "✗"
+        icon  = "\u2713" if ok else "\u2717"
         self._output.appendHtml(f'<span style="color:{color}"><b>{icon} {tr("build_panel.task_done_ok") if ok else tr("build_panel.task_done_fail")}</b></span>')
 
 
 # ─── Dialog configurazione profili ───────────────────────────────────────────
 
 class BuildProfilesDialog(QDialog):
-    """Dialog per creare/modificare/eliminare i profili di compilazione."""
-
     def __init__(self, main_window: "MainWindow"):
         super().__init__(main_window)
         self._mw = main_window
         self._bm = BuildManager.instance()
-        self._dirty = False   # profilo corrente modificato ma non salvato
+        self._dirty = False
 
-        # Determina il profilo attivo per il file corrente
         self._active_profile_name: str = ""
         editor = main_window._tab_manager.current_editor() if hasattr(main_window, '_tab_manager') else None
         if editor and getattr(editor, 'file_path', None):
             self._active_profile_name = self._bm.get_profile_for_file(editor.file_path) or ""
 
         self.setWindowTitle(tr("action.build_profiles", default="Profili di compilazione"))
-        self.resize(800, 520)
+        self.resize(860, 620)
         self._build_ui()
         self._load_profiles()
-
-    # ── UI ────────────────────────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
         outer = QVBoxLayout(self)
@@ -1076,14 +1068,12 @@ class BuildProfilesDialog(QDialog):
         main = QHBoxLayout()
         outer.addLayout(main, 1)
 
-        # ── Colonna sinistra: lista profili ───────────────────────────────────
         left = QVBoxLayout()
 
         lbl = QLabel(tr("build_panel.available_profiles"))
         lbl.setStyleSheet("font-weight: bold;")
         left.addWidget(lbl)
 
-        # Banner profilo attivo
         if self._active_profile_name:
             self._active_banner = QLabel(
                 tr("build_panel.active_profile_banner", name=self._active_profile_name)
@@ -1110,10 +1100,9 @@ class BuildProfilesDialog(QDialog):
         self._profile_list.model().rowsMoved.connect(self._on_profile_order_changed)
         list_row.addWidget(self._profile_list, 1)
 
-        # Pulsanti ▲/▼ a fianco della lista
         move_col = QVBoxLayout()
-        self._btn_up = QPushButton("▲")
-        self._btn_down = QPushButton("▼")
+        self._btn_up = QPushButton("\u25b2")
+        self._btn_down = QPushButton("\u25bc")
         self._btn_up.setFixedSize(24, 24)
         self._btn_down.setFixedSize(24, 24)
         self._btn_up.setToolTip(tr("tooltip.build_profile_move_up"))
@@ -1136,7 +1125,7 @@ class BuildProfilesDialog(QDialog):
         btn_row.addWidget(self._btn_del)
         left.addLayout(btn_row)
 
-        self._btn_set_active = QPushButton("▶  " + tr("button.set_active"))
+        self._btn_set_active = QPushButton("\u25b6  " + tr("button.set_active"))
         self._btn_set_active.setToolTip(tr("tooltip.build_set_active"))
         self._btn_set_active.setStyleSheet(
             "font-weight: bold; padding: 4px 8px; "
@@ -1147,17 +1136,21 @@ class BuildProfilesDialog(QDialog):
 
         main.addLayout(left, 1)
 
-        # Separatore verticale
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.VLine)
         sep.setFrameShadow(QFrame.Shadow.Sunken)
         main.addWidget(sep)
 
-        # ── Colonna destra: form dettaglio ────────────────────────────────────
-        right = QVBoxLayout()
+        right_outer = QVBoxLayout()
 
-        self._grp = QGroupBox(tr("build_panel.profile_config_title"))
-        form = QFormLayout(self._grp)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        right_widget = QWidget()
+        right = QVBoxLayout(right_widget)
+
+        self._grp_core = QGroupBox(tr("build_panel.profile_config_title"))
+        form = QFormLayout(self._grp_core)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         self._name_edit    = QLineEdit()
@@ -1175,30 +1168,46 @@ class BuildProfilesDialog(QDialog):
 
         form.addRow(tr("build_panel.profile_name_label"),    self._name_edit)
         form.addRow(tr("build_panel.extensions_label"),       self._ext_edit)
-        form.addRow(tr("action.compile", default="Compila") + " →", self._compile_edit)
-        form.addRow(tr("action.run",     default="Esegui")  + " →", self._run_edit)
-        form.addRow(tr("action.build",   default="Build")   + " →", self._build_edit)
+        form.addRow(tr("action.compile", default="Compila") + " \u2192", self._compile_edit)
+        form.addRow(tr("action.run",     default="Esegui")  + " \u2192", self._run_edit)
+        form.addRow(tr("action.build",   default="Build")   + " \u2192", self._build_edit)
         form.addRow(tr("build_panel.error_regex_label"),     self._regex_edit)
 
-        _vs = tr("build_panel.vars_syntax")
+        regex_row = QHBoxLayout()
+        regex_row.addWidget(QLabel(tr("build_panel.regex_file_group", default="File grp:")))
+        self._file_grp_spin = QSpinBox()
+        self._file_grp_spin.setRange(0, 9)
+        self._file_grp_spin.setValue(1)
+        self._file_grp_spin.setToolTip(tr("tooltip.build_regex_file_group", default="Gruppo regex per il file"))
+        regex_row.addWidget(self._file_grp_spin)
+        regex_row.addWidget(QLabel(tr("build_panel.regex_line_group", default="Line grp:")))
+        self._line_grp_spin = QSpinBox()
+        self._line_grp_spin.setRange(0, 9)
+        self._line_grp_spin.setValue(2)
+        self._line_grp_spin.setToolTip(tr("tooltip.build_regex_line_group", default="Gruppo regex per la riga"))
+        regex_row.addWidget(self._line_grp_spin)
+        regex_row.addStretch()
+        form.addRow("", QWidget())
+        form.addRow("", QWidget())
+
         var_lbl = QLabel(
-            f"<small><b>{tr('build_panel.vars_title')}</b> ({_vs} <code>${{VAR}}</code> {tr('build_panel.vars_or')} <code>$(VAR)</code>):<br>"
+            f"<small><b>{tr('build_panel.vars_title')}</b> (<code>${{VAR}}</code> {tr('build_panel.vars_or')} <code>$(VAR)</code>):<br>"
             "<table cellspacing='2'>"
-            f"<tr><td><code>${{FILE}}</code></td><td>— {tr('build_panel.var_file_desc')}&nbsp;&nbsp;</td>"
+            f"<tr><td><code>${{FILE}}</code></td><td>\u2014 {tr('build_panel.var_file_desc')}&nbsp;&nbsp;</td>"
             "<td><i>es. /home/user/doc/main.py</i></td></tr>"
-            f"<tr><td><code>${{DIR}}</code></td><td>— {tr('build_panel.var_dir_desc')}</td>"
+            f"<tr><td><code>${{DIR}}</code></td><td>\u2014 {tr('build_panel.var_dir_desc')}</td>"
             "<td><i>es. /home/user/doc</i></td></tr>"
-            f"<tr><td><code>${{FILENAME}}</code></td><td>— {tr('build_panel.var_filename_desc')}</td>"
+            f"<tr><td><code>${{FILENAME}}</code></td><td>\u2014 {tr('build_panel.var_filename_desc')}</td>"
             "<td><i>es. main.py</i></td></tr>"
-            f"<tr><td><code>${{BASENAME}}</code></td><td>— {tr('build_panel.var_basename_desc')}</td>"
+            f"<tr><td><code>${{BASENAME}}</code></td><td>\u2014 {tr('build_panel.var_basename_desc')}</td>"
             "<td><i>es. main</i></td></tr>"
-            f"<tr><td><code>${{BASEFILE}}</code></td><td>— {tr('build_panel.var_basefile_desc')}</td>"
+            f"<tr><td><code>${{BASEFILE}}</code></td><td>\u2014 {tr('build_panel.var_basefile_desc')}</td>"
             "<td><i>es. /home/user/doc/main</i></td></tr>"
-            f"<tr><td><code>${{EXT}}</code></td><td>— {tr('build_panel.var_ext_desc')}</td>"
+            f"<tr><td><code>${{EXT}}</code></td><td>\u2014 {tr('build_panel.var_ext_desc')}</td>"
             "<td><i>es. .py</i></td></tr>"
-            f"<tr><td><code>${{LINE}}</code></td><td>— {tr('build_panel.var_line_desc')}</td>"
+            f"<tr><td><code>${{LINE}}</code></td><td>\u2014 {tr('build_panel.var_line_desc')}</td>"
             "<td><i>es. 42</i></td></tr>"
-            f"<tr><td><code>${{COL}}</code></td><td>— {tr('build_panel.var_col_desc')}</td>"
+            f"<tr><td><code>${{COL}}</code></td><td>\u2014 {tr('build_panel.var_col_desc')}</td>"
             "<td><i>es. 7</i></td></tr>"
             "</table></small>"
         )
@@ -1206,45 +1215,89 @@ class BuildProfilesDialog(QDialog):
         var_lbl.setWordWrap(True)
         form.addRow("", var_lbl)
 
-        right.addWidget(self._grp, 1)
+        right.addWidget(self._grp_core)
 
-        # Collega i campi al flag dirty
+        self._grp_env = QGroupBox(tr("build_panel.env_group", default="Variabili d'ambiente"))
+        env_layout = QVBoxLayout(self._grp_env)
+        env_layout.addWidget(QLabel(tr("build_panel.env_hint",
+            default="Formato: UNA_VARIABILE=valore, una per riga. Riga vuota = ignora.")))
+        self._env_edit = QPlainTextEdit()
+        self._env_edit.setMaximumHeight(80)
+        self._env_edit.setPlaceholderText("PATH=/custom/bin:$PATH\nMY_VAR=hello")
+        self._env_edit.setStyleSheet("background:#1e1e1e; color:#d4d4d4; border:1px solid #3c3c3c; font-family: monospace;")
+        env_layout.addWidget(self._env_edit)
+        right.addWidget(self._grp_env)
+
+        self._grp_hooks = QGroupBox(tr("build_panel.hooks_group", default="Hook pre/post build"))
+        hooks_form = QFormLayout(self._grp_hooks)
+        hooks_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self._pre_hook_edit = QLineEdit()
+        self._pre_hook_edit.setPlaceholderText(tr("build_panel.pre_hook_placeholder", default="source venv/bin/activate"))
+        self._post_hook_edit = QLineEdit()
+        self._post_hook_edit.setPlaceholderText(tr("build_panel.post_hook_placeholder", default="./cleanup.sh"))
+        hooks_form.addRow(tr("build_panel.pre_hook"), self._pre_hook_edit)
+        hooks_form.addRow(tr("build_panel.post_hook"), self._post_hook_edit)
+        right.addWidget(self._grp_hooks)
+
+        self._grp_pipeline = QGroupBox(tr("build_panel.pipeline_group", default="Pipeline (multi-step)"))
+        pipe_layout = QVBoxLayout(self._grp_pipeline)
+        pipe_layout.addWidget(QLabel(tr("build_panel.pipeline_hint",
+            default="Se configurata, la pipeline sostituisce compile/run/build.\nUn passo per riga: nome | comando | stop_on_error (true/false)")))
+        self._pipeline_edit = QPlainTextEdit()
+        self._pipeline_edit.setMaximumHeight(100)
+        self._pipeline_edit.setPlaceholderText("Lint | ruff check ${FILE} | true\nCompile | gcc -Wall -o ${DIR}/${BASENAME} ${FILE} | true\nRun | ${DIR}/${BASENAME} | false")
+        self._pipeline_edit.setStyleSheet("background:#1e1e1e; color:#d4d4d4; border:1px solid #3c3c3c; font-family: monospace;")
+        pipe_layout.addWidget(self._pipeline_edit)
+        right.addWidget(self._grp_pipeline)
+
+        self._grp_regex = QGroupBox(tr("build_panel.regex_group", default="Gruppi regex errori"))
+        regex_form = QFormLayout(self._grp_regex)
+        regex_form.addRow(QLabel(tr("build_panel.regex_capture_note",
+            default="I gruppi di cattura devono corrispondere a file e numero di riga.")))
+        regex_form.addRow("", regex_row.itemAt(0).widget())
+        w = QWidget()
+        w.setLayout(regex_row)
+        regex_form.addRow(w)
+        right.addWidget(self._grp_regex)
+
+        right.addStretch()
+
+        scroll.setWidget(right_widget)
+        right_outer.addWidget(scroll, 1)
+
         for w in [self._name_edit, self._ext_edit, self._compile_edit,
-                  self._run_edit, self._build_edit, self._regex_edit]:
+                   self._run_edit, self._build_edit, self._regex_edit,
+                   self._pre_hook_edit, self._post_hook_edit]:
             w.textChanged.connect(self._mark_dirty)
+        self._env_edit.textChanged.connect(self._mark_dirty)
+        self._pipeline_edit.textChanged.connect(self._mark_dirty)
+        self._file_grp_spin.valueChanged.connect(self._mark_dirty)
+        self._line_grp_spin.valueChanged.connect(self._mark_dirty)
 
-        # Barra stato salvataggio
         self._save_status = QLabel("")
         self._save_status.setAlignment(Qt.AlignmentFlag.AlignRight)
-        right.addWidget(self._save_status)
+        right_outer.addWidget(self._save_status)
 
-        # Pulsante salva
         save_row = QHBoxLayout()
         save_row.addStretch()
-        self._btn_save = QPushButton("💾  " + tr("button.save", default="Salva profilo"))
+        self._btn_save = QPushButton("\U0001f4be  " + tr("button.save", default="Salva profilo"))
         self._btn_save.setMinimumWidth(160)
         self._btn_save.setStyleSheet("font-weight: bold; padding: 4px 12px;")
         self._btn_save.clicked.connect(self._save_current)
         save_row.addWidget(self._btn_save)
-        right.addLayout(save_row)
+        right_outer.addLayout(save_row)
 
-        # Nota built-in
-        self._note_builtin = QLabel(
-            tr("build_panel.save_prompt")
-        )
+        self._note_builtin = QLabel(tr("build_panel.save_prompt"))
         self._note_builtin.setStyleSheet("color: #858585; font-size: 11px;")
         self._note_builtin.setWordWrap(True)
         self._note_builtin.setVisible(False)
-        right.addWidget(self._note_builtin)
+        right_outer.addWidget(self._note_builtin)
 
-        main.addLayout(right, 2)
+        main.addLayout(right_outer, 2)
 
-        # ── Pulsante Chiudi ───────────────────────────────────────────────────
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self._on_close)
         outer.addWidget(buttons)
-
-    # ── Caricamento lista ─────────────────────────────────────────────────────
 
     def _load_profiles(self) -> None:
         self._profile_list.clear()
@@ -1252,9 +1305,9 @@ class BuildProfilesDialog(QDialog):
         active_row = 0
         for i, name in enumerate(profiles):
             is_active = (name == self._active_profile_name)
-            label = f"▶  {name}" if is_active else f"    {name}"
+            label = f"\u25b6  {name}" if is_active else f"    {name}"
             item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, name)  # nome reale senza prefisso
+            item.setData(Qt.ItemDataRole.UserRole, name)
             if is_active:
                 font = item.font()
                 font.setBold(True)
@@ -1280,7 +1333,6 @@ class BuildProfilesDialog(QDialog):
             return
         profile = self._bm.get_profiles().get(name, {})
 
-        # Blocca il segnale dirty durante il caricamento
         self._dirty = False
         self._name_edit.setText(name)
         exts = profile.get("extensions", [])
@@ -1289,9 +1341,33 @@ class BuildProfilesDialog(QDialog):
         self._run_edit.setText(    profile.get("run",     ""))
         self._build_edit.setText(  profile.get("build",   ""))
         self._regex_edit.setText(  profile.get("error_regex", ""))
+
+        self._file_grp_spin.setValue(profile.get("error_file_group", 1))
+        self._line_grp_spin.setValue(profile.get("error_line_group", 2))
+
+        env_val = profile.get("env", {})
+        if isinstance(env_val, dict):
+            self._env_edit.setPlainText("\n".join(f"{k}={v}" for k, v in env_val.items()))
+        elif isinstance(env_val, str):
+            self._env_edit.setPlainText(env_val)
+
+        self._pre_hook_edit.setText(profile.get("pre_hook", ""))
+        self._post_hook_edit.setText(profile.get("post_hook", ""))
+
+        pipeline = profile.get("pipeline", [])
+        if pipeline:
+            lines = []
+            for step in pipeline:
+                name_s = step.get("name", "")
+                cmd_s = step.get("cmd", "")
+                stop_e = str(step.get("stop_on_error", True)).lower()
+                lines.append(f"{name_s} | {cmd_s} | {stop_e}")
+            self._pipeline_edit.setPlainText("\n".join(lines))
+        else:
+            self._pipeline_edit.setPlainText("")
+
         self._dirty = False
 
-        # Mostra nota built-in
         is_builtin = name in DEFAULT_PROFILES
         self._note_builtin.setVisible(is_builtin)
         self._btn_del.setEnabled(not is_builtin)
@@ -1311,14 +1387,12 @@ class BuildProfilesDialog(QDialog):
         )
 
     def _set_as_active(self) -> None:
-        """Forza il profilo selezionato come attivo per l'estensione del file corrente."""
         current = self._profile_list.currentItem()
         if not current:
             return
         name = current.data(Qt.ItemDataRole.UserRole) or ""
         if not name:
             return
-        # Override per-estensione (se disponibile)
         editor = self._mw._tab_manager.current_editor() if hasattr(self._mw, "_tab_manager") else None
         path = getattr(editor, "file_path", None) if editor else None
         ext = path.suffix.lower() if path else ""
@@ -1328,14 +1402,12 @@ class BuildProfilesDialog(QDialog):
             self._bm._active_profile = name
         self._active_profile_name = name
 
-        # Aggiorna banner
         self._active_banner.setText(tr("build_panel.active_profile_banner", name=name))
         self._active_banner.setStyleSheet(
             "background: #264f78; color: #9cdcfe; "
             "font-size: 12px; padding: 4px 6px; border-radius: 3px;"
         )
 
-        # Aggiorna lista (grassetto/colore sul profilo attivo)
         for i in range(self._profile_list.count()):
             item = self._profile_list.item(i)
             iname = item.data(Qt.ItemDataRole.UserRole) or ""
@@ -1344,7 +1416,7 @@ class BuildProfilesDialog(QDialog):
             font.setBold(is_active)
             item.setFont(font)
             if is_active:
-                item.setText(f"▶  {iname}")
+                item.setText(f"\u25b6  {iname}")
                 item.setForeground(QColor("#9cdcfe"))
                 item.setBackground(QColor("#1e3a5f"))
                 item.setToolTip(tr("tooltip.build_profile_active_manual"))
@@ -1354,13 +1426,10 @@ class BuildProfilesDialog(QDialog):
                 item.setForeground(self._profile_list.palette().color(
                     self._profile_list.palette().ColorRole.WindowText))
 
-        # Notifica nel pannello build se aperto
         if hasattr(self._mw, '_build_panel') and self._mw._build_panel:
             bp = self._mw._build_panel
             if hasattr(bp, '_set_active_profile'):
                 bp._set_active_profile(name)
-
-    # ── Salvataggio ───────────────────────────────────────────────────────────
 
     def _save_current(self) -> None:
         name = self._name_edit.text().strip()
@@ -1369,7 +1438,6 @@ class BuildProfilesDialog(QDialog):
             self._save_status.setStyleSheet("color: #f44747; font-size: 11px;")
             return
 
-        # Parse estensioni (accetta spazio, ; o ,)
         raw_exts = self._ext_edit.text().replace(";", " ").replace(",", " ").split()
         exts = []
         for e in raw_exts:
@@ -1379,27 +1447,51 @@ class BuildProfilesDialog(QDialog):
             if e:
                 exts.append(e.lower())
 
+        env_dict = {}
+        env_text = self._env_edit.toPlainText().strip()
+        if env_text:
+            for line in env_text.splitlines():
+                line = line.strip()
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    env_dict[k.strip()] = v.strip()
+
+        pipeline = []
+        pipe_text = self._pipeline_edit.toPlainText().strip()
+        if pipe_text:
+            for line in pipe_text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split("|", 2)
+                if len(parts) >= 2:
+                    p_name = parts[0].strip()
+                    p_cmd = parts[1].strip()
+                    p_stop = parts[2].strip().lower() != "false" if len(parts) >= 3 else True
+                    pipeline.append({"name": p_name, "cmd": p_cmd, "stop_on_error": p_stop})
+
         profile = {
             "extensions":         exts,
             "compile":            self._compile_edit.text().strip(),
             "run":                self._run_edit.text().strip(),
             "build":              self._build_edit.text().strip(),
             "error_regex":        self._regex_edit.text().strip(),
-            "error_file_group":   1,
-            "error_line_group":   2,
+            "error_file_group":   self._file_grp_spin.value(),
+            "error_line_group":   self._line_grp_spin.value(),
+            "env":                env_dict,
+            "pre_hook":           self._pre_hook_edit.text().strip(),
+            "post_hook":          self._post_hook_edit.text().strip(),
+            "pipeline":           pipeline,
         }
-        # Preserva "error_parser" (es. "latex"): il form non lo espone come
-        # campo modificabile, quindi ricostruire il dict da zero lo perderebbe
-        # ad ogni salvataggio, disattivando il parser dedicato LaTeX.
+
         existing_parser = self._bm.get_profiles().get(name, {}).get("error_parser")
         if existing_parser:
             profile["error_parser"] = existing_parser
         self._bm.add_profile(name, profile)
 
-        # Aggiorna lista se è un nome nuovo
         existing = self._find_item_by_name(name)
         if existing is None:
-            label = f"▶  {name}" if name == self._active_profile_name else f"    {name}"
+            label = f"\u25b6  {name}" if name == self._active_profile_name else f"    {name}"
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, name)
             item.setToolTip(tr("tooltip.build_profile_user"))
@@ -1410,26 +1502,17 @@ class BuildProfilesDialog(QDialog):
                 self._profile_list.palette().ColorRole.WindowText))
 
         self._dirty = False
-        from core.build_manager import DEFAULT_PROFILES
         if name in DEFAULT_PROFILES:
             self._save_status.setText(tr("build_panel.save_override_ok"))
         else:
             self._save_status.setText(tr("build_panel.save_ok"))
         self._save_status.setStyleSheet("color: #4caf50; font-size: 11px;")
-        # Aggiorna nota built-in (ora è un override, ma teniamo la nota informativa)
-        self._note_builtin.setVisible(False)
-        self._save_status.setStyleSheet("color: #4caf50; font-size: 11px;")
         self._btn_save.setStyleSheet("font-weight: bold; padding: 4px 12px;")
         self._note_builtin.setVisible(False)
 
-        # Resetta il messaggio dopo 3 secondi
-        from PyQt6.QtCore import QTimer
         QTimer.singleShot(3000, lambda: self._save_status.setText(""))
 
-    # ── Nuovo / Elimina ───────────────────────────────────────────────────────
-
     def _new_profile(self) -> None:
-        from PyQt6.QtWidgets import QInputDialog
         name, ok = QInputDialog.getText(
             self, tr("build_panel.new_profile_title"), tr("build_panel.new_profile_prompt")
         )
@@ -1439,6 +1522,7 @@ class BuildProfilesDialog(QDialog):
         empty = {
             "extensions": [], "compile": "", "run": "", "build": "",
             "error_regex": "", "error_file_group": 1, "error_line_group": 2,
+            "env": {}, "pre_hook": "", "post_hook": "", "pipeline": [],
         }
         self._bm.add_profile(name, empty)
         item = QListWidgetItem(f"    {name}")
@@ -1448,7 +1532,6 @@ class BuildProfilesDialog(QDialog):
         self._profile_list.setCurrentItem(item)
 
     def _find_item_by_name(self, name: str):
-        """Trova un QListWidgetItem per nome reale (UserRole)."""
         for i in range(self._profile_list.count()):
             item = self._profile_list.item(i)
             if item.data(Qt.ItemDataRole.UserRole) == name:
@@ -1482,7 +1565,6 @@ class BuildProfilesDialog(QDialog):
         ]
 
     def _on_profile_order_changed(self) -> None:
-        """Chiamato dopo drag-and-drop: salva il nuovo ordine."""
         self._bm.reorder_profiles(self._current_profile_order())
 
     def _move_profile_up(self) -> None:

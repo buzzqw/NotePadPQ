@@ -102,12 +102,20 @@ Runs natively on Linux, Windows, and FreeBSD.
 - Interactive regex tester, numeric converter (dec/hex/bin/oct).
 
 ### 🏗️ Build Panel
-- Configurable **build profiles** per language (LaTeX, Python, C/C++, Markdown, etc.).
+- Configurable **build profiles** per language: 13 built-in (Python, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) + unlimited user-defined profiles.
 - **Command variables**: `${FILE}` (full path), `${DIR}` (directory), `${BASENAME}` (name without extension), `${BASEFILE}` (full path without extension), `${FILENAME}`, `${EXT}`, `${LINE}`, `${COL}`. Also accepted as `$(VAR)`.
+- **Extended task discovery**: auto-detects tasks from Makefile, `package.json`, `pyproject.toml`, `Cargo.toml`, `CMakeLists.txt`, `Gradle` (`build.gradle`), `Docker Compose`, `Dockerfile`, `justfile`.
+- **Project-level config** (`.notepadpq-build.json`): share build profiles and tasks with your team via Git.
+- **Environment variables** per profile: set custom `PATH`, `VIRTUAL_ENV`, `JAVA_HOME`, etc.
+- **Pre/post build hooks**: commands executed before and after the main build (e.g. activate virtualenv, cleanup scripts).
+- **Multi-step pipeline**: define sequential build steps (`lint → compile → test → deploy`) with per-step error handling.
+- **Interactive (PTY) mode**: run interactive programs (`npm init`, `ssh`, Python REPL) directly from the build panel.
+- **Concurrent builds**: run multiple tasks simultaneously; each task tab has its own independent worker.
+- **Unified errors view**: merge LSP diagnostics with build errors in a single sortable error list.
 - Real-time output with **clickable error list**; click an error to jump directly to the line.
+- **Configurable output limit**: prevent memory issues with very large build logs.
 - **Automatic PDF detection**: the preview button activates instantly if a compiled PDF is already present.
-- **Auto-save** before compilation.
-- **Keep `.synctex.gz`** option (on by default): excludes it from auxiliary-file cleanup after compilation, so SyncTeX sync with the PDF preview survives.
+- **Auto-save** before compilation, **build-on-save** option, Keep `.synctex.gz` option (sync survives aux-file cleanup).
 
 ### 👁️ Preview Panel
 - **Live preview** for Markdown, HTML, reStructuredText, LaTeX (structure), PDF.
@@ -135,7 +143,7 @@ Supported servers: `pylsp` (Python), `clangd` (C/C++), `rust-analyzer` (Rust), `
 
 ### ⚡ Task Runner
 
-Dedicated tab in the bottom panel with auto-discovery of project tasks (Makefile, `npm scripts`, `pyproject.toml`) and a field for arbitrary manual commands.
+Dedicated tab in the bottom panel with **auto-discovery of project tasks** from 7+ tools: Makefile, `npm scripts`, `pyproject.toml`, Cargo, CMake, Gradle, Docker Compose, and justfile. Interactive (PTY) mode with inline input for interactive programs.
 
 ### 🤖 AI Assistant (plugin)
 
@@ -474,12 +482,20 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - Tester regex interattivo, convertitore numerico (dec/hex/bin/oct).
 
 ### 🏗️ Pannello Build
-- **Profili di build** configurabili per linguaggio (LaTeX, Python, C/C++, Markdown, ecc.).
+- **Profili di build** configurabili per linguaggio: 13 built-in (Python, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) + illimitati profili utente.
 - **Variabili nei comandi**: `${FILE}` (percorso completo), `${DIR}` (cartella), `${BASENAME}` (nome senza estensione), `${BASEFILE}` (percorso senza estensione), `${FILENAME}`, `${EXT}`, `${LINE}`, `${COL}`. Accettate anche nella forma `$(VAR)`.
+- **Task discovery estesa**: rileva automaticamente task da Makefile, `package.json`, `pyproject.toml`, `Cargo.toml`, `CMakeLists.txt`, `Gradle` (`build.gradle`), `Docker Compose`, `Dockerfile`, `justfile`.
+- **Configurazione di progetto** (`.notepadpq-build.json`): condividi profili e task build con il team via Git.
+- **Variabili d'ambiente** per profilo: imposta `PATH`, `VIRTUAL_ENV`, `JAVA_HOME` personalizzati.
+- **Hook pre/post build**: comandi eseguiti prima e dopo la build (es. attivare virtualenv, script di pulizia).
+- **Pipeline multi-step**: definisci passi sequenziali (`lint → compile → test → deploy`) con gestione errori per passo.
+- **Modalità interattiva (PTY)**: esegui programmi interattivi (`npm init`, `ssh`, REPL Python) direttamente dal pannello build.
+- **Build concorrenti**: esegui più task simultaneamente; ogni tab task ha il suo worker indipendente.
+- **Errori unificati**: unisci diagnostiche LSP ed errori di build in un'unica lista ordinabile.
 - **Output in tempo reale** con lista errori cliccabile; click su un errore salta direttamente alla riga.
+- **Limite output configurabile**: previeni problemi di memoria con log di build molto grandi.
 - **Rilevamento PDF automatico**: il pulsante anteprima si abilita istantaneamente se è presente un PDF già compilato.
-- **Salvataggio automatico** prima della compilazione.
-- **Mantieni `.synctex.gz`** (attivo di default): lo esclude dalla pulizia dei file ausiliari dopo la compilazione, così la sincronizzazione SyncTeX con l'anteprima PDF resta valida.
+- **Salvataggio automatico** prima della compilazione, opzione **compila al salvataggio**, mantieni `.synctex.gz` (sopravvive alla pulizia file ausiliari).
 
 ### 👁️ Pannello Anteprima
 - **Anteprima live** di Markdown, HTML, reStructuredText, LaTeX (struttura), PDF.
@@ -507,7 +523,7 @@ Server supportati: `pylsp` (Python), `clangd` (C/C++), `rust-analyzer` (Rust), `
 
 ### ⚡ Task Runner
 
-Tab dedicato nel pannello inferiore con auto-scoperta dei task dal progetto (Makefile, `npm scripts`, `pyproject.toml`) e campo per comandi manuali arbitrari.
+Tab dedicato nel pannello inferiore con **auto-scoperta dei task** da 7+ strumenti: Makefile, `npm scripts`, `pyproject.toml`, Cargo, CMake, Gradle, Docker Compose e justfile. Modalità interattiva (PTY) con input inline per programmi interattivi.
 
 ### 🤖 AI Assistant (plugin)
 

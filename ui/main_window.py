@@ -1619,7 +1619,7 @@ class MainWindow(QMainWindow):
         from config.settings import Settings
         clean_before_checked = Settings.instance().get("build/clean_aux_before_compile", False)
         clean_before_act = self._act("build_clean_aux_before_toggle", "", self._toggle_clean_aux_before,
-                                      checkable=True, checked=clean_before_checked)
+                                       checkable=True, checked=clean_before_checked)
         clean_before_act.setToolTip(tr("tooltip.build_clean_aux_before_toggle"))
         m.addAction(clean_before_act)
         clean_checked = Settings.instance().get("build/clean_aux_after_compile", False)
@@ -1629,7 +1629,7 @@ class MainWindow(QMainWindow):
         m.addAction(clean_act)
         keep_synctex_checked = Settings.instance().get("build/keep_synctex", True)
         keep_synctex_act = self._act("build_keep_synctex_toggle", "", self._toggle_keep_synctex,
-                                      checkable=True, checked=keep_synctex_checked)
+                                       checkable=True, checked=keep_synctex_checked)
         keep_synctex_act.setToolTip(tr("tooltip.build_keep_synctex_toggle"))
         m.addAction(keep_synctex_act)
         self._sep(m)
@@ -1639,8 +1639,22 @@ class MainWindow(QMainWindow):
         draft_act.setToolTip(tr("tooltip.build_draft_mode"))
         m.addAction(draft_act)
         self._sep(m)
+
+        build_on_save_checked = Settings.instance().get("build/trigger_on_save", False)
+        build_on_save_act = self._act("build_trigger_on_save", "", self._toggle_build_on_save,
+                                       checkable=True, checked=build_on_save_checked)
+        build_on_save_act.setToolTip(tr("tooltip.build_trigger_on_save"))
+        m.addAction(build_on_save_act)
+
+        unified_checked = Settings.instance().get("build/unified_errors", True)
+        unified_act = self._act("build_unified_errors", "", self._toggle_unified_errors,
+                                 checkable=True, checked=unified_checked)
+        unified_act.setToolTip(tr("tooltip.build_unified_errors"))
+        m.addAction(unified_act)
+
+        self._sep(m)
         self._menus["lsp"] = m
-        m.addSection("⚡  LSP")
+        m.addSection("\u26a1  LSP")
         m.addAction(self._act("lsp_goto_def", "Ctrl+F12",    self.action_lsp_goto_definition))
         m.addAction(self._act("lsp_refs",     "Shift+F12",   self.action_lsp_find_references))
         m.addAction(self._act("lsp_rename",   "Shift+F6",    self.action_lsp_rename))
@@ -2468,6 +2482,11 @@ class MainWindow(QMainWindow):
             self._update_recent(path)
             self._notify_plugins_file_saved(path)
             self._autosave_file_to_backup(editor)
+
+            # Build-on-save: trigger build automatico al salvataggio
+            from config.settings import Settings
+            if Settings.instance().get("build/trigger_on_save", False):
+                QTimer.singleShot(50, lambda: self._trigger_build_on_save(editor))
 
             # 5. Se il file è stato aperto da FTP, sincronizza sul server remoto
             if getattr(editor, "_ftp_remote_path", None):
@@ -3545,17 +3564,23 @@ class MainWindow(QMainWindow):
     def action_compile(self) -> None:
         self._build_dock.show()
         from core.build_manager import BuildManager
-        BuildManager.instance().run("compile", self._current_editor())
+        from uuid import uuid4
+        BuildManager.instance().run("compile", self._current_editor(),
+                                    run_id=f"build_{uuid4().hex[:8]}")
 
     def action_run(self) -> None:
         self._build_dock.show()
         from core.build_manager import BuildManager
-        BuildManager.instance().run("run", self._current_editor())
+        from uuid import uuid4
+        BuildManager.instance().run("run", self._current_editor(),
+                                    run_id=f"build_{uuid4().hex[:8]}")
 
     def action_build(self) -> None:
         self._build_dock.show()
         from core.build_manager import BuildManager
-        BuildManager.instance().run("build", self._current_editor())
+        from uuid import uuid4
+        BuildManager.instance().run("build", self._current_editor(),
+                                    run_id=f"build_{uuid4().hex[:8]}")
 
     def action_stop_build(self) -> None:
         from core.build_manager import BuildManager
@@ -3589,6 +3614,20 @@ class MainWindow(QMainWindow):
     def _toggle_draft_mode(self, checked: bool) -> None:
         from config.settings import Settings
         Settings.instance().set("build/draft_mode", checked)
+
+    def _toggle_build_on_save(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("build/trigger_on_save", checked)
+
+    def _toggle_unified_errors(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("build/unified_errors", checked)
+
+    def _trigger_build_on_save(self, editor) -> None:
+        from core.build_manager import BuildManager
+        from uuid import uuid4
+        BuildManager.instance().run("build", editor,
+                                    run_id=f"autobuild_{uuid4().hex[:8]}")
 
     def action_keybinding_editor(self) -> None:
         from ui.keybinding import KeyBindingDialog

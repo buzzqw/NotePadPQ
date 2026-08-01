@@ -51,6 +51,9 @@ _DEFAULTS: dict[str, Any] = {
     # Build
     "build/save_before":       True,
     "build/keep_synctex":      True,
+    "build/trigger_on_save":   False,
+    "build/output_max_lines":  10000,
+    "build/unified_errors":    True,
     # i18n
     "i18n/language":           "it",
     # Finestra

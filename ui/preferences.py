@@ -361,8 +361,23 @@ class PreferencesDialog(QDialog):
         gl.addWidget(self._build_save_before)
 
         self._build_panel_always = QCheckBox(tr("pref.build.panel_always",
-                                               default="Tieni sempre visibile il pannello di output"))
+                                                default="Tieni sempre visibile il pannello di output"))
         gl.addWidget(self._build_panel_always)
+
+        self._build_trigger_save = QCheckBox(tr("pref.build.trigger_on_save",
+                                                default="Esegui compilazione automatica al salvataggio"))
+        gl.addWidget(self._build_trigger_save)
+
+        self._build_output_limit = QSpinBox()
+        self._build_output_limit.setRange(100, 100000)
+        self._build_output_limit.setValue(10000)
+        self._build_output_limit.setSingleStep(1000)
+        self._build_output_limit.setToolTip(tr("tooltip.pref_build_output_limit"))
+        lim_row = QHBoxLayout()
+        lim_row.addWidget(QLabel(tr("pref.build.output_limit", default="Max righe output:")))
+        lim_row.addWidget(self._build_output_limit)
+        lim_row.addStretch()
+        gl.addLayout(lim_row)
 
         vl.addWidget(grp)
 
@@ -619,6 +634,8 @@ class PreferencesDialog(QDialog):
         # Build
         self._build_save_before.setChecked(s.get("build/save_before", True))
         self._build_panel_always.setChecked(s.get("build/panel_always", False))
+        self._build_trigger_save.setChecked(s.get("build/trigger_on_save", False))
+        self._build_output_limit.setValue(s.get("build/output_max_lines", 10000))
         saved_term_cmd = s.get("build/terminal_cmd", "")
         matched = False
         for i in range(self._terminal_combo.count()):
@@ -740,6 +757,8 @@ class PreferencesDialog(QDialog):
         # Build
         s.set("build/save_before",  self._build_save_before.isChecked())
         s.set("build/panel_always", self._build_panel_always.isChecked())
+        s.set("build/trigger_on_save", self._build_trigger_save.isChecked())
+        s.set("build/output_max_lines", self._build_output_limit.value())
         term_data = self._terminal_combo.currentData()
         if term_data == "__custom__":
             s.set("build/terminal_cmd", self._terminal_custom.text().strip())

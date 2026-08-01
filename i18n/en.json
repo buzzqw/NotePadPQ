@@ -732,18 +732,26 @@
     "plain_text": "Plain text"
   },
   "richtext": {
-    "downloading_jodit": "Downloading Jodit editor…",
+    "downloading_jodit": "Downloading Jodit editor\u2026",
     "download_failed": "Jodit download failed:\n{exc}\n\nCheck your internet connection.",
     "pandoc_missing": "Pandoc not found. Install pandoc or mammoth to open this format.",
-    "save_as": "Save as…",
+    "save_as": "Save as\u2026",
     "export_pdf": "Export PDF",
     "open_as_text": "Open as text",
-    "jodit_not_ready": "Jodit not available. Use Plugin → Rich Text Editor → Download dependencies.",
+    "jodit_not_ready": "Jodit not available. Use Plugin \u2192 Rich Text Editor \u2192 Download dependencies.",
     "load_error": "Cannot open file:\n{err}",
     "save_error": "Save failed:\n{err}",
     "docx_lib_missing": "Install htmldocx or python-docx to save as DOCX:\npip install htmldocx",
     "word_count": "{count} words",
-    "print": "Print"
+    "print": "Print",
+    "saving": "Saving\u2026",
+    "loading": "Loading document\u2026",
+    "modified": "\u25cf Modified",
+    "save_confirm": "File {name} has been modified. Save?",
+    "load_progress": "Processing rich text document\u2026",
+    "format_warning_title": "Format Warning",
+    "format_warning_text": "Opening .doc, .docx and .odt files may not preserve all original formatting.\nComplex tables, styles, images and other structures may be altered or lost.\nThe same applies to saving.",
+    "dont_show_again": "Don't show again"
   },
   "plugin": {
     "spreadsheet": {

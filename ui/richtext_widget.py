@@ -95,6 +95,23 @@ _JODIT_CSS = _ASSETS_DIR / "jodit.min.css"
 _ACTIVE_THREADS: set[QThread] = set()
 
 
+# ── Shared Jodit directory (singleton, not temp-per-widget) ──────────────────
+
+_JODIT_SHARED_DIR: Optional[Path] = None
+
+
+def _get_shared_jodit_dir() -> Path:
+    """Restituisce una directory condivisa con gli asset Jodit, creato una volta sola."""
+    global _JODIT_SHARED_DIR
+    if _JODIT_SHARED_DIR is not None and _JODIT_SHARED_DIR.exists():
+        return _JODIT_SHARED_DIR
+    from core.platform import get_config_dir
+    d = get_config_dir() / "jodit_assets"
+    d.mkdir(parents=True, exist_ok=True)
+    _JODIT_SHARED_DIR = d
+    return d
+
+
 def _keep_thread_alive(thread: QThread) -> None:
     _ACTIVE_THREADS.add(thread)
     thread.finished.connect(lambda thread=thread: _ACTIVE_THREADS.discard(thread))
@@ -395,6 +412,15 @@ class RichTextIO:
         if ext in (".odt", ".rtf"):
             return RichTextIO._html_to_pandoc(html, path)
 
+        if ext == ".md":
+            return RichTextIO._html_to_pandoc(html, path, dst_format="markdown")
+
+        if ext == ".tex":
+            return RichTextIO._html_to_pandoc(html, path, dst_format="latex")
+
+        if ext == ".txt":
+            return RichTextIO._html_to_plaintext(html, path)
+
         try:
             path.write_text(html, encoding="utf-8")
             return ""
@@ -441,7 +467,7 @@ class RichTextIO:
             return str(e)
 
     @staticmethod
-    def _html_to_pandoc(html: str, path: Path) -> str:
+    def _html_to_pandoc(html: str, path: Path, dst_format: str = "") -> str:
         import subprocess
 
         with tempfile.NamedTemporaryFile(
@@ -450,7 +476,7 @@ class RichTextIO:
             f.write(RichTextIO._full_html(html))
             tmp = f.name
         try:
-            fmt = path.suffix.lstrip(".")
+            fmt = dst_format or path.suffix.lstrip(".")
             result = subprocess.run(
                 ["pandoc", "-f", "html", "-t", fmt, tmp, "-o", str(path)],
                 capture_output=True,
@@ -476,6 +502,27 @@ class RichTextIO:
             "max-width:860px;margin:40px auto;padding:0 20px}</style>"
             f"</head><body>{body}</body></html>"
         )
+
+    @staticmethod
+    def _html_to_plaintext(html: str, path: Path) -> str:
+        """Estrae solo il testo dall'HTML e lo salva come .txt."""
+        from html.parser import HTMLParser
+
+        class _TextExtractor(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.text = []
+
+            def handle_data(self, data):
+                self.text.append(data)
+
+        try:
+            ex = _TextExtractor()
+            ex.feed(html)
+            path.write_text("".join(ex.text), encoding="utf-8")
+            return ""
+        except Exception as e:
+            return str(e)
 
 
 class _RichTextIOWorker(QThread):
@@ -702,6 +749,9 @@ _SAVE_FILTER = (
     "PDF (*.pdf);;"
     "OpenDocument Text (*.odt);;"
     "RTF (*.rtf);;"
+    "Markdown (*.md);;"
+    "LaTeX (*.tex);;"
+    "Testo semplice (*.txt);;"
     "Tutti i file (*)"
 )
 
@@ -875,8 +925,8 @@ class RichTextWidget(QWidget):
         if not WEBENGINE_OK or self._view is None:
             return
 
-        # Crea tmpdir con gli asset di Jodit
-        self._tmpdir = Path(tempfile.mkdtemp(prefix="npq_rt_"))
+        # Directory Jodit condivisa tra tutti i widget (non /tmp per ogni tab)
+        self._tmpdir = _get_shared_jodit_dir()
         js_src = _JODIT_JS
         css_src = _JODIT_CSS
 
@@ -884,8 +934,11 @@ class RichTextWidget(QWidget):
             self._status_lbl.setText(tr("richtext.jodit_not_ready"))
             return
 
-        shutil.copy(js_src, self._tmpdir / "jodit.min.js")
-        shutil.copy(css_src, self._tmpdir / "jodit.min.css")
+        # Copia i file .js/.css solo se non presenti nella dir condivisa
+        for src, name in [(js_src, "jodit.min.js"), (css_src, "jodit.min.css")]:
+            dest = self._tmpdir / name
+            if not dest.exists() or dest.stat().st_size == 0:
+                shutil.copy(src, dest)
 
         # Ottieni qwebchannel.js dal sistema Qt
         qwc_js = self._get_qwebchannel_js()
@@ -1250,15 +1303,11 @@ class RichTextWidget(QWidget):
         timer = getattr(self, "_wc_timer", None)
         if timer is not None:
             timer.stop()
-        if self._tmpdir and self._tmpdir.exists():
-            shutil.rmtree(self._tmpdir, ignore_errors=True)
-        self._tmpdir = None
+        self._tmpdir = None   # Non cancellare la directory condivisa
 
     def closeEvent(self, event):
         self.cleanup()
         super().closeEvent(event)
 
     def __del__(self):
-        tmpdir = getattr(self, "_tmpdir", None)
-        if tmpdir and tmpdir.exists():
-            shutil.rmtree(tmpdir, ignore_errors=True)
+        pass   # Dir condivisa gestita dal singleton

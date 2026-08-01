@@ -732,18 +732,26 @@
     "plain_text": "Testo"
   },
   "richtext": {
-    "downloading_jodit": "Download editor Jodit in corso…",
+    "downloading_jodit": "Download editor Jodit in corso\u2026",
     "download_failed": "Download Jodit fallito:\n{exc}\n\nControlla la connessione internet.",
     "pandoc_missing": "Pandoc non trovato. Installa pandoc o mammoth per aprire questo formato.",
-    "save_as": "Salva come…",
+    "save_as": "Salva come\u2026",
     "export_pdf": "Esporta PDF",
     "open_as_text": "Apri come testo",
-    "jodit_not_ready": "Jodit non disponibile. Usa Plugin → Editor Rich Text → Scarica dipendenze.",
+    "jodit_not_ready": "Jodit non disponibile. Usa Plugin \u2192 Editor Rich Text \u2192 Scarica dipendenze.",
     "load_error": "Impossibile aprire il file:\n{err}",
     "save_error": "Salvataggio fallito:\n{err}",
     "docx_lib_missing": "Installa htmldocx o python-docx per salvare in DOCX:\npip install htmldocx",
     "word_count": "{count} parole",
-    "print": "Stampa"
+    "print": "Stampa",
+    "saving": "Salvataggio in corso\u2026",
+    "loading": "Caricamento documento\u2026",
+    "modified": "\u25cf Modificato",
+    "save_confirm": "Il file {name} \u00e8 stato modificato. Salvarlo?",
+    "load_progress": "Elaborazione documento rich text\u2026",
+    "format_warning_title": "Avviso formattazione",
+    "format_warning_text": "L'apertura di file .doc, .docx e .odt potrebbe non preservare tutta la formattazione originale.\nTabelle complesse, stili, immagini e altre strutture potrebbero essere alterate o perdute.\nLo stesso vale per il salvataggio.",
+    "dont_show_again": "Non mostrare pi\u00f9"
   },
   "plugin": {
     "spreadsheet": {

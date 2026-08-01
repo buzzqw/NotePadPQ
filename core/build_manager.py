@@ -24,6 +24,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
@@ -37,6 +38,11 @@ from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
+
+
+def _log_warn(msg: str) -> None:
+    """Log a warning to stderr — silent fallbacks should not hide real issues."""
+    print(f"[build_manager] {msg}", file=sys.stderr)
 
 # ─── Profili predefiniti ──────────────────────────────────────────────────────
 
@@ -413,8 +419,8 @@ def clean_aux_files(base_path: Path, keep_synctex: bool = True) -> list[str]:
             try:
                 candidate.unlink()
                 removed.append(candidate.name)
-            except OSError:
-                pass
+            except OSError as e:
+                _log_warn(f"Could not remove aux file {candidate.name}: {e}")
     return removed
 
 
@@ -474,8 +480,8 @@ class BuildManager(QObject):
                     self._profiles = reordered
                 if overrides and isinstance(overrides, dict):
                     self._profile_overrides.update(overrides)
-            except Exception:
-                pass
+            except Exception as e:
+                _log_warn(f"Failed to load build profiles from {path}: {e}")
 
     def save_profiles(self) -> None:
         profiles_to_save = {}
@@ -551,8 +557,8 @@ class BuildManager(QObject):
                     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
                     self._project_configs[cfg_path] = cfg
                     return cfg
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log_warn(f"Failed to parse {cfg_path}: {e}")
             parent = current.parent
             if parent == current:
                 break
@@ -995,9 +1001,8 @@ class BuildManager(QObject):
                     log_content = log_path.read_text(errors="replace")
                     if log_content:
                         output = log_content
-                except Exception:
-                    pass
-
+                except Exception as e:
+                    _log_warn(f"Error reading LaTeX log file: {e}")
         file_stack: list[str] = []
         current_file: str = ""
         main_file: str = ""
@@ -1100,20 +1105,18 @@ class BuildManager(QObject):
                         target = m.group(1)
                         if target not in ("all", "PHONY", ".PHONY"):
                             tasks.append({"name": f"make {target}", "cmd": f"make {target}", "source": "Makefile"})
-            except Exception:
-                pass
+            except Exception as e:
+                _log_warn(f"Error reading Makefile: {e}")
 
-        # package.json scripts
         pkg = directory / "package.json"
         if pkg.exists():
             try:
                 data = json.loads(pkg.read_text())
                 for name, cmd in data.get("scripts", {}).items():
                     tasks.append({"name": f"npm run {name}", "cmd": f"npm run {name}", "source": "package.json"})
-            except Exception:
-                pass
+            except Exception as e:
+                _log_warn(f"Error reading package.json: {e}")
 
-        # pyproject.toml [tool.taskipy.tasks] or [tool.scripts]
         pyproject = directory / "pyproject.toml"
         if pyproject.exists():
             try:
@@ -1131,10 +1134,9 @@ class BuildManager(QObject):
                         name = parts[0].strip().strip('"')
                         cmd_raw = parts[1].strip().strip('"').strip("'")
                         tasks.append({"name": name, "cmd": cmd_raw, "source": "pyproject.toml"})
-            except Exception:
-                pass
+            except Exception as e:
+                _log_warn(f"Error reading pyproject.toml: {e}")
 
-        # Cargo.toml — cargo commands
         cargo_toml = directory / "Cargo.toml"
         if cargo_toml.exists():
             tasks.extend([
@@ -1209,8 +1211,8 @@ class BuildManager(QObject):
                     if m:
                         target = m.group(1)
                         tasks.append({"name": f"just {target}", "cmd": f"just {target}", "source": "justfile"})
-            except Exception:
-                pass
+            except Exception as e:
+                _log_warn(f"Error reading justfile: {e}")
 
         return tasks
 
@@ -1232,6 +1234,6 @@ class BuildManager(QObject):
                             "severity": "LSP",
                             "source": "LSP",
                         })
-        except Exception:
-            pass
+        except Exception as e:
+            _log_warn(f"Error getting LSP diagnostics: {e}")
         return diagnostics

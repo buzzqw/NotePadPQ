@@ -996,6 +996,14 @@ class _TaskTab(QWidget):
         self._input_edit.setVisible(interactive)
 
         self._run_id = f"task_{id(self)}"
+
+        # Scollega segnali precedenti per evitare accumulo
+        try:
+            self._bm.build_output.disconnect(self._on_output)
+            self._bm.build_done.disconnect(self._on_done)
+        except TypeError:
+            pass
+
         self._bm.run_task(cmd, cwd, run_id=self._run_id, interactive=interactive)
 
         self._bm.build_output.connect(self._on_output)
@@ -1162,9 +1170,25 @@ class BuildProfilesDialog(QDialog):
         self._run_edit.setPlaceholderText(tr("build_panel.cmd_placeholder_empty"))
         self._build_edit   = QLineEdit()
         self._build_edit.setPlaceholderText(tr("build_panel.cmd_placeholder_empty"))
-        self._regex_edit   = QLineEdit()
+        self._regex_edit = QLineEdit()
         self._regex_edit.setPlaceholderText(r'es. File "([^"]+)", line (\d+)')
         self._regex_edit.setToolTip(tr("tooltip.build_error_regex"))
+        self._regex_edit.textChanged.connect(self._on_regex_changed)
+
+        self._regex_preview = QLabel("")
+        self._regex_preview.setStyleSheet(
+            "font-family: monospace; font-size: 10px; "
+            "background: #1e1e1e; color: #4caf50; "
+            "padding: 2px 4px; border-radius: 2px; min-height: 18px;"
+        )
+        self._regex_preview.setWordWrap(True)
+
+        # Sample di output per il test live della regex
+        self._regex_sample_output = (
+            'File "/home/user/test.py", line 42, in <module>\n'
+            'File "/home/user/main.py", line 15\n'
+            'src/app.rs:100:5: error: expected token\n'
+        )
 
         form.addRow(tr("build_panel.profile_name_label"),    self._name_edit)
         form.addRow(tr("build_panel.extensions_label"),       self._ext_edit)
@@ -1172,6 +1196,7 @@ class BuildProfilesDialog(QDialog):
         form.addRow(tr("action.run",     default="Esegui")  + " \u2192", self._run_edit)
         form.addRow(tr("action.build",   default="Build")   + " \u2192", self._build_edit)
         form.addRow(tr("build_panel.error_regex_label"),     self._regex_edit)
+        form.addRow("", self._regex_preview)
 
         regex_row = QHBoxLayout()
         regex_row.addWidget(QLabel(tr("build_panel.regex_file_group", default="File grp:")))
@@ -1385,6 +1410,45 @@ class BuildProfilesDialog(QDialog):
             "font-weight: bold; padding: 4px 12px; "
             "background: #264f78; color: #ffffff; border: 1px solid #9cdcfe;"
         )
+
+    def _on_regex_changed(self, text: str) -> None:
+        if not text.strip():
+            self._regex_preview.setText("")
+            return
+        import re
+        file_grp = self._file_grp_spin.value()
+        line_grp = self._line_grp_spin.value()
+        try:
+            compiled = re.compile(text, re.MULTILINE)
+            matches = list(compiled.finditer(self._regex_sample_output))
+            if matches:
+                parts = []
+                for m in matches[:3]:
+                    groups = m.groups()
+                    f = groups[file_grp - 1] if file_grp > 0 and file_grp <= len(groups) else "?"
+                    l = groups[line_grp - 1] if line_grp > 0 and line_grp <= len(groups) else "?"
+                    parts.append(f"File: {f}, Line: {l}")
+                more = f" +{len(matches)-3}" if len(matches) > 3 else ""
+                self._regex_preview.setText(f"\u2713  {len(matches)} match: {'  |  '.join(parts)}{more}")
+                self._regex_preview.setStyleSheet(
+                    "font-family: monospace; font-size: 10px; "
+                    "background: #1e3a1e; color: #4caf50; "
+                    "padding: 2px 4px; border-radius: 2px; min-height: 18px;"
+                )
+            elif len(matches) == 0:
+                self._regex_preview.setText("\u26a0  No match on sample output")
+                self._regex_preview.setStyleSheet(
+                    "font-family: monospace; font-size: 10px; "
+                    "background: #3a1e1e; color: #ffcc00; "
+                    "padding: 2px 4px; border-radius: 2px; min-height: 18px;"
+                )
+        except re.error as e:
+            self._regex_preview.setText(f"\u2717  Invalid regex: {e}")
+            self._regex_preview.setStyleSheet(
+                "font-family: monospace; font-size: 10px; "
+                "background: #3a1e1e; color: #f44747; "
+                "padding: 2px 4px; border-radius: 2px; min-height: 18px;"
+            )
 
     def _set_as_active(self) -> None:
         current = self._profile_list.currentItem()

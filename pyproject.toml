@@ -1,0 +1,82 @@
+[project]
+name = "notepadpq"
+version = "1.7.4"
+description = "One editor. Every language. Every workflow — a modern cross-platform text editor built with Python and PyQt6"
+readme = "README.md"
+license = {text = "EUPL-1.2"}
+authors = [{name = "buzzqw"}]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: European Union Public Licence 1.2 (EUPL 1.2)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Text Editors",
+    "Topic :: Software Development",
+]
+
+dependencies = [
+    "PyQt6>=6.5",
+    "PyQt6-QScintilla",
+    "PyQt6-WebEngine",
+    "chardet",
+    "markdown",
+    "docutils",
+    "pygments",
+    "pyspellchecker",
+    "PyGithub",
+    "python-gitlab",
+    "keyring",
+]
+
+[project.optional-dependencies]
+latex = ["pymupdf", "matplotlib", "sympy"]
+spreadsheet = ["openpyxl", "xlrd", "odfpy"]
+richtext = ["mammoth", "htmldocx"]
+database = ["psycopg2-binary", "pymysql"]
+formatter = ["black", "ruff"]
+dev = ["pytest>=7", "pytest-qt>=4"]
+
+[project.urls]
+Homepage = "https://github.com/buzzqw/NotePadPQ"
+Issues = "https://github.com/buzzqw/NotePadPQ/issues"
+Releases = "https://github.com/buzzqw/NotePadPQ/releases"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E", "W",         # pycodestyle errors/warnings
+    "F",              # pyflakes
+    "I",              # isort
+    "B",              # flake8-bugbear
+    "UP",             # pyupgrade
+]
+ignore = [
+    "E501",           # line too long (handled by formatter)
+    "B008",           # do not perform function calls in argument defaults
+    "B904",           # raise from within except
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.ruff.lint.isort]
+force-single-line = false
+combine-as-imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+qt_api = "pyqt6"

@@ -368,6 +368,10 @@ class PreferencesDialog(QDialog):
                                                 default="Esegui compilazione automatica al salvataggio"))
         gl.addWidget(self._build_trigger_save)
 
+        self._build_unified_errors = QCheckBox(tr("action.build_unified_errors",
+                                                   default="Errori unificati (LSP + Build)"))
+        gl.addWidget(self._build_unified_errors)
+
         self._build_output_limit = QSpinBox()
         self._build_output_limit.setRange(100, 100000)
         self._build_output_limit.setValue(10000)
@@ -380,6 +384,13 @@ class PreferencesDialog(QDialog):
         gl.addLayout(lim_row)
 
         vl.addWidget(grp)
+
+        self._build_settings_map = {
+            "build/save_before": self._build_save_before,
+            "build/panel_always": self._build_panel_always,
+            "build/trigger_on_save": self._build_trigger_save,
+            "build/unified_errors": self._build_unified_errors,
+        }
 
         # ── Terminale ─────────────────────────────────────────────────────────
         grp_term = QGroupBox(tr("pref.build.terminal_group"))
@@ -632,9 +643,12 @@ class PreferencesDialog(QDialog):
         self._preview_mermaid.setChecked(s.get("preview/mermaid", True))
 
         # Build
+        for key, cb in self._build_settings_map.items():
+            cb.setChecked(s.get(key, False))
         self._build_save_before.setChecked(s.get("build/save_before", True))
         self._build_panel_always.setChecked(s.get("build/panel_always", False))
         self._build_trigger_save.setChecked(s.get("build/trigger_on_save", False))
+        self._build_unified_errors.setChecked(s.get("build/unified_errors", True))
         self._build_output_limit.setValue(s.get("build/output_max_lines", 10000))
         saved_term_cmd = s.get("build/terminal_cmd", "")
         matched = False
@@ -754,10 +768,9 @@ class PreferencesDialog(QDialog):
         s.set("preview/delay_ms",    self._preview_delay.value())
         s.set("preview/mermaid",     self._preview_mermaid.isChecked())
 
-        # Build
-        s.set("build/save_before",  self._build_save_before.isChecked())
-        s.set("build/panel_always", self._build_panel_always.isChecked())
-        s.set("build/trigger_on_save", self._build_trigger_save.isChecked())
+        # Build (data-driven + explicit defaults)
+        for key, cb in self._build_settings_map.items():
+            s.set(key, cb.isChecked())
         s.set("build/output_max_lines", self._build_output_limit.value())
         term_data = self._terminal_combo.currentData()
         if term_data == "__custom__":

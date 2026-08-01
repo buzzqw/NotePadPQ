@@ -578,13 +578,15 @@ Esegue il comando associato al tipo di file corrente e mostra l'output nel panne
 
 | Azione | Scorciatoia |
 |---|---|
+| Esegui | `F5` |
 | Compila | `F6` |
 | Build | `F7` |
 | Stop compilazione | pulsante Stop nel pannello |
+| Profili di compilazione | `F8` |
 
 #### Profili di compilazione e variabili
 
-I profili di compilazione si configurano da **Strumenti → Profili di compilazione**. Ogni profilo associa un tipo di file (es. `LaTeX`, `Python`, `Markdown`) a uno o più comandi (Compila, Build, Pulisci).
+I profili di compilazione si configurano da **Build → Profili di compilazione** (`F8`). 13 profili predefiniti (Python, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) e possibilità di crearne di personalizzati illimitati. Ogni profilo associa un'estensione file a uno o più comandi (Compila, Esegui, Build).
 
 Nei comandi sono disponibili le seguenti variabili, accettate sia nella forma `${VAR}` che `$(VAR)`:
 
@@ -595,9 +597,29 @@ Nei comandi sono disponibili le seguenti variabili, accettate sia nella forma `$
 | `${FILENAME}` | Nome del file con estensione | `tesi.tex` |
 | `${BASENAME}` | Nome del file senza estensione | `tesi` |
 | `${BASEFILE}` | Percorso completo senza estensione | `/home/utente/doc/tesi` |
-| `${EXT}` | Estensione del file (senza punto) | `tex` |
+| `${EXT}` | Estensione del file con punto | `.tex` |
 | `${LINE}` | Riga corrente del cursore | `42` |
 | `${COL}` | Colonna corrente del cursore | `7` |
+
+#### Nuove funzionalità avanzate
+
+**Variabili d'ambiente per profilo**: definisci variabili d'ambiente personalizzate nel dialog profili (una `CHIAVE=valore` per riga). Utile per `PATH`, `VIRTUAL_ENV`, `JAVA_HOME`, ecc.
+
+**Hook pre/post build**: comandi eseguiti prima e dopo la build principale (es. `source venv/bin/activate` prima, `./cleanup.sh` dopo).
+
+**Pipeline multi-step**: definisci passi di build sequenziali nella sezione Pipeline del dialog. Formato: `nome | comando | stop_on_error`. Una barra di progresso mostra il passo corrente.
+
+**Modalità interattiva (PTY)**: il toggle `PTY` nella toolbar abilita il supporto per processi interattivi. Appare un campo input sotto il log per inviare testo al processo in esecuzione (`npm init`, `ssh`, REPL Python).
+
+**Compila al salvataggio**: attiva dal menu Build o Preferenze per eseguire automaticamente la build al salvataggio del file.
+
+**Errori unificati**: unisce le diagnostiche LSP con gli errori di build in un'unica lista ordinabile. Attivabile dal menu Build.
+
+**Test regex live**: modificando la regex errori nel dialog profili, i match vengono mostrati istantaneamente su un output di esempio con anteprima file e numero di riga.
+
+**Configurazione di progetto**: crea un file `.notepadpq-build.json` nella root del progetto con profili e task condivisi. Caricato automaticamente aprendo file in quella cartella.
+
+**Build concorrenti**: esegui una build nel pannello principale e un task nel tab Task contemporaneamente — ognuno ha il suo worker indipendente.
 
 Esempio: compilazione LaTeX con pdflatex:
 ```
@@ -756,12 +778,15 @@ Linguaggi con parser dedicato: Python, JavaScript/TypeScript, C/C++, Java, Bash,
 
 Un unico dock inferiore con tre tab. Il terminale e i risultati di ricerca sono stati spostati in plugin dock indipendenti (vedi [sezione 24](#24-search-pq) e [sezione 25](#25-terminal)).
 
-**Tab "Output compilazione"**: output testuale del comando build. La lista errori è cliccabile: click su un errore salta alla riga nel file sorgente. Dopo una compilazione LaTeX riuscita, il pulsante **📄 PDF** apre il documento nel pannello Anteprima.
+**Tab "Output compilazione"**: output testuale del comando build con colorazione errori (rosso), warning (giallo) e info (blu). La lista errori è cliccabile: click su un errore salta alla riga nel file sorgente. Dopo una compilazione LaTeX riuscita, il PDF viene rilevato automaticamente per il pannello Anteprima.
+
+**Tab "Errori"**: lista errori ordinabile con colonne: File, Riga, Messaggio, Origine. Con "Errori unificati" attivo (menu Build), le diagnostiche LSP vengono fuse insieme agli errori di build.
 
 **Tab "⚡ Task"**: task runner rapido per comandi arbitrari:
-- Auto-scoperta dei task dal progetto: target `Makefile`, `npm scripts` da `package.json`, task da `pyproject.toml`
+- **Auto-scoperta** da 7+ strumenti di progetto: `Makefile`, `package.json` (npm scripts), `pyproject.toml`, `Cargo.toml`, `CMakeLists.txt`, `Gradle` (`build.gradle`), `Docker Compose`/`Dockerfile`, `justfile`
 - Doppio click su un task scoperto per eseguirlo
 - Campo testo per comandi manuali (es. `pytest`, `cargo test`, `make lint`)
+- **Toggle PTY** per programmi interattivi con campo input inline
 - Output colorato con rilevamento errori/warning
 
 **Tab "⚡ Diagnostics"**: lista errori/warning emessi dai Language Server (LSP):
@@ -863,8 +888,11 @@ Apri con `Ctrl+Alt+P` oppure **Strumenti → Preferenze**. Le modifiche possono 
 - **Rendering diagrammi Mermaid**: abilita/disabilita il rendering automatico dei blocchi ` ```mermaid ` (richiede connessione internet)
 
 ### Scheda Compilazione
-- Salva automaticamente prima di compilare
-- Mantieni sempre visibile il pannello di output
+- **Salva automaticamente prima di compilare**: salva il file prima di eseguire un comando di build
+- **Pannello sempre visibile**: il pannello Build rimane aperto in ogni momento
+- **Compila al salvataggio**: esegue automaticamente la build quando salvi un file
+- **Errori unificati (LSP + Build)**: unisce le diagnostiche LSP con gli errori di build in un'unica vista
+- **Max righe output**: limite configurabile per il log di build (default 10000) per evitare problemi di memoria
 
 ### Scheda Lingua
 - Seleziona la lingua dell'interfaccia tra: Italiano, English, Deutsch, Français, Español

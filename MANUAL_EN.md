@@ -567,12 +567,14 @@ Runs the command associated with the current file type and shows output in the "
 | Action | Shortcut |
 |---|---|
 | Compile | `F6` |
+| Run | `F5` |
 | Build | `F7` |
 | Stop build | Stop button in panel |
+| Build Profiles | `F8` |
 
 #### Build Profiles and Variables
 
-Build profiles are configured from **Tools → Build Profiles**. Each profile associates a file type (e.g. `LaTeX`, `Python`, `Markdown`) with one or more commands (Compile, Build, Clean).
+Build profiles are configured from **Build → Build Profiles** (`F8`). 13 built-in profiles are provided (Python, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) and you can create unlimited custom profiles. Each profile associates a file extension with one or more commands (Compile, Run, Build).
 
 The following variables are available in commands, accepted in both `${VAR}` and `$(VAR)` form:
 
@@ -583,9 +585,29 @@ The following variables are available in commands, accepted in both `${VAR}` and
 | `${FILENAME}` | File name with extension | `thesis.tex` |
 | `${BASENAME}` | File name without extension | `thesis` |
 | `${BASEFILE}` | Full path without extension | `/home/user/doc/thesis` |
-| `${EXT}` | File extension (without dot) | `tex` |
+| `${EXT}` | File extension with dot | `.tex` |
 | `${LINE}` | Current cursor line | `42` |
 | `${COL}` | Current cursor column | `7` |
+
+#### New Advanced Features
+
+**Environment Variables per Profile**: define custom environment variables in the profile dialog (one `KEY=value` per line). Useful for `PATH`, `VIRTUAL_ENV`, `JAVA_HOME`, etc.
+
+**Pre/Post Build Hooks**: commands executed before and after the main build (e.g. `source venv/bin/activate` before, `./cleanup.sh` after).
+
+**Multi-step Pipeline**: define sequential build steps in the Pipeline section of the profile dialog. Format: `name | command | stop_on_error`. A progress bar shows the current step.
+
+**Interactive Mode (PTY)**: the `PTY` toggle in the toolbar enables interactive process support. An input field appears below the build log for sending text to the running process (`npm init`, `ssh`, Python REPL).
+
+**Build on Save**: enable in the Build menu or Preferences to automatically run the build command when saving a file.
+
+**Unified Errors**: merge LSP diagnostics with build errors in a single sortable error list. Toggle from the Build menu.
+
+**Live Regex Test**: when editing the error regex in the profile dialog, matches are shown instantly against sample output with file and line number preview.
+
+**Project-level Config**: place a `.notepadpq-build.json` file in your project root with shared profiles and tasks. Automatically loaded when opening files in that directory tree.
+
+**Concurrent Builds**: run a build in the main panel and a task in the Task tab simultaneously — each has its own independent worker.
 
 Example: LaTeX compilation with pdflatex:
 ```
@@ -744,12 +766,15 @@ Languages with dedicated parser: Python, JavaScript/TypeScript, C/C++, Java, Bas
 
 A single bottom dock with three tabs. The terminal and search results have been moved to independent dock plugins (see [section 24](#24-search-pq) and [section 25](#25-terminal)).
 
-**Tab "Build Output"**: text output of the build command. The error list is clickable; click an error to jump to the line in the source file. After a successful LaTeX compilation, the **📄 PDF** button opens the document in the Preview panel.
+**Tab "Build Output"**: text output of the build command with color-coded errors (red), warnings (yellow), and info (blue). The error list is clickable; click an error to jump to the line in the source file. After a successful LaTeX compilation, the PDF is automatically detected for the Preview panel.
+
+**Tab "Errors"**: sortable error list with columns: File, Line, Message, Source. When "Unified Errors" is enabled (Build menu), LSP diagnostics are merged together with build errors.
 
 **Tab "⚡ Tasks"**: quick task runner for arbitrary commands:
-- Auto-discovery of project tasks: `Makefile` targets, `npm scripts` from `package.json`, tasks from `pyproject.toml`
+- **Auto-discovery** from 7+ project tools: `Makefile`, `package.json` (npm scripts), `pyproject.toml`, `Cargo.toml`, `CMakeLists.txt`, `Gradle` (`build.gradle`), `Docker Compose`/`Dockerfile`, `justfile`
 - Double-click on a discovered task to run it
 - Text field for manual commands (e.g. `pytest`, `cargo test`, `make lint`)
+- **PTY toggle** for interactive programs with inline input field
 - Color-coded output with error/warning detection
 
 **Tab "⚡ Diagnostics"**: list of errors/warnings emitted by Language Servers (LSP):
@@ -883,8 +908,11 @@ Open with `Ctrl+Alt+P` or **Tools → Preferences**. Changes can be applied imme
 - **Mermaid diagram rendering**: enable/disable automatic rendering of ` ```mermaid ` blocks (requires internet connection)
 
 ### Build Tab
-- Auto-save before building
-- Always keep output panel visible
+- **Auto-save before building**: automatically saves the file before running a build command
+- **Always keep output panel visible**: the Build panel stays open at all times
+- **Auto-build on file save**: trigger the build command automatically when saving a file
+- **Unified errors (LSP + Build)**: merge LSP diagnostics with build errors in a single view
+- **Max output lines**: configurable limit for the build log (default 10000) to prevent memory issues on long builds
 
 ### Language Tab
 - Select the interface language among: Italian, English, German, French, Spanish

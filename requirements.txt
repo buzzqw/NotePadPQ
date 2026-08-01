@@ -59,6 +59,9 @@ ruff>=0.1.0            # Linter/formattatore Python ultra-veloce (Ctrl+Alt+F)
 #   curl -L https://github.com/latex-lsp/texlab/releases/...  # LaTeX (texlab)
 #   go install golang.org/x/tools/gopls@latest  # Go
 
+# --- Plugin REST Client (Opzionali) ---
+requests>=2.28.0        # Client HTTP avanzato: session, SSL, redirect, multipart, OAuth2
+
 # --- Plugin AI Assistant (Opzionali) ---
 # Nessuna dipendenza aggiuntiva: usa urllib (stdlib Python).
 # Configurare le chiavi API dal pannello AI (Ctrl+Alt+A → ⚙).

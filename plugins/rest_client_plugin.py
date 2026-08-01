@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import threading
 import time
@@ -50,6 +51,12 @@ from PyQt6.QtWidgets import (
 from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
 
+try:
+    import requests as _requests_lib
+    _HAS_REQUESTS = True
+except ImportError:
+    _HAS_REQUESTS = False
+
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
@@ -57,14 +64,15 @@ if TYPE_CHECKING:
 # ─── Costanti ────────────────────────────────────────────────────────────────
 
 _HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-_AUTH_TYPES   = ["Nessuna", "Bearer Token", "Basic (user:pass)", "API Key (header)"]
-_BODY_TYPES   = ["Nessuno", "JSON", "XML", "Form (x-www-form-urlencoded)", "Testo libero"]
+_AUTH_TYPES   = ["Nessuna", "Bearer Token", "Basic (user:pass)", "API Key (header)", "OAuth 2.0"]
+_BODY_TYPES   = ["Nessuno", "JSON", "XML", "Form (x-www-form-urlencoded)", "Multipart (form-data)", "Testo libero"]
 _HISTORY_MAX  = 50
 
 _CONTENT_TYPE_MAP = {
     "JSON":                          "application/json",
     "XML":                           "application/xml",
     "Form (x-www-form-urlencoded)":  "application/x-www-form-urlencoded",
+    "Multipart (form-data)":         "multipart/form-data",
     "Testo libero":                  "text/plain",
 }
 
@@ -404,6 +412,15 @@ class HttpRequest:
         self.body_type: str = "Nessuno"
         self.body: str = ""
         self.env_profile: str = "dev"
+        self.timeout: int = 30
+        self.verify_ssl: bool = True
+        self.allow_redirects: bool = True
+        self.multipart_fields: List[dict] = []
+        self.oauth2_client_id: str = ""
+        self.oauth2_client_secret: str = ""
+        self.oauth2_token_url: str = ""
+        self.oauth2_scope: str = ""
+        self.pre_script: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -417,6 +434,15 @@ class HttpRequest:
             "body_type":   self.body_type,
             "body":        self.body,
             "env_profile": self.env_profile,
+            "timeout":     self.timeout,
+            "verify_ssl":  self.verify_ssl,
+            "allow_redirects": self.allow_redirects,
+            "multipart_fields": self.multipart_fields,
+            "oauth2_client_id": self.oauth2_client_id,
+            "oauth2_client_secret": self.oauth2_client_secret,
+            "oauth2_token_url": self.oauth2_token_url,
+            "oauth2_scope": self.oauth2_scope,
+            "pre_script": self.pre_script,
         }
 
     @classmethod
@@ -813,77 +839,203 @@ class _RequestWorker(QObject):
         super().__init__()
         self._req = req
         self._env = resolved_env
+        self._cancel_flag = threading.Event()
+
+    def cancel(self):
+        self._cancel_flag.set()
+
+    def _resolve_auth(self, headers: dict) -> Optional[str]:
+        req = self._req
+        env = self._env
+        if req.auth_type == "Bearer Token" and req.auth_value:
+            headers["Authorization"] = f"Bearer {env.resolve(req.auth_value)}"
+        elif req.auth_type == "Basic (user:pass)" and req.auth_value:
+            encoded = base64.b64encode(env.resolve(req.auth_value).encode()).decode()
+            headers["Authorization"] = f"Basic {encoded}"
+        elif req.auth_type == "API Key (header)" and req.auth_value:
+            hdr = req.auth_header or "X-Api-Key"
+            headers[hdr] = env.resolve(req.auth_value)
+        elif req.auth_type == "OAuth 2.0":
+            token = self._do_oauth2_token()
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            else:
+                return "OAuth 2.0 token request failed"
+        return None
+
+    def _do_oauth2_token(self) -> str:
+        req = self._req
+        env = self._env
+        token_url = env.resolve(req.oauth2_token_url)
+        client_id = env.resolve(req.oauth2_client_id)
+        client_secret = env.resolve(req.oauth2_client_secret)
+        scope = env.resolve(req.oauth2_scope)
+        if not token_url or not client_id:
+            return ""
+        try:
+            data = {"grant_type": "client_credentials"}
+            if scope:
+                data["scope"] = scope
+            auth = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+            hdrs = {"Authorization": f"Basic {auth}", "Content-Type": "application/x-www-form-urlencoded"}
+            if _HAS_REQUESTS:
+                r = _requests_lib.post(token_url, data=data, headers=hdrs, timeout=req.timeout, verify=req.verify_ssl)
+                if r.status_code == 200:
+                    return r.json().get("access_token", "")
+            else:
+                body = urllib.parse.urlencode(data).encode()
+                http_req = urllib.request.Request(token_url, data=body, headers=hdrs, method="POST")
+                with urllib.request.urlopen(http_req, timeout=req.timeout) as resp:
+                    return json.loads(resp.read()).get("access_token", "")
+        except Exception:
+            return ""
 
     def run(self):
-        req  = self._req
-        env  = self._env
+        req = self._req
+        env = self._env
         try:
             url = env.resolve(req.url)
+            if self._cancel_flag.is_set():
+                return
 
-            # costruzione headers
             headers = {}
-            if req.auth_type == "Bearer Token" and req.auth_value:
-                headers["Authorization"] = f"Bearer {env.resolve(req.auth_value)}"
-            elif req.auth_type == "Basic (user:pass)" and req.auth_value:
-                encoded = base64.b64encode(env.resolve(req.auth_value).encode()).decode()
-                headers["Authorization"] = f"Basic {encoded}"
-            elif req.auth_type == "API Key (header)" and req.auth_value:
-                hdr = req.auth_header or "X-Api-Key"
-                headers[hdr] = env.resolve(req.auth_value)
+            auth_err = self._resolve_auth(headers)
+            if auth_err:
+                self.error.emit(auth_err)
+                return
+
             for k, v in req.headers.items():
                 headers[env.resolve(k)] = env.resolve(v)
 
-            # body
-            body_bytes = None
-            if req.body_type != "Nessuno" and req.body:
-                body_text = env.resolve(req.body)
-                if req.body_type == "Form (x-www-form-urlencoded)":
-                    body_bytes = urllib.parse.urlencode(
-                        dict(p.split("=", 1) for p in body_text.splitlines() if "=" in p)
-                    ).encode()
-                    headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
-                else:
-                    body_bytes = body_text.encode("utf-8")
-                    ct = _CONTENT_TYPE_MAP.get(req.body_type, "text/plain")
-                    headers.setdefault("Content-Type", ct)
+            if self._cancel_flag.is_set():
+                return
 
-            # richiesta
-            http_req = urllib.request.Request(
-                url, data=body_bytes, headers=headers, method=req.method
-            )
-            t0 = time.perf_counter()
-            try:
-                with urllib.request.urlopen(http_req, timeout=30) as resp:
-                    elapsed = time.perf_counter() - t0
-                    raw_body = resp.read()
-                    resp_headers = dict(resp.getheaders())
-                    status = resp.status
-            except urllib.error.HTTPError as e:
-                elapsed = time.perf_counter() - t0
-                raw_body = e.read()
-                resp_headers = dict(e.headers)
-                status = e.code
+            if _HAS_REQUESTS:
+                self._run_requests(url, headers)
+            else:
+                self._run_urllib(url, headers)
 
-            # decodifica body
-            charset = "utf-8"
-            ct_hdr = resp_headers.get("Content-Type", "")
-            m = re.search(r"charset=([^\s;]+)", ct_hdr)
-            if m:
-                charset = m.group(1)
-            try:
-                body_str = raw_body.decode(charset, errors="replace")
-            except Exception:
-                body_str = raw_body.decode("utf-8", errors="replace")
-
-            self.finished.emit({
-                "status":  status,
-                "headers": resp_headers,
-                "body":    body_str,
-                "elapsed": elapsed,
-                "content_type": ct_hdr,
-            })
         except Exception as exc:
             self.error.emit(str(exc))
+
+    def _run_requests(self, url: str, headers: dict):
+        req = self._req
+        env = self._env
+        session = _requests_lib.Session()
+        session.verify = req.verify_ssl
+
+        body_kwargs = self._build_body_requests(env)
+        if self._cancel_flag.is_set():
+            return
+
+        t0 = time.perf_counter()
+        resp = session.request(
+            method=req.method,
+            url=url,
+            headers=headers,
+            timeout=req.timeout,
+            allow_redirects=req.allow_redirects,
+            **body_kwargs,
+        )
+        elapsed = time.perf_counter() - t0
+        ct = resp.headers.get("Content-Type", "")
+        body_str = resp.text
+
+        self.finished.emit({
+            "status": resp.status_code,
+            "headers": dict(resp.headers),
+            "body": body_str,
+            "elapsed": elapsed,
+            "content_type": ct,
+        })
+
+    def _run_urllib(self, url: str, headers: dict):
+        req = self._req
+        env = self._env
+        body_bytes = self._build_body_urllib(env)
+        if self._cancel_flag.is_set():
+            return
+
+        http_req = urllib.request.Request(url, data=body_bytes, headers=headers, method=req.method)
+        t0 = time.perf_counter()
+        try:
+            with urllib.request.urlopen(http_req, timeout=req.timeout) as resp:
+                elapsed = time.perf_counter() - t0
+                raw_body = resp.read()
+                resp_headers = dict(resp.getheaders())
+                status = resp.status
+        except urllib.error.HTTPError as e:
+            elapsed = time.perf_counter() - t0
+            raw_body = e.read()
+            resp_headers = dict(e.headers)
+            status = e.code
+
+        charset = "utf-8"
+        ct_hdr = resp_headers.get("Content-Type", "")
+        m = re.search(r"charset=([^\s;]+)", ct_hdr)
+        if m:
+            charset = m.group(1)
+        try:
+            body_str = raw_body.decode(charset, errors="replace")
+        except Exception:
+            body_str = raw_body.decode("utf-8", errors="replace")
+
+        self.finished.emit({
+            "status": status,
+            "headers": resp_headers,
+            "body": body_str,
+            "elapsed": elapsed,
+            "content_type": ct_hdr,
+        })
+
+    def _build_body_requests(self, env) -> dict:
+        req = self._req
+        if req.body_type == "Nessuno" or not req.body:
+            return {}
+        body_text = env.resolve(req.body)
+        if req.body_type == "JSON":
+            return {"json": json.loads(body_text)}
+        elif req.body_type == "Form (x-www-form-urlencoded)":
+            data = {}
+            for line in body_text.splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    data[k.strip()] = v.strip()
+            return {"data": data}
+        elif req.body_type == "Multipart (form-data)":
+            files = {}
+            for f in req.multipart_fields:
+                name = f.get("name", "")
+                path = f.get("path", "")
+                if name and path and os.path.isfile(path):
+                    files[name] = (os.path.basename(path), open(path, "rb"))
+            data = {}
+            for line in body_text.splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    data[k.strip()] = v.strip()
+            kw = {}
+            if files:
+                kw["files"] = files
+            if data:
+                kw["data"] = data
+            return kw
+        else:
+            ct = _CONTENT_TYPE_MAP.get(req.body_type, "text/plain")
+            if "headers" not in req.headers:
+                pass
+            return {"data": body_text.encode("utf-8")}
+
+    def _build_body_urllib(self, env):
+        req = self._req
+        if req.body_type == "Nessuno" or not req.body:
+            return None
+        body_text = env.resolve(req.body)
+        if req.body_type == "Form (x-www-form-urlencoded)":
+            return urllib.parse.urlencode(
+                dict(p.split("=", 1) for p in body_text.splitlines() if "=" in p)
+            ).encode()
+        return body_text.encode("utf-8")
 
 
 # ─── Pannello principale ──────────────────────────────────────────────────────
@@ -1207,11 +1359,47 @@ class _RestPanel(QWidget):
         req_bar.addWidget(self._url_edit, stretch=1)
 
         self._btn_send = QPushButton("Invia")
-        self._btn_send.setFixedWidth(90)
+        self._btn_send.setFixedWidth(80)
         self._btn_send.clicked.connect(self._send_request)
         req_bar.addWidget(self._btn_send)
 
+        self._btn_abort = QPushButton("Stop")
+        self._btn_abort.setFixedWidth(45)
+        self._btn_abort.setEnabled(False)
+        self._btn_abort.setStyleSheet("color: #f44747;")
+        self._btn_abort.clicked.connect(self._abort_request)
+        req_bar.addWidget(self._btn_abort)
+
+        self._btn_snippets = QPushButton("{}")
+        self._btn_snippets.setFixedWidth(32)
+        self._btn_snippets.setToolTip("Genera codice (cURL / Python / JS)")
+        self._btn_snippets.clicked.connect(self._show_code_snippets)
+        req_bar.addWidget(self._btn_snippets)
+
         req_panel_lay.addLayout(req_bar)
+
+        # ── Options bar (timeout, SSL, redirect) ────────────────────────────────
+        opts_bar = QHBoxLayout()
+        opts_bar.setSpacing(6)
+
+        opts_bar.addWidget(QLabel("Timeout:"))
+        self._timeout_spin = QSpinBox()
+        self._timeout_spin.setRange(1, 300)
+        self._timeout_spin.setValue(30)
+        self._timeout_spin.setSuffix(" s")
+        self._timeout_spin.setFixedWidth(65)
+        opts_bar.addWidget(self._timeout_spin)
+
+        self._ssl_chk = QCheckBox("SSL verify")
+        self._ssl_chk.setChecked(True)
+        opts_bar.addWidget(self._ssl_chk)
+
+        self._redirect_chk = QCheckBox("Redirect")
+        self._redirect_chk.setChecked(True)
+        opts_bar.addWidget(self._redirect_chk)
+
+        opts_bar.addStretch()
+        req_panel_lay.addLayout(opts_bar)
 
         # progress bar (thin, come VS Code)
         self._progress = QProgressBar()
@@ -1273,6 +1461,27 @@ class _RestPanel(QWidget):
         self._auth_hdr_edit.setPlaceholderText("Nome header (solo API Key)")
         self._auth_hdr_edit.setEnabled(False)
         auth_lay.addRow("Header (API Key):", self._auth_hdr_edit)
+
+        # OAuth 2.0 fields
+        self._oauth2_widget = QWidget()
+        oauth2_lay = QFormLayout(self._oauth2_widget)
+        oauth2_lay.setContentsMargins(0, 0, 0, 0)
+        self._oauth2_token_url = QLineEdit()
+        self._oauth2_token_url.setPlaceholderText("https://auth.server/oauth/token")
+        oauth2_lay.addRow("Token URL:", self._oauth2_token_url)
+        self._oauth2_client_id = QLineEdit()
+        self._oauth2_client_id.setPlaceholderText("client_id")
+        oauth2_lay.addRow("Client ID:", self._oauth2_client_id)
+        self._oauth2_client_secret = QLineEdit()
+        self._oauth2_client_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        self._oauth2_client_secret.setPlaceholderText("client_secret")
+        oauth2_lay.addRow("Client Secret:", self._oauth2_client_secret)
+        self._oauth2_scope = QLineEdit()
+        self._oauth2_scope.setPlaceholderText("read write (opzionale)")
+        oauth2_lay.addRow("Scope:", self._oauth2_scope)
+        self._oauth2_widget.setVisible(False)
+        auth_lay.addRow(self._oauth2_widget)
+
         self._req_tabs.addTab(auth_w, "Auth")
 
         # ─ Body ───────────────────────────────────────────────────────────────
@@ -1299,6 +1508,29 @@ class _RestPanel(QWidget):
         self._body_edit.setPlaceholderText('{\n  "chiave": "valore"\n}')
         _JsonHighlighter(self._body_edit.document())
         body_lay.addWidget(self._body_edit)
+
+        # Multipart file upload
+        self._multipart_widget = QWidget()
+        mp_lay = QVBoxLayout(self._multipart_widget)
+        mp_lay.setContentsMargins(0, 4, 0, 0)
+        mp_lay.addWidget(QLabel("File upload (per multipart):"))
+        self._mp_table = QTableWidget(0, 3)
+        self._mp_table.setHorizontalHeaderLabels(["Nome campo", "Percorso file", ""])
+        self._mp_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self._mp_table.setColumnWidth(0, 120)
+        self._mp_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self._mp_table.setColumnWidth(2, 28)
+        self._mp_table.setMaximumHeight(100)
+        mp_lay.addWidget(self._mp_table)
+        mp_btn = QHBoxLayout()
+        mp_btn.addWidget(self._make_btn("➕ Aggiungi file", self._add_multipart_row))
+        mp_btn.addWidget(self._make_btn("🗑 Rimuovi", self._remove_multipart_row))
+        mp_btn.addStretch()
+        mp_lay.addLayout(mp_btn)
+        self._multipart_widget.setVisible(False)
+        body_lay.addWidget(self._multipart_widget)
+
+        self._body_type_cb.currentTextChanged.connect(self._body_type_changed)
         self._req_tabs.addTab(body_w, "Body")
 
         # ─ Headers ────────────────────────────────────────────────────────────
@@ -1322,13 +1554,17 @@ class _RestPanel(QWidget):
         pre_w = QWidget()
         pre_lay = QVBoxLayout(pre_w)
         pre_lay.setContentsMargins(4, 4, 4, 4)
-        lbl_pre = QLabel("Script eseguito prima dell'invio (funzionalità futura):")
+        lbl_pre = QLabel("Script eseguito prima dell'invio — usa pm.variables['NOME'] per estrarre valori:")
         self._lbl_pre = lbl_pre
         pre_lay.addWidget(lbl_pre)
         self._pre_req_edit = QTextEdit()
         self._pre_req_edit.setFont(QFont("Monospace", 10))
-        self._pre_req_edit.setPlaceholderText("# es: pm.environment.set('TOKEN', 'valore')")
-        self._pre_req_edit.setEnabled(False)
+        self._pre_req_edit.setPlaceholderText(
+            "# Estrai un token dalla risposta precedente e usalo nella prossima richiesta:\n"
+            "# pm.variables['TOKEN'] = pm.last_response_body.get('access_token', '')\n\n"
+            "# Oppure imposta variabili d'ambiente:\n"
+            "# pm.variables['USER_ID'] = '12345'"
+        )
         pre_lay.addWidget(self._pre_req_edit)
         self._req_tabs.addTab(pre_w, "Pre-request")
 
@@ -1458,6 +1694,48 @@ class _RestPanel(QWidget):
     def _auth_type_changed(self, t: str):
         self._auth_val_edit.setEnabled(t != "Nessuna")
         self._auth_hdr_edit.setEnabled(t == "API Key (header)")
+        # OAuth 2.0
+        is_oauth = (t == "OAuth 2.0")
+        self._auth_val_edit.setVisible(not is_oauth)
+        self._auth_show_chk.setVisible(not is_oauth)
+        self._auth_hdr_edit.setVisible(not is_oauth)
+        self._oauth2_widget.setVisible(is_oauth)
+
+    def _body_type_changed(self, t: str):
+        is_multipart = (t == "Multipart (form-data)")
+        self._multipart_widget.setVisible(is_multipart)
+        if is_multipart:
+            self._body_edit.setPlaceholderText("key=value (una per riga)")
+        elif t == "JSON":
+            self._body_edit.setPlaceholderText('{\n  "chiave": "valore"\n}')
+        elif t == "XML":
+            self._body_edit.setPlaceholderText('<?xml version="1.0"?>\n<root>\n</root>')
+        elif t == "Nessuno":
+            self._body_edit.setPlaceholderText("")
+        else:
+            self._body_edit.setPlaceholderText("key=value (una per riga)")
+
+    def _add_multipart_row(self):
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Seleziona file", "", "Tutti i file (*)")
+        if not path:
+            return
+        name = os.path.basename(path).split(".")[0]
+        r = self._mp_table.rowCount()
+        self._mp_table.insertRow(r)
+        self._mp_table.setItem(r, 0, QTableWidgetItem(name))
+        self._mp_table.setItem(r, 1, QTableWidgetItem(path))
+        btn = QPushButton("✕")
+        btn.setFixedSize(22, 22)
+        btn.clicked.connect(lambda: self._remove_multipart_row())
+        self._mp_table.setCellWidget(r, 2, btn)
+
+    def _remove_multipart_row(self):
+        rows = sorted({i.row() for i in self._mp_table.selectedItems()}, reverse=True)
+        if not rows:
+            return
+        for r in rows:
+            self._mp_table.removeRow(r)
 
     def _add_header_row(self, k: str, v: str):
         r = self._hdr_table.rowCount()
@@ -1891,6 +2169,23 @@ class _RestPanel(QWidget):
         r.auth_header = self._auth_hdr_edit.text().strip() or "X-Api-Key"
         r.body_type  = self._body_type_cb.currentText()
         r.body       = self._body_edit.toPlainText().strip()
+        r.timeout    = self._timeout_spin.value()
+        r.verify_ssl = self._ssl_chk.isChecked()
+        r.allow_redirects = self._redirect_chk.isChecked()
+        r.pre_script = self._pre_req_edit.toPlainText().strip()
+        # OAuth2
+        if r.auth_type == "OAuth 2.0":
+            r.oauth2_token_url = self._oauth2_token_url.text().strip()
+            r.oauth2_client_id = self._oauth2_client_id.text().strip()
+            r.oauth2_client_secret = self._oauth2_client_secret.text().strip()
+            r.oauth2_scope = self._oauth2_scope.text().strip()
+        # Multipart
+        r.multipart_fields = []
+        for row in range(self._mp_table.rowCount()):
+            n = self._mp_table.item(row, 0)
+            p = self._mp_table.item(row, 1)
+            if n and p:
+                r.multipart_fields.append({"name": n.text().strip(), "path": p.text().strip()})
         for row in range(self._hdr_table.rowCount()):
             ki = self._hdr_table.item(row, 0)
             vi = self._hdr_table.item(row, 1)
@@ -1912,6 +2207,22 @@ class _RestPanel(QWidget):
         self._auth_hdr_edit.setText(r.auth_header)
         self._body_type_cb.setCurrentText(r.body_type)
         self._body_edit.setPlainText(r.body)
+        self._timeout_spin.setValue(r.timeout)
+        self._ssl_chk.setChecked(r.verify_ssl)
+        self._redirect_chk.setChecked(r.allow_redirects)
+        self._pre_req_edit.setPlainText(r.pre_script)
+        # OAuth2
+        self._oauth2_token_url.setText(r.oauth2_token_url)
+        self._oauth2_client_id.setText(r.oauth2_client_id)
+        self._oauth2_client_secret.setText(r.oauth2_client_secret)
+        self._oauth2_scope.setText(r.oauth2_scope)
+        # Multipart
+        self._mp_table.setRowCount(0)
+        for f in r.multipart_fields:
+            row = self._mp_table.rowCount()
+            self._mp_table.insertRow(row)
+            self._mp_table.setItem(row, 0, QTableWidgetItem(f.get("name", "")))
+            self._mp_table.setItem(row, 1, QTableWidgetItem(f.get("path", "")))
         self._hdr_table.setRowCount(0)
         for k, v in r.headers.items():
             self._add_header_row(k, v)
@@ -1933,9 +2244,29 @@ class _RestPanel(QWidget):
         env_name = self._env_cb.currentText()
         env = next((e for e in self._envs if e.name == env_name), EnvProfile())
 
+        # Esegui script pre-request
+        pre_script = req.pre_script
+        if pre_script:
+            try:
+                pm = {"variables": {}, "last_response_body": None}
+                if self._last_response_body:
+                    try:
+                        pm["last_response_body"] = json.loads(self._last_response_body)
+                    except Exception:
+                        pm["last_response_body"] = self._last_response_body
+                exec(pre_script, {"pm": pm, "json": json, "re": re})
+                # Merge extracted variables into env for this request
+                for k, v in pm.get("variables", {}).items():
+                    env.variables[k] = str(v)
+            except Exception as e:
+                QMessageBox.warning(self, "Script pre-request",
+                                    f"Errore nello script pre-request:\n{e}")
+                return
+
         self._btn_send.setEnabled(False)
+        self._btn_abort.setEnabled(True)
         self._progress.setVisible(True)
-        self._status_lbl.setText("⏳ In attesa...")
+        self._status_lbl.setText("\u23f3 In attesa...")
         self._resp_body.clear()
 
         # aggiungi a cronologia
@@ -1946,7 +2277,6 @@ class _RestPanel(QWidget):
         if self._hist_list.count() > _HISTORY_MAX:
             self._hist_list.takeItem(_HISTORY_MAX)
 
-        # esegui in thread
         worker = _RequestWorker(req, env)
         worker.finished.connect(self._on_response)
         worker.error.connect(self._on_error)
@@ -1958,8 +2288,56 @@ class _RestPanel(QWidget):
         self._thread = threading.Thread(target=_run, daemon=True)
         self._thread.start()
 
+    def _abort_request(self):
+        if self._worker:
+            self._worker.cancel()
+            self._btn_send.setEnabled(True)
+            self._btn_abort.setEnabled(False)
+            self._progress.setVisible(False)
+            self._status_lbl.setText("\u26a0 Richiesta annullata")
+
+    def _show_code_snippets(self):
+        req = self._collect_current()
+        env_name = self._env_cb.currentText()
+        env = next((e for e in self._envs if e.name == env_name), EnvProfile())
+        url = env.resolve(req.url)
+        c = _CONTENT_TYPE_MAP.get(req.body_type, "")
+
+        curl = f"curl -X {req.method} '{url}'"
+        if req.auth_type == "Bearer Token":
+            curl += f" \\\n  -H 'Authorization: Bearer {req.auth_value}'"
+        elif req.auth_type == "Basic (user:pass)":
+            curl += f" \\\n  -H 'Authorization: Basic {base64.b64encode(req.auth_value.encode()).decode()}'"
+        for k, v in req.headers.items():
+            curl += f" \\\n  -H '{k}: {v}'"
+        if c and req.body:
+            curl += f" \\\n  -H 'Content-Type: {c}'"
+            body_escaped = req.body.replace("'", "'\"'\"'")
+            curl += f" \\\n  -d '{body_escaped}'"
+
+        python = f"import requests\n\nresp = requests.{req.method.lower()}('{url}'"
+        if req.body:
+            python += f",\n    json={req.body}" if req.body_type == "JSON" else f",\n    data='{req.body}'"
+        if req.headers:
+            python += f",\n    headers={json.dumps(req.headers)}"
+        python += "\n)\nprint(resp.status_code, resp.text[:500])"
+
+        js = f"fetch('{url}', {{\n  method: '{req.method}'"
+        if req.body_type == "JSON":
+            js += f",\n  headers: {{'Content-Type': 'application/json'}},\n  body: JSON.stringify({req.body})"
+        js += "\n}).then(r => r.json()).then(console.log)"
+
+        msg = f"<b>cURL:</b><br><pre>{curl}</pre><br><b>Python:</b><br><pre>{python}</pre><br><b>JavaScript:</b><br><pre>{js}</pre>"
+        box = QMessageBox(self)
+        box.setWindowTitle("Code snippets")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(msg)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.exec()
+
     def _on_response(self, result: dict):
         self._btn_send.setEnabled(True)
+        self._btn_abort.setEnabled(False)
         self._progress.setVisible(False)
 
         status  = result["status"]
@@ -2041,6 +2419,7 @@ class _RestPanel(QWidget):
 
     def _on_error(self, msg: str):
         self._btn_send.setEnabled(True)
+        self._btn_abort.setEnabled(False)
         self._progress.setVisible(False)
         self._status_lbl.setText(
             f'<span style="background:#f44747;color:#fff;font-weight:bold;'

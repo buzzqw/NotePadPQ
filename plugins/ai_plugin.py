@@ -52,10 +52,14 @@ if TYPE_CHECKING:
 
 
 def _make_ssl_ctx() -> ssl.SSLContext:
-    """Restituisce un SSLContext che non verifica i certificati server.
-    Necessario su sistemi in cui i certificati CA di sistema non sono
-    aggiornati o accessibili (es. bundle PyInstaller/AppImage).
-    """
+    """SSL context configurabile: rispetta l'impostazione ai/verify_ssl."""
+    try:
+        from config.settings import Settings
+        verify = Settings.instance().get("ai/verify_ssl", True)
+    except Exception:
+        verify = True
+    if verify:
+        return ssl.create_default_context()
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
@@ -646,16 +650,40 @@ class _AIWorker(QThread):
             "model":      self._model,
             "messages":   msgs,
             "max_tokens": self._max_tokens,
+            "stream":     True,
         }).encode()
         req = urllib.request.Request(url, data=body, method="POST", headers={
             "Content-Type":  "application/json",
             "Authorization": f"Bearer {self._key}",
         })
-        with urllib.request.urlopen(req, timeout=60, context=_make_ssl_ctx()) as resp:
-            data = json.loads(resp.read())
-        usage = data.get("usage", {})
-        self.usage_ready.emit(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
-        return data["choices"][0]["message"]["content"]
+        with urllib.request.urlopen(req, timeout=120, context=_make_ssl_ctx()) as resp:
+            self._current_resp = resp
+            result = ""
+            in_tokens = out_tokens = 0
+            for line in resp:
+                if self._stop_event.is_set():
+                    break
+                line = line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        result += content
+                        self.stream_chunk.emit(content)
+                    if "usage" in chunk:
+                        u = chunk["usage"]
+                        in_tokens = u.get("prompt_tokens", 0)
+                        out_tokens = u.get("completion_tokens", 0)
+                except Exception:
+                    continue
+        self.usage_ready.emit(in_tokens, out_tokens)
+        return result
 
     # ── DeepSeek (API compatibile OpenAI) ────────────────────────────────────
 
@@ -668,27 +696,51 @@ class _AIWorker(QThread):
             "model":      self._model,
             "messages":   msgs,
             "max_tokens": self._max_tokens,
+            "stream":     True,
         }).encode()
         req = urllib.request.Request(url, data=body, method="POST", headers={
             "Content-Type":  "application/json",
             "Authorization": f"Bearer {self._key}",
         })
         with urllib.request.urlopen(req, timeout=120, context=_make_ssl_ctx()) as resp:
-            data = json.loads(resp.read())
-        usage = data.get("usage", {})
-        self.usage_ready.emit(usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
-        msg = data["choices"][0]["message"]
-        # deepseek-reasoner espone la catena di ragionamento in un campo separato
-        reasoning = msg.get("reasoning_content", "")
-        if reasoning:
-            self.think_chunk.emit(reasoning)
-        return msg.get("content", "")
+            self._current_resp = resp
+            result = ""
+            in_tokens = out_tokens = 0
+            thinking_acc = ""
+            for line in resp:
+                if self._stop_event.is_set():
+                    break
+                line = line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content", "")
+                    reasoning = delta.get("reasoning_content", "")
+                    if reasoning:
+                        thinking_acc += reasoning
+                        self.think_chunk.emit(reasoning)
+                    if content:
+                        result += content
+                        self.stream_chunk.emit(content)
+                    if "usage" in chunk:
+                        u = chunk["usage"]
+                        in_tokens = u.get("prompt_tokens", 0)
+                        out_tokens = u.get("completion_tokens", 0)
+                except Exception:
+                    continue
+        self.usage_ready.emit(in_tokens, out_tokens)
+        return result
 
     # ── Google Gemini ──────────────────────────────────────────────────────────
 
     def _call_gemini(self) -> str:
         model = self._model
-        url   = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self._key}"
+        url   = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={self._key}"
         contents = []
         if self._system:
             contents.append({"role": "user", "parts": [{"text": self._system}]})
@@ -706,12 +758,35 @@ class _AIWorker(QThread):
             "contents":         contents,
             "generationConfig": {"maxOutputTokens": self._max_tokens},
         }).encode()
-        req = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=60, context=_make_ssl_ctx()) as resp:
-            data = json.loads(resp.read())
-        usage = data.get("usageMetadata", {})
-        self.usage_ready.emit(usage.get("promptTokenCount", 0), usage.get("candidatesTokenCount", 0))
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+        req = urllib.request.Request(url, data=body, method="POST",
+                                      headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=120, context=_make_ssl_ctx()) as resp:
+            self._current_resp = resp
+            result = ""
+            in_tokens = out_tokens = 0
+            for line in resp:
+                if self._stop_event.is_set():
+                    break
+                line = line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                try:
+                    chunk = json.loads(data_str)
+                    candidates = chunk.get("candidates", [])
+                    if candidates:
+                        parts_list = candidates[0].get("content", {}).get("parts", [])
+                        for p in parts_list:
+                            if "text" in p:
+                                result += p["text"]
+                                self.stream_chunk.emit(p["text"])
+                    usage = chunk.get("usageMetadata", {})
+                    in_tokens = usage.get("promptTokenCount", 0)
+                    out_tokens = usage.get("candidatesTokenCount", 0)
+                except Exception:
+                    continue
+        self.usage_ready.emit(in_tokens, out_tokens)
+        return result
 
     # ── Ollama ────────────────────────────────────────────────────────────────
 
@@ -1365,7 +1440,12 @@ class _AIPanel(QWidget):
         # ── Provider + modello + settings ─────────────────────────────────────
         top = QHBoxLayout()
         self._provider_combo = QComboBox()
+        cloud_done = False
         for name in PROVIDERS:
+            pid = PROVIDERS[name].get("id", "")
+            if pid in ("ollama", "llamacpp") and not cloud_done:
+                self._provider_combo.insertSeparator(self._provider_combo.count())
+                cloud_done = True
             self._provider_combo.addItem(name)
         self._provider_combo.setToolTip(tr("tooltip.ai_provider"))
         self._provider_combo.currentIndexChanged.connect(self._on_provider_changed)
@@ -1504,13 +1584,14 @@ class _AIPanel(QWidget):
         input_layout.setSpacing(2)
 
         self._input = QPlainTextEdit()
-        self._input.setMaximumHeight(100)
+        self._input.setMinimumHeight(60)
         self._input.setFont(QFont("Monospace", 10))
-        self._input.setPlaceholderText("Scrivi un messaggio… (Ctrl+Enter per inviare)")
+        self._input.setPlaceholderText("Scrivi un messaggio…  (/explain /fix /refactor /file)  Ctrl+Enter per inviare, Ctrl+L per nuova riga")
         self._input.setStyleSheet("background:#252526; color:#d4d4d4; border:1px solid #3c3c3c;")
         self._input.setToolTip(tr("tooltip.ai_input"))
         self._input.installEventFilter(self)
-        input_layout.addWidget(self._input)
+        self._input.textChanged.connect(self._update_token_estimate)
+        input_layout.addWidget(self._input, stretch=1)
 
         btn_row = QHBoxLayout()
         self._btn_ctx = QPushButton("+ Contesto")
@@ -1534,23 +1615,36 @@ class _AIPanel(QWidget):
         self._btn_apply.setToolTip(tr("tooltip.ai_apply"))
         self._btn_apply.clicked.connect(self._apply_to_file)
         self._btn_apply.setEnabled(False)
+        self._btn_diff = QPushButton("↔ Diff")
+        self._btn_diff.setToolTip(tr("tooltip.ai_diff", default="Mostra le modifiche prima di applicarle al file"))
+        self._btn_diff.clicked.connect(self._show_diff)
+        self._btn_diff.setEnabled(False)
         self._btn_new_tab = QPushButton("📄 Nuovo tab")
         self._btn_new_tab.setToolTip(tr("tooltip.ai_new_tab"))
         self._btn_new_tab.clicked.connect(self._open_in_new_tab)
         self._btn_new_tab.setEnabled(False)
+        self._btn_regenerate = QPushButton("↻ Rigenera")
+        self._btn_regenerate.setToolTip(tr("tooltip.ai_regenerate", default="Rigenera l'ultima risposta"))
+        self._btn_regenerate.clicked.connect(self._regenerate)
+        self._btn_regenerate.setEnabled(False)
         self._btn_clear = QPushButton("Pulisci chat")
         self._btn_clear.setToolTip(tr("tooltip.ai_clear"))
         self._btn_clear.clicked.connect(self._clear)
-        self._btn_send = QPushButton("▶ Invia  Ctrl+↵")
+        self._btn_send = QPushButton("▶ Invia")
         self._btn_send.setToolTip(tr("tooltip.ai_send"))
         self._btn_send.clicked.connect(self._on_send_btn)
+        self._lbl_tokens = QLabel("")
+        self._lbl_tokens.setStyleSheet("color:#858585; font-size:10px; padding: 0 6px;")
         btn_row.addWidget(self._btn_ctx)
         btn_row.addWidget(self._btn_attach)
         btn_row.addWidget(self._lbl_pending_images)
         btn_row.addWidget(self._btn_clear_images)
+        btn_row.addWidget(self._lbl_tokens)
         btn_row.addStretch()
+        btn_row.addWidget(self._btn_diff)
         btn_row.addWidget(self._btn_apply)
         btn_row.addWidget(self._btn_new_tab)
+        btn_row.addWidget(self._btn_regenerate)
         btn_row.addWidget(self._btn_clear)
         btn_row.addWidget(self._btn_send)
         input_layout.addLayout(btn_row)
@@ -2097,10 +2191,122 @@ class _AIPanel(QWidget):
         from config.settings import Settings
         return Settings.instance().get(f"ai/{pid}_key", "")
 
+    def _regenerate(self) -> None:
+        """Rimuove l'ultima risposta AI e reinvia l'ultimo messaggio utente."""
+        if not self._history:
+            return
+        # Rimuovi l'ultima risposta assistant
+        if self._history and self._history[-1].get("role") == "assistant":
+            self._history.pop()
+        # Trova l'ultimo messaggio utente
+        last_user = None
+        for m in reversed(self._history):
+            if m.get("role") == "user":
+                last_user = m
+                break
+        if last_user is None:
+            return
+        # Ricostruisci la chat visiva
+        self._rebuild_chat()
+        text = last_user.get("content", "")
+        self._input.setPlainText(text)
+        # Reinvio
+        self._send()
+
+    def _show_diff(self) -> None:
+        """Mostra un diff delle modifiche prima di applicarle al file."""
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        original = editor.text()
+        if not self._last_text:
+            return
+        modified = self._last_text
+        if original == modified:
+            QMessageBox.information(self, "Diff", "Nessuna modifica rilevata.")
+            return
+
+        try:
+            import tempfile
+            original_path = Path(tempfile.mktemp(suffix=".original"))
+            modified_path = Path(tempfile.mktemp(suffix=".modified"))
+            original_path.write_text(original, encoding="utf-8")
+            modified_path.write_text(modified, encoding="utf-8")
+
+            from plugins.compare_merge_plugin import CompareMergePlugin
+            # Apri il compare tool
+            self._mw.open_files([original_path, modified_path])
+            # Sovrascrivi il secondo file con la versione modificata
+            modified_path.write_text(modified, encoding="utf-8")
+            self._mw.open_files([original_path, modified_path])
+        except ImportError:
+            # Fallback semplice
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Diff")
+            msg.setText("Preview delle modifiche:\n\nFile originale → Nuova versione")
+            msg.setDetailedText(f"--- ORIGINALE ---\n{original[:2000]}\n\n--- MODIFICATO ---\n{modified[:2000]}")
+            msg.exec()
+
+    def _handle_slash_command(self, text: str) -> Optional[str]:
+        """Gestisce i comandi slash. Ritorna il prompt trasformato o None."""
+        cmd = text.strip()
+        editor = self._mw._tab_manager.current_editor()
+        code = ""
+        if editor:
+            code = editor.selectedText() or editor.text()[:8000]
+        lang = getattr(editor, '_current_language', '') or ''
+
+        mapping = {
+            "/explain": f"Spiega questo codice in modo chiaro e conciso, riga per riga se necessario:\n\n```{lang}\n{code}\n```",
+            "/fix": f"Trova e correggi tutti i bug in questo codice. Mostra il codice corretto:\n\n```{lang}\n{code}\n```",
+            "/refactor": f"Refactorizza questo codice migliorando leggibilità e manutenibilità senza cambiare il comportamento:\n\n```{lang}\n{code}\n```",
+            "/doc": f"Scrivi una docstring completa per questo codice con parametri, return type ed esempi:\n\n```{lang}\n{code}\n```",
+            "/test": f"Scrivi test unitari completi per questo codice usando pytest:\n\n```{lang}\n{code}\n```",
+            "/review": f"Fai una code review professionale: sicurezza, performance, leggibilità, edge case:\n\n```{lang}\n{code}\n```",
+            "/optimize": f"Ottimizza questo codice per performance e memoria, spiegando le modifiche:\n\n```{lang}\n{code}\n```",
+            "/file": None,  # handled by attach
+        }
+
+        for prefix, prompt in mapping.items():
+            if cmd.startswith(prefix):
+                if prompt is None:
+                    self._attach_file()
+                    return ""
+                return prompt
+
+        return None
+
+    def _update_token_estimate(self) -> None:
+        """Aggiorna la stima token/costo nell'etichetta prima dell'invio."""
+        text = self._input.toPlainText().strip()
+        if not text:
+            self._lbl_tokens.setText("")
+            return
+        chars = len(text)
+        est_tokens = max(1, int(chars * 0.4))
+        name = self._provider_combo.currentText()
+        info = PROVIDERS.get(name, {})
+        costs = MODEL_COST.get(self._model_combo.currentText(), (0, 0))
+        if costs[1]:
+            cost = est_tokens * costs[1] / 1_000_000
+            self._lbl_tokens.setText(f"~{est_tokens} tok  ~${cost:.4f}")
+        else:
+            self._lbl_tokens.setText(f"~{est_tokens} tok")
+
     def _send(self) -> None:
         text = self._input.toPlainText().strip()
         if not text:
             return
+        # Slash command
+        if text.startswith("/"):
+            processed = self._handle_slash_command(text)
+            if processed is not None:
+                if processed:
+                    self._input.setPlainText(processed)
+                    self._send()
+                return
+            # Non riconosciuto — procedi come testo normale
+            text = self._input.toPlainText().strip()
         if self._worker and self._worker.isRunning():
             return
 
@@ -2245,9 +2451,12 @@ class _AIPanel(QWidget):
         self._streaming_block = False
         self._rebuild_chat()
         self._elapsed_timer.stop()
-        self._btn_send.setText("▶ Invia  Ctrl+↵")
+        self._btn_send.setText("▶ Invia")
         self._btn_apply.setEnabled(True)
+        self._btn_diff.setEnabled(True)
         self._btn_new_tab.setEnabled(True)
+        self._btn_regenerate.setEnabled(True)
+        self._last_text = text
         # Per i modelli locali _on_speed ha già scritto i tok/s: non sovrascriverli.
         self._status.setText(self._speed_status)
         if self._think_text_acc:
@@ -2261,9 +2470,10 @@ class _AIPanel(QWidget):
             self._apply_inline(text)
 
     def _on_error(self, msg: str) -> None:
-        self._append_msg("system", f"❌ Errore: {msg}")
+        self._append_msg("system", f"\u274c Errore: {msg}")
         self._elapsed_timer.stop()
-        self._btn_send.setText("▶ Invia  Ctrl+↵")
+        self._btn_send.setText("\u25b6 Invia")
+        self._btn_regenerate.setEnabled(True)
         self._status.setText("")
         self._streaming_block = False
         self._inline_selection = None
@@ -2296,7 +2506,7 @@ class _AIPanel(QWidget):
             w.finished.connect(lambda: self._old_workers.remove(w) if w in self._old_workers else None)
             self._worker = None
         self._elapsed_timer.stop()
-        self._btn_send.setText("▶ Invia  Ctrl+↵")
+        self._btn_send.setText("▶ Invia")
         self._status.setText("⏹ Generazione interrotta")
         self._streaming_block = False
 
@@ -2454,7 +2664,7 @@ class _AIPanel(QWidget):
         self._history.clear()
         self._chat_view.clear()
         self._elapsed_timer.stop()
-        self._btn_send.setText("▶ Invia  Ctrl+↵")
+        self._btn_send.setText("▶ Invia")
         self._status.setText("")
         self._streaming_block = False
         self._btn_apply.setEnabled(False)

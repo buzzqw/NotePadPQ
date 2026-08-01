@@ -421,6 +421,7 @@ class HttpRequest:
         self.oauth2_token_url: str = ""
         self.oauth2_scope: str = ""
         self.pre_script: str = ""
+        self.post_tests: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -443,6 +444,7 @@ class HttpRequest:
             "oauth2_token_url": self.oauth2_token_url,
             "oauth2_scope": self.oauth2_scope,
             "pre_script": self.pre_script,
+            "post_tests": self.post_tests,
         }
 
     @classmethod
@@ -1288,6 +1290,8 @@ class _RestPanel(QWidget):
             ("Salva",           "Salva collection in file .http",            self._save_collection),
             ("Carica",          "Carica collection da file .http",           self._load_collection),
             ("Ambienti",        "Gestisci variabili d'ambiente ({{VAR}})",   self._manage_envs),
+            ("\u25b6 Runner",    "Esegui tutte le richieste in sequenza",     self._open_runner),
+            ("Snippets",        "Genera codice (cURL / Python / JS)",        self._show_code_snippets),
         ]:
             b = QPushButton(text)
             b.setToolTip(tip)
@@ -1369,12 +1373,6 @@ class _RestPanel(QWidget):
         self._btn_abort.setStyleSheet("color: #f44747;")
         self._btn_abort.clicked.connect(self._abort_request)
         req_bar.addWidget(self._btn_abort)
-
-        self._btn_snippets = QPushButton("{}")
-        self._btn_snippets.setFixedWidth(32)
-        self._btn_snippets.setToolTip("Genera codice (cURL / Python / JS)")
-        self._btn_snippets.clicked.connect(self._show_code_snippets)
-        req_bar.addWidget(self._btn_snippets)
 
         req_panel_lay.addLayout(req_bar)
 
@@ -1663,6 +1661,29 @@ class _RestPanel(QWidget):
         raw_resp_lay.setContentsMargins(0, 0, 0, 0)
         self._resp_raw = QTextEdit()
         self._resp_raw.setReadOnly(True)
+        self._resp_raw.setFont(QFont("Monospace", 9))
+        raw_resp_lay.addWidget(self._resp_raw)
+        resp_tabs.addTab(raw_resp_w, "Raw")
+
+        # ─ Tests ────────────────────────────────────────────────────────────────
+        tests_w = QWidget()
+        tests_lay = QVBoxLayout(tests_w)
+        tests_lay.setContentsMargins(4, 4, 4, 4)
+        self._tests_edit = QTextEdit()
+        self._tests_edit.setFont(QFont("Monospace", 10))
+        self._tests_edit.setPlaceholderText(
+            "# pm.test('Status is 200', pm.response.status == 200)\n"
+            "# pm.test('Body contains id', 'id' in pm.response.text)\n"
+            "# pm.test('Response time < 1s', pm.response.elapsed < 1)\n"
+            "# pm.test('JSON has key', pm.response.json.get('key') is not None)\n"
+        )
+        tests_lay.addWidget(self._tests_edit)
+        self._tests_results = QTextEdit()
+        self._tests_results.setReadOnly(True)
+        self._tests_results.setFont(QFont("Monospace", 9))
+        self._tests_results.setMaximumHeight(130)
+        tests_lay.addWidget(self._tests_results)
+        resp_tabs.addTab(tests_w, "Tests")
         self._resp_raw.setFont(QFont("Monospace", 9))
         raw_resp_lay.addWidget(self._resp_raw)
         resp_tabs.addTab(raw_resp_w, "Raw")
@@ -2173,6 +2194,7 @@ class _RestPanel(QWidget):
         r.verify_ssl = self._ssl_chk.isChecked()
         r.allow_redirects = self._redirect_chk.isChecked()
         r.pre_script = self._pre_req_edit.toPlainText().strip()
+        r.post_tests = self._tests_edit.toPlainText().strip()
         # OAuth2
         if r.auth_type == "OAuth 2.0":
             r.oauth2_token_url = self._oauth2_token_url.text().strip()
@@ -2211,6 +2233,7 @@ class _RestPanel(QWidget):
         self._ssl_chk.setChecked(r.verify_ssl)
         self._redirect_chk.setChecked(r.allow_redirects)
         self._pre_req_edit.setPlainText(r.pre_script)
+        self._tests_edit.setPlainText(r.post_tests)
         # OAuth2
         self._oauth2_token_url.setText(r.oauth2_token_url)
         self._oauth2_client_id.setText(r.oauth2_client_id)
@@ -2398,6 +2421,69 @@ class _RestPanel(QWidget):
 
         self._save_data()
 
+        # Esegui test post-response
+        post_tests = self._current_req.post_tests if self._current_req else ""
+        if not post_tests:
+            post_tests = self._tests_edit.toPlainText().strip()
+        if post_tests:
+            self._run_tests(post_tests, result)
+
+    def _run_tests(self, script: str, result: dict):
+        html = '<div style="font-family: monospace; font-size: 11px; line-height: 1.6;">'
+        passed = 0
+        failed = 0
+        results_list = []
+
+        def test_fn(name, condition):
+            nonlocal passed, failed
+            ok = bool(condition)
+            if ok:
+                passed += 1
+                status = f'<span style="color:#4caf50;">\u2713 PASS</span>'
+            else:
+                failed += 1
+                status = f'<span style="color:#f44747;">\u2717 FAIL</span>'
+            results_list.append(f"{status}  {name}")
+
+        body = result["body"]
+        try:
+            response_json = json.loads(body) if body else {}
+        except Exception:
+            response_json = None
+
+        pm = {
+            "response": {
+                "status": result["status"],
+                "headers": result["headers"],
+                "text": body,
+                "json": response_json,
+                "elapsed": result["elapsed"],
+            },
+            "test": test_fn,
+        }
+
+        try:
+            exec(script, {"pm": pm, "json": json, "re": re})
+        except Exception as e:
+            failed += 1
+            results_list.append(
+                f'<span style="color:#f44747;">\u2717 ERROR</span>  {str(e)[:200]}'
+            )
+
+        total = passed + failed
+        if total > 0:
+            bar_color = "#4caf50" if failed == 0 else "#f44747" if passed == 0 else "#ffcc00"
+            html += (
+                f'<div style="margin-bottom:4px;">'
+                f'<span style="color:{bar_color};font-weight:bold;">'
+                f'{passed}/{total} passed</span>'
+                f'</div>'
+            )
+        for line in results_list:
+            html += f'<div style="margin:1px 0;">{line}</div>'
+        html += "</div>"
+        self._tests_results.setHtml(html)
+
     def _parse_set_cookie(self, cookie_str: str):
         """Parsa una riga Set-Cookie e aggiunge una riga alla tabella cookies."""
         parts = [p.strip() for p in cookie_str.split(";")]
@@ -2567,6 +2653,177 @@ class _RestPanel(QWidget):
                 self._hist_list.addItem(f"{r.method} {r.url}")
         except Exception:
             pass
+
+    # ── Collection Runner ──────────────────────────────────────────────────────
+
+    def _open_runner(self):
+        dlg = _CollectionRunnerDialog(self._collection, self._envs, self._mw, self)
+        dlg.exec()
+
+# ─── Collection Runner ─────────────────────────────────────────────────────────
+
+class _CollectionRunnerDialog(QDialog):
+    """Esegue tutte le richieste della collection in sequenza e mostra risultati."""
+
+    def __init__(self, collection, envs, mw, parent=None):
+        super().__init__(parent)
+        self._collection = collection
+        self._envs = envs
+        self._mw = mw
+        self._abort = False
+        self.setWindowTitle("Collection Runner")
+        self.resize(700, 500)
+        self._build_ui()
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+
+        # Selezione ambiente
+        env_row = QHBoxLayout()
+        env_row.addWidget(QLabel("Profilo ambiente:"))
+        self._env_cb = QComboBox()
+        for e in self._envs:
+            self._env_cb.addItem(e.name)
+        env_row.addWidget(self._env_cb)
+        env_row.addStretch()
+
+        self._delay_spin = QSpinBox()
+        self._delay_spin.setRange(0, 5000)
+        self._delay_spin.setValue(200)
+        self._delay_spin.setSuffix(" ms delay")
+        self._delay_spin.setToolTip("Ritardo tra una richiesta e l'altra")
+        env_row.addWidget(QLabel("Delay:"))
+        env_row.addWidget(self._delay_spin)
+        lay.addLayout(env_row)
+
+        # Lista richieste
+        self._list = QTreeWidget()
+        self._list.setHeaderLabels(["", "Richiesta", "Metodo", "URL"])
+        self._list.setColumnWidth(0, 28)
+        self._list.setColumnWidth(1, 150)
+        self._list.setColumnWidth(2, 70)
+        self._list.setAlternatingRowColors(True)
+        self._list.setStyleSheet("QTreeWidget { background:#1e1e1e; color:#d4d4d4; border:1px solid #3c3c3c; }")
+        for req in self._collection:
+            item = QTreeWidgetItem(self._list)
+            item.setCheckState(0, Qt.CheckState.Checked)
+            item.setText(1, req.name)
+            item.setText(2, req.method)
+            item.setText(3, req.url)
+            item.setData(0, Qt.ItemDataRole.UserRole, req)
+        lay.addWidget(self._list)
+
+        # Pulsanti
+        btn_row = QHBoxLayout()
+        self._btn_run = QPushButton("\u25b6 Esegui")
+        self._btn_run.setStyleSheet("font-weight:bold; padding:6px 16px; background:#238636; color:white; border-radius:4px;")
+        self._btn_run.clicked.connect(self._run)
+        btn_row.addWidget(self._btn_run)
+
+        self._btn_stop = QPushButton("\u25a0 Stop")
+        self._btn_stop.setEnabled(False)
+        self._btn_stop.setStyleSheet("color:#f44747; padding:6px 16px;")
+        self._btn_stop.clicked.connect(lambda: setattr(self, '_abort', True))
+        btn_row.addWidget(self._btn_stop)
+
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+
+        # Risultati
+        self._results = QTextEdit()
+        self._results.setReadOnly(True)
+        self._results.setFont(QFont("Monospace", 10))
+        self._results.setStyleSheet("background:#1e1e1e; color:#d4d4d4; border:1px solid #3c3c3c;")
+        lay.addWidget(self._results)
+
+    def _run(self):
+        self._btn_run.setEnabled(False)
+        self._btn_stop.setEnabled(True)
+        self._results.clear()
+        self._abort = False
+
+        env_name = self._env_cb.currentText()
+        env_base = next((e for e in self._envs if e.name == env_name), EnvProfile())
+        delay = self._delay_spin.value() / 1000.0
+
+        total = 0
+        passed = 0
+        failed = 0
+        self._results.append(f"<b style='color:#9cdcfe;'>Collection Runner</b> — {self._list.topLevelItemCount()} requests\n")
+
+        for i in range(self._list.topLevelItemCount()):
+            if self._abort:
+                self._results.append("<span style='color:#ffcc00;'>\u26a0 Interrotto</span>")
+                break
+
+            item = self._list.topLevelItem(i)
+            if item.checkState(0) != Qt.CheckState.Checked:
+                continue
+
+            req = item.data(0, Qt.ItemDataRole.UserRole)
+            env = EnvProfile(env_base.name, dict(env_base.variables))
+            total += 1
+
+            self._results.append(f"\n<b>{req.method}</b> {req.url} ...")
+            item.setText(0, "\u23f3")
+
+            worker = _RequestWorker(req, env)
+            result_holder = [None]
+            error_holder = [None]
+
+            def _on_finish(rdict):
+                result_holder[0] = rdict
+
+            def _on_error(msg):
+                error_holder[0] = msg
+
+            worker.finished.connect(_on_finish)
+            worker.error.connect(_on_error)
+
+            t = threading.Thread(target=worker.run, daemon=True)
+            t.start()
+            t.join(timeout=60)
+
+            if worker.isRunning():
+                worker.cancel()
+                t.join(timeout=2)
+
+            if error_holder[0]:
+                failed += 1
+                item.setText(0, "\u2717")
+                item.setForeground(0, QColor("#f44747"))
+                self._results.append(f"  <span style='color:#f44747;'>\u2717 ERROR: {error_holder[0][:150]}</span>")
+            elif result_holder[0]:
+                rd = result_holder[0]
+                status = rd["status"]
+                elapsed = rd["elapsed"]
+                if 200 <= status < 300:
+                    passed += 1
+                    item.setText(0, "\u2713")
+                    item.setForeground(0, QColor("#4caf50"))
+                    self._results.append(f"  <span style='color:#4caf50;'>\u2713 {status}</span>  {elapsed*1000:.0f}ms")
+                else:
+                    failed += 1
+                    item.setText(0, "\u2717")
+                    item.setForeground(0, QColor("#f44747"))
+                    self._results.append(f"  <span style='color:#f44747;'>\u2717 {status}</span>  {elapsed*1000:.0f}ms")
+            else:
+                failed += 1
+                item.setText(0, "\u2717")
+
+            if delay > 0 and i < self._list.topLevelItemCount() - 1:
+                time.sleep(delay)
+
+        # Summary
+        color = "#4caf50" if failed == 0 else "#f44747" if passed == 0 else "#ffcc00"
+        self._results.append(
+            f"\n<hr><b style='color:{color};'>Results: {passed}/{total} passed"
+            + (f", {failed} failed" if failed else "")
+            + "</b>"
+        )
+
+        self._btn_run.setEnabled(True)
+        self._btn_stop.setEnabled(False)
 
 
 # ─── Plugin entry point ───────────────────────────────────────────────────────

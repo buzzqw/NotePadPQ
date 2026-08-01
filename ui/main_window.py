@@ -2207,7 +2207,7 @@ class MainWindow(QMainWindow):
             )
 
     _SPREADSHEET_EXTS = frozenset({".csv", ".tsv", ".xlsx", ".xlsm", ".xls", ".ods"})
-    _RICHTEXT_EXTS    = frozenset({".doc", ".docx", ".odt", ".rtf", ".html", ".htm", ".md"})
+    _RICHTEXT_EXTS    = frozenset({".doc", ".docx", ".odt", ".rtf", ".html", ".htm"})
     _PDF_EXTS         = frozenset({".pdf"})
 
     # Azioni che, senza una selezione, riscrivono l'intero editor.text():

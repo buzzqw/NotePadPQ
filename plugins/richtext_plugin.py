@@ -21,14 +21,13 @@ if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
 
-_RICHTEXT_EXTS = frozenset({".doc", ".docx", ".odt", ".rtf", ".html", ".htm", ".md"})
+_RICHTEXT_EXTS = frozenset({".doc", ".docx", ".odt", ".rtf", ".html", ".htm"})
 _FILTER = (
-    "Documenti (*.doc *.docx *.odt *.rtf *.html *.htm *.md);;"
+    "Documenti (*.doc *.docx *.odt *.rtf *.html *.htm);;"
     "Word (*.doc *.docx);;"
     "OpenDocument (*.odt);;"
     "RTF (*.rtf);;"
     "HTML (*.html *.htm);;"
-    "Markdown (*.md);;"
     "Tutti i file (*)"
 )
 

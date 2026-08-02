@@ -574,7 +574,8 @@ class BuildPanel(QWidget):
             return
 
         interactive = self._btn_interactive.isChecked()
-        self._current_run_id = f"build_{id(self)}"
+        from uuid import uuid4
+        self._current_run_id = f"build_{uuid4().hex[:8]}"
         self._bm.run(action, editor, run_id=self._current_run_id, interactive=interactive)
 
     def _stop_current(self) -> None:

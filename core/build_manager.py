@@ -786,6 +786,26 @@ class BuildManager(QObject):
 
     def _spawn_worker(self, run_id: str, command: str, cwd: str, env: dict,
                       interactive: bool = False) -> BuildWorker | InteractiveBuildWorker:
+        old = self._workers.pop(run_id, None)
+        if old and old.isRunning():
+            old.output_line.disconnect()
+            try:
+                old.finished_ok.disconnect()
+            except Exception:
+                pass
+            try:
+                old.finished_err.disconnect()
+            except Exception:
+                pass
+            try:
+                old.stopped.disconnect()
+            except Exception:
+                pass
+            old.abort()
+            old.wait(2000)
+            if old.isRunning():
+                old.terminate()
+
         cls = InteractiveBuildWorker if interactive else BuildWorker
         worker = cls(command, cwd, env, run_id)
         worker.output_line.connect(lambda line, rid=run_id: self.build_output.emit(rid, line))

@@ -360,6 +360,10 @@ class EditorWidget(QsciScintilla):
         self._smart_hl_timer.setInterval(600)    # 600ms: bilancia reattività e costo CPU
         self._smart_hl_timer.timeout.connect(self._do_smart_highlight)
 
+        # Accessibilità - screen reader (NVDA/JAWS/Narrator)
+        self.setAccessibleName("Editor — Nessun file")
+        self.setAccessibleDescription("Editor di testo con syntax highlighting")
+
         # --- SPELL CHECKER ---
         self._spell_checker = None
         self._spell_lang: str = ""
@@ -914,6 +918,13 @@ class EditorWidget(QsciScintilla):
     @file_path.setter
     def file_path(self, path: Optional[Path]) -> None:
         self._file_path = path
+        if path:
+            self.setAccessibleName(f"Editor — {path.name}")
+            self.setAccessibleDescription(
+                f"File {path.name} in {str(path.parent)}")
+        else:
+            self.setAccessibleName("Editor — Nuovo file")
+            self.setAccessibleDescription("Editor di testo senza file associato")
 
     @property
     def encoding(self) -> str:

@@ -1502,6 +1502,36 @@ class EditorWidget(QsciScintilla):
                     mm._actions.append({"type": "delete"})
         except Exception:
             pass
+
+        # Wrap selezione con virgolette/parentesi/backtick
+        # Seleziona "testo" e premi " → "testo" (come VS Code, Sublime)
+        text = event.text()
+        if text and self.hasSelectedText() and self.SendScintilla(
+                QsciScintilla.SCI_GETSELECTIONS) <= 1:
+            pair: str | None = None
+            if text == '"':
+                pair = '"'
+            elif text == "'":
+                pair = "'"
+            elif text == '`':
+                pair = '`'
+            elif text == '(':
+                pair = ')'
+            elif text == '{':
+                pair = '}'
+            elif text == '[':
+                pair = ']'
+            elif text == '<':
+                pair = '>'
+            if pair is not None:
+                sel = self.selectedText()
+                self._in_paste = True
+                try:
+                    self.replaceSelectedText(f"{text}{sel}{pair}")
+                finally:
+                    self._in_paste = False
+                return
+
         super().keyPressEvent(event)
 
         # --- INIZIO AUTOCOMPLETAMENTO BIBTEX ---

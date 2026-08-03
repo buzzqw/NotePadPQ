@@ -482,6 +482,8 @@
     "no_updates": "NotePadPQ est à jour.",
     "file_changed_on_disk": "Le fichier \"{name}\" a été modifié par un autre programme. Que voulez-vous faire?",
     "about_text": "NotePadPQ {version}\nÉditeur de texte avancé pour Linux, FreeBSD et Windows.\n\nBasé sur PyQt6 + QScintilla.",
+    "about_license": "Licence EUPL 1.2",
+    "about_source": "Code source sur GitHub",
     "manual_not_found": "Manuel introuvable.",
     "help_search_placeholder": "Rechercher un sujet dans le manuel…",
     "help_search_hint": "↵ Entrée ou double-clic pour ouvrir la section dans le manuel",

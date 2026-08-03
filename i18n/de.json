@@ -482,6 +482,8 @@
     "no_updates": "NotePadPQ ist auf dem neuesten Stand.",
     "file_changed_on_disk": "Die Datei \"{name}\" wurde von einem anderen Programm geändert. Was möchten Sie tun?",
     "about_text": "NotePadPQ {version}\nErweiterter Texteditor für Linux, FreeBSD und Windows.\n\nBasiert auf PyQt6 + QScintilla.",
+    "about_license": "EUPL-1.2-Lizenz",
+    "about_source": "Quellcode auf GitHub",
     "update_prompt": "Eine neue Version ist verfügbar!\nAktuelle Version: {current}\nNeue Version: {latest}\n\nMöchten Sie die Seite öffnen, um das Update herunterzuladen?",
     "update_ok": "Sie verwenden die neueste verfügbare Version ({current}).\nKein Update erforderlich.",
     "update_error": "Nach Updates kann derzeit nicht gesucht werden.\nBitte überprüfen Sie Ihre Verbindung oder versuchen Sie es später noch einmal.\n\nDetails: {error}",

@@ -3874,46 +3874,118 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def action_about(self) -> None:
-            from PyQt6.QtWidgets import QMessageBox, QLabel
-            from PyQt6.QtCore import Qt
-    
-            # Creiamo l'istanza del messaggio
-            msg = QMessageBox(self)
-            msg.setWindowTitle(tr("action.about"))
-            
-            # 1. Recuperiamo il testo tradotto dal file JSON
-            # Sostituiamo gli "a capo" testuali (\n) con quelli in HTML (<br>)
-            testo_base = tr("msg.about_text", version=self.APP_VERSION).replace('\n', '<br>')
-            
-            # 2. Recuperiamo alcune etichette tradotte (Autore, Donazioni) per la parte inferiore
+            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QFrame
+            from PyQt6.QtGui import QPixmap
+
+            # 1. Recuperiamo il testo tradotto dal file JSON: la prima riga
+            # contiene "NotePadPQ {version}", il resto è la descrizione.
+            raw = tr("msg.about_text", version=self.APP_VERSION)
+            righe = raw.split("\n", 1)
+            titolo_riga = righe[0] if righe else f"NotePadPQ {self.APP_VERSION}"
+            corpo = righe[1].strip() if len(righe) > 1 else ""
+            corpo_html = corpo.replace("\n\n", "<br><br>").replace("\n", "<br>")
+
             autore_label = tr("label.plugin_author")
             dona_label = tr("action.donate").replace("...", "")
-    
-            # 3. Costruiamo l'HTML combinando le traduzioni e i tuoi link originali
-            content = (
-                f"<h2>{testo_base}</h2>"
-                "<hr>"
-                f"<p><b>{autore_label}:</b> Andres Zanzani<br>"
-                "<b>Email:</b> <a href='mailto:azanzani@gmail.com'>azanzani@gmail.com</a></p>"
-                f"<p><b>{dona_label}:</b><br>"
-                "<a href='https://paypal.me/azanzani'>paypal.me/azanzani</a></p>"
+
+            dlg = QDialog(self)
+            dlg.setWindowTitle(tr("action.about"))
+            dlg.setModal(True)
+            dlg.setMinimumWidth(440)
+
+            root = QVBoxLayout(dlg)
+            root.setContentsMargins(28, 24, 28, 20)
+            root.setSpacing(14)
+
+            # ── Intestazione: icona applicativo + nome/versione ──
+            header = QHBoxLayout()
+            header.setSpacing(16)
+
+            icon_label = QLabel()
+            icons_dir = Path(__file__).parent.parent / "icons"
+            pm = QPixmap(str(icons_dir / "NotePadPQ_64.png"))
+            if not pm.isNull():
+                icon_label.setPixmap(pm)
+            header.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignTop)
+
+            title_box = QVBoxLayout()
+            title_box.setSpacing(4)
+
+            title_lbl = QLabel(titolo_riga)
+            title_font = title_lbl.font()
+            title_font.setPointSize(title_font.pointSize() + 7)
+            title_font.setBold(True)
+            title_lbl.setFont(title_font)
+            # Indizio visivo per la logica segreta (triplo click) sotto
+            title_lbl.setCursor(Qt.CursorShape.PointingHandCursor)
+            title_box.addWidget(title_lbl)
+
+            if corpo_html:
+                sub_lbl = QLabel(corpo_html)
+                sub_lbl.setWordWrap(True)
+                sub_lbl.setStyleSheet("color: palette(mid);")
+                title_box.addWidget(sub_lbl)
+
+            header.addLayout(title_box, 1)
+            root.addLayout(header)
+
+            # ── Separatore ──
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.HLine)
+            sep.setStyleSheet("background: palette(mid); max-height: 1px; border: none;")
+            root.addWidget(sep)
+
+            # ── Autore / contatti ──
+            info_lbl = QLabel(
+                f"<b>{autore_label}:</b> Andres Zanzani<br>"
+                "<a href='mailto:azanzani@gmail.com'>azanzani@gmail.com</a>"
             )
-            
-            msg.setText(content)
-            # Usiamo l'icona informativa standard
-            msg.setIcon(QMessageBox.Icon.Information)
-    
+            info_lbl.setOpenExternalLinks(True)
+            root.addWidget(info_lbl)
+
+            # ── Licenza / repository ──
+            links_lbl = QLabel(
+                "<a href='https://github.com/buzzqw/NotePadPQ/blob/main/EUPL-1.2%20EN.txt'>"
+                f"{tr('msg.about_license')}</a>"
+                "  ·  "
+                f"<a href='https://github.com/buzzqw/NotePadPQ'>{tr('msg.about_source')}</a>"
+            )
+            links_lbl.setOpenExternalLinks(True)
+            root.addWidget(links_lbl)
+
+            root.addStretch(1)
+
+            # ── Pulsanti ──
+            btn_row = QHBoxLayout()
+            btn_row.setSpacing(8)
+
+            donate_btn = QPushButton(f"\U0001F49B {dona_label}")
+            donate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            donate_btn.setStyleSheet(
+                "QPushButton {"
+                "  background: palette(highlight); color: palette(highlighted-text);"
+                "  border: none; border-radius: 5px; padding: 7px 16px; font-weight: 600;"
+                "}"
+                "QPushButton:hover { background: palette(dark); }"
+            )
+            donate_btn.clicked.connect(self.action_donate)
+            btn_row.addWidget(donate_btn)
+
+            btn_row.addStretch(1)
+
+            close_btn = QPushButton(tr("button.close"))
+            close_btn.setDefault(True)
+            close_btn.clicked.connect(dlg.accept)
+            btn_row.addWidget(close_btn)
+
+            root.addLayout(btn_row)
+
             # --- LOGICA SEGRETA: Triplo click sulla scritta NotePadPQ ---
-            for label in msg.findChildren(QLabel):
-                if "NotePadPQ" in label.text():
-                    # Cambiamo il cursore per dare un indizio che "c'è qualcosa"
-                    label.setCursor(Qt.CursorShape.PointingHandCursor)
-                    # Installiamo il filtro
-                    self._about_arc_filter = TripleClickFilter(self, self._launch_arcade)
-                    label.installEventFilter(self._about_arc_filter)
+            self._about_arc_filter = TripleClickFilter(self, self._launch_arcade)
+            title_lbl.installEventFilter(self._about_arc_filter)
             # ------------------------------------------------------------
-    
-            msg.exec()
+
+            dlg.exec()
 
     def action_check_updates(self) -> None:
             import urllib.request

@@ -3561,24 +3561,15 @@ class MainWindow(QMainWindow):
 
     def action_compile(self) -> None:
         self._build_dock.show()
-        from core.build_manager import BuildManager
-        from uuid import uuid4
-        BuildManager.instance().run("compile", self._current_editor(),
-                                    run_id=f"build_{uuid4().hex[:8]}")
+        self._build_panel._run_action("compile")
 
     def action_run(self) -> None:
         self._build_dock.show()
-        from core.build_manager import BuildManager
-        from uuid import uuid4
-        BuildManager.instance().run("run", self._current_editor(),
-                                    run_id=f"build_{uuid4().hex[:8]}")
+        self._build_panel._run_action("run")
 
     def action_build(self) -> None:
         self._build_dock.show()
-        from core.build_manager import BuildManager
-        from uuid import uuid4
-        BuildManager.instance().run("build", self._current_editor(),
-                                    run_id=f"build_{uuid4().hex[:8]}")
+        self._build_panel._run_action("build")
 
     def action_stop_build(self) -> None:
         from core.build_manager import BuildManager

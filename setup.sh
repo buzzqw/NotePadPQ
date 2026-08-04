@@ -1,793 +1,421 @@
 #!/bin/bash
 # setup.sh — NotePadPQ setup
-
+# Valido su: Debian/Ubuntu, Fedora, Arch Linux, macOS, Windows, FreeBSD
 set -euo pipefail
 
+PROJECT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PYTHON=${PYTHON:-python3}
 OS=$(uname)
-PROJECT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+VENV_DIR="${PROJECT_DIR}/.venv"
 
-# Pacchetti base (sempre richiesti)
-PIP_CORE="PyQt6 PyQt6-QScintilla PyQt6-WebEngine chardet markdown docutils pyspellchecker PyGithub python-gitlab keyring psutil"
+# ─── Configurazione pacchetti ─────────────────────────────────────────────────
 
-# Pacchetti opzionali per il supporto LaTeX avanzato
-PIP_LATEX="pymupdf matplotlib sympy"
+# Pacchetti Python fondamentali (sempre richiesti)
+CORE_PY="\
+PyQt6 \
+PyQt6-QScintilla \
+PyQt6-WebEngine \
+chardet \
+pygments \
+psutil \
+markdown \
+docutils \
+pyspellchecker \
+PyGithub \
+python-gitlab \
+keyring \
+cryptography \
+requests"
 
-# Pacchetti per il plugin Foglio di Calcolo
-PIP_SPREADSHEET="openpyxl xlrd odfpy"
+# Componenti opzionali
+OPT_LATEX="pymupdf matplotlib sympy"
+OPT_SPREAD="openpyxl xlrd odfpy"
+OPT_RICHTEXT="mammoth htmldocx pypandoc"
+OPT_FORMATTERS="black ruff"
 
-# Pacchetti per il plugin Rich Text (WYSIWYG docx/odt/rtf)
-PIP_RICHTEXT="mammoth htmldocx pypandoc"
+# ─── Helper: presenza uv ──────────────────────────────────────────────────────
 
-# Pacchetti per i Code Formatter Python (black e ruff; prettier/clang-format si installano a parte)
-PIP_FORMATTERS="black ruff"
-
-# ─── Helper ───────────────────────────────────────────────────────────────────
-
-# Controlla se tutti i moduli Python di una lista sono importabili.
-# Usa prima il Python di sistema, poi quello del .venv se presente.
-# Ritorna: "all" se tutti presenti, "partial" se alcuni, "none" se nessuno.
-_check_pkg_status() {
-    local pkgs="$1"
-    local python_bins="$PYTHON"
-    local VENV_DIR="${PROJECT_DIR}/.venv"
-    # Se il venv esiste, controlla solo lì (il lanciatore userà il venv)
-    [[ -x "${VENV_DIR}/bin/python" ]] && python_bins="${VENV_DIR}/bin/python"
-
-    local total=0
-    local found=0
-    for pkg in $pkgs; do
-        total=$((total + 1))
-        local import_name
-        case "$pkg" in
-            pymupdf)   import_name="fitz" ;;
-            odfpy)     import_name="odf" ;;
-            PyGithub)  import_name="github" ;;
-            Pillow)    import_name="PIL" ;;
-            *)         import_name="${pkg//-/_}" ;;
-        esac
-        import_name="${import_name,,}"   # lowercase
-        # prova su tutti i Python disponibili
-        local ok=false
-        for pybin in $python_bins; do
-            if $pybin -c "import ${import_name}" &>/dev/null 2>&1; then
-                ok=true
-                break
-            fi
-        done
-        $ok && found=$((found + 1))
-    done
-
-    if   [[ $found -eq $total ]];   then echo "all"
-    elif [[ $found -gt 0 ]];        then echo "partial"
-    else                                 echo "none"
-    fi
-}
-
-# Rileva lo stato di installazione di tutti i componenti opzionali;
-# setta le variabili STATUS_LATEX, STATUS_SPREADSHEET, STATUS_RICHTEXT, STATUS_FORMATTERS.
-_detect_installed_components() {
-    STATUS_LATEX=$(_check_pkg_status "$PIP_LATEX")
-    STATUS_SPREADSHEET=$(_check_pkg_status "$PIP_SPREADSHEET")
-    STATUS_RICHTEXT=$(_check_pkg_status "$PIP_RICHTEXT")
-    # Per i formatter controlliamo solo black e ruff (gli altri sono di sistema)
-    STATUS_FORMATTERS=$(_check_pkg_status "$PIP_FORMATTERS")
-}
-
-# Restituisce l'etichetta visiva per uno stato componente.
-_status_label() {
-    case "$1" in
-        all)     echo "✓ già installato" ;;
-        partial) echo "~ parzialmente installato" ;;
-        *)       echo "✗ non installato" ;;
-    esac
-}
-
-# Chiede all'utente quali componenti opzionali installare;
-# setta INSTALL_LATEX, INSTALL_SPREADSHEET, INSTALL_RICHTEXT, INSTALL_FORMATTERS (true/false)
-_ask_optional_components() {
-    _detect_installed_components
-    local lbl1; lbl1=$(_status_label "$STATUS_LATEX")
-    local lbl2; lbl2=$(_status_label "$STATUS_SPREADSHEET")
-    local lbl3; lbl3=$(_status_label "$STATUS_RICHTEXT")
-    local lbl4; lbl4=$(_status_label "$STATUS_FORMATTERS")
-
-    echo
-    echo "╔══════════════════════════════════════════════════════════════════╗"
-    echo "║  Componenti opzionali di NotePadPQ                              ║"
-    echo "║  (✓ già installato  ~ parziale  ✗ mancante)                     ║"
-    echo "╠══════════════════════════════════════════════════════════════════╣"
-    printf "║  [1] LaTeX avanzato  — pymupdf, matplotlib, sympy               ║\n"
-    printf "║      Anteprima PDF, rendering equazioni, calcolo simbolico      ║\n"
-    printf "║      Stato: %-52s║\n" "$lbl1"
-    echo   "║                                                                 ║"
-    printf "║  [2] Foglio di calcolo — openpyxl, xlrd, odfpy                  ║\n"
-    printf "║      Apertura/salvataggio XLSX, XLS, ODS                        ║\n"
-    printf "║      Stato: %-52s║\n" "$lbl2"
-    echo   "║                                                                 ║"
-    printf "║  [3] Rich Text (WYSIWYG) — mammoth, htmldocx                    ║\n"
-    printf "║      Apertura/esportazione DOCX come rich text                  ║\n"
-    printf "║      Stato: %-52s║\n" "$lbl3"
-    echo   "║                                                                 ║"
-    printf "║  [4] Code Formatter — black (Python), ruff                       ║\n"
-    printf "║      Formattazione codice con Ctrl+Alt+F                        ║\n"
-    printf "║      Stato: %-52s║\n" "$lbl4"
-    echo   "║                                                                 ║"
-    echo   "║  [a] Tutti i componenti opzionali                               ║"
-    echo   "║  [n] Nessun componente opzionale (solo dipendenze base)         ║"
-    echo   "╚══════════════════════════════════════════════════════════════════╝"
-    echo
-    echo    "  Componenti già completamente installati verranno saltati."
-    echo -n "Seleziona i componenti da installare (es. 1 2 3 4 oppure a/n): "
-    read -r OPT_CHOICE
-
-    INSTALL_LATEX=false
-    INSTALL_SPREADSHEET=false
-    INSTALL_RICHTEXT=false
-    INSTALL_FORMATTERS=false
-
-    case "$OPT_CHOICE" in
-        a|A|all|ALL)
-            INSTALL_LATEX=true
-            INSTALL_SPREADSHEET=true
-            INSTALL_RICHTEXT=true
-            INSTALL_FORMATTERS=true
-            ;;
-        n|N|no|NO|'')
-            # nessun opzionale
-            ;;
-        *)
-            # selezione multipla: es. "1 2" o "13"
-            [[ "$OPT_CHOICE" == *1* ]] && INSTALL_LATEX=true
-            [[ "$OPT_CHOICE" == *2* ]] && INSTALL_SPREADSHEET=true
-            [[ "$OPT_CHOICE" == *3* ]] && INSTALL_RICHTEXT=true
-            [[ "$OPT_CHOICE" == *4* ]] && INSTALL_FORMATTERS=true
-            ;;
-    esac
-
-    # Salta automaticamente i componenti già completamente installati
-    [[ "$STATUS_LATEX"        == "all" ]] && INSTALL_LATEX=false
-    [[ "$STATUS_SPREADSHEET" == "all" ]] && INSTALL_SPREADSHEET=false
-    [[ "$STATUS_RICHTEXT"     == "all" ]] && INSTALL_RICHTEXT=false
-    [[ "$STATUS_FORMATTERS"  == "all" ]] && INSTALL_FORMATTERS=false
-
-    echo
-    echo "Componenti selezionati:"
-    $INSTALL_LATEX        && echo "  LaTeX avanzato     : sì" || { [[ "$STATUS_LATEX"        == "all" ]] && echo "  LaTeX avanzato     : già installato (saltato)" || echo "  LaTeX avanzato     : no"; }
-    $INSTALL_SPREADSHEET  && echo "  Foglio di calcolo  : sì" || { [[ "$STATUS_SPREADSHEET" == "all" ]] && echo "  Foglio di calcolo  : già installato (saltato)" || echo "  Foglio di calcolo  : no"; }
-    $INSTALL_RICHTEXT     && echo "  Rich Text (WYSIWYG): sì" || { [[ "$STATUS_RICHTEXT"     == "all" ]] && echo "  Rich Text (WYSIWYG): già installato (saltato)" || echo "  Rich Text (WYSIWYG): no"; }
-    $INSTALL_FORMATTERS   && echo "  Code Formatter     : sì" || { [[ "$STATUS_FORMATTERS"  == "all" ]] && echo "  Code Formatter     : già installato (saltato)" || echo "  Code Formatter     : no"; }
-    echo
-}
-
-# Tenta pip con gli argomenti opzionali; se fallisce a causa di "externally managed",
-# offre l'installazione in un venv dedicato e aggiorna il lanciatore.
-# Se il .venv del progetto esiste già, installa direttamente lì senza passare per pip di sistema.
-_pip_or_venv() {
-    local pkgs="$1"
-    local extra_args="${2:-}"
-    local VENV_DIR="${PROJECT_DIR}/.venv"
-
-    # Se il venv esiste già, installa direttamente nel venv (coerenza: tutto in un posto)
-    if [[ -x "${VENV_DIR}/bin/python" ]]; then
-        echo "  .venv rilevato — installo nel venv esistente: ${VENV_DIR}"
-        "${VENV_DIR}/bin/pip" install --quiet $pkgs
-        return $?
-    fi
-
-    set +e
-    $PYTHON -m pip install $extra_args $pkgs >/tmp/_pip_out.txt 2>&1
-    local pip_exit=$?
-    set -e
-
-    if [[ $pip_exit -eq 0 ]]; then
-        return 0
-    fi
-
-    if grep -q "externally-managed\|externally managed\|--break-system-packages" /tmp/_pip_out.txt 2>/dev/null; then
-        echo
-        echo "  pip ha bloccato l'installazione (ambiente Python gestito dal sistema)."
-        echo -n "  Installare i pacchetti in un virtualenv dedicato (${PROJECT_DIR}/.venv)? [S/n] "
-        read -r VENV_CHOICE
-        VENV_CHOICE=${VENV_CHOICE:-s}
-        if [[ "$VENV_CHOICE" =~ ^[Ss]$ ]]; then
-            _install_in_venv "$pkgs"
-        else
-            echo "  Installazione saltata. Puoi installare manualmente: pip install $pkgs"
-        fi
-    else
-        echo "  ATTENZIONE: pip ha restituito un errore durante l'installazione."
-        cat /tmp/_pip_out.txt
-    fi
-}
-
-# Crea (o riusa) un venv in PROJECT_DIR/.venv e installa i pacchetti.
-# Aggiorna anche il lanciatore .desktop per usare il Python del venv.
-_install_in_venv() {
-    local pkgs="$1"
-    local VENV_DIR="${PROJECT_DIR}/.venv"
-
-    echo "  Creazione virtualenv in ${VENV_DIR}..."
-    $PYTHON -m venv "$VENV_DIR"
-    "${VENV_DIR}/bin/pip" install --upgrade pip --quiet
-    echo "  Installazione pacchetti nel venv..."
-    "${VENV_DIR}/bin/pip" install $pkgs
-
-    # Aggiorna il lanciatore .desktop (se già creato) per usare il Python del venv
-    local LAUNCHER="${HOME}/.local/share/applications/notepadpq.desktop"
-    if [[ -f "$LAUNCHER" ]]; then
-        sed -i "s|^Exec=.*|Exec=${VENV_DIR}/bin/python ${PROJECT_DIR}/main.py %F|" "$LAUNCHER"
-        echo "  Lanciatore aggiornato per usare il venv: ${VENV_DIR}/bin/python"
-    fi
-
-    echo
-    echo "  NOTA: per avviare NotePadPQ dal terminale con le dipendenze del venv:"
-    echo "    ${VENV_DIR}/bin/python ${PROJECT_DIR}/main.py"
-    echo "  oppure attiva il venv prima:"
-    echo "    source ${VENV_DIR}/bin/activate"
-    echo
-}
-
-# ─── uv (gestore pacchetti Python veloce) ─────────────────────────────────────
-
-# Verifica se uv è installato; altrimenti offre di installarlo.
-# Ritorna 0 se uv è disponibile, 1 altrimenti (fallback a pip).
 _ensure_uv() {
-    # uv può essere in ~/.local/bin o ~/.cargo/bin (non sempre nel PATH)
     export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-
     if command -v uv &>/dev/null; then
-        echo "  uv rilevato: $(uv --version 2>/dev/null || true)"
+        echo "   uv $(uv --version 2>/dev/null || echo 'non specificata') — già presente"
         return 0
     fi
-
-    echo
-    echo "  uv (gestore pacchetti Python veloce, raccomandato) non trovato."
-    echo "  uv evita i blocchi 'externally managed' e crea venv rapidamente."
-    echo -n "  Installare uv? [S/n] "
-    read -r UV_CHOICE
-    UV_CHOICE=${UV_CHOICE:-s}
-
-    if [[ "$UV_CHOICE" =~ ^[Ss]$ ]]; then
-        echo "  Installazione uv in corso..."
-        curl -LsSf https://astral.sh/uv/install.sh | sh
+    echo "   Installazione uv (gestore pacchetti Python veloce)..."
+    if curl -LsSf https://astral.sh/uv/install.sh | sh 2>/dev/null; then
         export PATH="$HOME/.local/bin:$PATH"
-        if command -v uv &>/dev/null; then
-            echo "  uv installato: $(uv --version 2>/dev/null || true)"
-            return 0
-        else
-            echo "  ERRORE: installazione uv fallita. Uso pip come fallback."
-            return 1
-        fi
-    else
-        echo "  Uso pip come fallback."
-        return 1
-    fi
-}
-
-# Installa pacchetti Python con uv.
-# Se il .venv del progetto esiste già, installa lì.
-# Altrimenti prova uv pip install --system; se fallisce, offre di creare un venv.
-_uv_install() {
-    local pkgs="$1"
-    local VENV_DIR="${PROJECT_DIR}/.venv"
-
-    if [[ -x "${VENV_DIR}/bin/python" ]]; then
-        echo "  .venv rilevato — installo nel venv esistente: ${VENV_DIR}"
-        set +e
-        uv pip install --python "${VENV_DIR}/bin/python" $pkgs
-        set -e
-        return $?
-    fi
-
-    echo "  Installazione con uv (system)..."
-    if uv pip install --system $pkgs 2>/dev/null; then
+        echo "   uv installato: $(uv --version 2>/dev/null)"
         return 0
     fi
-
-    echo
-    echo "  Installazione di sistema fallita."
-    echo -n "  Creare un virtualenv dedicato (${VENV_DIR})? [S/n] "
-    read -r VENV_CHOICE
-    VENV_CHOICE=${VENV_CHOICE:-s}
-
-    if [[ "$VENV_CHOICE" =~ ^[Ss]$ ]]; then
-        echo "  Creazione virtualenv con uv..."
-        uv venv "$VENV_DIR"
-        echo "  Installazione pacchetti nel venv..."
-        uv pip install --python "${VENV_DIR}/bin/python" $pkgs
-
-        local LAUNCHER="${HOME}/.local/share/applications/notepadpq.desktop"
-        if [[ -f "$LAUNCHER" ]]; then
-            sed -i "s|^Exec=.*|Exec=${VENV_DIR}/bin/python ${PROJECT_DIR}/main.py %F|" "$LAUNCHER"
-            echo "  Lanciatore aggiornato per usare il venv: ${VENV_DIR}/bin/python"
-        fi
-
-        echo
-        echo "  NOTA: per avviare NotePadPQ dal terminale con le dipendenze del venv:"
-        echo "    ${VENV_DIR}/bin/python ${PROJECT_DIR}/main.py"
-        echo "  oppure attiva il venv prima:"
-        echo "    source ${VENV_DIR}/bin/activate"
-        echo
-    else
-        echo "  Installazione saltata. Puoi installare manualmente: uv pip install $pkgs"
-    fi
+    echo "   ERRORE: impossibile installare uv."
+    return 1
 }
 
-_print_latex_hint() {
-    echo
-    echo "┌─────────────────────────────────────────────────────────────────┐"
-    echo "│  Supporto LaTeX avanzato (opzionale)                            │"
-    echo "│                                                                 │"
-    echo "│  Se usi NotePadPQ per compilare e scrivere LaTeX, installa:     │"
-    echo "│                                                                 │"
-    echo "│  • pymupdf     — anteprima PDF al passaggio del mouse           │"
-    echo "│  • matplotlib  — rendering equazioni matematiche inline         │"
-    echo "│  • sympy       — supporto calcolo simbolico                     │"
-    echo "│  • synctex     — navigazione bidirezionale sorgente ↔ PDF       │"
-    echo "│                  (pacchetto di sistema, incluso in TeX Live)    │"
-    echo "│                                                                 │"
-    if command -v apt-get &>/dev/null; then
-        echo "│  Installazione rapida (apt):                                    │"
-        echo "│    sudo apt install python3-pymupdf python3-matplotlib python3-sympy │"
-        echo "│    sudo apt install texlive-bin   (include synctex)             │"
-        echo "│                                                                 │"
-        echo "│  Oppure con uv:                                                 │"
-        echo "│    uv pip install pymupdf matplotlib sympy                      │"
-    elif command -v pacman &>/dev/null; then
-        echo "│  Installazione rapida (pacman):                                 │"
-        echo "│    sudo pacman -S python-pymupdf python-matplotlib python-sympy │"
-        echo "│    sudo pacman -S texlive-bin   (include synctex)               │"
+# ─── Helper: crea .venv e installa pacchetti Python via uv ────────────────────
+
+_uv_venv_install() {
+    local pkgs="$1"
+    local label="${2:-pacchetti}"
+    local venv_opts="${3:-}"   # es. "--system-site-packages"
+
+    if [[ ! -d "$VENV_DIR" ]]; then
+        echo "   Creazione virtualenv con uv in ${VENV_DIR}..."
+        uv venv $venv_opts "$VENV_DIR" 2>/dev/null || {
+            # fallback: python -m venv
+            if [[ -n "$venv_opts" ]]; then
+                $PYTHON -m venv $venv_opts "$VENV_DIR"
+            else
+                $PYTHON -m venv "$VENV_DIR"
+            fi
+        }
     else
-        echo "│  Installazione rapida (pip):                                    │"
-        echo "│    pip install pymupdf matplotlib sympy                         │"
+        echo "   Virtualenv esistente: ${VENV_DIR}"
     fi
-    echo "└─────────────────────────────────────────────────────────────────┘"
+
+    echo "   Installazione ${label} nel venv..."
+    uv pip install --python "${VENV_DIR}/bin/python" $pkgs || {
+        echo "   uv fallito, provo con pip nel venv..."
+        "${VENV_DIR}/bin/pip" install --quiet $pkgs || {
+            echo "   ERRORE: installazione ${label} fallita."
+            return 1
+        }
+    }
+    return 0
 }
 
-_check_synctex() {
-    if command -v synctex &>/dev/null; then
-        echo "  synctex        : OK  (navigazione bidirezionale LaTeX↔PDF)"
-    else
-        echo "  synctex        : non installato  (opzionale, incluso in TeX Live)"
-    fi
-}
+# ─── Helper: crea lanciatore .desktop ─────────────────────────────────────────
 
-_create_linux_launcher() {
-    echo
-    echo "=== Creazione lanciatore Linux ==="
-
-    local VENV_DIR="${PROJECT_DIR}/.venv"
+_create_launcher() {
+    local PYTHON_BIN
     if [[ -x "${VENV_DIR}/bin/python" ]]; then
         PYTHON_BIN="${VENV_DIR}/bin/python"
-        echo "  Python venv:      ${PYTHON_BIN}"
     else
         PYTHON_BIN=$(command -v "$PYTHON")
-        echo "  Python sistema:   ${PYTHON_BIN}"
     fi
 
-    ICON_PATH=""
-    for _try_icon in \
-        "${PROJECT_DIR}/icons/NotePadPQ_256.png" \
-        "${PROJECT_DIR}/icons/NotePadPQ.png" \
-        "${PROJECT_DIR}/icons/notepadpq.png"; do
-        if [[ -f "$_try_icon" ]]; then
-            ICON_PATH="$_try_icon"
+    local ICON
+    ICON="text-editor"
+    for try in icons/NotePadPQ_256.png icons/NotePadPQ.png icons/notepadpq.png; do
+        if [[ -f "${PROJECT_DIR}/${try}" ]]; then
+            ICON="${PROJECT_DIR}/${try}"
             break
         fi
     done
-    if [[ -z "$ICON_PATH" ]]; then
-        echo "  Icona non trovata in icons/, uso icona generica."
-        ICON_PATH="text-editor"
-    else
-        echo "  Icona trovata:    OK"
-    fi
 
     mkdir -p "${HOME}/.local/share/applications"
-    LAUNCHER_FILE="${HOME}/.local/share/applications/notepadpq.desktop"
-
-    cat <<EOF > "$LAUNCHER_FILE"
+    cat > "${HOME}/.local/share/applications/notepadpq.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=NotePadPQ
-Comment=Advanced text editor based on PyQt6 and QScintilla
-Exec=$PYTHON_BIN $PROJECT_DIR/main.py %F
-Icon=$ICON_PATH
+Comment=Advanced text editor — PyQt6 + QScintilla
+Exec=${PYTHON_BIN} ${PROJECT_DIR}/main.py %F
+Icon=${ICON}
 Terminal=false
 Categories=Development;TextEditor;Utility;
 MimeType=text/plain;text/x-python;text/x-c++src;text/x-latex;application/x-shellscript;application/json;application/xml;text/markdown;text/x-rst;
 EOF
-
-    chmod +x "$LAUNCHER_FILE"
-    echo "  Lanciatore creato in: $LAUNCHER_FILE"
+    chmod +x "${HOME}/.local/share/applications/notepadpq.desktop"
+    echo "   Lanciatore creato: ~/.local/share/applications/notepadpq.desktop"
 }
 
-# ─── Installazione ────────────────────────────────────────────────────────────
+# ─── Verifica rapida moduli Python ────────────────────────────────────────────
+
+_verify_module() {
+    local pybin="${1:-$PYTHON}"
+    local mod="$2"
+    local label="$3"
+    local good="$4"
+    [[ -x "${VENV_DIR}/bin/python" ]] && pybin="${VENV_DIR}/bin/python"
+
+    if $pybin -c "import ${mod}" &>/dev/null 2>&1; then
+        printf "   %-20s OK\n" "$label"
+    else
+        printf "   %-20s NON TROVATO   (%s)\n" "$label" "$good"
+    fi
+}
+
+# ─── Menù componenti opzionali ────────────────────────────────────────────────
+
+_choose_optional() {
+    local pybin="$PYTHON"
+    [[ -x "${VENV_DIR}/bin/python" ]] && pybin="${VENV_DIR}/bin/python"
+
+    _check_group() {
+        local pkg grp found=0 total=0
+        for pkg in $1; do
+            total=$((total+1))
+            local imp=""
+            case "$pkg" in
+                pymupdf)     imp="fitz" ;;  odfpy)       imp="odf" ;;
+                PyGithub)    imp="github" ;; python-gitlab) imp="gitlab" ;;
+                PyQt6-QScintilla) imp="PyQt6.Qsci" ;;
+                *)           imp=$(echo "$pkg" | tr '-' '_') ;;
+            esac
+            $pybin -c "import ${imp}" &>/dev/null 2>&1 && found=$((found+1))
+        done
+        if   [[ $found -eq $total ]]; then echo "all"
+        elif [[ $found -gt 0 ]];      then echo "partial"
+        else                               echo "none"
+        fi
+    }
+
+    local st_latex;       st_latex=$(_check_group "$OPT_LATEX")
+    local st_spread;      st_spread=$(_check_group "$OPT_SPREAD")
+    local st_richtext;    st_richtext=$(_check_group "$OPT_RICHTEXT")
+    local st_formatters;  st_formatters=$(_check_group "$OPT_FORMATTERS")
+
+    _label() {
+        case "$1" in all) echo "✓ già installato";; partial) echo "~ parziale";; *) echo "✗ mancante";; esac
+    }
+
+    echo
+    echo "╔══════════════════════════════════════════════════════════════════╗"
+    echo "║  Componenti opzionali — NotePadPQ                               ║"
+    echo "╠══════════════════════════════════════════════════════════════════╣"
+    printf "║  [1] LaTeX avanzato (pymupdf, matplotlib, sympy)       %s║\n" "$(_label "$st_latex")"
+    printf "║  [2] Foglio di calcolo (openpyxl, xlrd, odfpy)        %s║\n" "$(_label "$st_spread")"
+    printf "║  [3] Rich Text WYSIWYG (mammoth, htmldocx, pypandoc)  %s║\n" "$(_label "$st_richtext")"
+    printf "║  [4] Code Formatter (black, ruff)                      %s║\n" "$(_label "$st_formatters")"
+    echo "║  [a] Tutti                                                ║"
+    echo "║  [n] Nessuno (solo dipendenze base)                       ║"
+    echo "╚══════════════════════════════════════════════════════════════════╝"
+    echo -n "Scelta (es. 1 2 3 4, a, n): "
+    read -r CHOICE
+
+    IL=false; IS=false; IR=false; IF=false
+    case "$CHOICE" in
+        a|A) IL=true; IS=true; IR=true; IF=true ;;
+        n|N|'') ;;
+        *)
+            [[ "$CHOICE" == *1* ]] && IL=true
+            [[ "$CHOICE" == *2* ]] && IS=true
+            [[ "$CHOICE" == *3* ]] && IR=true
+            [[ "$CHOICE" == *4* ]] && IF=true
+            ;;
+    esac
+    # Nota: anche se i pacchetti risultano già installati nel sistema,
+    # li installiamo comunque nel venv (uv gestisce i duplicati).
+    # Lo stato mostrato è solo informativo.
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════════════════════
 
 echo "=== NotePadPQ Setup ==="
-echo "Installazione dipendenze base: editor, spellcheck, plugin Git."
-
-# Chiedi all'utente quali componenti opzionali installare
-_ask_optional_components
 echo
 
-if [[ "$OS" == MINGW* ]] || [[ "$OS" == CYGWIN* ]] || [[ "$OS" == MSYS* ]]; then
-    # Windows: pip funziona liberamente
-    PIP_OPTIONAL=""
-    $INSTALL_SPREADSHEET  && PIP_OPTIONAL+="$PIP_SPREADSHEET "
-    $INSTALL_RICHTEXT     && PIP_OPTIONAL+="$PIP_RICHTEXT "
-    $INSTALL_LATEX        && PIP_OPTIONAL+="$PIP_LATEX "
-    $INSTALL_FORMATTERS   && PIP_OPTIONAL+="$PIP_FORMATTERS "
-    $PYTHON -m pip install $PIP_CORE $PIP_OPTIONAL
+_choose_optional
 
-elif command -v pacman &>/dev/null; then
-    echo "Arch Linux: installo dipendenze native via pacman..."
-    sudo pacman -S --needed --noconfirm \
-        python-pyqt6 python-pyqt6-webengine python-qscintilla-qt6 \
-        python-chardet python-markdown python-docutils \
-        python-pygithub python-gitlab \
-        python-pyspellchecker python-keyring 2>/dev/null || true
+echo
+echo "=== Installazione dipendenze ==="
 
-    if $INSTALL_SPREADSHEET; then
-        echo "  Spreadsheet: installo dipendenze native..."
-        sudo pacman -S --needed --noconfirm \
-            python-openpyxl python-xlrd python-odfpy 2>/dev/null || true
-    fi
-    if $INSTALL_RICHTEXT; then
-        echo "  Rich Text: installo via pip..."
-        $PYTHON -m pip install $PIP_RICHTEXT 2>/dev/null || true
-    fi
-    if $INSTALL_LATEX; then
-        echo "  LaTeX avanzato: installo dipendenze native..."
-        sudo pacman -S --needed --noconfirm \
-            python-pymupdf python-matplotlib python-sympy 2>/dev/null || \
-            $PYTHON -m pip install $PIP_LATEX 2>/dev/null || true
-    fi
-    if $INSTALL_FORMATTERS; then
-        echo "  Code Formatter: installo black e ruff via pip..."
-        $PYTHON -m pip install $PIP_FORMATTERS 2>/dev/null || true
-    fi
+# ─── Raccogliamo la lista completa dei pacchetti Python da installare ─────────
+ALL_PY="$CORE_PY"
+$IL && ALL_PY="$ALL_PY $OPT_LATEX"
+$IS && ALL_PY="$ALL_PY $OPT_SPREAD"
+$IR && ALL_PY="$ALL_PY $OPT_RICHTEXT"
+$IF && ALL_PY="$ALL_PY $OPT_FORMATTERS"
 
-elif command -v apt-get &>/dev/null; then
-    BREAK="--break-system-packages"
-    sudo apt-get update || true
-    # Pacchetti base via apt (preferiti al pip su Debian/Ubuntu)
-    APT_BASE="python3-pyqt6 python3-pyqt6.qsci python3-chardet python3-markdown python3-pyqt6.qtwebengine"
-    APT_OPTIONAL=""
-    $INSTALL_SPREADSHEET && APT_OPTIONAL+=" python3-openpyxl python3-xlrd python3-odf"
-    $INSTALL_LATEX       && APT_OPTIONAL+=" python3-matplotlib python3-sympy"
-    $INSTALL_RICHTEXT    && APT_OPTIONAL+=" pandoc"
-    sudo apt-get install -y $APT_BASE $APT_OPTIONAL || true
+# ─── Funzione di installazione per-distro ─────────────────────────────────────
 
-    # Offri uv per i pacchetti non disponibili in apt (evita 'externally managed')
-    if _ensure_uv; then
-        USE_UV=true
-    else
-        USE_UV=false
+case "$OS" in
+# ── macOS ─────────────────────────────────────────────────────────────────────
+Darwin)
+    echo "==> macOS: installazione tutto via uv"
+    if ! command -v brew &>/dev/null; then
+        echo "   Homebrew non trovato. Installalo da https://brew.sh"
+        echo "   Poi riavvia setup.sh"
+        exit 1
     fi
+    brew install pandoc clang-format 2>/dev/null || true
+    _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python"
+    ;;
 
-    echo "  Installazione pacchetti base non disponibili in apt (PyGithub, keyring, ecc.)..."
-    if $USE_UV; then
-        _uv_install "$PIP_CORE"
-    else
-        _pip_or_venv "$PIP_CORE" "$BREAK"
-    fi
+# ── Windows (MINGW/CYGWIN/MSYS) ───────────────────────────────────────────────
+MINGW*|CYGWIN*|MSYS*)
+    echo "==> Windows: installazione via pip"
+    $PYTHON -m pip install --quiet $ALL_PY || {
+        echo "   ERRORE: pip fallito. Installa uv (pip install uv) e riprova."
+        exit 1
+    }
+    ;;
 
-    if $INSTALL_RICHTEXT; then
-        echo "  Rich Text: installo..."
-        if $USE_UV; then
-            _uv_install "$PIP_RICHTEXT"
-        else
-            _pip_or_venv "$PIP_RICHTEXT" "$BREAK"
-        fi
-    fi
-    if $INSTALL_LATEX; then
-        echo "  LaTeX avanzato: installo pymupdf, matplotlib, sympy..."
-        if $USE_UV; then
-            _uv_install "$PIP_LATEX"
-        else
-            _pip_or_venv "$PIP_LATEX" "$BREAK"
-        fi
-    fi
-    if $INSTALL_SPREADSHEET; then
-        echo "  Foglio di calcolo: installo openpyxl, xlrd, odfpy..."
-        if $USE_UV; then
-            _uv_install "$PIP_SPREADSHEET"
-        else
-            _pip_or_venv "$PIP_SPREADSHEET" "$BREAK"
-        fi
-    fi
-    if $INSTALL_FORMATTERS; then
-        echo "  Code Formatter: installo black via apt e ruff..."
-        sudo apt-get install -y python3-black 2>/dev/null || true
-        if $USE_UV; then
-            _uv_install "ruff"
-        else
-            _pip_or_venv "ruff" "$BREAK"
-        fi
-    fi
-
-elif command -v dnf &>/dev/null; then
-    sudo dnf install -y \
-        python3-qt6 python3-qscintilla-qt6 python3-qt6-webengine \
-        python3-chardet python3-markdown 2>/dev/null || true
-
-    PIP_OPTIONAL=""
-    $INSTALL_SPREADSHEET  && PIP_OPTIONAL+="$PIP_SPREADSHEET "
-    $INSTALL_RICHTEXT     && PIP_OPTIONAL+="$PIP_RICHTEXT "
-    $INSTALL_LATEX        && PIP_OPTIONAL+="$PIP_LATEX "
-    $INSTALL_FORMATTERS   && PIP_OPTIONAL+="$PIP_FORMATTERS "
-    $PYTHON -m pip install --user $PIP_CORE $PIP_OPTIONAL || true
-
-elif [[ "$OS" == "FreeBSD" ]]; then
-    echo "FreeBSD: rilevazione versione Python..."
+# ── FreeBSD ───────────────────────────────────────────────────────────────────
+FreeBSD)
+    echo "==> FreeBSD: installazione nativa + pip"
     PY_VER=$($PYTHON -c "import sys; print(f'{sys.version_info.major}{sys.version_info.minor}')")
-    echo "  Versione Python: $PY_VER"
-    # Pacchetti base disponibili nei ports FreeBSD
-    PKG_OPTIONAL=""
-    $INSTALL_SPREADSHEET && PKG_OPTIONAL+=" py${PY_VER}-openpyxl py${PY_VER}-xlrd py${PY_VER}-odfpy"
     sudo pkg install -y \
         "py${PY_VER}-pip" \
         "py${PY_VER}-qt6-qscintilla2" \
         "py${PY_VER}-chardet" \
         "py${PY_VER}-markdown" \
         "py${PY_VER}-docutils" \
+        "py${PY_VER}-pygments" \
+        "py${PY_VER}-psutil" \
+        "py${PY_VER}-requests" \
+        "py${PY_VER}-cryptography" \
         "py${PY_VER}-keyring" \
         "py${PY_VER}-python-gitlab" \
-        $PKG_OPTIONAL
-    # PyQt6, PyQt6-WebEngine, pyspellchecker, PyGithub non sono nei ports -> pip
-    PIPBIN=$(command -v pip3 || command -v pip || true)
-    if [[ -n "$PIPBIN" ]]; then
-        PIP_OPTIONAL=""
-        $INSTALL_RICHTEXT     && PIP_OPTIONAL+="$PIP_RICHTEXT "
-        $INSTALL_LATEX        && PIP_OPTIONAL+="$PIP_LATEX "
-        $INSTALL_FORMATTERS   && PIP_OPTIONAL+="$PIP_FORMATTERS "
-        $PIPBIN install --user PyQt6 PyQt6-WebEngine PyQt6-QScintilla pyspellchecker PyGithub $PIP_OPTIONAL || true
+        "py${PY_VER}-odfpy" \
+        pandoc 2>/dev/null || true
+    # Pacchetti non disponibili nei port → uv
+    _ensure_uv && _uv_venv_install "PyQt6 PyQt6-WebEngine PyQt6-QScintilla pyspellchecker PyGithub $ALL_PY" "dipendenze rimanenti"
+    ;;
+
+# ── Linux ─────────────────────────────────────────────────────────────────────
+Linux)
+    if command -v pacman &>/dev/null; then
+        # ─── Arch Linux ───────────────────────────────────────────────────────
+        echo "==> Arch Linux: installazione via pacman + uv"
+
+        APKGS="python-pyqt6 python-pyqt6-webengine python-qscintilla-qt6"
+        APKGS="$APKGS python-chardet python-markdown python-docutils"
+        APKGS="$APKGS python-pygments python-psutil python-requests"
+        APKGS="$APKGS python-pyspellchecker python-pygithub python-gitlab"
+        APKGS="$APKGS python-keyring python-cryptography"
+        APKGS="$APKGS pandoc"
+
+        $IL && APKGS="$APKGS python-pymupdf python-matplotlib python-sympy"
+        $IS && APKGS="$APKGS python-openpyxl python-xlrd python-odfpy"
+        $IR && APKGS="$APKGS python-mammoth python-htmldocx python-pypandoc"  # potrebbero non esistere
+        $IF && APKGS="$APKGS python-black python-ruff"
+
+        sudo pacman -S --needed --noconfirm $APKGS 2>/dev/null || true
+
+        # Il venv eredita i pacchetti pacman e riceve i mancanti via uv
+        echo "   Installazione pacchetti rimanenti via uv..."
+        _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python" "--system-site-packages"
+
+    elif command -v apt-get &>/dev/null; then
+        # ─── Debian / Ubuntu ──────────────────────────────────────────────────
+        echo "==> Debian/Ubuntu: installazione via apt + uv"
+
+        sudo apt-get update -qq 2>/dev/null || true
+
+        # Pacchetti disponibili via apt
+        APT="python3-pyqt6 python3-pyqt6.qscintilla python3-pyqt6.qtwebengine"
+        APT="$APT python3-chardet python3-markdown python3-docutils"
+        APT="$APT python3-pygments python3-psutil python3-requests"
+        APT="$APT python3-cryptography python3-keyring python3-pip python3-venv"
+
+        $IL && APT="$APT python3-matplotlib python3-sympy"
+        $IS && APT="$APT python3-openpyxl python3-xlrd python3-odf"
+        $IF && APT="$APT python3-black"
+
+        sudo apt-get install -y $APT 2>/dev/null || true
+
+        # Pacchetti NON disponibili via apt → uv (venv eredita i pacchetti apt)
+        echo "   Installazione pacchetti rimanenti via uv..."
+        _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python" "--system-site-packages"
+
+    elif command -v dnf &>/dev/null; then
+        # ─── Fedora ───────────────────────────────────────────────────────────
+        echo "==> Fedora: installazione via dnf + uv"
+
+        DNF="python3-qt6 python3-qscintilla-qt6 python3-qt6-webengine"
+        DNF="$DNF python3-chardet python3-markdown python3-docutils"
+        DNF="$DNF python3-pygments python3-psutil python3-requests"
+        DNF="$DNF python3-cryptography python3-keyring python3-pip"
+
+        $IL && DNF="$DNF python3-matplotlib python3-sympy"
+        $IS && DNF="$DNF python3-openpyxl python3-xlrd python3-odfpy"
+        $IF && DNF="$DNF python3-black"
+
+        sudo dnf install -y $DNF 2>/dev/null || true
+
+        # Pacchetti NON disponibili via dnf → uv (venv eredita i pacchetti dnf)
+        echo "   Installazione pacchetti rimanenti via uv..."
+        _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python" "--system-site-packages"
+
     else
-        echo "  ERRORE: pip non trovato dopo installazione py${PY_VER}-pip"
-        echo "  Riprova: sudo pkg install py${PY_VER}-pip"
+        # ─── Altra distro Linux (fallback totale su uv) ───────────────────────
+        echo "==> Distro Linux sconosciuta: installazione tutto via uv"
+        _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python"
     fi
+    ;;
 
-else
-    PIP_OPTIONAL=""
-    $INSTALL_SPREADSHEET  && PIP_OPTIONAL+="$PIP_SPREADSHEET "
-    $INSTALL_RICHTEXT     && PIP_OPTIONAL+="$PIP_RICHTEXT "
-    $INSTALL_LATEX        && PIP_OPTIONAL+="$PIP_LATEX "
-    $INSTALL_FORMATTERS   && PIP_OPTIONAL+="$PIP_FORMATTERS "
-    $PYTHON -m pip install $PIP_CORE $PIP_OPTIONAL || true
-fi
+# ── Fallback ──────────────────────────────────────────────────────────────────
+*)
+    echo "==> OS sconosciuto: installazione via uv"
+    _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python"
+    ;;
+esac
 
-# ─── Verifica finale ──────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# VERIFICA FINALE
+# ═══════════════════════════════════════════════════════════════════════════════
 
-# Se esiste un venv, usa il suo Python per la verifica
-VERIFY_PYTHON="$PYTHON"
-VENV_DIR="${PROJECT_DIR}/.venv"
-[[ -x "${VENV_DIR}/bin/python" ]] && VERIFY_PYTHON="${VENV_DIR}/bin/python"
+VERIFY_PY="$PYTHON"
+[[ -x "${VENV_DIR}/bin/python" ]] && VERIFY_PY="${VENV_DIR}/bin/python"
 
 echo
 echo "=== Verifica dipendenze ==="
 echo "--- Base (richieste) ---"
-$VERIFY_PYTHON -c "
-def check(name, cmd):
-    try:
-        exec(cmd)
-        print(f'  {name:15}: OK')
-    except:
-        print(f'  {name:15}: NON TROVATO')
-
-check('PyQt6',       'from PyQt6.QtWidgets import QApplication')
-check('QScintilla',  'from PyQt6.Qsci import QsciScintilla')
-check('WebEngine',   'from PyQt6.QtWebEngineWidgets import QWebEngineView')
-check('Chardet',     'import chardet')
-check('Markdown',    'import markdown')
-check('Docutils',    'from docutils.core import publish_parts')
-check('Spellchecker','import spellchecker')
-check('PyGithub',    'import github')
-check('GitLab',      'import gitlab')
-check('Keyring',     'import keyring')
-check('psutil',      'import psutil')
-"
-echo
-echo "--- Foglio di calcolo (opzionali) ---"
-$VERIFY_PYTHON -c "
-def check_opt(name, cmd, desc):
-    try:
-        exec(cmd)
-        print(f'  {name:15}: OK')
-    except:
-        print(f'  {name:15}: non installato  ({desc})')
-
-check_opt('openpyxl',   'import openpyxl',  'XLSX / ODS lettura e scrittura')
-check_opt('xlrd',       'import xlrd',      'XLS legacy (sola lettura)')
-check_opt('odfpy',      'import odf',       'ODS (fallback se openpyxl < 3.1)')
-"
+_verify_module "$VERIFY_PY" "PyQt6.QtWidgets"     "PyQt6"              "pip install PyQt6"
+_verify_module "$VERIFY_PY" "PyQt6.Qsci"          "QScintilla"         "pip install PyQt6-QScintilla"
+_verify_module "$VERIFY_PY" "PyQt6.QtWebEngineWidgets" "WebEngine"     "pip install PyQt6-WebEngine"
+_verify_module "$VERIFY_PY" "chardet"             "chardet"            "pip install chardet"
+_verify_module "$VERIFY_PY" "pygments"            "pygments"           "pip install pygments"
+_verify_module "$VERIFY_PY" "psutil"              "psutil"             "pip install psutil"
+_verify_module "$VERIFY_PY" "markdown"            "markdown"           "pip install markdown"
+_verify_module "$VERIFY_PY" "docutils"            "docutils"           "pip install docutils"
+_verify_module "$VERIFY_PY" "spellchecker"        "spellchecker"       "pip install pyspellchecker"
+_verify_module "$VERIFY_PY" "github"              "PyGithub"           "pip install PyGithub"
+_verify_module "$VERIFY_PY" "gitlab"              "python-gitlab"      "pip install python-gitlab"
+_verify_module "$VERIFY_PY" "keyring"             "keyring"            "pip install keyring"
+_verify_module "$VERIFY_PY" "cryptography"        "cryptography"       "pip install cryptography"
+_verify_module "$VERIFY_PY" "requests"            "requests"           "pip install requests"
 
 echo
-echo "--- Plugin Rich Text (opzionali) ---"
-$VERIFY_PYTHON -c "
-def check_opt(name, cmd, desc):
-    try:
-        exec(cmd)
-        print(f'  {name:15}: OK')
-    except:
-        print(f'  {name:15}: non installato  ({desc})')
-
-check_opt('mammoth',    'import mammoth',   'lettura DOCX → HTML')
-check_opt('htmldocx',   'import htmldocx',  'scrittura HTML → DOCX')
-check_opt('pypandoc',   'import pypandoc',  'conversione ODT/RTF/DOCX/TEX')
-"
-if command -v pandoc &>/dev/null; then
-    echo "  pandoc         : OK  (export DOCX/ODT/LaTeX e apertura ODT/RTF)"
-else
-    echo "  pandoc         : non installato  (opzionale — necessario per export DOCX/ODT/LaTeX e rich text ODT/RTF)"
-fi
+echo "--- Foglio di calcolo (opzionale) ---"
+_verify_module "$VERIFY_PY" "openpyxl"  "openpyxl"  "pip install openpyxl"
+_verify_module "$VERIFY_PY" "xlrd"      "xlrd"      "pip install xlrd"
+_verify_module "$VERIFY_PY" "odf"       "odfpy"     "pip install odfpy"
 
 echo
-echo "--- LaTeX avanzato (opzionali) ---"
-$VERIFY_PYTHON -c "
-def check_opt(name, cmd, desc):
-    try:
-        exec(cmd)
-        print(f'  {name:15}: OK')
-    except:
-        print(f'  {name:15}: non installato  ({desc})')
-
-check_opt('PyMuPDF',    'import fitz',       'anteprima PDF in hover')
-check_opt('Matplotlib', 'import matplotlib', 'rendering equazioni')
-check_opt('Sympy',      'import sympy',      'calcolo simbolico')
-"
-_check_synctex
+echo "--- Rich Text (opzionale) ---"
+_verify_module "$VERIFY_PY" "mammoth"   "mammoth"   "pip install mammoth"
+_verify_module "$VERIFY_PY" "htmldocx"  "htmldocx"  "pip install htmldocx"
+_verify_module "$VERIFY_PY" "pypandoc"  "pypandoc"  "pip install pypandoc"
+command -v pandoc &>/dev/null && echo "   pandoc              OK" || echo "   pandoc              NON TROVATO (apt install pandoc)"
 
 echo
-echo "--- Plugin FTP/SFTP/SMB ---"
-if $VERIFY_PYTHON -c "import paramiko" &>/dev/null 2>&1; then
-    echo "  paramiko: OK  (SFTP)"
-else
-    echo "  paramiko: non installato  →  pip install paramiko  (per SFTP)"
-fi
-case "$(uname -s)" in
-  Linux*)
-    if command -v mount.cifs &>/dev/null; then
-        echo "  cifs-utils: OK  (mount SMB)"
-    else
-        echo "  cifs-utils: non installato  →  sudo apt install cifs-utils  (per SMB)"
-    fi ;;
-  Darwin*)  echo "  macOS: mount_smbfs incluso nel sistema (SMB OK)" ;;
-  MINGW*|CYGWIN*|MSYS*) echo "  Windows: net use incluso nel sistema (SMB OK)" ;;
-esac
-echo
+echo "--- LaTeX avanzato (opzionale) ---"
+_verify_module "$VERIFY_PY" "fitz"       "PyMuPDF"    "pip install pymupdf"
+_verify_module "$VERIFY_PY" "matplotlib" "matplotlib" "pip install matplotlib"
+_verify_module "$VERIFY_PY" "sympy"      "sympy"      "pip install sympy"
+command -v synctex &>/dev/null && echo "   synctex             OK" || echo "   synctex             non installato (incluso in TeX Live)"
 
-echo "--- Code Formatter (opzionali) ---"
-for tool in black ruff prettier clang-format rustfmt gofmt; do
-    if command -v "$tool" &>/dev/null; then
-        echo "  $tool: OK"
-    else
-        echo "  $tool: non installato  (opzionale)"
-    fi
+echo
+echo "--- Code Formatter (opzionale) ---"
+_verify_module "$VERIFY_PY" "black"  "black (Python)"  "pip install black"
+_verify_module "$VERIFY_PY" "ruff"   "ruff (Python)"   "pip install ruff"
+for t in prettier clang-format; do
+    command -v "$t" &>/dev/null && echo "   $t                  OK" || echo "   $t                  non installato"
 done
-echo "  Installa i formatter mancanti:"
-if command -v apt-get &>/dev/null; then
-    if command -v uv &>/dev/null; then
-        echo "    uv pip install black ruff         # Python"
-    else
-        echo "    pip install black ruff            # Python"
-    fi
-    echo "    sudo apt install python3-black    # Python (via apt)"
-else
-    echo "    pip install black ruff            # Python"
-fi
-echo "    npm i -g prettier                  # JS/TS/HTML/CSS"
-echo "    apt install clang-format           # C/C++ (oppure brew/choco)"
-echo "    rustup component add rustfmt       # Rust"
-echo "    (gofmt è incluso nel toolchain Go)"
 
 echo
-echo "--- LSP (server di linguaggio, opzionali) ---"
-for tool in pylsp clangd rust-analyzer gopls texlab typescript-language-server; do
-    if command -v "$tool" &>/dev/null; then
-        echo "  $tool: OK"
-    else
-        echo "  $tool: non installato"
-    fi
+echo "--- LSP (opzionale) ---"
+for t in pylsp clangd texlab; do
+    command -v "$t" &>/dev/null && echo "   $t                  OK" || echo "   $t                  non installato"
 done
-echo "  Installa i server mancanti:"
-if command -v apt-get &>/dev/null; then
-    if command -v uv &>/dev/null; then
-        echo "    uv pip install python-lsp-server   # Python"
-    else
-        echo "    pip install python-lsp-server      # Python"
-    fi
-else
-    echo "    pip install python-lsp-server        # Python"
-fi
-echo "    apt install clangd                   # C/C++"
-echo "    go install golang.org/x/tools/gopls@latest  # Go"
-echo "    npm i -g typescript-language-server  # TypeScript/JavaScript"
 
-echo
-echo "--- Plugin AI Assistant ---"
-$VERIFY_PYTHON -c "import urllib.request; print('  urllib (stdlib): OK')"
-echo "  Configura le API key dal pannello AI (Ctrl+Alt+A → ⚙)"
-echo "  Anthropic: https://console.anthropic.com/settings/keys"
-echo "  OpenAI:    https://platform.openai.com/api-keys"
-echo "  Gemini:    https://aistudio.google.com/app/apikey"
-echo "  Ollama:    http://localhost:11434 (nessuna chiave necessaria)"
-
-_print_latex_hint
-
-echo
-echo "┌─────────────────────────────────────────────────────────────────┐"
-echo "│  Plugin Rich Text / Editor WYSIWYG (opzionale)                  │"
-echo "│                                                                 │"
-echo "│  Per aprire DOCX, ODT, RTF come rich text editabile:            │"
-echo "│                                                                 │"
-echo "│  • mammoth   — lettura DOCX (conversione a HTML)                │"
-echo "│  • htmldocx  — scrittura DOCX (esportazione da HTML)            │"
-echo "│  • pypandoc  — ODT/RTF/DOCX/LaTeX (richiede pandoc di sistema)  │"
-echo "│                                                                 │"
-echo "│  Installazione rapida:                                          │"
-if command -v apt-get &>/dev/null; then
-    if command -v uv &>/dev/null; then
-        echo "│    uv pip install mammoth htmldocx                               │"
-    else
-        echo "│    pip install mammoth htmldocx                                  │"
-    fi
-else
-    echo "│    pip install mammoth htmldocx                                  │"
-fi
-echo "└─────────────────────────────────────────────────────────────────┘"
-echo
-
-echo "┌─────────────────────────────────────────────────────────────────┐"
-echo "│  Plugin Code Formatter (opzionale)                              │"
-echo "│                                                                 │"
-echo "│  Per formattare il codice con Ctrl+Alt+F:                       │"
-echo "│                                                                 │"
-echo "│  • black / ruff  — Python  (uv pip install black ruff)          │"
-echo "│  • prettier      — JS/TS/HTML/CSS  (npm i -g prettier)          │"
-echo "│  • clang-format  — C/C++  (apt install clang-format)            │"
-echo "│  • rustfmt       — Rust  (rustup component add rustfmt)         │"
-echo "│  • gofmt         — Go  (incluso nel toolchain Go)               │"
-echo "│  • json.tool / minidom — JSON/XML  (stdlib Python, già incluso) │"
-echo "│                                                                 │"
-echo "│  Installazione rapida:                                          │"
-if command -v apt-get &>/dev/null; then
-    if command -v uv &>/dev/null; then
-        echo "│    uv pip install black ruff                                     │"
-    else
-        echo "│    pip install black ruff                                        │"
-    fi
-else
-    echo "│    pip install black ruff                                        │"
-fi
-echo "│    npm i -g prettier                                            │"
-echo "└─────────────────────────────────────────────────────────────────┘"
-echo
-echo "┌─────────────────────────────────────────────────────────────────┐"
-echo "│  Plugin Foglio di Calcolo (opzionale)                           │"
-echo "│                                                                 │"
-echo "│  Per aprire CSV, XLSX, XLS, ODS come foglio di calcolo:        │"
-echo "│                                                                 │"
-echo "│  • openpyxl  — XLSX, XLSM, ODS (lettura e scrittura)           │"
-echo "│  • xlrd      — XLS legacy (sola lettura)                        │"
-echo "│  • odfpy     — ODS (fallback per scrittura)                     │"
-echo "│                                                                 │"
-if command -v apt-get &>/dev/null; then
-    echo "│  Installazione rapida (apt):                                    │"
-    echo "│    sudo apt install python3-openpyxl python3-xlrd python3-odf   │"
-else
-    echo "│  Installazione rapida (pip):                                    │"
-    echo "│    pip install openpyxl xlrd odfpy                              │"
-fi
-echo "└─────────────────────────────────────────────────────────────────┘"
-
+# ─── Lanciatore .desktop (solo Linux) ─────────────────────────────────────────
 if [[ "$OS" == "Linux" ]]; then
-    _create_linux_launcher
+    echo
+    echo "=== Lanciatore desktop ==="
+    _create_launcher
 fi
 
-
-
+# ─── Istruzioni finali ────────────────────────────────────────────────────────
 echo
 echo "=== Setup completato ==="
-echo "Avvia l'applicazione con: $PYTHON main.py"
+if [[ -x "${VENV_DIR}/bin/python" ]]; then
+    echo "Avvia NotePadPQ con:"
+    echo "  ${VENV_DIR}/bin/python ${PROJECT_DIR}/main.py"
+    echo "  oppure: source ${VENV_DIR}/bin/activate && python main.py"
+else
+    echo "Avvia NotePadPQ con: $PYTHON main.py"
+fi
 echo "Oppure cercala nel menu applicazioni (Linux)."

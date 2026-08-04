@@ -20,12 +20,13 @@ Uso da main.py:
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Set, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QStandardItem, QStandardItemModel, QColor, QIcon, QKeySequence, QAction
 from PyQt6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
@@ -60,6 +61,10 @@ STATUS_COLOR = {
 # Estensioni cercate automaticamente quando manca estensione nell'include
 _IMG_EXTS   = (".png", ".jpg", ".jpeg", ".pdf", ".eps", ".svg",
                ".bmp", ".gif", ".tiff", ".tif", ".webp")
+
+# Estensioni che Qt sa renderizzare direttamente in un tooltip HTML
+# (PDF/EPS/TIFF non sono supportati dal motore di rich text di QToolTip)
+_IMG_PREVIEW_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".svg"}
 _TEX_EXTS   = (".tex",)
 _BIB_EXTS   = (".bib",)
 
@@ -612,9 +617,24 @@ class _IncludeListPanel(QWidget):
         item.setData(e.line, Qt.ItemDataRole.UserRole)
         item.setData(e.status, Qt.ItemDataRole.UserRole + 2)
         item.setForeground(QColor(color))
-        item.setToolTip(str(e.resolved) if e.resolved else e.arg)
+        item.setToolTip(self._tooltip_for(e))
         item.setEditable(False)
         return item
+
+    def _tooltip_for(self, e: IncludeEntry) -> str:
+        path_text = str(e.resolved) if e.resolved else e.arg
+        is_image = (
+            e.kind in ("includegraphics", "md_image")
+            and e.resolved is not None
+            and e.resolved.suffix.lower() in _IMG_PREVIEW_EXTS
+        )
+        if not is_image:
+            return path_text
+        url = QUrl.fromLocalFile(str(e.resolved)).toString()
+        return (
+            f'<img src="{url}" width="320"><br>'
+            f'<span>{html.escape(path_text)}</span>'
+        )
 
     # ── Filtro ────────────────────────────────────────────────────────────────
 

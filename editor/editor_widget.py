@@ -2059,7 +2059,21 @@ class EditorWidget(QsciScintilla):
             # ancora la { se il popup è partito subito dopo la parola)
             ac = getattr(self, "_autocomplete", None)
             if ac is not None and getattr(ac, "_env_popup_needs_brace", False):
+                # Il popup e' partito da \be, \en, \beg... (parola ancora
+                # incompleta): espande la parola parziale a "begin"/"end"
+                # prima di aggiungere la { — altrimenti resterebbe \be{...}
                 line, col = self.getCursorPosition()
+                line_text = self.text(line)[:col]
+                m = re.search(r'\\([a-zA-Z]*)$', line_text)
+                if m:
+                    word = m.group(1)
+                    full = "begin" if "begin".startswith(word) else "end"
+                    if word != full:
+                        self.setSelection(line, col - len(word), line, col)
+                        self.removeSelectedText()
+                        self.insert(full)
+                        col = col - len(word) + len(full)
+                        self.setCursorPosition(line, col)
                 self.insert("{")
                 self.setCursorPosition(line, col + 1)
             line, col = self.getCursorPosition()

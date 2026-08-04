@@ -592,7 +592,7 @@ class _IncludeListPanel(QWidget):
             for p in not_inc:
                 it = QStandardItem(f"📄  {p.name}")
                 it.setData(str(p), Qt.ItemDataRole.UserRole + 1)   # path completo
-                it.setToolTip(str(p))
+                it.setToolTip(self._image_tooltip(p))
                 it.setEditable(False)
                 g.appendRow(it)
             self._model.appendRow(g)
@@ -630,7 +630,15 @@ class _IncludeListPanel(QWidget):
         )
         if not is_image:
             return path_text
-        url = QUrl.fromLocalFile(str(e.resolved)).toString()
+        return self._image_tooltip(e.resolved, path_text)
+
+    @staticmethod
+    def _image_tooltip(path: Path, path_text: Optional[str] = None) -> str:
+        """Tooltip con anteprima per un file immagine risolto su disco."""
+        path_text = path_text if path_text is not None else str(path)
+        if path.suffix.lower() not in _IMG_PREVIEW_EXTS:
+            return path_text
+        url = QUrl.fromLocalFile(str(path)).toString()
         return (
             f'<img src="{url}" width="320"><br>'
             f'<span>{html.escape(path_text)}</span>'

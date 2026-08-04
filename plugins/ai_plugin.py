@@ -1587,6 +1587,10 @@ class _AIPanel(QWidget):
 
         self._input = QPlainTextEdit()
         self._input.setMinimumHeight(60)
+        # Senza un tetto massimo, QPlainTextEdit richiede ~190px come sizeHint
+        # anche da vuoto: la casella di input finisce per rubare spazio allo
+        # splitter della chat (stretch=1) che dovrebbe invece espandersi.
+        self._input.setMaximumHeight(90)
         self._input.setFont(QFont("Monospace", 10))
         self._input.setPlaceholderText("Scrivi un messaggio…  (/explain /fix /refactor /file)  Ctrl+Enter per inviare, Ctrl+L per nuova riga")
         self._input.setStyleSheet("background:#252526; color:#d4d4d4; border:1px solid #3c3c3c;")

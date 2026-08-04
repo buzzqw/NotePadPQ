@@ -481,6 +481,7 @@ class _IncludeListPanel(QWidget):
         if not editor:
             self._model.clear()
             self._info.setText(tr("include_list.no_editor", default="Nessun editor aperto"))
+            self.setMaximumHeight(120)
             return
 
         lang = self._detect_lang(editor)
@@ -491,9 +492,14 @@ class _IncludeListPanel(QWidget):
             item.setEnabled(False)
             self._model.appendRow(item)
             self._info.setText("")
+            # Niente da mostrare per questo tipo di file: non serve occupare
+            # metà del dock a destra con un albero vuoto, meglio cedere lo
+            # spazio ai pannelli affiancati (es. AI Assistant).
+            self.setMaximumHeight(120)
             return
 
         self._lang = lang
+        self.setMaximumHeight(16777215)
         base_dir   = editor.file_path.parent if editor.file_path else None
         text       = editor.get_content() if hasattr(editor, "get_content") else editor.text()
 

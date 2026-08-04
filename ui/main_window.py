@@ -2028,7 +2028,10 @@ class MainWindow(QMainWindow):
             except (RuntimeError, TypeError):
                 pass
             try:
-                prev.modified_changed.disconnect()
+                conn = getattr(prev, "_mw_modified_conn", None)
+                if conn is not None:
+                    prev.modified_changed.disconnect(conn)
+                    prev._mw_modified_conn = None
             except (RuntimeError, TypeError):
                 pass
             try:
@@ -2041,7 +2044,7 @@ class MainWindow(QMainWindow):
         editor.selection_changed_info.connect(self._statusbar.set_selection)
         editor.encoding_changed.connect(self._statusbar.set_encoding)
         editor.line_ending_changed.connect(self._statusbar.set_line_ending)
-        editor.modified_changed.connect(
+        editor._mw_modified_conn = editor.modified_changed.connect(
             lambda mod, ed=editor: self._on_tab_modified(ed, mod)
         )
         editor.overwrite_changed.connect(self._statusbar.set_overwrite)

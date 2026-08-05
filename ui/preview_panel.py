@@ -378,16 +378,18 @@ class _SyncTeXSelWorker(QThread):
     per la durata dei sottoprocessi synctex, specialmente su
     documenti con .synctex.gz grande."""
 
-    done = pyqtSignal(int, object, object)  # (generation, r_start, r_end)
+    done = pyqtSignal(int, object, object, object)  # (generation, r_start, r_end, rects)
 
-    def __init__(self, tex_path, pdf_path, line_from: int, line_to: int, generation: int):
+    def __init__(self, tex_path, pdf_path, line_from: int, line_to: int,
+                 selected_text: str, generation: int):
         super().__init__(None)
-        self._tex_path  = tex_path
-        self._pdf_path  = pdf_path
-        self._line_from = line_from
-        self._line_to   = line_to
-        self._gen       = generation
-        self._cancelled = False
+        self._tex_path      = tex_path
+        self._pdf_path      = pdf_path
+        self._line_from     = line_from
+        self._line_to       = line_to
+        self._selected_text = selected_text
+        self._gen           = generation
+        self._cancelled     = False
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -399,11 +401,48 @@ class _SyncTeXSelWorker(QThread):
             r_start = sx.tex_to_pdf(self._line_from, col=1)
             r_end = (sx.tex_to_pdf(self._line_to, col=1)
                      if not self._cancelled and self._line_to != self._line_from else None)
+            rects = None
+            if not self._cancelled and r_start:
+                rects = self._search_text_rects(r_start.get("page"), r_start.get("y"))
             if not self._cancelled:
-                self.done.emit(self._gen, r_start, r_end)
+                self.done.emit(self._gen, r_start, r_end, rects)
         except Exception:
             if not self._cancelled:
-                self.done.emit(self._gen, None, None)
+                self.done.emit(self._gen, None, None, None)
+
+    def _search_text_rects(self, page_num, expected_y):
+        """Cerca il testo selezionato nella pagina PDF per un'evidenziazione
+        precisa. SyncTeX lavora a livello di riga sorgente: un intero paragrafo
+        scritto su un'unica riga .tex (il caso comune in LaTeX, dato che il
+        wrapping è solo visivo nell'editor) risolve sempre alla stessa
+        posizione indipendentemente da quale porzione di quella riga è
+        selezionata. Cercando il testo letteralmente nella pagina otteniamo
+        il rettangolo esatto (o più rettangoli, se la selezione va a capo)
+        invece di una fascia approssimata."""
+        if not page_num:
+            return None
+        needle = " ".join(self._selected_text.split())
+        if not needle or len(needle) > 400:
+            return None
+        try:
+            import fitz as _fitz
+            doc = _fitz.open(str(self._pdf_path))
+            try:
+                page = doc[page_num - 1]
+                found = page.search_for(needle)
+                if not found:
+                    return None
+                # Scarta eventuali occorrenze duplicate altrove nella pagina:
+                # tiene solo i risultati vicini alla y stimata da SyncTeX.
+                if expected_y is not None:
+                    close = [r for r in found if abs(r.y0 - expected_y) < 200]
+                    if close:
+                        found = close
+                return [(r.x0, r.y0, r.x1, r.y1) for r in found]
+            finally:
+                doc.close()
+        except Exception:
+            return None
 
 
 class _PdfRenderWorker(QThread):
@@ -486,23 +525,26 @@ class _PdfRenderWorker(QThread):
                     p.drawRect(cx0, max(0, cy-9), cw, 18)
                     p.end()
 
-            # Selection highlight
+            # Selection highlight — un riquadro per ogni riga coperta dalla
+            # selezione (vedi _on_synctex_sel_done: ricerca testuale nella
+            # pagina se disponibile, altrimenti fascia approssimata SyncTeX)
             if self._selection_hl is not None:
-                h_page, h_y0, h_y1, h_x0_pt, h_x1_pt = self._selection_hl
-                if h_page == self._page_idx:
-                    ry0    = int((h_y0 - oy) * z)
-                    ry1    = int((h_y1 - oy) * z)
-                    band_h = max(4, ry1 - ry0)
-                    if h_x0_pt is not None and h_x1_pt is not None:
-                        rx0    = int((h_x0_pt - ox) * z)
-                        band_w = max(4, int((h_x1_pt - ox) * z) - rx0)
-                    else:
-                        rx0, band_w = 0, img.width()
+                h_page, h_rects = self._selection_hl
+                if h_page == self._page_idx and h_rects:
                     p = QPainter(img)
                     p.setRenderHint(QPainter.RenderHint.Antialiasing)
                     p.setPen(QPen(QColor(255, 200, 0, 200), 1))
                     p.setBrush(QBrush(QColor(255, 220, 0, 70)))
-                    p.drawRect(rx0, ry0, band_w, band_h)
+                    for h_x0_pt, h_y0, h_x1_pt, h_y1 in h_rects:
+                        ry0    = int((h_y0 - oy) * z)
+                        ry1    = int((h_y1 - oy) * z)
+                        band_h = max(4, ry1 - ry0)
+                        if h_x0_pt is not None and h_x1_pt is not None:
+                            rx0    = int((h_x0_pt - ox) * z)
+                            band_w = max(4, int((h_x1_pt - ox) * z) - rx0)
+                        else:
+                            rx0, band_w = 0, img.width()
+                        p.drawRect(rx0, ry0, band_w, band_h)
                     p.end()
 
             # Links overlay
@@ -1208,10 +1250,16 @@ class PreviewPanel(QWidget):
             self._park_worker(self._synctex_sel_worker, self._old_synctex_sel_workers)
             self._synctex_sel_worker = None
 
+        try:
+            selected_text = self._editor.selectedText()
+        except Exception:
+            selected_text = ""
+
         from pathlib import Path as _Path
         self._synctex_sel_gen += 1
         worker = _SyncTeXSelWorker(
-            tex_p, _Path(self._pdf_path), line_from + 1, line_to + 1, self._synctex_sel_gen,
+            tex_p, _Path(self._pdf_path), line_from + 1, line_to + 1,
+            selected_text, self._synctex_sel_gen,
         )
         worker.done.connect(self._on_synctex_sel_done)
         self._synctex_sel_worker = worker
@@ -1224,7 +1272,7 @@ class PreviewPanel(QWidget):
         worker.finished.connect(_cleanup_stx_sel)
         worker.start()
 
-    def _on_synctex_sel_done(self, gen: int, r_start, r_end) -> None:
+    def _on_synctex_sel_done(self, gen: int, r_start, r_end, rects) -> None:
         if gen != self._synctex_sel_gen:
             return
         if self._synctex_sel_worker is not None:
@@ -1237,33 +1285,40 @@ class PreviewPanel(QWidget):
 
         try:
             page = r_start["page"] - 1  # 0-based
-            y_start = r_start["y"]
 
-            # Prendi la coordinata y della riga finale solo se è sulla stessa pagina
-            if r_end and r_end.get("page") == r_start["page"]:
-                y_end = r_end["y"]
+            if rects:
+                # Rettangoli esatti trovati cercando il testo selezionato nella
+                # pagina: un riquadro per ogni riga effettivamente coperta
+                # (accurato anche se la selezione copre solo una parte di un
+                # paragrafo che nel sorgente .tex è tutto su un'unica riga:
+                # SyncTeX da solo risolverebbe sempre alla stessa posizione,
+                # indipendentemente da quale porzione della riga è selezionata).
+                pad = 1.5
+                hl_rects = [(x0 - pad, y0 - pad, x1 + pad, y1 + pad)
+                            for x0, y0, x1, y1 in rects]
             else:
-                y_end = y_start
-
-            y0 = min(y_start, y_end) - 12.0   # spazio sopra la prima riga
-            y1 = max(y_start, y_end) + 5.0    # spazio sotto l'ultima riga
-
-            # Calcola x da h/W di SyncTeX per rispettare la colonna in layout multi-colonna.
-            # h = bordo sinistro del nodo; W = larghezza del nodo (tipicamente = larghezza riga).
-            # Se W è piccolo (nodo parola, non riga), estendiamo a un minimo di 180pt.
-            h = r_start.get("h")
-            W = r_start.get("W")
-            if h is not None:
-                x0_pt = max(0.0, h - 8.0)
-                if W is not None and W > 10.0:
-                    x1_pt = h + W + 8.0
+                # Fallback: nessun match testuale nella pagina (word-wrap
+                # diverso, legature, sillabazione...). Fascia approssimata
+                # basata sulla posizione del nodo SyncTeX, come in precedenza.
+                y_start = r_start["y"]
+                if r_end and r_end.get("page") == r_start["page"]:
+                    y_end = r_end["y"]
                 else:
-                    x1_pt = h + 250.0   # larghezza minima se W non disponibile
-            else:
-                x0_pt = None   # segnale: usa larghezza pagina intera
-                x1_pt = None
+                    y_end = y_start
+                y0 = min(y_start, y_end) - 12.0   # spazio sopra la prima riga
+                y1 = max(y_start, y_end) + 5.0    # spazio sotto l'ultima riga
 
-            self._pdf_selection_highlight = (page, y0, y1, x0_pt, x1_pt)
+                # h = bordo sinistro del nodo; W = larghezza del nodo.
+                h = r_start.get("h")
+                W = r_start.get("W")
+                if h is not None:
+                    x0_pt = max(0.0, h - 8.0)
+                    x1_pt = (h + W + 8.0) if (W is not None and W > 10.0) else h + 250.0
+                else:
+                    x0_pt, x1_pt = 0.0, None   # x1_pt None = larghezza pagina intera
+                hl_rects = [(x0_pt, y0, x1_pt, y1)]
+
+            self._pdf_selection_highlight = (page, hl_rects)
             # Evita che resti visibile l'indicatore a riga singola del
             # cursore (impostato prima dell'inizio della selezione, o dalla
             # riga finale del trascinamento): con una selezione attiva conta
@@ -1710,23 +1765,25 @@ class PreviewPanel(QWidget):
                     p.drawRect(cx0, max(0, cy-9), cw, 18)
                     p.end()
 
-            # Selection highlight
+            # Selection highlight — un riquadro per ogni riga coperta dalla
+            # selezione (vedi _on_synctex_sel_done)
             if self._pdf_selection_highlight is not None:
-                h_page, h_y0, h_y1, h_x0_pt, h_x1_pt = self._pdf_selection_highlight
-                if h_page == page_idx:
-                    ry0 = int((h_y0 - oy) * z)
-                    ry1 = int((h_y1 - oy) * z)
-                    band_h = max(4, ry1 - ry0)
-                    if h_x0_pt is not None and h_x1_pt is not None:
-                        rx0   = int((h_x0_pt - ox) * z)
-                        band_w = max(4, int((h_x1_pt - ox) * z) - rx0)
-                    else:
-                        rx0, band_w = 0, pm.width()
+                h_page, h_rects = self._pdf_selection_highlight
+                if h_page == page_idx and h_rects:
                     p = QPainter(pm)
                     p.setRenderHint(QPainter.RenderHint.Antialiasing)
                     p.setPen(QPen(QColor(255, 200, 0, 200), 1))
                     p.setBrush(QBrush(QColor(255, 220, 0, 70)))
-                    p.drawRect(rx0, ry0, band_w, band_h)
+                    for h_x0_pt, h_y0, h_x1_pt, h_y1 in h_rects:
+                        ry0 = int((h_y0 - oy) * z)
+                        ry1 = int((h_y1 - oy) * z)
+                        band_h = max(4, ry1 - ry0)
+                        if h_x0_pt is not None and h_x1_pt is not None:
+                            rx0   = int((h_x0_pt - ox) * z)
+                            band_w = max(4, int((h_x1_pt - ox) * z) - rx0)
+                        else:
+                            rx0, band_w = 0, pm.width()
+                        p.drawRect(rx0, ry0, band_w, band_h)
                     p.end()
 
             # Links overlay (get_links() interroga il PDF: evitarlo se i link

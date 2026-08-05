@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QToolBar, QToolButton, QSplitter, QSizePolicy,
     QTreeWidget, QTreeWidgetItem, QStackedWidget,
-    QTextBrowser,
+    QTextBrowser, QScrollBar,
 )
 from PyQt6.QtGui import QIcon, QAction
 
@@ -164,6 +164,29 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     width: 0px;
 }
 """
+
+
+class _PdfScrollBar(QScrollBar):
+    """QScrollBar che resta visibile anche senza nulla da scorrere.
+
+    Con ScrollBarAlwaysOn lo spazio della scrollbar viene riservato, ma
+    quando minimum() == maximum() (pagina che combacia col pannello dopo
+    "adatta a larghezza/pagina" o zoom 100%) molti stili nativi (GTK,
+    Breeze, Kvantum...) non disegnano proprio la maniglia: lo spazio resta
+    vuoto e sembra sparita. In quel caso specifico disegniamo la maniglia
+    manualmente; con un range reale lasciamo fare allo stile nativo/QSS
+    (già corretto e testato)."""
+
+    def paintEvent(self, event) -> None:
+        if self.minimum() != self.maximum():
+            super().paintEvent(event)
+            return
+        from PyQt6.QtGui import QPainter, QColor
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#2b2b2b"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#8a8a8a"))
+        painter.drawRoundedRect(self.rect().adjusted(2, 2, -2, -2), 5, 5)
 
 
 class _ClickableLabel(QLabel):
@@ -616,6 +639,9 @@ class PreviewPanel(QWidget):
         self._md_anchor_pos_map: list = [] # [(doc_pos, line_no), ...] per backward sync
 
         self._build_ui()
+        # Default: scroll continuo, così la scrollbar naviga tra tutte le
+        # pagine del PDF invece di restare bloccata sulla pagina corrente.
+        self._pdf_btn_continuous.setChecked(True)
         self._web_fallback.viewport().installEventFilter(self)
         self.setMinimumWidth(200)
 
@@ -742,7 +768,9 @@ class PreviewPanel(QWidget):
         self._pdf_btn_continuous = QToolButton()
         self._pdf_btn_continuous.setText("↕")
         self._pdf_btn_continuous.setCheckable(True)
-        self._pdf_btn_continuous.setChecked(False)  # default: pagina singola
+        self._pdf_btn_continuous.setChecked(False)  # valore iniziale; il default reale
+        # (scroll continuo) viene impostato in __init__ dopo _build_ui(), quando
+        # gli attributi di stato PDF (_pdf_doc, ecc.) esistono già.
         self._pdf_btn_continuous.setToolTip(tr("tooltip.preview_continuous"))
         self._pdf_btn_continuous.toggled.connect(self._pdf_toggle_continuous)
 
@@ -801,6 +829,13 @@ class PreviewPanel(QWidget):
         self._pdf_scroll.setWidgetResizable(True)
         self._pdf_scroll.setStyleSheet(
             "QScrollArea { background: #404040; border: none; }" + _PDF_SCROLLBAR_QSS)
+        # Sempre visibile: con "adatta a larghezza/pagina" o zoom 100% la
+        # pagina può combaciare esattamente col pannello e la policy di
+        # default (ScrollBarAsNeeded) nasconderebbe del tutto la scrollbar,
+        # facendola sembrare sparita anche quando serve ancora per scorrere.
+        self._pdf_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self._pdf_scroll.setVerticalScrollBar(_PdfScrollBar(Qt.Orientation.Vertical))
         self._pdf_scroll.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._pdf_lbl_img = _ClickableLabel()
         self._pdf_lbl_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -815,10 +850,14 @@ class PreviewPanel(QWidget):
         self._pdf_scroll_cont.setWidgetResizable(True)
         self._pdf_scroll_cont.setStyleSheet(
             "QScrollArea { background: #404040; border: none; }" + _PDF_SCROLLBAR_QSS)
+        self._pdf_scroll_cont.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self._pdf_scroll_cont.setVerticalScrollBar(_PdfScrollBar(Qt.Orientation.Vertical))
         self._pdf_scroll_cont.setAlignment(
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self._pdf_scroll_cont.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._pdf_cont_container = _PdfContContainer()
+        self._pdf_cont_container.setStyleSheet("background: #404040;")
         self._pdf_cont_layout = _QVBoxLayout2(self._pdf_cont_container)
         self._pdf_cont_layout.setContentsMargins(8, 8, 8, 8)
         self._pdf_cont_layout.setSpacing(8)

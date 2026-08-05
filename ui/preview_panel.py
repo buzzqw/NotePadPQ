@@ -1158,6 +1158,14 @@ class PreviewPanel(QWidget):
         if self._mode == "latex":
             self._highlight_tree_item(line)
         elif self._mode == "pdf":
+            # Con una selezione attiva il cursore riposa sull'estremo dove è
+            # terminato il trascinamento (spesso l'ultima riga selezionata,
+            # non la prima): l'indicatore a riga singola finirebbe per
+            # evidenziare la coda della selezione invece del testo scelto
+            # dall'utente. In quel caso lasciamo fare a _do_selection_sync,
+            # che evidenzia l'intero intervallo a partire dalla prima riga.
+            if self._editor and self._editor.hasSelectedText():
+                return
             self.go_to_pdf_page_for_line(line + 1)
         elif self._mode == "markdown":
             self._scroll_preview_to_line(line + 1)
@@ -1256,6 +1264,11 @@ class PreviewPanel(QWidget):
                 x1_pt = None
 
             self._pdf_selection_highlight = (page, y0, y1, x0_pt, x1_pt)
+            # Evita che resti visibile l'indicatore a riga singola del
+            # cursore (impostato prima dell'inizio della selezione, o dalla
+            # riga finale del trascinamento): con una selezione attiva conta
+            # solo la fascia che copre l'intero testo scelto.
+            self._pdf_cursor_highlight = None
 
             old_page = self._pdf_page_num
             if page != self._pdf_page_num:

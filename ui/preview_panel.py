@@ -127,6 +127,44 @@ th, td { border: 1px solid #444; padding: 6px 10px; }
 th { background: #2d2d2d; }
 """
 
+# Scrollbar ad alto contrasto per le aree di scroll dell'anteprima PDF: lo
+# sfondo scuro (#404040) del visualizzatore rende lo scrollbar nativo (sottile
+# e privo di stile) quasi invisibile con temi di sistema scuri.
+_PDF_SCROLLBAR_QSS = """
+QScrollBar:vertical {
+    background: #2b2b2b;
+    width: 12px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: #8a8a8a;
+    min-height: 24px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #aaaaaa;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QScrollBar:horizontal {
+    background: #2b2b2b;
+    height: 12px;
+    margin: 0;
+}
+QScrollBar::handle:horizontal {
+    background: #8a8a8a;
+    min-width: 24px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #aaaaaa;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+"""
+
 
 class _ClickableLabel(QLabel):
     """QLabel che emette clicked(x, y) quando viene cliccato."""
@@ -761,7 +799,8 @@ class PreviewPanel(QWidget):
         from PyQt6.QtWidgets import QScrollArea, QVBoxLayout as _QVBoxLayout2
         self._pdf_scroll = QScrollArea()
         self._pdf_scroll.setWidgetResizable(True)
-        self._pdf_scroll.setStyleSheet("background: #404040; border: none;")
+        self._pdf_scroll.setStyleSheet(
+            "QScrollArea { background: #404040; border: none; }" + _PDF_SCROLLBAR_QSS)
         self._pdf_scroll.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._pdf_lbl_img = _ClickableLabel()
         self._pdf_lbl_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -774,7 +813,8 @@ class PreviewPanel(QWidget):
         # Scroll area per la modalità continua (tutte le pagine impilate)
         self._pdf_scroll_cont = QScrollArea()
         self._pdf_scroll_cont.setWidgetResizable(True)
-        self._pdf_scroll_cont.setStyleSheet("background: #404040; border: none;")
+        self._pdf_scroll_cont.setStyleSheet(
+            "QScrollArea { background: #404040; border: none; }" + _PDF_SCROLLBAR_QSS)
         self._pdf_scroll_cont.setAlignment(
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self._pdf_scroll_cont.setFocusPolicy(Qt.FocusPolicy.ClickFocus)

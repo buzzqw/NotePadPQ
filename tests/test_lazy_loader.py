@@ -26,6 +26,24 @@ class LazyLoaderTest(unittest.TestCase):
             self.assertTrue(all(len(chunk) <= 16 for chunk in chunks))
             self.assertGreater(len(chunks), 1)
 
+    def test_load_worker_flow_control_waits_for_chunk_acknowledgement(self):
+        content = "line\n" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "flow.txt"
+            path.write_text(content, encoding="utf-8")
+            chunks = []
+            worker = lazy_loader._LoadWorker(path)
+            worker.enable_flow_control()
+
+            def consume(text, _index, _total):
+                chunks.append(text)
+                worker.acknowledge_chunk()
+
+            worker.chunk_ready.connect(consume)
+            worker.run()
+
+            self.assertEqual("".join(chunks), content)
+
     def test_paged_utf8_preserves_characters_at_page_boundaries(self):
         content = "🙂" * 80
         with tempfile.TemporaryDirectory() as tmp:

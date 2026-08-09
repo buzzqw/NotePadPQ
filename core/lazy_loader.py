@@ -156,9 +156,20 @@ class _LoadWorker(QObject):
         super().__init__()
         self._path     = path
         self._cancelled = threading.Event()
+        self._chunk_ack = threading.Event()
+        self._chunk_ack.set()
+        self._flow_control = False
 
     def cancel(self) -> None:
         self._cancelled.set()
+        self._chunk_ack.set()
+
+    def enable_flow_control(self) -> None:
+        """Limit queued data to one chunk until the UI has consumed it."""
+        self._flow_control = True
+
+    def acknowledge_chunk(self) -> None:
+        self._chunk_ack.set()
 
     def run(self) -> None:
         """Eseguito nel thread di background."""
@@ -181,7 +192,12 @@ class _LoadWorker(QObject):
                     return
                 if detected_le is None and text:
                     detected_le = LineEnding.detect(text)
+                if self._flow_control:
+                    self._chunk_ack.clear()
                 self.chunk_ready.emit(text, chunk_idx, total_chunks)
+                while self._flow_control and not self._chunk_ack.wait(0.1):
+                    if self._cancelled.is_set():
+                        return
 
             le_label = (detected_le.label() if detected_le else "LF")
             enc_display = encoding.upper().replace("-SIG", " BOM")
@@ -704,6 +720,7 @@ class LazyLoader(QObject):
 
         # Thread di lettura
         self._worker = _LoadWorker(self._path)
+        self._worker.enable_flow_control()
         self._worker.chunk_ready.connect(self._on_chunk_ready)
         self._worker.finished.connect(self._on_lazy_finished)
         self._worker.error.connect(self._on_error)
@@ -713,54 +730,59 @@ class LazyLoader(QObject):
 
     def _on_chunk_ready(self, text: str, chunk_idx: int, total_chunks: int) -> None:
         if self._cancelled:
+            if self._worker:
+                self._worker.acknowledge_chunk()
             return
+        try:
+            # Primo chunk: load_content (inizializza encoding/lexer, normalizza a LF)
+            if chunk_idx == 0:
+                self._editor.setUpdatesEnabled(False)
+                le = LineEnding.detect(text)
+                self._editor.load_content(text, "UTF-8", le)
+                # load_content blocca i segnali solo per la durata del suo
+                # setText() interno e li riattiva subito dopo. Per un caricamento
+                # a chunk questo è il vero collo di bottiglia: ogni append() dei
+                # chunk successivi altrimenti emette textChanged/modificationChanged
+                # /linesChanged a piena potenza, e tutto ciò che vi è agganciato
+                # (margine numeri riga, git gutter, minimap, spell-check, LSP...)
+                # rilavora sull'intero documento che nel frattempo è cresciuto a
+                # centinaia di MB — con centinaia di chunk diventa quadratico e un
+                # file da 1-2GB può metterci minuti invece di secondi. Si
+                # ri-blocca qui e si riattiva una volta sola a fine caricamento.
+                self._editor.blockSignals(True)
+                # Il contenuto appena aperto non deve essere annullabile: registrare
+                # ogni append nella cronologia undo raddoppia la memoria usata dal
+                # documento e rende il caricamento piu lento.
+                self._editor.SendScintilla(QsciScintilla.SCI_SETUNDOCOLLECTION, 0)
+                self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
+                self._editor_load_active = True
+            else:
+                # Append al fondo del documento. load_content normalizza a LF solo
+                # il primo chunk: i successivi vanno normalizzati qui, altrimenti
+                # i file CRLF/CR finirebbero con line ending misti nel buffer.
+                # Usa append() (SCI_APPENDTEXT) invece di insertAt(): calcolare
+                # end_line/end_col con lines()/text(riga) ad ogni chunk e poi
+                # inserire in quel punto forza Scintilla a rileggere/riposizionarsi
+                # sul documento che cresce a centinaia di MB — costo aggiuntivo
+                # che si somma a quello dei segnali descritto sopra.
+                normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+                self._editor.append(normalized)
 
-        # Primo chunk: load_content (inizializza encoding/lexer, normalizza a LF)
-        if chunk_idx == 0:
-            self._editor.setUpdatesEnabled(False)
-            le = LineEnding.detect(text)
-            self._editor.load_content(text, "UTF-8", le)
-            # load_content blocca i segnali solo per la durata del suo
-            # setText() interno e li riattiva subito dopo. Per un caricamento
-            # a chunk questo è il vero collo di bottiglia: ogni append() dei
-            # chunk successivi altrimenti emette textChanged/modificationChanged
-            # /linesChanged a piena potenza, e tutto ciò che vi è agganciato
-            # (margine numeri riga, git gutter, minimap, spell-check, LSP...)
-            # rilavora sull'intero documento che nel frattempo è cresciuto a
-            # centinaia di MB — con centinaia di chunk diventa quadratico e un
-            # file da 1-2GB può metterci minuti invece di secondi. Si
-            # ri-blocca qui e si riattiva una volta sola a fine caricamento.
-            self._editor.blockSignals(True)
-            # Il contenuto appena aperto non deve essere annullabile: registrare
-            # ogni append nella cronologia undo raddoppia la memoria usata dal
-            # documento e rende il caricamento piu lento.
-            self._editor.SendScintilla(QsciScintilla.SCI_SETUNDOCOLLECTION, 0)
-            self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
-            self._editor_load_active = True
-        else:
-            # Append al fondo del documento. load_content normalizza a LF solo
-            # il primo chunk: i successivi vanno normalizzati qui, altrimenti
-            # i file CRLF/CR finirebbero con line ending misti nel buffer.
-            # Usa append() (SCI_APPENDTEXT) invece di insertAt(): calcolare
-            # end_line/end_col con lines()/text(riga) ad ogni chunk e poi
-            # inserire in quel punto forza Scintilla a rileggere/riposizionarsi
-            # sul documento che cresce a centinaia di MB — costo aggiuntivo
-            # che si somma a quello dei segnali descritto sopra.
-            normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-            self._editor.append(normalized)
-
-        # Aggiorna progress bar senza forzare un giro completo dell'event loop
-        # per ogni chunk (su file da molti GB sarebbero centinaia di re-entry).
-        pct = min(99, int((chunk_idx + 1) / max(1, total_chunks) * 100))
-        now = time.monotonic()
-        if pct != self._last_progress_pct and (
-                pct >= 99 or now - self._last_progress_time >= 0.05):
-            self._last_progress_pct = pct
-            self._last_progress_time = now
-            self.progress.emit(pct)
-            if self._progress_dlg:
-                self._progress_dlg.setValue(pct)
-                QApplication.processEvents()
+            # Aggiorna progress bar senza forzare un giro completo dell'event loop
+            # per ogni chunk (su file da molti GB sarebbero centinaia di re-entry).
+            pct = min(99, int((chunk_idx + 1) / max(1, total_chunks) * 100))
+            now = time.monotonic()
+            if pct != self._last_progress_pct and (
+                    pct >= 99 or now - self._last_progress_time >= 0.05):
+                self._last_progress_pct = pct
+                self._last_progress_time = now
+                self.progress.emit(pct)
+                if self._progress_dlg:
+                    self._progress_dlg.setValue(pct)
+                    QApplication.processEvents()
+        finally:
+            if self._worker:
+                self._worker.acknowledge_chunk()
 
     def _on_lazy_finished(self, encoding: str, le_label: str) -> None:
         if self._cancelled:

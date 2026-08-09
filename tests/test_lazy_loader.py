@@ -62,6 +62,30 @@ class LazyLoaderTest(unittest.TestCase):
             self.assertEqual("".join(pages), content)
             self.assertNotIn("\ufffd", "".join(pages))
 
+    def test_paged_navigation_tracks_global_line_and_page_offsets(self):
+        content = "".join(f"line {index}\n" for index in range(200))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "lines.txt"
+            path.write_text(content, encoding="utf-8")
+            with mock.patch.object(lazy_loader, "CHUNK_SIZE_PAGED", 64), \
+                    mock.patch.object(lazy_loader, "PAGE_LOOKAHEAD_CAP", 16):
+                document = lazy_loader.PagedDocument(path)
+                document.read_page_at(document.current_start)
+                first_line = document.current_line_start
+                document.next_page()
+                next_line = document.current_line_start
+                next_page = document.current_page_number
+                document.prev_page()
+                previous_line = document.current_line_start
+                jumped = document.jump_to_fraction(0.5)
+
+            self.assertEqual(first_line, 0)
+            self.assertGreater(next_line, first_line)
+            self.assertGreater(next_page, 1)
+            self.assertEqual(previous_line, first_line)
+            self.assertGreater(document.current_line_start, next_line)
+            self.assertTrue(jumped.startswith("line "))
+
 
 if __name__ == "__main__":
     unittest.main()

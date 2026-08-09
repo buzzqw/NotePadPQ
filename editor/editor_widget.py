@@ -342,6 +342,7 @@ class EditorWidget(QsciScintilla):
         self._zoom_level: int  = 0
         self._overwrite: bool  = False
         self._show_line_numbers: bool = True
+        self._paged_line_offset: Optional[int] = None
         from config.settings import Settings
         self._smart_highlight_enabled: bool = Settings.instance().get(
             "editor/smart_highlight_enabled", True
@@ -766,6 +767,9 @@ class EditorWidget(QsciScintilla):
         """Adatta la larghezza del margine al numero di righe."""
         if not self._show_line_numbers:
             return
+        if self._paged_line_offset is not None:
+            self._render_paged_line_numbers()
+            return
         lines = self.lines()
         digits = len(str(lines)) + 1
         # Ricalcola solo se il numero di cifre è effettivamente cambiato
@@ -776,6 +780,47 @@ class EditorWidget(QsciScintilla):
             return
         self._margin_digits = digits
         self.setMarginWidth(MARGIN_LINE_NUMBERS, needed_str)
+
+    def set_paged_line_offset(self, offset: Optional[int]) -> None:
+        """Mostra numeri globali per la pagina corrente di un file paginato."""
+        self._paged_line_offset = max(0, offset) if offset is not None else None
+        if self._paged_line_offset is None:
+            self.clearMarginText()
+            self.setMarginType(
+                MARGIN_LINE_NUMBERS, QsciScintilla.MarginType.NumberMargin
+            )
+            self._margin_digits = None
+            self._update_line_number_margin()
+            return
+        self._render_paged_line_numbers()
+
+    def _render_paged_line_numbers(self) -> None:
+        """Renderizza il margine globale senza indicizzare l'intero file."""
+        if not self._show_line_numbers:
+            return
+        line_count = self.lines()
+        # Un file con una newline per byte renderebbe il margine piu costoso
+        # della pagina stessa: in quel caso il pager mostra comunque la riga
+        # globale iniziale e Scintilla mantiene la numerazione locale.
+        if line_count > 200_000:
+            self.clearMarginText()
+            self.setMarginType(
+                MARGIN_LINE_NUMBERS, QsciScintilla.MarginType.NumberMargin
+            )
+            self.setMarginWidth(MARGIN_LINE_NUMBERS, "000000")
+            return
+
+        self.setMarginType(
+            MARGIN_LINE_NUMBERS, QsciScintilla.MarginType.TextMargin
+        )
+        self.clearMarginText()
+        last_number = self._paged_line_offset + max(1, line_count)
+        digits = len(str(last_number)) + 1
+        self.setMarginWidth(MARGIN_LINE_NUMBERS, "0" * digits)
+        for line in range(line_count):
+            self.setMarginText(
+                line, str(self._paged_line_offset + line + 1), 0
+            )
 
     def _do_smart_highlight(self) -> None:
         """Evidenzia tutte le occorrenze della parola sotto il cursore.
@@ -956,6 +1001,8 @@ class EditorWidget(QsciScintilla):
         Carica il testo nell'editor. Rileva il line ending se non fornito.
         Resetta lo stato di modifica.
         """
+        if self._paged_line_offset is not None:
+            self.set_paged_line_offset(None)
         if line_ending is None:
             line_ending = LineEnding.detect(text)
 

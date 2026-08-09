@@ -78,6 +78,7 @@ PAGE_LOOKAHEAD_CAP = 1 * MB
 
 # Dimensione blocco per la copia byte-a-byte durante il salvataggio in streaming
 SAVE_COPY_CHUNK    = 4 * MB
+LINE_COUNT_CHUNK   = 8 * MB
 
 # Delay tra chunk successivi in ms (lascia respiro all'event loop)
 CHUNK_DELAY_MS     = 30
@@ -200,8 +201,8 @@ class PagedDocument:
     pagina corrente senza materializzare l'intero file in RAM.
 
     Nessuna scansione/indicizzazione preventiva dell'intero file: si tiene
-    traccia solo degli offset delle pagine già visitate durante la
-    navigazione (piccola lista di interi), così "pagina precedente" è
+    traccia solo degli offset e delle righe iniziali delle pagine già visitate
+    durante la navigazione (piccola lista di coppie), così "pagina precedente" è
     immediato senza dover indicizzare tutto il file all'apertura. Il numero
     totale di pagine mostrato è quindi solo una stima (dimensione file /
     dimensione pagina), non un conteggio esatto.
@@ -231,8 +232,10 @@ class PagedDocument:
 
         # Offset delle pagine visitate in ordine di navigazione (per Prev O(1)
         # senza indice) + puntatore alla posizione corrente in questa lista.
-        self._history: list[int] = [self._bom_len]
+        self._history: list[tuple[int, int]] = [(self._bom_len, 0)]
         self._hist_pos: int = 0
+        self.current_line_start = 0
+        self.current_page_line_count = 0
 
     @staticmethod
     def _get_file_signature(path: Path) -> tuple[int, int, int, int]:
@@ -256,7 +259,10 @@ class PagedDocument:
 
     @property
     def current_page_number(self) -> int:
-        return self._hist_pos + 1
+        # Le pagine vengono allineate alle newline e possono quindi avere una
+        # dimensione leggermente variabile: il numero e necessariamente
+        # approssimato, ma resta stabile anche dopo un salto percentuale.
+        return max(1, (self.current_start - self._bom_len) // self.page_size + 1)
 
     @property
     def progress_fraction(self) -> float:
@@ -270,12 +276,14 @@ class PagedDocument:
 
     # ── Lettura pagine ───────────────────────────────────────────────────────
 
-    def read_page_at(self, start: int) -> str:
+    def read_page_at(self, start: int, line_start: Optional[int] = None) -> str:
         """Legge la pagina che inizia all'offset di byte `start`, allineando
         la fine al prossimo \\n (o al tetto PAGE_LOOKAHEAD_CAP in assenza di
         \\n). Aggiorna current_start/current_end."""
         start = self._safe_start(start)
         self.current_start = start
+        if line_start is not None:
+            self.current_line_start = max(0, line_start)
 
         if start >= self.file_size:
             self.current_end = start
@@ -303,23 +311,29 @@ class PagedDocument:
         data = self._trim_incomplete_suffix(bytes(data))
 
         self.current_end = start + len(data)
-        return self._decode(data)
+        text = self._decode(data)
+        self.current_page_line_count = text.count("\n")
+        return text
 
     def next_page(self) -> Optional[str]:
         if self._hist_pos + 1 < len(self._history):
             self._hist_pos += 1
-            return self.read_page_at(self._history[self._hist_pos])
+            start, line_start = self._history[self._hist_pos]
+            return self.read_page_at(start, line_start)
         if self.current_end >= self.file_size:
             return None
-        self._history.append(self.current_end)
+        next_start = self.current_end
+        next_line = self.current_line_start + self.current_page_line_count
+        self._history.append((next_start, next_line))
         self._hist_pos += 1
-        return self.read_page_at(self.current_end)
+        return self.read_page_at(next_start, next_line)
 
     def prev_page(self) -> Optional[str]:
         if self._hist_pos <= 0:
             return None
         self._hist_pos -= 1
-        return self.read_page_at(self._history[self._hist_pos])
+        start, line_start = self._history[self._hist_pos]
+        return self.read_page_at(start, line_start)
 
     def jump_to_fraction(self, pct: float) -> str:
         """Salta a un punto approssimato del file (0.0–1.0), allineando in
@@ -328,9 +342,33 @@ class PagedDocument:
         pct = max(0.0, min(1.0, pct))
         target = self._bom_len + int((self.file_size - self._bom_len) * pct)
         aligned = self._align_forward(target)
-        self._history = [aligned]
+        line_start = self._count_lines_before(aligned)
+        self._history = [(aligned, line_start)]
         self._hist_pos = 0
-        return self.read_page_at(aligned)
+        return self.read_page_at(aligned, line_start)
+
+    def _count_lines_before(self, offset: int) -> int:
+        """Count completed lines before an offset without loading the prefix."""
+        offset = max(self._bom_len, min(offset, self.file_size))
+        remaining = offset - self._bom_len
+        if remaining <= 0:
+            return 0
+
+        line_break = self._line_break_bytes()
+        count = 0
+        carry = b""
+        with open(self.path, "rb") as source:
+            source.seek(self._bom_len)
+            while remaining:
+                chunk = source.read(min(LINE_COUNT_CHUNK, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                data = carry + chunk
+                count += data.count(line_break)
+                if len(line_break) > 1:
+                    carry = data[-(len(line_break) - 1):]
+        return count
 
     def _align_forward(self, offset: int) -> int:
         offset = self._safe_start(offset)
@@ -722,6 +760,7 @@ class LazyLoader(QObject):
         page_text = self._paged_view.read_page_at(self._paged_view.current_start)
         le = LineEnding.detect(page_text)
         self._editor.load_content(page_text, self._paged_view.encoding(), le)
+        self._editor.set_paged_line_offset(self._paged_view.current_line_start)
         self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
 
         # File enorme: resta modificabile, una pagina alla volta — vedi
@@ -766,10 +805,12 @@ class LazyLoader(QObject):
             lbl.setText(
                 tr("lazy_loader.page_indicator",
                    page=pv.current_page_number, total=pv.total_pages_estimate,
-                   pct=pct, size=pv.file_size_mb,
+                   pct=pct, size=pv.file_size_mb, line=pv.current_line_start + 1,
+                   offset=pv.current_start / MB,
                    default=f"📄 ~Pagina {pv.current_page_number}/{pv.total_pages_estimate}  "
-                           f"(~{pct:.0f}% di {pv.file_size_mb:.0f} MB) "
-                           f"— numerazione riga locale alla pagina")
+                           f"(~{pct:.0f}% di {pv.file_size_mb:.0f} MB, "
+                           f"offset {pv.current_start / MB:.0f} MB) "
+                           f"— riga globale ~{pv.current_line_start + 1}")
             )
 
         btn_prev = QPushButton(tr("lazy_loader.btn_prev_page", default="◀ Pag. prec."))
@@ -784,6 +825,7 @@ class LazyLoader(QObject):
                 return
             le = LineEnding.detect(text)
             editor.load_content(text, pv.encoding(), le)
+            editor.set_paged_line_offset(pv.current_line_start)
             # Scope dell'undo alla sola pagina appena caricata: setText() di
             # QScintilla non svuota da solo lo storico undo, senza questa
             # chiamata l'undo di una pagina si mescolerebbe con la precedente.

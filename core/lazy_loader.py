@@ -24,8 +24,10 @@ API:
 
 from __future__ import annotations
 
+import codecs
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Optional, Callable, TYPE_CHECKING
 
@@ -79,6 +81,7 @@ SAVE_COPY_CHUNK    = 4 * MB
 
 # Delay tra chunk successivi in ms (lascia respiro all'event loop)
 CHUNK_DELAY_MS     = 30
+MAX_PENDING_TEXT_CHARS = CHUNK_SIZE_BYTES
 
 
 def _detect_large_file_encoding(header: bytes) -> tuple[str, int]:
@@ -97,6 +100,42 @@ def _detect_large_file_encoding(header: bytes) -> tuple[str, int]:
         except UnicodeDecodeError:
             continue
     return FileManager._chardet_detect(header) or "UTF-8", 0
+
+
+def _iter_decoded_chunks(path: Path, encoding: str, bom_len: int):
+    """Yield bounded, decoder-safe text chunks from ``path``.
+
+    A raw-byte buffer cannot be allowed to grow until the next newline: one
+    very long line would otherwise make the supposedly lazy loader retain the
+    whole file in memory. The incremental decoder preserves multibyte
+    characters while the text buffer is capped even when no newline exists.
+    """
+    decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
+    pending = ""
+
+    with open(path, "rb", buffering=CHUNK_SIZE_BYTES) as source:
+        if bom_len:
+            source.seek(bom_len)
+
+        while True:
+            raw = source.read(CHUNK_SIZE_BYTES)
+            if not raw:
+                break
+            decoded = decoder.decode(raw, final=False)
+            if decoded:
+                pending += decoded
+
+            while len(pending) >= MAX_PENDING_TEXT_CHARS:
+                split_pos = pending.rfind("\n", 0, MAX_PENDING_TEXT_CHARS + 1)
+                cut = split_pos + 1 if split_pos >= 0 else MAX_PENDING_TEXT_CHARS
+                yield pending[:cut]
+                pending = pending[cut:]
+
+        tail = decoder.decode(b"", final=True)
+        if tail:
+            pending += tail
+        if pending:
+            yield pending
 
 
 # ─── _LoadWorker ──────────────────────────────────────────────────────────────
@@ -133,66 +172,15 @@ class _LoadWorker(QObject):
 
             # Calcola numero di chunk approssimativo
             total_chunks = max(1, file_size // CHUNK_SIZE_BYTES + 1)
-            chunk_idx = 0
             detected_le = None
 
-            with open(self._path, "rb") as f:
-                # Salta BOM se presente
-                if bom_len:
-                    f.seek(bom_len)
-
-                buffer = b""
-                while True:
-                    if self._cancelled.is_set():
-                        return
-
-                    raw = f.read(CHUNK_SIZE_BYTES)
-                    if not raw:
-                        break
-
-                    buffer += raw
-                    more_data = bool(f.peek(1))
-
-                    # Decodifica sicura: ritaglia alla fine dell'ultimo \n
-                    # per non spezzare sequenze multibyte a metà. \n è un byte
-                    # ASCII che non può comparire come byte di continuazione
-                    # UTF-8, quindi tagliare subito dopo è sempre un confine
-                    # di carattere valido.
-                    split_pos = buffer.rfind(b"\n")
-                    if split_pos == -1 and more_data:
-                        # Nessun \n in questo blocco e il file non è ancora
-                        # esaurito: continua ad accumulare invece di
-                        # decodificare a metà di una sequenza multibyte.
-                        continue
-                    elif not more_data:
-                        # Fine file (nessun altro byte in arrivo): decodifica
-                        # tutto il buffer residuo, \n o non \n.
-                        try:
-                            text = buffer.decode(encoding, errors="replace")
-                        except Exception:
-                            text = buffer.decode("latin-1", errors="replace")
-                        buffer = b""
-                    else:
-                        decode_part = buffer[:split_pos + 1]
-                        buffer = buffer[split_pos + 1:]
-                        try:
-                            text = decode_part.decode(encoding, errors="replace")
-                        except Exception:
-                            text = decode_part.decode("latin-1", errors="replace")
-
-                    if detected_le is None and text:
-                        detected_le = LineEnding.detect(text)
-
-                    self.chunk_ready.emit(text, chunk_idx, total_chunks)
-                    chunk_idx += 1
-
-                # Eventuale coda
-                if buffer and not self._cancelled.is_set():
-                    try:
-                        text = buffer.decode(encoding, errors="replace")
-                    except Exception:
-                        text = buffer.decode("latin-1", errors="replace")
-                    self.chunk_ready.emit(text, chunk_idx, total_chunks)
+            for chunk_idx, text in enumerate(
+                    _iter_decoded_chunks(self._path, encoding, bom_len)):
+                if self._cancelled.is_set():
+                    return
+                if detected_le is None and text:
+                    detected_le = LineEnding.detect(text)
+                self.chunk_ready.emit(text, chunk_idx, total_chunks)
 
             le_label = (detected_le.label() if detected_le else "LF")
             enc_display = encoding.upper().replace("-SIG", " BOM")
@@ -286,7 +274,7 @@ class PagedDocument:
         """Legge la pagina che inizia all'offset di byte `start`, allineando
         la fine al prossimo \\n (o al tetto PAGE_LOOKAHEAD_CAP in assenza di
         \\n). Aggiorna current_start/current_end."""
-        start = max(self._bom_len, min(start, self.file_size))
+        start = self._safe_start(start)
         self.current_start = start
 
         if start >= self.file_size:
@@ -296,22 +284,26 @@ class PagedDocument:
         with open(self.path, "rb") as f:
             f.seek(start)
             data = bytearray(f.read(self.page_size))
-            extra = 0
-            while (start + len(data)) < self.file_size and not data.endswith(b"\n") \
-                    and extra < PAGE_LOOKAHEAD_CAP:
-                chunk = f.read(65536)
+            line_break = self._line_break_bytes()
+            max_length = min(
+                self.file_size - start,
+                self.page_size + PAGE_LOOKAHEAD_CAP,
+            )
+            while len(data) < max_length:
+                search_from = max(0, self.page_size - len(line_break) + 1)
+                newline = data.find(line_break, search_from)
+                if newline != -1:
+                    del data[newline + len(line_break):]
+                    break
+                chunk = f.read(min(65536, max_length - len(data)))
                 if not chunk:
                     break
-                nl = chunk.find(b"\n")
-                if nl != -1:
-                    data += chunk[:nl + 1]
-                    extra += nl + 1
-                    break
                 data += chunk
-                extra += len(chunk)
+
+        data = self._trim_incomplete_suffix(bytes(data))
 
         self.current_end = start + len(data)
-        return self._decode(bytes(data))
+        return self._decode(data)
 
     def next_page(self) -> Optional[str]:
         if self._hist_pos + 1 < len(self._history):
@@ -341,16 +333,73 @@ class PagedDocument:
         return self.read_page_at(aligned)
 
     def _align_forward(self, offset: int) -> int:
-        offset = max(self._bom_len, min(offset, self.file_size))
+        offset = self._safe_start(offset)
         if offset <= self._bom_len or offset >= self.file_size:
             return offset
         with open(self.path, "rb") as f:
             f.seek(offset)
             data = f.read(PAGE_LOOKAHEAD_CAP)
-        nl = data.find(b"\n")
+        nl = data.find(self._line_break_bytes())
         if nl == -1:
             return offset
-        return offset + nl + 1
+        return offset + nl + len(self._line_break_bytes())
+
+    def _line_break_bytes(self) -> bytes:
+        encoding = self._encoding.upper()
+        if encoding == "UTF-16-LE":
+            return b"\n\x00"
+        if encoding == "UTF-16-BE":
+            return b"\x00\n"
+        if encoding == "UTF-32-LE":
+            return b"\n\x00\x00\x00"
+        if encoding == "UTF-32-BE":
+            return b"\x00\x00\x00\n"
+        return b"\n"
+
+    def _safe_start(self, offset: int) -> int:
+        offset = max(self._bom_len, min(offset, self.file_size))
+        encoding = self._encoding.upper()
+        unit = 4 if encoding.startswith("UTF-32") else 2 if encoding.startswith("UTF-16") else 1
+        relative = offset - self._bom_len
+        offset -= relative % unit
+
+        if encoding in {"UTF-8", "UTF-8-SIG"} and offset < self.file_size:
+            with open(self.path, "rb") as source:
+                source.seek(offset)
+                while True:
+                    byte = source.read(1)
+                    if not byte or not (byte[0] & 0xC0) == 0x80:
+                        break
+                    offset += 1
+        elif encoding in {"UTF-16-LE", "UTF-16-BE"} and offset < self.file_size:
+            with open(self.path, "rb") as source:
+                source.seek(offset)
+                code_unit = source.read(2)
+            if len(code_unit) == 2:
+                value = int.from_bytes(code_unit, "little" if encoding.endswith("LE") else "big")
+                if 0xDC00 <= value <= 0xDFFF:
+                    offset += 2
+        return offset
+
+    def _trim_incomplete_suffix(self, data: bytes) -> bytes:
+        encoding = self._encoding.upper()
+        if encoding.startswith("UTF-32"):
+            unit = 4
+        elif encoding.startswith("UTF-16"):
+            unit = 2
+        elif encoding in {"UTF-8", "UTF-8-SIG"}:
+            unit = 1
+        else:
+            return data
+        data = data[:len(data) - (len(data) % unit)]
+
+        decoder = codecs.getincrementaldecoder(self._encoding)(errors="strict")
+        try:
+            decoder.decode(data, final=False)
+        except UnicodeDecodeError:
+            return data
+        pending, _ = decoder.getstate()
+        return data[:-len(pending)] if pending else data
 
     def _decode(self, data: bytes) -> str:
         try:
@@ -508,7 +557,9 @@ class LazyLoader(QObject):
         self._cancelled   = False
         self._paged_view: Optional[PagedDocument] = None
         self._pager_widget: Optional[QWidget] = None
-        self._accumulated = []   # chunks accumulati prima dell'append
+        self._editor_load_active = False
+        self._last_progress_pct = -1
+        self._last_progress_time = 0.0
 
     # ── Entry point statico ───────────────────────────────────────────────────
 
@@ -577,7 +628,7 @@ class LazyLoader(QObject):
 
         # Primo chunk: load_content (inizializza encoding/lexer, normalizza a LF)
         if chunk_idx == 0:
-            self._editor.beginUndoAction()
+            self._editor.setUpdatesEnabled(False)
             le = LineEnding.detect(text)
             self._editor.load_content(text, "UTF-8", le)
             # load_content blocca i segnali solo per la durata del suo
@@ -591,6 +642,12 @@ class LazyLoader(QObject):
             # file da 1-2GB può metterci minuti invece di secondi. Si
             # ri-blocca qui e si riattiva una volta sola a fine caricamento.
             self._editor.blockSignals(True)
+            # Il contenuto appena aperto non deve essere annullabile: registrare
+            # ogni append nella cronologia undo raddoppia la memoria usata dal
+            # documento e rende il caricamento piu lento.
+            self._editor.SendScintilla(QsciScintilla.SCI_SETUNDOCOLLECTION, 0)
+            self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
+            self._editor_load_active = True
         else:
             # Append al fondo del documento. load_content normalizza a LF solo
             # il primo chunk: i successivi vanno normalizzati qui, altrimenti
@@ -603,15 +660,29 @@ class LazyLoader(QObject):
             normalized = text.replace("\r\n", "\n").replace("\r", "\n")
             self._editor.append(normalized)
 
-        # Aggiorna progress bar
+        # Aggiorna progress bar senza forzare un giro completo dell'event loop
+        # per ogni chunk (su file da molti GB sarebbero centinaia di re-entry).
         pct = min(99, int((chunk_idx + 1) / max(1, total_chunks) * 100))
-        self.progress.emit(pct)
-        if self._progress_dlg:
-            self._progress_dlg.setValue(pct)
-            QApplication.processEvents()
+        now = time.monotonic()
+        if pct != self._last_progress_pct and (
+                pct >= 99 or now - self._last_progress_time >= 0.05):
+            self._last_progress_pct = pct
+            self._last_progress_time = now
+            self.progress.emit(pct)
+            if self._progress_dlg:
+                self._progress_dlg.setValue(pct)
+                QApplication.processEvents()
 
     def _on_lazy_finished(self, encoding: str, le_label: str) -> None:
-        self._editor.endUndoAction()
+        if self._cancelled:
+            return
+        if self._editor_load_active:
+            self._editor.SendScintilla(QsciScintilla.SCI_SETUNDOCOLLECTION, 1)
+            self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
+            self._editor.setModified(False)
+            self._editor.blockSignals(False)
+            self._editor.setUpdatesEnabled(True)
+            self._editor_load_active = False
         # Riattiva i segnali bloccati durante i chunk (vedi _on_chunk_ready) e
         # rifà a mano gli aggiornamenti che sarebbero dovuti scattare da soli:
         # margine numeri riga (normalmente su linesChanged) e stato "non
@@ -801,6 +872,12 @@ class LazyLoader(QObject):
         self._cancelled = True
         if self._worker:
             self._worker.cancel()
+        if self._editor_load_active:
+            self._editor.SendScintilla(QsciScintilla.SCI_SETUNDOCOLLECTION, 1)
+            self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
+            self._editor.blockSignals(False)
+            self._editor.setUpdatesEnabled(True)
+            self._editor_load_active = False
         self._close_progress()
         self._remove_pager_ui()
 
@@ -827,6 +904,12 @@ class LazyLoader(QObject):
             self._progress_dlg = None
 
     def _on_error(self, msg: str) -> None:
+        if self._editor_load_active:
+            self._editor.SendScintilla(QsciScintilla.SCI_SETUNDOCOLLECTION, 1)
+            self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
+            self._editor.blockSignals(False)
+            self._editor.setUpdatesEnabled(True)
+            self._editor_load_active = False
         self._close_progress()
         self.load_error.emit(msg)
 

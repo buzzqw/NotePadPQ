@@ -799,7 +799,10 @@ class _FtpPanel(QWidget):
         except ImportError:
             raise RuntimeError(tr("plugin.ftp_browser.sftp_missing"))
         ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh.load_system_host_keys()
+        # Non accettare automaticamente chiavi sconosciute: altrimenti una
+        # connessione SFTP può essere intercettata senza alcun avviso.
+        ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
         ssh.connect(
             profile.host, port=profile.port,
             username=profile.user, password=profile.password,

@@ -47,9 +47,24 @@ class PluginManager:
         return cls._instance
 
     def _plugins_dir(self) -> Path:
-        # Usa la cartella 'plugins' in cui si trova questo stesso script,
-        # ignorando quella in ~/.local/share/...
-        return Path(__file__).parent.resolve()
+        from core.platform import get_plugins_dir
+        return get_plugins_dir()
+
+    def _plugin_files(self) -> list[Path]:
+        """Return bundled plugins followed by user-installed plugins."""
+        bundled = Path(__file__).parent.resolve()
+        user_dir = self._plugins_dir().resolve()
+        files = sorted(
+            path for path in bundled.glob("*.py") if not path.name.startswith("_")
+        )
+        if user_dir != bundled:
+            files.extend(
+                sorted(
+                    path for path in user_dir.glob("*.py")
+                    if not path.name.startswith("_")
+                )
+            )
+        return files
 
     def _load_disabled(self) -> set[str]:
         try:
@@ -73,11 +88,7 @@ class PluginManager:
     def load_all(self, main_window: "MainWindow") -> None:
         """Carica tutti i plugin dalla directory plugin utente."""
         self._main_window = main_window
-        plugins_dir = self._plugins_dir()
-
-        for plugin_file in sorted(plugins_dir.glob("*.py")):
-            if plugin_file.name.startswith("_"):
-                continue
+        for plugin_file in self._plugin_files():
             self._load_plugin_file(plugin_file, main_window)
 
     def load_all_deferred(self, main_window: "MainWindow",
@@ -89,10 +100,7 @@ class PluginManager:
         """
         from PyQt6.QtCore import QTimer
         self._main_window = main_window
-        files = [
-            f for f in sorted(self._plugins_dir().glob("*.py"))
-            if not f.name.startswith("_")
-        ]
+        files = self._plugin_files()
         _iter = iter(files)
 
         def _load_next():

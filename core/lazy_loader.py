@@ -30,7 +30,9 @@ from pathlib import Path
 from typing import Optional, Callable, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer, Qt
-from PyQt6.QtWidgets import QProgressDialog, QApplication, QLabel, QPushButton, QMessageBox
+from PyQt6.QtWidgets import (
+    QProgressDialog, QApplication, QLabel, QPushButton, QMessageBox, QWidget
+)
 from PyQt6.Qsci import QsciScintilla
 
 from core.file_manager import FileManager
@@ -79,6 +81,24 @@ SAVE_COPY_CHUNK    = 4 * MB
 CHUNK_DELAY_MS     = 30
 
 
+def _detect_large_file_encoding(header: bytes) -> tuple[str, int]:
+    """Detect encoding consistently even when the sample ends mid-codepoint."""
+    encoding, bom_len = FileManager._detect_bom(header)
+    if encoding:
+        return encoding, bom_len
+
+    # A UTF-8 sample may end in the middle of a 2-4 byte sequence. Ignore only
+    # that incomplete suffix before falling back to chardet.
+    for trim in range(4):
+        sample = header[:-trim] if trim else header
+        try:
+            sample.decode("utf-8")
+            return "UTF-8", 0
+        except UnicodeDecodeError:
+            continue
+    return FileManager._chardet_detect(header) or "UTF-8", 0
+
+
 # ─── _LoadWorker ──────────────────────────────────────────────────────────────
 
 class _LoadWorker(QObject):
@@ -105,13 +125,11 @@ class _LoadWorker(QObject):
         try:
             file_size = self._path.stat().st_size
 
-            # Rilevamento encoding dal header del file (primi 8KB)
+            # Rilevamento encoding dall'header del file.
             with open(self._path, "rb") as f:
-                header = f.read(8192)
+                header = f.read(65536)
 
-            encoding, bom_len = FileManager._detect_bom(header)
-            if not encoding:
-                encoding = FileManager._chardet_detect(header) or "UTF-8"
+            encoding, bom_len = _detect_large_file_encoding(header)
 
             # Calcola numero di chunk approssimativo
             total_chunks = max(1, file_size // CHUNK_SIZE_BYTES + 1)
@@ -210,13 +228,13 @@ class PagedDocument:
     def __init__(self, path: Path):
         self.path = path
         self.file_size = path.stat().st_size
+        self._file_signature = self._get_file_signature(path)
         self.page_size = CHUNK_SIZE_PAGED
 
         # Encoding rilevato dall'header
         with open(path, "rb") as f:
-            header = f.read(8192)
-        enc, self._bom_len = FileManager._detect_bom(header)
-        self._encoding = enc or FileManager._chardet_detect(header) or "UTF-8"
+            header = f.read(65536)
+        self._encoding, self._bom_len = _detect_large_file_encoding(header)
 
         # Intervallo di byte [current_start, current_end) della pagina
         # attualmente caricata nell'editor.
@@ -227,6 +245,16 @@ class PagedDocument:
         # senza indice) + puntatore alla posizione corrente in questa lista.
         self._history: list[int] = [self._bom_len]
         self._hist_pos: int = 0
+
+    @staticmethod
+    def _get_file_signature(path: Path) -> tuple[int, int, int, int]:
+        stat_result = path.stat()
+        return (
+            stat_result.st_dev,
+            stat_result.st_ino,
+            stat_result.st_size,
+            stat_result.st_mtime_ns,
+        )
 
     # ── Info ─────────────────────────────────────────────────────────────────
 
@@ -340,6 +368,7 @@ class PagedDocument:
         self.current_start = new_start
         self.current_end = new_end
         self.file_size = self.path.stat().st_size
+        self._file_signature = self._get_file_signature(self.path)
         self._history = self._history[: self._hist_pos + 1]
 
 
@@ -387,8 +416,7 @@ class _SaveWorker(QObject):
             # Il file non deve essere stato modificato dall'esterno da quando
             # è stato aperto: altrimenti gli offset di pagina non sono più
             # affidabili e continuare scriverebbe dati nel punto sbagliato.
-            current_size = doc.path.stat().st_size
-            if current_size != doc.file_size:
+            if doc._get_file_signature(doc.path) != doc._file_signature:
                 self.error.emit(tr(
                     "lazy_loader.save_external_change",
                     default="Il file è stato modificato da un altro programma dopo "
@@ -654,7 +682,7 @@ class LazyLoader(QObject):
         editor = self._editor
         mw = self._mw
 
-        from PyQt6.QtWidgets import QWidget, QHBoxLayout, QPushButton, QLabel, QInputDialog
+        from PyQt6.QtWidgets import QHBoxLayout, QInputDialog
         pager = QWidget()
         layout = QHBoxLayout(pager)
         layout.setContentsMargins(4, 0, 4, 0)

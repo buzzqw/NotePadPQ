@@ -17,7 +17,7 @@ NON gestisce: logica I/O file (→ core/file_manager.py),
 import sys
 import threading
 from pathlib import Path
-from typing import Optional, Callable
+from typing import TYPE_CHECKING, Optional, Callable
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QObject, QEvent, QThread, pyqtSignal
 from PyQt6.QtGui import (
@@ -36,6 +36,9 @@ from i18n.i18n import tr, I18n
 from ui.busy_indicator import show_busy, hide_busy
 from core.platform import IS_WINDOWS, get_config_dir
 from core.external_open import open_url as _open_url
+
+if TYPE_CHECKING:
+    from core.lazy_loader import LazyLoader
 
 # ─── Mappa icone ──────────────────────────────────────────────────────────────
 # Mapping azione → nome file SVG Lucide. Aggiungere qui nuove azioni per farle
@@ -2441,7 +2444,7 @@ class MainWindow(QMainWindow):
     def _save_editor(self, editor: EditorWidget, path: Path) -> bool:
         from core.file_manager import FileManager
         from PyQt6.QtCore import QTimer
-        
+        watched: list[str] = []
         try:
             # 1. Flag di sicurezza: avvisa il sistema che stiamo salvando noi
             editor._is_saving = True
@@ -2453,7 +2456,15 @@ class MainWindow(QMainWindow):
                     editor._watcher.removePaths(watched)
 
             # 3. Esegui il salvataggio sul disco
-            FileManager.write(path, editor.get_content(), editor.encoding)
+            from config.settings import Settings
+            settings = Settings.instance()
+            FileManager.write(
+                path,
+                editor.get_content(),
+                editor.encoding,
+                write_bom=getattr(editor, "_write_bom", False),
+                backup=settings.get("file/backup_on_save", False),
+            )
             old_lang = getattr(editor, "_current_language", "")
             old_ext = editor.file_path.suffix.lower() if editor.file_path else ""
             new_ext = path.suffix.lower()
@@ -2511,6 +2522,13 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             editor._is_saving = False
+            if hasattr(editor, "_watcher"):
+                try:
+                    for watched_path in watched:
+                        if watched_path not in editor._watcher.files():
+                            editor._watcher.addPath(watched_path)
+                except (RuntimeError, OSError):
+                    pass
             QMessageBox.critical(
                 self, self.APP_NAME,
                 tr("msg.file_write_error", path=str(path), error=str(e))
@@ -4254,21 +4272,39 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         """Controlla modifiche non salvate prima di chiudere."""
+        if getattr(self, "_allow_close_after_save", False):
+            self._allow_close_after_save = False
+            event.accept()
+            return
         modified = [ed for ed in self._tab_manager.all_editors()
-                    if ed.is_modified()]
-        if not modified:
+                     if ed.is_modified()]
+        custom_tabs = [
+            (widget, path)
+            for widget, path in self._tab_manager.all_custom_tabs()
+            if getattr(widget, "is_modified", lambda: False)()
+            or getattr(widget, "is_save_in_progress", lambda: False)()
+        ]
+        if not modified and not custom_tabs:
             self._save_session()
             self._shutdown_lsp()
             event.accept()
             return
 
-        count = len(modified)
+        if getattr(self, "_closing_after_save", False):
+            event.ignore()
+            return
+
+        count = len(modified) + len(custom_tabs)
+        first_name = (
+            modified[0].file_path.name
+            if modified and modified[0].file_path
+            else (tr("label.untitled") if modified else
+                  (custom_tabs[0][1].name if custom_tabs[0][1] else "documento"))
+        )
         msg = (tr("msg.unsaved_changes_many", count=count)
                if count > 1 else
                tr("msg.unsaved_changes",
-                  name=(modified[0].file_path.name
-                        if modified[0].file_path
-                        else tr("label.untitled"))))
+                  name=first_name))
 
         reply = QMessageBox.question(
             self, self.APP_NAME, msg,
@@ -4279,14 +4315,125 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Cancel:
             event.ignore()
         elif reply == QMessageBox.StandardButton.Save:
-            self.action_save_all()
-            self._save_session()
-            self._shutdown_lsp()
-            event.accept()
+            event.ignore()
+            self._save_all_before_close(modified, custom_tabs)
         else:
             self._save_session()
             self._shutdown_lsp()
             event.accept()
+
+    def _save_all_before_close(self, editors, custom_tabs) -> None:
+        """Salva tutti i documenti e chiude solo dopo i salvataggi asincroni."""
+        if getattr(self, "_closing_after_save", False):
+            return
+        self._closing_after_save = True
+        pending = {"count": 0, "failed": False}
+        collecting = {"value": True}
+
+        def finish_one(ok: bool) -> None:
+            if not ok:
+                pending["failed"] = True
+            pending["count"] -= 1
+            if pending["count"] == 0 and not collecting["value"]:
+                self._closing_after_save = False
+                if pending["failed"]:
+                    self.statusBar().showMessage(
+                        tr("msg.file_save_error", error="Salvataggio annullato"), 5000
+                    )
+                    return
+                self._save_session()
+                self._shutdown_lsp()
+                self._allow_close_after_save = True
+                self.close()
+
+        def wait_for_paged(editor) -> None:
+            pending["count"] += 1
+            self.save_paged_page(
+                editor,
+                on_success=lambda: finish_one(True),
+                on_error=lambda _error: finish_one(False),
+            )
+
+        def wait_for_custom(widget, signal) -> None:
+            pending["count"] += 1
+            completed = {"value": False}
+
+            def on_finished(ok: bool, *_args) -> None:
+                completed["value"] = True
+                try:
+                    signal.disconnect(on_finished)
+                except (TypeError, RuntimeError):
+                    pass
+                finish_one(ok)
+
+            signal.connect(on_finished)
+            try:
+                ok = widget.save()
+            except Exception:
+                ok = False
+            if not ok and not completed["value"]:
+                try:
+                    signal.disconnect(on_finished)
+                except (TypeError, RuntimeError):
+                    pass
+                finish_one(False)
+            elif not getattr(widget, "is_save_in_progress", lambda: False)() and not completed["value"]:
+                try:
+                    signal.disconnect(on_finished)
+                except (TypeError, RuntimeError):
+                    pass
+                finish_one(True)
+
+        def wait_for_existing_custom(signal) -> None:
+            pending["count"] += 1
+
+            def on_finished(ok: bool, *_args) -> None:
+                try:
+                    signal.disconnect(on_finished)
+                except (TypeError, RuntimeError):
+                    pass
+                finish_one(ok)
+
+            signal.connect(on_finished)
+
+        for editor in editors:
+            if getattr(editor, "_paged_doc", None) is not None:
+                wait_for_paged(editor)
+            elif editor.file_path:
+                if not self._save_editor(editor, editor.file_path):
+                    pending["failed"] = True
+            else:
+                self._tab_manager.set_current_editor(editor)
+                if not self.action_save_as():
+                    pending["failed"] = True
+
+        for widget, _path in custom_tabs:
+            signal = getattr(widget, "save_finished", None)
+            if callable(getattr(widget, "is_save_in_progress", None)) and widget.is_save_in_progress():
+                if signal is None:
+                    pending["failed"] = True
+                    continue
+                wait_for_existing_custom(signal)
+                continue
+
+            if signal is not None:
+                wait_for_custom(widget, signal)
+            else:
+                pending["count"] += 1
+                try:
+                    ok = bool(widget.save())
+                except Exception:
+                    ok = False
+                finish_one(ok)
+
+        collecting["value"] = False
+        if pending["count"] == 0:
+            self._closing_after_save = False
+            if not pending["failed"]:
+                self._save_session()
+                self._shutdown_lsp()
+                self._allow_close_after_save = True
+                self.close()
 
     def _shutdown_lsp(self) -> None:
         """Arresta una sola volta tutti i client LSP condivisi."""
@@ -4495,6 +4642,11 @@ class MainWindow(QMainWindow):
         current = self._current_editor()
         if current is not editor:
             editor._pending_external_change = True
+            # QFileSystemWatcher può rimuovere il path dopo fileChanged. Va
+            # riaggiunto anche mentre il tab resta inattivo, altrimenti le
+            # modifiche successive non vengono più osservate.
+            if editor.file_path.exists():
+                editor._watcher.addPath(str(editor.file_path))
             editor._watcher.blockSignals(False)
             return
 

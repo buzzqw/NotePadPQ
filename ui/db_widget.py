@@ -502,17 +502,36 @@ class DBConnectionsManager:
     @staticmethod
     def load() -> list[dict]:
         from config.settings import Settings
+        from core.secrets import get_secret
         raw = Settings.instance().get(DBConnectionsManager._KEY, "[]")
         try:
-            return json.loads(raw)
+            connections = json.loads(raw)
+            if not isinstance(connections, list):
+                return []
+            for connection in connections:
+                if not isinstance(connection, dict):
+                    continue
+                name = connection.get("name", "")
+                if name:
+                    connection["password"] = get_secret(f"db/{name}", connection.get("password", ""))
+            return connections
         except Exception:
             return []
 
     @staticmethod
     def save(connections: list[dict]) -> None:
         from config.settings import Settings
+        from core.secrets import set_secret
+        safe_connections = []
+        for connection in connections:
+            copy = dict(connection)
+            name = copy.get("name", "")
+            if name:
+                set_secret(f"db/{name}", copy.get("password", ""))
+            copy["password"] = ""
+            safe_connections.append(copy)
         Settings.instance().set(
-            DBConnectionsManager._KEY, json.dumps(connections))
+            DBConnectionsManager._KEY, json.dumps(safe_connections))
 
     @staticmethod
     def add(conn_info: dict) -> None:
@@ -527,8 +546,10 @@ class DBConnectionsManager:
 
     @staticmethod
     def remove(name: str) -> None:
+        from core.secrets import delete_secret
         conns = [c for c in DBConnectionsManager.load()
                  if c.get("name") != name]
+        delete_secret(f"db/{name}")
         DBConnectionsManager.save(conns)
 
 

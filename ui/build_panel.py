@@ -18,6 +18,7 @@ Nuove feature:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QSize, QTimer
@@ -549,6 +550,13 @@ class BuildPanel(QWidget):
 
     def _update_button_states(self, profile_name: str) -> None:
         profile = self._bm.get_profiles().get(profile_name, {})
+        if not profile:
+            editor = self._mw._tab_manager.current_editor()
+            path = getattr(editor, "file_path", None) if editor else None
+            if path:
+                profile = self._bm.get_project_profiles(path).get(profile_name, {})
+        if not isinstance(profile, dict):
+            profile = {}
 
         compile_cmd = profile.get("compile", "")
         run_cmd     = profile.get("run",     "")
@@ -969,6 +977,14 @@ class _TaskTab(QWidget):
             self._task_list.addItem(tr("build_panel.task_open_file"))
             return
         tasks = self._bm.discover_tasks(directory)
+        project_tasks = [
+            task for task in self._bm.get_project_tasks(path)
+            if isinstance(task, dict)
+            and isinstance(task.get("name"), str) and task.get("name")
+            and isinstance(task.get("cmd"), str) and task.get("cmd")
+        ]
+        if project_tasks:
+            tasks = project_tasks + tasks
         if not tasks:
             self._task_list.addItem(tr("build_panel.no_task", dir=directory.name))
             return

@@ -48,6 +48,7 @@ _DEFAULTS: dict[str, Any] = {
     "preview/enabled":         False,
     "preview/delay_ms":        500,
     "preview/sync_cursor":     True,
+    "rest/max_response_bytes": 50 * 1024 * 1024,
     # Build
     "build/save_before":       True,
     "build/keep_synctex":      True,

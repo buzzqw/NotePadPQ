@@ -452,6 +452,22 @@ class TestProjectConfig(unittest.TestCase):
             profiles = self.bm.get_project_profiles(f)
             self.assertEqual(profiles, {})
 
+    def test_project_profile_is_selected_for_matching_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td)
+            (project / ".notepadpq-build.json").write_text(json.dumps({
+                "profiles": {
+                    "Project Python": {
+                        "extensions": [".py"],
+                        "run": "python project.py",
+                    }
+                }
+            }))
+            self.assertEqual(
+                self.bm.get_profile_for_file(project / "main.py"),
+                "Project Python",
+            )
+
 
 class TestBuildEnv(unittest.TestCase):
 

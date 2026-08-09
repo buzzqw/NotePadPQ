@@ -28,6 +28,7 @@ import base64
 import json
 import os
 import re
+import ssl
 import threading
 import time
 import urllib.error
@@ -67,6 +68,7 @@ _HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 _AUTH_TYPES   = ["Nessuna", "Bearer Token", "Basic (user:pass)", "API Key (header)", "OAuth 2.0"]
 _BODY_TYPES   = ["Nessuno", "JSON", "XML", "Form (x-www-form-urlencoded)", "Multipart (form-data)", "Testo libero"]
 _HISTORY_MAX  = 50
+_DEFAULT_MAX_RESPONSE_BYTES = 50 * 1024 * 1024
 
 _CONTENT_TYPE_MAP = {
     "JSON":                          "application/json",
@@ -75,6 +77,24 @@ _CONTENT_TYPE_MAP = {
     "Multipart (form-data)":         "multipart/form-data",
     "Testo libero":                  "text/plain",
 }
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Disabilita i redirect per il fallback urllib quando richiesto."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _urllib_opener(verify_ssl: bool, allow_redirects: bool):
+    context = ssl.create_default_context()
+    if not verify_ssl:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    handlers = [urllib.request.HTTPSHandler(context=context)]
+    if not allow_redirects:
+        handlers.append(_NoRedirectHandler())
+    return urllib.request.build_opener(*handlers)
 
 # Colori per metodo HTTP (ispirazione Insomnia / Thunder Client)
 _METHOD_COLORS = {
@@ -887,8 +907,12 @@ class _RequestWorker(QObject):
             else:
                 body = urllib.parse.urlencode(data).encode()
                 http_req = urllib.request.Request(token_url, data=body, headers=hdrs, method="POST")
-                with urllib.request.urlopen(http_req, timeout=req.timeout) as resp:
-                    return json.loads(resp.read()).get("access_token", "")
+                opener = _urllib_opener(req.verify_ssl, True)
+                with opener.open(http_req, timeout=req.timeout) as resp:
+                    raw = resp.read(_DEFAULT_MAX_RESPONSE_BYTES + 1)
+                    if len(raw) > _DEFAULT_MAX_RESPONSE_BYTES:
+                        return ""
+                    return json.loads(raw).get("access_token", "")
         except Exception:
             return ""
 
@@ -928,28 +952,47 @@ class _RequestWorker(QObject):
 
         body_kwargs = self._build_body_requests(env)
         if self._cancel_flag.is_set():
+            for value in body_kwargs.get("files", {}).values():
+                file_obj = value[1] if isinstance(value, tuple) and len(value) > 1 else None
+                if file_obj is not None:
+                    file_obj.close()
+            session.close()
             return
 
         t0 = time.perf_counter()
-        resp = session.request(
-            method=req.method,
-            url=url,
-            headers=headers,
-            timeout=req.timeout,
-            allow_redirects=req.allow_redirects,
-            **body_kwargs,
-        )
-        elapsed = time.perf_counter() - t0
-        ct = resp.headers.get("Content-Type", "")
-        body_str = resp.text
+        files = body_kwargs.get("files", {})
+        resp = None
+        try:
+            resp = session.request(
+                method=req.method,
+                url=url,
+                headers=headers,
+                timeout=req.timeout,
+                allow_redirects=req.allow_redirects,
+                stream=True,
+                **body_kwargs,
+            )
+            elapsed = time.perf_counter() - t0
+            raw_body = self._read_limited(resp.iter_content(chunk_size=65536), resp.headers)
+            encoding = resp.encoding or "utf-8"
+            body_str = raw_body.decode(encoding, errors="replace")
+            ct = resp.headers.get("Content-Type", "")
 
-        self.finished.emit({
-            "status": resp.status_code,
-            "headers": dict(resp.headers),
-            "body": body_str,
-            "elapsed": elapsed,
-            "content_type": ct,
-        })
+            self.finished.emit({
+                "status": resp.status_code,
+                "headers": dict(resp.headers),
+                "body": body_str,
+                "elapsed": elapsed,
+                "content_type": ct,
+            })
+        finally:
+            if resp is not None:
+                resp.close()
+            for value in files.values():
+                file_obj = value[1] if isinstance(value, tuple) and len(value) > 1 else None
+                if file_obj is not None:
+                    file_obj.close()
+            session.close()
 
     def _run_urllib(self, url: str, headers: dict):
         req = self._req
@@ -960,15 +1003,20 @@ class _RequestWorker(QObject):
 
         http_req = urllib.request.Request(url, data=body_bytes, headers=headers, method=req.method)
         t0 = time.perf_counter()
+        opener = _urllib_opener(req.verify_ssl, req.allow_redirects)
         try:
-            with urllib.request.urlopen(http_req, timeout=req.timeout) as resp:
+            with opener.open(http_req, timeout=req.timeout) as resp:
                 elapsed = time.perf_counter() - t0
-                raw_body = resp.read()
+                raw_body = self._read_limited(
+                    iter(lambda: resp.read(65536), b""), resp.headers
+                )
                 resp_headers = dict(resp.getheaders())
                 status = resp.status
         except urllib.error.HTTPError as e:
             elapsed = time.perf_counter() - t0
-            raw_body = e.read()
+            raw_body = self._read_limited(
+                iter(e.read, b""), e.headers
+            )
             resp_headers = dict(e.headers)
             status = e.code
 
@@ -989,6 +1037,33 @@ class _RequestWorker(QObject):
             "elapsed": elapsed,
             "content_type": ct_hdr,
         })
+
+    @staticmethod
+    def _read_limited(chunks, headers) -> bytes:
+        try:
+            from config.settings import Settings
+            limit = int(Settings.instance().get(
+                "rest/max_response_bytes", _DEFAULT_MAX_RESPONSE_BYTES
+            ))
+        except (TypeError, ValueError):
+            limit = _DEFAULT_MAX_RESPONSE_BYTES
+        limit = max(1, limit)
+        content_length = headers.get("Content-Length", "") if headers else ""
+        try:
+            declared_length = int(content_length) if content_length else 0
+        except (TypeError, ValueError):
+            declared_length = 0
+        if declared_length > limit:
+            raise ValueError(f"Risposta HTTP troppo grande (limite {limit} byte)")
+
+        result = bytearray()
+        for chunk in chunks:
+            if not chunk:
+                continue
+            result.extend(chunk)
+            if len(result) > limit:
+                raise ValueError(f"Risposta HTTP troppo grande (limite {limit} byte)")
+        return bytes(result)
 
     def _build_body_requests(self, env) -> dict:
         req = self._req

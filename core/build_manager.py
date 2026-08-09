@@ -265,6 +265,10 @@ class InteractiveBuildWorker(QThread):
         import pty
         import select
         start = time.monotonic()
+        master_fd = None
+        master = None
+        master_w = None
+        slave_fd = None
 
         try:
             master_fd, slave_fd = pty.openpty()
@@ -283,9 +287,15 @@ class InteractiveBuildWorker(QThread):
                     errors="replace",
                 )
                 os.close(slave_fd)
+                slave_fd = None
 
                 master = os.fdopen(master_fd, "r", encoding="utf-8", errors="replace")
-                master_w = open(master_fd, "w", encoding="utf-8", errors="replace")
+                # Il writer deve usare un duplicato: due wrapper Python sullo
+                # stesso fd chiuderebbero il descrittore due volte durante la
+                # finalizzazione, producendo EBADF e possibili leak.
+                master_w = os.fdopen(
+                    os.dup(master_fd), "w", encoding="utf-8", errors="replace"
+                )
 
                 timeout = 0.05
                 while True:
@@ -326,9 +336,21 @@ class InteractiveBuildWorker(QThread):
 
             finally:
                 try:
-                    os.close(master_fd)
+                    if slave_fd is not None:
+                        os.close(slave_fd)
                 except Exception:
                     pass
+                for stream in (master_w, master):
+                    try:
+                        if stream is not None:
+                            stream.close()
+                    except Exception:
+                        pass
+                if master is None and master_fd is not None:
+                    try:
+                        os.close(master_fd)
+                    except OSError:
+                        pass
 
         except Exception as e:
             self.output_line.emit(tr("build.error_prefix", error=str(e)))
@@ -447,7 +469,7 @@ class BuildManager(QObject):
         self._workers: dict[str, BuildWorker | InteractiveBuildWorker] = {}
         self._active_profile: str = ""
         self._profile_overrides: dict[str, str] = {}
-        self._project_configs: dict[Path, dict] = {}
+        self._project_configs: dict[Path, tuple[int, dict]] = {}
         self._load_user_profiles()
 
     @classmethod
@@ -539,8 +561,11 @@ class BuildManager(QObject):
         override = self._profile_overrides.get(ext, "")
         if override and override in self._profiles:
             return override
+        for name, profile in self.get_project_profiles(path).items():
+            if isinstance(profile, dict) and ext in profile.get("extensions", []):
+                return name
         for name, profile in self._profiles.items():
-            if ext in profile.get("extensions", []):
+            if isinstance(profile, dict) and ext in profile.get("extensions", []):
                 return name
         return None
 
@@ -551,11 +576,13 @@ class BuildManager(QObject):
         while True:
             cfg_path = current / ".notepadpq-build.json"
             if cfg_path.exists():
-                if cfg_path in self._project_configs:
-                    return self._project_configs[cfg_path]
                 try:
+                    mtime_ns = cfg_path.stat().st_mtime_ns
+                    cached = self._project_configs.get(cfg_path)
+                    if cached and cached[0] == mtime_ns:
+                        return cached[1]
                     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-                    self._project_configs[cfg_path] = cfg
+                    self._project_configs[cfg_path] = (mtime_ns, cfg)
                     return cfg
                 except Exception as e:
                     _log_warn(f"Failed to parse {cfg_path}: {e}")
@@ -568,13 +595,15 @@ class BuildManager(QObject):
     def get_project_profiles(self, file_path: Path) -> dict[str, dict]:
         cfg = self._find_project_config(file_path)
         if cfg:
-            return cfg.get("profiles", {})
+            profiles = cfg.get("profiles", {})
+            return profiles if isinstance(profiles, dict) else {}
         return {}
 
     def get_project_tasks(self, file_path: Path) -> list[dict]:
         cfg = self._find_project_config(file_path)
         if cfg:
-            return cfg.get("tasks", [])
+            tasks = cfg.get("tasks", [])
+            return tasks if isinstance(tasks, list) else []
         return []
 
     # ── Esecuzione ────────────────────────────────────────────────────────────
@@ -615,7 +644,11 @@ class BuildManager(QObject):
             self.build_output.emit(run_id, tr("build.no_profile", suffix=file_path.suffix))
             return False
 
-        profile = self._profiles[profile_name]
+        project_profiles = self.get_project_profiles(file_path)
+        profile = project_profiles.get(profile_name) or self._profiles.get(profile_name)
+        if not isinstance(profile, dict):
+            self.build_output.emit(run_id, tr("build.no_profile", suffix=file_path.suffix))
+            return False
 
         pipeline = profile.get("pipeline", [])
         if pipeline:
@@ -963,6 +996,10 @@ class BuildManager(QObject):
                      source_file: Path | None = None,
                      lsp_diagnostics: list[dict] | None = None) -> list[dict]:
         profile = self._profiles.get(profile_name, {})
+        if not profile and source_file:
+            profile = self.get_project_profiles(source_file).get(profile_name, {})
+        if not isinstance(profile, dict):
+            profile = {}
 
         if profile.get("error_parser") == "latex":
             errors = self._parse_latex_log(output, source_file)

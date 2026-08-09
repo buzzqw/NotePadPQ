@@ -243,7 +243,14 @@ def main():
         else:
             w.open_files([Path(p) for p in paths])
 
-    _si.start_server(callback=_on_files_received_early)
+    if not _si.start_server(callback=_on_files_received_early):
+        # Una seconda istanza può arrivare mentre la prima ha già creato il
+        # server ma non era ancora raggiungibile al primo tentativo. Ritenta
+        # l'invio prima di creare una seconda finestra.
+        if _si.send_args_if_secondary(files_to_send):
+            sys.exit(0)
+        print("NotePadPQ: impossibile garantire l'istanza unica", file=sys.stderr)
+        sys.exit(1)
     # ─────────────────────────────────────────────────────────────────────────
 
     base_dir = Path(__file__).resolve().parent

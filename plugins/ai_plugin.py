@@ -1018,11 +1018,13 @@ class _AIWorker(QThread):
             new_refresh   = r.get('refresh_token', refresh_token)
             expires_in    = int(r.get('expires_in', 3600))
             if access_token:
+                from core.secrets import set_secret
                 from config.settings import Settings
-                s = Settings.instance()
-                s.set("ai/jetbrains_token", access_token)
-                s.set("ai/jetbrains_refresh_token", new_refresh)
-                s.set("ai/jetbrains_token_expires", int(time.time()) + expires_in - 60)
+                set_secret("ai/jetbrains_token", access_token)
+                set_secret("ai/jetbrains_refresh_token", new_refresh)
+                Settings.instance().set(
+                    "ai/jetbrains_token_expires", int(time.time()) + expires_in - 60
+                )
             return access_token
         except Exception:
             return ""
@@ -1032,14 +1034,15 @@ class _AIWorker(QThread):
         from config.settings import Settings
         s = Settings.instance()
 
-        access_token = s.get("ai/jetbrains_token", "")
+        from core.secrets import get_secret
+        access_token = get_secret("ai/jetbrains_token")
         if not access_token:
             raise Exception("Token JetBrains AI non trovato. Effettua l'autenticazione OAuth dalle impostazioni.")
 
         # Refresh automatico se il token è scaduto
         expires_at = float(s.get("ai/jetbrains_token_expires", 0) or 0)
         if expires_at > 0 and time.time() > expires_at:
-            refresh_token = s.get("ai/jetbrains_refresh_token", "")
+            refresh_token = get_secret("ai/jetbrains_refresh_token")
             oauth_config  = PROVIDERS.get("JetBrains AI", {}).get("oauth_config", {})
             if refresh_token and oauth_config:
                 access_token = self._refresh_jetbrains_token(refresh_token, oauth_config)
@@ -1681,11 +1684,10 @@ class _AIPanel(QWidget):
     def _auto_refresh_all_models(self) -> None:
         """Fetch real model lists from all configured APIs in background threads."""
         import threading, urllib.request as ur
-        from config.settings import Settings as _S
-        s = _S.instance()
+        from core.secrets import get_secret
 
         def _fetch_anthropic():
-            key = s.get("ai/anthropic_key", "").strip()
+            key = get_secret("ai/anthropic_key").strip()
             if not key:
                 return
             try:
@@ -1707,7 +1709,7 @@ class _AIPanel(QWidget):
                 pass  # keep static fallback
 
         def _fetch_openai():
-            key = s.get("ai/openai_key", "").strip()
+            key = get_secret("ai/openai_key").strip()
             if not key:
                 return
             try:
@@ -1729,7 +1731,7 @@ class _AIPanel(QWidget):
                 pass
 
         def _fetch_gemini():
-            key = s.get("ai/gemini_key", "").strip()
+            key = get_secret("ai/gemini_key").strip()
             if not key:
                 return
             try:
@@ -1751,7 +1753,7 @@ class _AIPanel(QWidget):
                 pass
 
         def _fetch_deepseek():
-            key = s.get("ai/deepseek_key", "").strip()
+            key = get_secret("ai/deepseek_key").strip()
             if not key:
                 return
             try:
@@ -1847,8 +1849,8 @@ class _AIPanel(QWidget):
     def _refresh_ollama_models(self) -> None:
         """Interroga Ollama /api/tags in background e aggiorna il combo con i modelli installati."""
         import threading
-        from config.settings import Settings
-        ollama_url = Settings.instance().get("ai/ollama_key", "") or "http://localhost:11434"
+        from core.secrets import get_secret
+        ollama_url = get_secret("ai/ollama_key") or "http://localhost:11434"
 
         def _fetch():
             try:
@@ -1884,8 +1886,8 @@ class _AIPanel(QWidget):
     def _refresh_anthropic_models(self) -> None:
         """Interroga /v1/models Anthropic in background e aggiorna il combo."""
         import threading
-        from config.settings import Settings
-        api_key = Settings.instance().get("ai/anthropic_key", "").strip()
+        from core.secrets import get_secret
+        api_key = get_secret("ai/anthropic_key").strip()
         if not api_key:
             return  # nessuna chiave — lascia i modelli statici
 
@@ -1938,8 +1940,8 @@ class _AIPanel(QWidget):
     def _refresh_openai_models(self) -> None:
         """Interroga /v1/models OpenAI in background e aggiorna il combo con i modelli chat."""
         import threading
-        from config.settings import Settings
-        api_key = Settings.instance().get("ai/openai_key", "").strip()
+        from core.secrets import get_secret
+        api_key = get_secret("ai/openai_key").strip()
         if not api_key:
             return
 
@@ -1992,8 +1994,8 @@ class _AIPanel(QWidget):
     def _refresh_gemini_models(self) -> None:
         """Interroga /v1beta/models Gemini in background e aggiorna il combo."""
         import threading
-        from config.settings import Settings
-        api_key = Settings.instance().get("ai/gemini_key", "").strip()
+        from core.secrets import get_secret
+        api_key = get_secret("ai/gemini_key").strip()
         if not api_key:
             return
 
@@ -2042,8 +2044,8 @@ class _AIPanel(QWidget):
     def _refresh_deepseek_models(self) -> None:
         """Interroga /v1/models DeepSeek (API compatibile OpenAI) in background."""
         import threading
-        from config.settings import Settings
-        api_key = Settings.instance().get("ai/deepseek_key", "").strip()
+        from core.secrets import get_secret
+        api_key = get_secret("ai/deepseek_key").strip()
         if not api_key:
             return
 
@@ -2092,8 +2094,8 @@ class _AIPanel(QWidget):
     def _refresh_llamacpp_models(self) -> None:
         """Interroga llama-server /v1/models in background e aggiorna il combo."""
         import threading
-        from config.settings import Settings
-        llamacpp_url = Settings.instance().get("ai/llamacpp_key", "") or "http://localhost:8080"
+        from core.secrets import get_secret
+        llamacpp_url = get_secret("ai/llamacpp_key") or "http://localhost:8080"
 
         def _fetch():
             try:

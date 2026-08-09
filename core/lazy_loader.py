@@ -236,6 +236,7 @@ class PagedDocument:
         self._hist_pos: int = 0
         self.current_line_start = 0
         self.current_page_line_count = 0
+        self._total_lines: Optional[int] = None
 
     @staticmethod
     def _get_file_signature(path: Path) -> tuple[int, int, int, int]:
@@ -263,6 +264,17 @@ class PagedDocument:
         # dimensione leggermente variabile: il numero e necessariamente
         # approssimato, ma resta stabile anche dopo un salto percentuale.
         return max(1, (self.current_start - self._bom_len) // self.page_size + 1)
+
+    @property
+    def total_lines(self) -> int:
+        """Return the total line count without loading the document in RAM."""
+        if self._total_lines is None:
+            if self.file_size <= self._bom_len:
+                self._total_lines = 1
+            else:
+                count = self._count_lines_before(self.file_size)
+                self._total_lines = count + 1
+        return self._total_lines
 
     @property
     def progress_fraction(self) -> float:
@@ -347,6 +359,15 @@ class PagedDocument:
         self._hist_pos = 0
         return self.read_page_at(aligned, line_start)
 
+    def jump_to_line(self, line_1based: int) -> str:
+        """Load the page containing a global 1-based line number."""
+        line = max(1, min(line_1based, self.total_lines))
+        offset = self._find_line_start(line)
+        line_start = line - 1
+        self._history = [(offset, line_start)]
+        self._hist_pos = 0
+        return self.read_page_at(offset, line_start)
+
     def _count_lines_before(self, offset: int) -> int:
         """Count completed lines before an offset without loading the prefix."""
         offset = max(self._bom_len, min(offset, self.file_size))
@@ -369,6 +390,35 @@ class PagedDocument:
                 if len(line_break) > 1:
                     carry = data[-(len(line_break) - 1):]
         return count
+
+    def _find_line_start(self, line_1based: int) -> int:
+        """Find a line start by scanning bytes, keeping memory bounded."""
+        if line_1based <= 1:
+            return self._bom_len
+
+        target_breaks = line_1based - 1
+        line_break = self._line_break_bytes()
+        carry = b""
+        absolute = self._bom_len
+        with open(self.path, "rb") as source:
+            source.seek(self._bom_len)
+            while True:
+                chunk = source.read(LINE_COUNT_CHUNK)
+                if not chunk:
+                    return self.file_size
+                data = carry + chunk
+                search_from = 0
+                while True:
+                    newline = data.find(line_break, search_from)
+                    if newline == -1:
+                        break
+                    target_breaks -= 1
+                    if target_breaks == 0:
+                        return absolute - len(carry) + newline + len(line_break)
+                    search_from = newline + len(line_break)
+                absolute += len(chunk)
+                if len(line_break) > 1:
+                    carry = data[-(len(line_break) - 1):]
 
     def _align_forward(self, offset: int) -> int:
         offset = self._safe_start(offset)
@@ -456,6 +506,7 @@ class PagedDocument:
         self.current_end = new_end
         self.file_size = self.path.stat().st_size
         self._file_signature = self._get_file_signature(self.path)
+        self._total_lines = None
         self._history = self._history[: self._hist_pos + 1]
 
 
@@ -853,6 +904,10 @@ class LazyLoader(QObject):
                 return
             # Salva, poi naviga solo se il salvataggio è andato a buon fine
             mw.save_paged_page(editor, on_success=lambda: _load_page_text(get_target_text()))
+
+        # Ctrl+G riusa lo stesso percorso per rispettare la gestione delle
+        # modifiche non salvate e aggiornare anche il pager.
+        editor._paged_navigate = _navigate
 
         def _go_prev():
             _navigate(pv.prev_page)

@@ -86,6 +86,20 @@ class LazyLoaderTest(unittest.TestCase):
             self.assertGreater(document.current_line_start, next_line)
             self.assertTrue(jumped.startswith("line "))
 
+    def test_paged_line_navigation_reports_total_and_loads_target_page(self):
+        content = "".join(f"line {index}\n" for index in range(300))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "line-target.txt"
+            path.write_text(content, encoding="utf-8")
+            with mock.patch.object(lazy_loader, "CHUNK_SIZE_PAGED", 64), \
+                    mock.patch.object(lazy_loader, "PAGE_LOOKAHEAD_CAP", 16):
+                document = lazy_loader.PagedDocument(path)
+                page = document.jump_to_line(250)
+
+            self.assertEqual(document.total_lines, 301)
+            self.assertEqual(document.current_line_start, 249)
+            self.assertTrue(page.startswith("line 249\n"))
+
 
 if __name__ == "__main__":
     unittest.main()

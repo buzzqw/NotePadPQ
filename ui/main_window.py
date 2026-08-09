@@ -3056,14 +3056,40 @@ class MainWindow(QMainWindow):
         editor = self._current_editor()
         if not editor:
             return
-        max_line = editor.lines()
+        paged = getattr(editor, "_paged_doc", None)
+        if paged is not None:
+            # Il tab contiene solo una pagina: il totale va contato sul file
+            # a chunk, senza materializzare il documento in QScintilla.
+            self.statusBar().showMessage(
+                tr("msg.counting_lines", default="Conteggio righe in corso..."),
+            )
+            QApplication.processEvents()
+            max_line = paged.total_lines
+            current_line = (
+                paged.current_line_start
+                + editor.get_cursor_position_1based()[0]
+            )
+        else:
+            max_line = editor.lines()
+            current_line = editor.get_cursor_position_1based()[0]
         line, ok = QInputDialog.getInt(
             self, tr("action.go_to_line"),
             tr("msg.go_to_line_prompt", max=max_line),
-            editor.get_cursor_position_1based()[0], 1, max_line
+            current_line, 1, max_line
         )
         if ok:
-            editor.go_to_line(line)
+            if paged is None:
+                editor.go_to_line(line)
+                return
+
+            local_line = line - paged.current_line_start
+            if 1 <= local_line <= editor.lines():
+                editor.go_to_line(local_line)
+                return
+
+            navigate = getattr(editor, "_paged_navigate", None)
+            if callable(navigate):
+                navigate(lambda: paged.jump_to_line(line))
 
     def action_go_to_matching(self) -> None:
         editor = self._current_editor()

@@ -2466,7 +2466,8 @@ class MainWindow(QMainWindow):
                 backup=settings.get("file/backup_on_save", False),
             )
             old_lang = getattr(editor, "_current_language", "")
-            old_ext = editor.file_path.suffix.lower() if editor.file_path else ""
+            old_path = editor.file_path
+            old_ext = old_path.suffix.lower() if old_path else ""
             new_ext = path.suffix.lower()
             editor.file_path = path
 
@@ -2483,6 +2484,11 @@ class MainWindow(QMainWindow):
                 if getattr(editor, "_current_language", "") != old_lang:
                     if hasattr(self, "_statusbar"):
                         self._statusbar._update_lang(editor)
+
+            # Save As può cambiare il tipo del documento mentre la preview è
+            # già aperta: ricalcola la modalità e la base URL delle immagini.
+            if old_path != path and hasattr(self, "_preview_panel_dock"):
+                self._preview_panel_dock.set_editor(editor)
 
             # Aggiorna didOpen/didClose anche per Save As. Il metodo è un no-op
             # quando path, client e linguaggio non sono cambiati.

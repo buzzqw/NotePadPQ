@@ -122,6 +122,9 @@ class PygmentsLexer(QsciLexerCustom):
         self._last_text_id: int = -1  # evita ri-tokenizzazione inutile
         self._load_lexer()
 
+    _LARGE_DOCUMENT_BYTES = 500_000
+    _INCREMENTAL_STYLE_BYTES = 32_000
+
     def _load_lexer(self) -> None:
         try:
             from pygments.lexers import get_lexer_by_name
@@ -149,6 +152,11 @@ class PygmentsLexer(QsciLexerCustom):
         if not text:
             return
 
+        encoded = text.encode("utf-8")
+        if len(encoded) >= self._LARGE_DOCUMENT_BYTES:
+            self._style_incremental(encoded, start, end)
+            return
+
         # Salta se il testo non è cambiato dall'ultima tokenizzazione
         tid = id(text) ^ hash(text)
         if tid == self._last_text_id:
@@ -161,6 +169,36 @@ class PygmentsLexer(QsciLexerCustom):
         self.startStyling(0)
         for ttype, value in lex(text, self._pygments_lexer):
             self.setStyling(len(value.encode("utf-8")), _token_to_style(ttype))
+
+    def _style_incremental(self, encoded: bytes, start: int, end: int) -> None:
+        """Style a bounded range for large files instead of retokenizing all text.
+
+        Pygments is context-sensitive, so the scan starts at the previous line
+        boundary. This keeps typing responsive while retaining useful context
+        for multiline constructs in the common case.
+        """
+        if start >= len(encoded):
+            return
+        context_start = encoded.rfind(b"\n", 0, start) + 1
+        limit = min(len(encoded), max(start + 1, end),
+                    context_start + self._INCREMENTAL_STYLE_BYTES)
+        if limit <= context_start:
+            return
+        source = encoded[context_start:limit].decode("utf-8", "replace")
+        from pygments import lex
+
+        self.startStyling(context_start)
+        styled = 0
+        for ttype, value in lex(source, self._pygments_lexer):
+            width = len(value.encode("utf-8"))
+            if width <= 0:
+                continue
+            remaining = limit - context_start - styled
+            if remaining <= 0:
+                break
+            width = min(width, remaining)
+            self.setStyling(width, _token_to_style(ttype))
+            styled += width
 
     # ── Colori dal tema ───────────────────────────────────────────────────────
 

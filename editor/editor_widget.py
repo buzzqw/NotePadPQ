@@ -922,8 +922,9 @@ class EditorWidget(QsciScintilla):
             # Salva il linguaggio corrente per poterlo ripristinare
             from editor.lexers import get_language_name
             self._saved_language = get_language_name(self)
-            # Rimuovi lexer (niente syntax highlight)
-            self.setLexer(None)
+            # Rimuovi lexer e supporti del linguaggio precedente.
+            from editor.lexers import _clear_lexer
+            _clear_lexer(self)
             # Riapplica i colori del tema: setLexer(None) resetta STYLE_DEFAULT
             from config.themes import ThemeManager
             ThemeManager.instance().apply_to_editor(self)
@@ -1026,6 +1027,23 @@ class EditorWidget(QsciScintilla):
         self.encoding_changed.emit(encoding)
         self.line_ending_changed.emit(line_ending.label())
         self._update_line_number_margin()
+
+        # setText() ha i segnali bloccati: il lexer custom non ha ricevuto
+        # textChanged e la cache byte può quindi contenere il documento prima
+        # del caricamento.
+        lexer = self.lexer()
+        if hasattr(lexer, "recolor"):
+            lexer.recolor()
+        elif hasattr(lexer, "invalidate_cache"):
+            lexer.invalidate_cache()
+            self.SendScintilla(self.SCI_COLOURISE, 0, -1)
+
+        self.refresh_language_support(force_check=True)
+
+    def refresh_language_support(self, force_check: bool = False) -> None:
+        """Aggiorna supporto linguaggio, API e checker dopo un load/append."""
+        from editor.lexers import refresh_language_support
+        refresh_language_support(self, force_check=force_check)
 
     def get_content(self) -> str:
         """

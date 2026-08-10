@@ -37,7 +37,7 @@ from typing import Optional, TYPE_CHECKING
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, Qt, QTimer, QSize
 from PyQt6.QtGui import QFont, QKeySequence, QColor, QTextCursor, QTextCharFormat
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QApplication,
     QLineEdit, QTextEdit, QPlainTextEdit, QPushButton,
     QSplitter, QDialog, QFormLayout, QDialogButtonBox,
     QDockWidget, QMessageBox, QCheckBox, QSpinBox,
@@ -1632,6 +1632,12 @@ class _AIPanel(QWidget):
         self._btn_new_tab.setToolTip(tr("tooltip.ai_new_tab"))
         self._btn_new_tab.clicked.connect(self._open_in_new_tab)
         self._btn_new_tab.setEnabled(False)
+        self._btn_copy = QPushButton(tr("ai_copy_response", default="📋 Copia"))
+        self._btn_copy.setToolTip(tr(
+            "tooltip.ai_copy_response",
+            default="Copia l'ultima risposta Markdown negli appunti"))
+        self._btn_copy.clicked.connect(self._copy_last_response)
+        self._btn_copy.setEnabled(False)
         self._btn_regenerate = QPushButton("↻ Rigenera")
         self._btn_regenerate.setToolTip(tr("tooltip.ai_regenerate", default="Rigenera l'ultima risposta"))
         self._btn_regenerate.clicked.connect(self._regenerate)
@@ -1653,6 +1659,7 @@ class _AIPanel(QWidget):
         btn_row.addWidget(self._btn_diff)
         btn_row.addWidget(self._btn_apply)
         btn_row.addWidget(self._btn_new_tab)
+        btn_row.addWidget(self._btn_copy)
         btn_row.addWidget(self._btn_regenerate)
         btn_row.addWidget(self._btn_clear)
         btn_row.addWidget(self._btn_send)
@@ -2324,6 +2331,7 @@ class _AIPanel(QWidget):
         # Rimuovi l'ultima risposta assistant
         if self._history and self._history[-1].get("role") == "assistant":
             self._history.pop()
+            self._btn_copy.setEnabled(False)
         # Trova l'ultimo messaggio utente
         last_user = None
         for m in reversed(self._history):
@@ -2504,6 +2512,7 @@ class _AIPanel(QWidget):
         self._splitter.setSizes([sum(self._splitter.sizes()), 0])
         self._status.setToolTip("")
         self._status.setText(f"⟳ {model} sta elaborando… (0s)")
+        self._btn_copy.setEnabled(False)
 
         self._worker = _AIWorker(pid, model, key_to_use, list(self._history),
                                   system, max_tokens, thinking, ollama_url, llamacpp_url)
@@ -2568,6 +2577,7 @@ class _AIPanel(QWidget):
         self._btn_new_tab.setEnabled(True)
         self._btn_regenerate.setEnabled(True)
         self._last_text = text
+        self._btn_copy.setEnabled(bool(self._last_assistant_response()))
         # Per i modelli locali _on_speed ha già scritto i tok/s: non sovrascriverli.
         self._status.setText(self._speed_status)
         if self._think_text_acc:
@@ -2590,6 +2600,7 @@ class _AIPanel(QWidget):
         self._inline_selection = None
         if self._history and self._history[-1]["role"] == "user":
             self._history.pop()
+        self._btn_copy.setEnabled(bool(self._last_assistant_response()))
 
     def _on_send_btn(self) -> None:
         if self._worker and self._worker.isRunning():
@@ -2620,6 +2631,7 @@ class _AIPanel(QWidget):
         self._btn_send.setText("▶ Invia")
         self._status.setText("⏹ Generazione interrotta")
         self._streaming_block = False
+        self._btn_copy.setEnabled(bool(self._last_assistant_response()))
 
     def _tick_elapsed(self) -> None:
         elapsed = int(time.time() - self._elapsed_start)
@@ -2780,6 +2792,7 @@ class _AIPanel(QWidget):
         self._streaming_block = False
         self._btn_apply.setEnabled(False)
         self._btn_new_tab.setEnabled(False)
+        self._btn_copy.setEnabled(False)
         self._think_btn.blockSignals(True)
         self._think_btn.setChecked(False)
         self._think_btn.setText("▶ Pensieri")
@@ -2790,6 +2803,25 @@ class _AIPanel(QWidget):
         self._splitter.setSizes([sum(self._splitter.sizes()), 0])
 
     # ── Inline edit / Applica / Nuovo tab ─────────────────────────────────────
+
+    def _last_assistant_response(self) -> Optional[str]:
+        """Restituisce l'ultima risposta originale conservata nella history."""
+        for message in reversed(self._history):
+            if message.get("role") == "assistant":
+                content = message.get("content")
+                if isinstance(content, str):
+                    return content
+        return None
+
+    def _copy_last_response(self) -> None:
+        """Copia negli appunti il Markdown originale, senza passare dal rendering."""
+        last = self._last_assistant_response()
+        worker = getattr(self, "_worker", None)
+        if not last or (worker and worker.isRunning()):
+            return
+        QApplication.clipboard().setText(last)
+        self._status.setText(tr(
+            "ai_response_copied", default="✓ Risposta copiata negli appunti"))
 
     def _on_inline_toggled(self, checked: bool) -> None:
         if checked:

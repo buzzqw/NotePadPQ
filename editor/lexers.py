@@ -90,6 +90,8 @@ _EXT_MAP: dict[str, tuple[type, str]] = {
     ".cmake": (QsciLexerCMake,      "CMake"),
     # LaTeX — lexer custom con highlighting stile TeXstudio
     ".tex":   (LaTeXLexer,          "LaTeX"),
+    ".latex": (LaTeXLexer,          "LaTeX"),
+    ".ltx":   (LaTeXLexer,          "LaTeX"),
     ".sty":   (LaTeXLexer,          "LaTeX"),
     ".cls":   (LaTeXLexer,          "LaTeX"),
     ".dtx":   (LaTeXLexer,          "LaTeX"),
@@ -98,7 +100,12 @@ _EXT_MAP: dict[str, tuple[type, str]] = {
     # Markdown
     ".md":    (QsciLexerMarkdown,   "Markdown"),
     ".markdown": (QsciLexerMarkdown,"Markdown"),
+    ".mdown": (QsciLexerMarkdown,  "Markdown"),
+    ".mkdn":  (QsciLexerMarkdown,   "Markdown"),
+    ".mdwn":  (QsciLexerMarkdown,   "Markdown"),
+    ".rmd":   (QsciLexerMarkdown,   "Markdown"),
     ".rst":   (None,                "reStructuredText"),
+    ".rest":  (None,                "reStructuredText"),
     # Script
     ".lua":   (QsciLexerLua,        "Lua"),
     ".rb":    (QsciLexerRuby,       "Ruby"),
@@ -146,6 +153,7 @@ _NAME_TO_EXT: dict[str, str] = {
     "cmake":         ".cmake",
     "latex":         ".tex",
     "markdown":      ".md",
+    "restructuredtext": ".rst",
     "lua":           ".lua",
     "ruby":          ".rb",
     "perl":          ".pl",
@@ -260,8 +268,7 @@ def set_lexer_auto(editor: "EditorWidget") -> bool:
     except Exception:
         pass
     # Nessun linguaggio rilevato → testo normale
-    editor.setLexer(None)
-    editor._current_language = ""
+    _clear_lexer(editor)
     return True
 
 
@@ -275,8 +282,7 @@ def set_lexer_by_name(editor: "EditorWidget", lang_name: str) -> bool:
         return False
     if not ext:
         # Testo normale: rimuove il lexer
-        editor.setLexer(None)
-        editor._current_language = ""
+        _clear_lexer(editor)
         return True
     return set_lexer_by_extension(editor, ext)
 
@@ -359,16 +365,89 @@ def get_comment_chars(language: str) -> tuple[str, str]:
 
 # ─── Helpers interni ──────────────────────────────────────────────────────────
 
+def _deactivate_language_support(editor: "EditorWidget") -> None:
+    """Rimuove supporti, checker e handler del linguaggio precedente."""
+    from editor.latex_support import LaTeXSupport
+    from editor.markdown_support import MarkdownSupport
+
+    LaTeXSupport.deactivate(editor)
+    MarkdownSupport.deactivate(editor)
+
+    checker = getattr(editor, "_latex_checker", None)
+    if checker is not None:
+        checker.stop()
+        editor._latex_checker = None
+    if hasattr(editor, "_env_rename_watch"):
+        editor._env_rename_watch = None
+
+    ac = getattr(editor, "_autocomplete", None)
+    if ac is not None:
+        try:
+            editor.textChanged.disconnect(ac.on_document_changed)
+        except (RuntimeError, TypeError):
+            pass
+
+
+def _clear_lexer(editor: "EditorWidget", language: str = "Text") -> None:
+    """Imposta testo normale e chiude ogni stato del linguaggio precedente."""
+    _deactivate_language_support(editor)
+    editor.setLexer(None)
+    editor._current_language = language
+    editor.SendScintilla(editor.SCI_SETIDLESTYLING, 0)
+    ac = getattr(editor, "_autocomplete", None)
+    if ac is not None:
+        ac.set_language(language.lower())
+    try:
+        editor.language_changed.emit(language)
+    except (RuntimeError, TypeError):
+        pass
+
+
+def refresh_language_support(editor: "EditorWidget", force_check: bool = False,
+                             refresh_autocomplete: bool = True) -> None:
+    """Ricollega supporti e aggiorna API/checker dopo una modifica di contenuto."""
+    language = getattr(editor, "_current_language", "")
+    language_key = language.lower()
+
+    if language == "Markdown":
+        from editor.markdown_support import MarkdownSupport
+        if not getattr(editor, "_markdown_support_active", False):
+            MarkdownSupport.activate(editor)
+        else:
+            MarkdownSupport._apply_yaml_fm(editor)
+
+    if language_key in ("latex", "bibtex"):
+        from editor.latex_support import LaTeXSupport
+        from editor.latex_checker import LaTeXChecker
+
+        if not getattr(editor, "_latex_support_active", False):
+            LaTeXSupport.activate(editor)
+
+        ac = getattr(editor, "_autocomplete", None)
+        if ac is not None and refresh_autocomplete:
+            if getattr(ac, "_language", "") != language_key:
+                ac.set_language(language_key)
+            else:
+                ac.refresh()
+
+        checker = getattr(editor, "_latex_checker", None)
+        if checker is None:
+            checker = LaTeXChecker(editor, parent=editor)
+            checker.start()
+            editor._latex_checker = checker
+        elif not getattr(checker, "_started", False):
+            checker.start()
+        if force_check:
+            checker.force_check()
+
 def _apply_lexer(editor: "EditorWidget",
                  lexer_class: Optional[type],
                  lang_name: str) -> bool:
     """Instanzia e applica il lexer all'editor."""
+    _deactivate_language_support(editor)
     if lexer_class is None:
-        editor.setLexer(None)
-        editor._current_language = lang_name
-        # Ripristina lo styling sincrono completo (nessun lexer custom Python attivo)
-        editor.SendScintilla(editor.SCI_SETIDLESTYLING, 0)
-        return False
+        _clear_lexer(editor, lang_name)
+        return True
 
     font = editor.font()
     lexer = lexer_class(editor)
@@ -400,11 +479,16 @@ def _apply_lexer(editor: "EditorWidget",
     try:
         from config.themes import ThemeManager
         from PyQt6.QtCore import QTimer
+        from PyQt6 import sip
         tm = ThemeManager.instance()
         # Applica subito i colori UI (sfondo, margini, caret...)
         tm.apply_to_editor(editor)
         # Riapplica dopo 50ms per essere sicuri che i token siano pronti
-        QTimer.singleShot(50, lambda: tm.apply_to_editor(editor))
+        def apply_theme_later():
+            if not sip.isdeleted(editor):
+                tm.apply_to_editor(editor)
+
+        QTimer.singleShot(50, apply_theme_later)
     except Exception:
         pass
 
@@ -445,9 +529,6 @@ def _apply_lexer(editor: "EditorWidget",
         # Avvia il checker sintattico in tempo reale
         try:
             from editor.latex_checker import LaTeXChecker
-            old_checker = getattr(editor, "_latex_checker", None)
-            if old_checker:
-                old_checker.stop()
             checker = LaTeXChecker(editor, parent=editor)
             checker.start()
             editor._latex_checker = checker
@@ -464,6 +545,7 @@ def _apply_lexer(editor: "EditorWidget",
 
 def _set_pygments_lexer(editor: "EditorWidget", alias: str, display_name: str) -> bool:
     """Istanzia un PygmentsLexer e lo applica all'editor."""
+    _deactivate_language_support(editor)
     try:
         from editor.pygments_lexer import PygmentsLexer
         lexer = PygmentsLexer(alias, display_name, editor)
@@ -479,9 +561,15 @@ def _set_pygments_lexer(editor: "EditorWidget", alias: str, display_name: str) -
     try:
         from config.themes import ThemeManager
         from PyQt6.QtCore import QTimer
+        from PyQt6 import sip
         tm = ThemeManager.instance()
         tm.apply_to_editor(editor)
-        QTimer.singleShot(50, lambda: tm.apply_to_editor(editor))
+
+        def apply_theme_later():
+            if not sip.isdeleted(editor):
+                tm.apply_to_editor(editor)
+
+        QTimer.singleShot(50, apply_theme_later)
     except Exception:
         pass
 

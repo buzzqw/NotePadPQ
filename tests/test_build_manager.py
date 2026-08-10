@@ -114,6 +114,79 @@ class TestVariableExpansion(unittest.TestCase):
         self.assertIn("/tmp", result)
         self.assertIn("test", result)
 
+    def test_expand_latex_output_and_root_variables(self):
+        from core.build_manager import BuildManager
+        bm = BuildManager()
+        path = Path("/tmp/project/main.tex")
+        result = bm._expand_vars(
+            "${FILE} ${OUTDIR} ${ROOT}", path, None,
+            output_dir=Path("/tmp/project/build"), root_file=path,
+        )
+        self.assertIn("/tmp/project/main.tex", result)
+        self.assertIn("/tmp/project/build", result)
+        self.assertEqual(result.count("/tmp/project/main.tex"), 2)
+
+
+class TestLatexBuildContext(unittest.TestCase):
+
+    def test_detects_biblatex_backend_and_injects_latexmk_flag(self):
+        from core.build_manager import BuildManager
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "main.tex"
+            root.write_text(r"\usepackage[backend=bibtex]{biblatex}")
+            bm = BuildManager()
+            self.assertEqual(
+                bm.detect_bibliography_backend(root, root.read_text()), "bibtex")
+            context = bm._latex_context(root, root.read_text())
+            command = bm._configure_bibliography_command(
+                "latexmk -pdf ${FILE}", {"bib_backend": "auto"},
+                context, root.read_text())
+            self.assertIn("-bibtex", command)
+            self.assertNotIn("-usebibtex", command)
+
+    def test_build_uses_root_and_configured_output_directory(self):
+        from unittest import mock
+        from core.build_manager import BuildManager
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "main.tex"
+            chapter = root / "chapters" / "chapter.tex"
+            chapter.parent.mkdir()
+            main.write_text(r"\documentclass{article}\begin{document}\input{chapter}\end{document}")
+            chapter.write_text("% !TEX root = main.tex\nChapter")
+            (chapter.parent / ".notepadpq-build.json").write_text(json.dumps({
+                "profiles": {
+                    "Project LaTeX": {
+                        "extensions": [".tex"],
+                        "build": "echo ${FILE} ${OUTDIR}",
+                        "compile": "", "run": "",
+                        "output_directory": "build",
+                    }
+                }
+            }))
+
+            class FakeEditor:
+                file_path = chapter
+
+                def is_modified(self):
+                    return False
+
+                def get_content(self):
+                    return chapter.read_text()
+
+                def get_cursor_position_1based(self):
+                    return 1, 1
+
+            bm = BuildManager()
+            bm._do_run = mock.Mock(return_value=True)
+            self.assertTrue(bm.run("build", FakeEditor(), run_id="context-test"))
+            command = bm._do_run.call_args.args[1]
+            self.assertIn(str(main), command)
+            self.assertIn(str(root / "build"), command)
+            self.assertEqual(bm.get_build_context("context-test").root, main.resolve())
+
 
 class TestErrorParsing(unittest.TestCase):
 
@@ -171,6 +244,24 @@ l.42 \badcommand
         if errors:
             self.assertIn("doc.tex", errors[0]["file"])
             self.assertEqual(errors[0]["line"], 15)
+
+    def test_parse_nested_latex_error_uses_included_file(self):
+        output = """(/tmp/main.tex
+(/tmp/chapters/one.tex
+! Undefined control sequence.
+l.8 \\badcommand
+)
+)"""
+        errors = self.bm.parse_errors(output, "LaTeX (pdflatex)")
+        self.assertEqual(errors[0]["file"], "/tmp/chapters/one.tex")
+        self.assertEqual(errors[0]["line"], 8)
+
+    def test_parse_ltx_error(self):
+        errors = self.bm.parse_errors(
+            "(/tmp/doc.ltx\n! Error\nl.4 bad\n)",
+            "LaTeX (pdflatex)",
+        )
+        self.assertEqual(errors[0]["file"], "/tmp/doc.ltx")
 
     def test_parse_with_custom_groups(self):
         output = "ERROR|myscript.py|88|Something went wrong"
@@ -524,6 +615,16 @@ class TestAuxFileCleaning(unittest.TestCase):
 
             removed2 = clean_aux_files(base, keep_synctex=False)
             self.assertIn("document.synctex.gz", removed2)
+
+    def test_clean_aux_files_supports_extra_project_sources(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            main = root / "main"
+            child = root / "child"
+            child.with_name("child.aux").write_text("aux")
+            from core.build_manager import clean_aux_files
+            removed = clean_aux_files(main, extra_bases=[child])
+            self.assertEqual(removed, ["child.aux"])
 
 
 class TestDraftMode(unittest.TestCase):

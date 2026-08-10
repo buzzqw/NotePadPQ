@@ -29,22 +29,16 @@ if TYPE_CHECKING:
 
 # ─── Regex compilate a livello modulo (usa frequente: ~100-10k chiamate/sessione)
 
-_RE_COMMENT         = re.compile(r'(?<!\\)%.*')
 _RE_BEGIN_END       = re.compile(r'\\(begin|end)\{([^}]+)\}')
-_RE_BEGIN           = re.compile(r'\\begin\{([^}]+)\}')
-_RE_END             = re.compile(r'\\end\{([^}]+)\}')
-_RE_INCLUDE_INPUT   = re.compile(r'\\(?:input|include|subfile|subinputfrom)\*?\{([^}]+)\}')
-# Pre-build per is_in_math_mode (conta begin/end di ambienti math)
-_MATH_BEGIN_PAT = r'\\begin\{(' + '|'.join(
-    ["equation", "align", "gather", "multline",
-     "math", "displaymath", "split", "cases",
-     "alignat", "flalign", "subequations"]
-) + r'\*?)\}'
-_MATH_END_PAT   = r'\\end\{(' + '|'.join(
-    ["equation", "align", "gather", "multline",
-     "math", "displaymath", "split", "cases",
-     "alignat", "flalign", "subequations"]
-) + r'\*?)\}'
+_RE_INCLUDE_INPUT   = re.compile(
+    r'\\(?:input|include|subfile)\*?\s*\{([^}]+)\}'
+    r'|\\(?:import|subimport|includefrom|subinputfrom)\*?\s*'
+    r'\{([^}]*)\}\s*\{([^}]+)\}'
+)
+_MATH_ENV_NAMES = frozenset({
+    "equation", "align", "gather", "multline", "math", "displaymath",
+    "split", "cases", "alignat", "flalign", "subequations",
+})
 
 # ─── Cache file per progetti multi-file ────────────────────────────────────────
 #
@@ -63,6 +57,272 @@ _MAX_CACHE_SIZE = 128
 _file_cache_lock = threading.Lock()
 _file_cache: dict[Path, tuple[float, str]] = {}
 _cache_keys: list[Path] = []
+
+
+def _is_escaped(text: str, pos: int) -> bool:
+    """Return whether the character at ``pos`` has an odd slash prefix."""
+    slashes = 0
+    pos -= 1
+    while pos >= 0 and text[pos] == "\\":
+        slashes += 1
+        pos -= 1
+    return bool(slashes % 2)
+
+
+def strip_latex_comments(text: str) -> str:
+    """Remove TeX comments while respecting odd/even backslash escaping."""
+    out: list[str] = []
+    in_comment = False
+    for ch in text:
+        if ch == "\n":
+            in_comment = False
+            out.append(ch)
+        elif in_comment:
+            continue
+        elif ch == "%":
+            slash_count = 0
+            idx = len(out) - 1
+            while idx >= 0 and out[idx] == "\\":
+                slash_count += 1
+                idx -= 1
+            if slash_count % 2 == 0:
+                in_comment = True
+            else:
+                out.append(ch)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+_LABEL_COMMANDS = frozenset({"label"})
+_REFERENCE_COMMANDS = frozenset({
+    "ref", "eqref", "pageref", "cref", "Cref", "autoref", "nameref",
+    "vref", "vpageref", "cpageref", "labelcref", "namecref", "nameCref",
+    "namecrefs", "lcnamecref", "crefrange", "fullref", "hyperref",
+})
+_MULTI_REFERENCE_COMMANDS = frozenset({"crefrange"})
+_OPAQUE_GROUP_COMMANDS = frozenset({
+    "url", "path", "nolinkurl", "texttt", "textsf", "textrm", "textit",
+    "textbf", "textrup", "textnormal", "emph", "mbox", "fbox",
+})
+_VERBATIM_COMMANDS = frozenset({"verb", "Verb", "lstinline", "mintinline"})
+_OPAQUE_ENVIRONMENTS = frozenset({
+    "verbatim", "verbatim*", "Verbatim", "BVerbatim", "lstlisting",
+    "minted", "comment",
+})
+
+
+def _read_latex_group(text: str, start: int) -> Optional[tuple[int, int]]:
+    """Return the content span of a balanced group starting at ``start``."""
+    if start >= len(text) or text[start] != "{":
+        return None
+    depth = 1
+    i = start + 1
+    while i < len(text):
+        if text[i] == "%" and not _is_escaped(text, i):
+            newline = text.find("\n", i)
+            i = len(text) if newline < 0 else newline + 1
+            continue
+        if text[i] == "\\" and i + 1 < len(text):
+            i += 2
+            continue
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return start + 1, i
+        i += 1
+    return None
+
+
+def _skip_latex_space(text: str, start: int) -> int:
+    """Skip whitespace and comments between a command and its argument."""
+    i = start
+    while i < len(text):
+        if text[i].isspace():
+            i += 1
+        elif text[i] == "%" and not _is_escaped(text, i):
+            newline = text.find("\n", i)
+            i = len(text) if newline < 0 else newline + 1
+        else:
+            break
+    return i
+
+
+def _skip_latex_bracket_group(text: str, start: int) -> int:
+    """Skip one simple optional ``[...]`` argument, returning its end."""
+    if start >= len(text) or text[start] != "[":
+        return start
+    depth = 1
+    i = start + 1
+    while i < len(text):
+        if text[i] == "\\" and i + 1 < len(text):
+            i += 2
+            continue
+        if text[i] == "[":
+            depth += 1
+        elif text[i] == "]":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return len(text)
+
+
+def _skip_latex_opaque_command(text: str, name: str, start: int) -> int:
+    """Skip verbatim/string-like command content."""
+    i = _skip_latex_space(text, start)
+    if i < len(text) and text[i] == "*":
+        i = _skip_latex_space(text, i + 1)
+    if name == "mintinline":
+        i = _skip_latex_bracket_group(text, i)
+        i = _skip_latex_space(text, i)
+        language = _read_latex_group(text, i)
+        if language is not None:
+            i = language[1] + 1
+        i = _skip_latex_space(text, i)
+    elif name == "lstinline":
+        i = _skip_latex_bracket_group(text, i)
+        i = _skip_latex_space(text, i)
+    if i >= len(text):
+        return i
+    delimiter = text[i]
+    end = text.find(delimiter, i + 1)
+    return len(text) if end < 0 else end + 1
+
+
+def _skip_latex_opaque_environment(text: str, start: int, name: str) -> int:
+    """Skip a verbatim-like environment, including its matching end token."""
+    i = start
+    while i < len(text):
+        if text[i] == "%" and not _is_escaped(text, i):
+            newline = text.find("\n", i)
+            i = len(text) if newline < 0 else newline + 1
+            continue
+        if text[i] != "\\":
+            i += 1
+            continue
+        command_start = i
+        i += 1
+        if not text.startswith("end", i) or (
+                i + 3 < len(text) and
+                (text[i + 3].isalpha() or text[i + 3] == "@")):
+            continue
+        group = _read_latex_group(text, _skip_latex_space(text, i + 3))
+        if group is not None and text[group[0]:group[1]].strip() == name:
+            return group[1] + 1
+        i = max(i, command_start + 1)
+    return len(text)
+
+
+def _label_reference_tokens(text: str) -> list[dict]:
+    """Scan exact label/reference commands outside comments and string content."""
+    tokens: list[dict] = []
+    i = 0
+    while i < len(text):
+        if text[i] == "%" and not _is_escaped(text, i):
+            newline = text.find("\n", i)
+            i = len(text) if newline < 0 else newline + 1
+            continue
+        if text[i] != "\\":
+            i += 1
+            continue
+
+        command_start = i
+        i += 1
+        if i >= len(text):
+            break
+        if not text[i].isalpha() and text[i] != "@":
+            i += 1
+            continue
+        name_start = i
+        while i < len(text) and (text[i].isalpha() or text[i] == "@"):
+            i += 1
+        name = text[name_start:i]
+
+        if name in _VERBATIM_COMMANDS:
+            i = _skip_latex_opaque_command(text, name, i)
+            continue
+        if name in _OPAQUE_GROUP_COMMANDS:
+            group_start = _skip_latex_space(text, i)
+            group = _read_latex_group(text, group_start)
+            i = len(text) if group is None else group[1] + 1
+            continue
+        if name == "begin":
+            group = _read_latex_group(text, _skip_latex_space(text, i))
+            if group is not None:
+                environment = text[group[0]:group[1]].strip()
+                if environment in _OPAQUE_ENVIRONMENTS:
+                    i = _skip_latex_opaque_environment(text, group[1] + 1, environment)
+                    continue
+        if name not in _LABEL_COMMANDS and name not in _REFERENCE_COMMANDS:
+            continue
+
+        argument_start = _skip_latex_space(text, i + (text[i:i + 1] == "*"))
+        groups: list[tuple[int, int]] = []
+        group_limit = 1 if name not in _MULTI_REFERENCE_COMMANDS else 2
+        while len(groups) < group_limit:
+            group = _read_latex_group(text, argument_start)
+            if group is None:
+                break
+            groups.append(group)
+            argument_start = _skip_latex_space(text, group[1] + 1)
+
+        if name == "hyperref":
+            # hyperref uses an optional label argument, unlike the commands above.
+            bracket_start = _skip_latex_space(text, i)
+            if bracket_start < len(text) and text[bracket_start] == "[":
+                bracket_end = _skip_latex_bracket_group(text, bracket_start)
+                content_start = bracket_start + 1
+                content_end = max(content_start, bracket_end - 1)
+                if bracket_end > content_start:
+                    tokens.extend(_split_reference_argument(
+                        text, content_start, content_end, command_start,
+                    ))
+                i = bracket_end
+            continue
+
+        if name == "label" and groups:
+            content_start, content_end = groups[0]
+            key = text[content_start:content_end].strip()
+            if key:
+                key_start = content_start + (len(text[content_start:content_end]) -
+                                             len(text[content_start:content_end].lstrip()))
+                tokens.append({
+                    "kind": "label", "key": key,
+                    "start": key_start, "end": key_start + len(key),
+                    "command_start": command_start,
+                })
+        elif name in _REFERENCE_COMMANDS:
+            for content_start, content_end in groups:
+                tokens.extend(_split_reference_argument(
+                    text, content_start, content_end, command_start,
+                ))
+        i = max(i, argument_start)
+    return tokens
+
+
+def _split_reference_argument(text: str, start: int, end: int,
+                               command_start: int) -> list[dict]:
+    tokens: list[dict] = []
+    part_start = start
+    for pos in range(start, end + 1):
+        if pos != end and text[pos] != ",":
+            continue
+        raw_start, raw_end = part_start, pos
+        while raw_start < raw_end and text[raw_start].isspace():
+            raw_start += 1
+        while raw_end > raw_start and text[raw_end - 1].isspace():
+            raw_end -= 1
+        if raw_start < raw_end:
+            tokens.append({
+                "kind": "reference", "key": text[raw_start:raw_end],
+                "start": raw_start, "end": raw_end,
+                "command_start": command_start,
+            })
+        part_start = pos + 1
+    return tokens
 
 
 def _cached_read_text(path: Path) -> str:
@@ -85,6 +345,13 @@ def _cached_read_text(path: Path) -> str:
             _cache_keys.remove(path)
         _cache_keys.append(path)
     return text
+
+
+def _invalidate_cached_text(path: Path) -> None:
+    with _file_cache_lock:
+        _file_cache.pop(path, None)
+        if path in _cache_keys:
+            _cache_keys.remove(path)
 
 
 # ─── Ambienti LaTeX standard ─────────────────────────────────────────────────
@@ -895,28 +1162,36 @@ class LaTeXSupport:
         Collega i segnali dell'editor per il supporto LaTeX avanzato.
         Va chiamato quando il lexer LaTeX viene impostato.
         """
-        # Disconnetti eventuali connessioni precedenti
-        try:
-            editor.SCN_CHARADDED.disconnect(LaTeXSupport._on_char_added)
-        except Exception:
-            pass
+        LaTeXSupport.deactivate(editor)
 
-        editor.SCN_CHARADDED.connect(
-            lambda char: LaTeXSupport._on_char_added(editor, char)
-        )
+        def char_handler(char):
+            LaTeXSupport._on_char_added(editor, char)
+
+        editor._latex_char_added_handler = char_handler
+        editor.SCN_CHARADDED.connect(char_handler)
 
         # SCN_AUTOCCOMPLETED: aggiunge {} dopo comandi LaTeX completati da API
-        prev_ac_handler = getattr(editor, "_latex_ac_done_handler", None)
-        if prev_ac_handler:
-            try:
-                editor.SCN_AUTOCCOMPLETED.disconnect(prev_ac_handler)
-            except Exception:
-                pass
-        handler = lambda sel, pos, ch, method: LaTeXSupport._on_autocomplete_done(
-            editor, sel, pos, ch, method
-        )
+        def handler(sel, pos, ch, method):
+            LaTeXSupport._on_autocomplete_done(editor, sel, pos, ch, method)
+
         editor._latex_ac_done_handler = handler
         editor.SCN_AUTOCCOMPLETED.connect(handler)
+        editor._latex_support_active = True
+
+    @staticmethod
+    def deactivate(editor: "EditorWidget") -> None:
+        """Scollega tutti gli handler LaTeX installati su `editor`."""
+        for signal_name, attr_name in (
+                ("SCN_CHARADDED", "_latex_char_added_handler"),
+                ("SCN_AUTOCCOMPLETED", "_latex_ac_done_handler")):
+            handler = getattr(editor, attr_name, None)
+            if handler is not None:
+                try:
+                    getattr(editor, signal_name).disconnect(handler)
+                except (RuntimeError, TypeError):
+                    pass
+                setattr(editor, attr_name, None)
+        editor._latex_support_active = False
 
     @staticmethod
     def _on_autocomplete_done(editor: "EditorWidget", selection, position: int,
@@ -1223,7 +1498,7 @@ class LaTeXSupport:
         all_lines = editor.text().split("\n")
         stack: list[str] = []
         for raw_line in all_lines[line + 1: line + 1 + max_lines]:
-            code = _RE_COMMENT.split(raw_line, maxsplit=1)[0]
+            code = strip_latex_comments(raw_line)
             for m in _RE_BEGIN_END.finditer(code):
                 kind, env = m.group(1), m.group(2)
                 if kind == "begin":
@@ -1347,15 +1622,18 @@ class LaTeXSupport:
         """
         line, col = editor.getCursorPosition()
         line_text = editor.text(line)
+        dollar_pos = col - 1
+        if dollar_pos < 0 or _is_escaped(line_text, dollar_pos):
+            return
+        if line_text[col:col + 1] == "$":
+            return
 
-        # Rimuovi tutte le sequenze \X (escape LaTeX), poi conta i $ rimasti.
-        # Corretto per casi come \\$ (\\ rimosso, $ rimane → math toggle),
-        # \$ (sequenza rimossa → non è math toggle).
-        clean = re.sub(r'\\.', '', line_text[:col - 1])
-        dollar_count = clean.count("$")
-        # Se è un $ di apertura (conta pari prima di questo)
+        before = line_text[:dollar_pos]
+        dollar_count = sum(
+            1 for idx, char in enumerate(before)
+            if char == "$" and not _is_escaped(before, idx)
+        )
         if dollar_count % 2 == 0:
-            # Inserisci $ di chiusura e riposiziona cursore
             editor.beginUndoAction()
             editor.insert("$")
             editor.setCursorPosition(line, col)
@@ -1409,9 +1687,147 @@ class LaTeXSupport:
     }
 
     @staticmethod
+    def extract_label_reference_occurrences(text: str) -> list[dict]:
+        """Return exact label/ref occurrences outside comments and strings."""
+        occurrences: list[dict] = []
+        for token in _label_reference_tokens(text):
+            occurrence = dict(token)
+            position = occurrence["start"]
+            occurrence["line"] = text.count("\n", 0, position)
+            previous_newline = text.rfind("\n", 0, position)
+            occurrence["column"] = position if previous_newline < 0 else position - previous_newline - 1
+            occurrences.append(occurrence)
+        return occurrences
+
+    @staticmethod
+    def _label_reference_sources(text: str,
+                                 tex_path: Optional[Path]) -> list[tuple[Optional[Path], str]]:
+        if tex_path is None:
+            return [(None, text)]
+        current = Path(tex_path).resolve()
+        try:
+            from core.latex_project import resolve_project_root
+            root = resolve_project_root(current, text)
+        except (OSError, RuntimeError, ValueError):
+            root = current
+        files = LaTeXSupport.collect_project_files(root)
+        if not files:
+            return [(current, text)]
+        sources: list[tuple[Optional[Path], str]] = []
+        for path in files:
+            try:
+                source_text = text if path == current else _cached_read_text(path)
+            except (OSError, UnicodeError):
+                continue
+            sources.append((path, source_text))
+        return sources
+
+    @staticmethod
+    def analyze_label_references(text: str,
+                                 tex_path: Optional[Path] = None) -> dict:
+        """Analyze labels and references in one document or its include tree."""
+        definitions: list[dict] = []
+        references: list[dict] = []
+        for source, source_text in LaTeXSupport._label_reference_sources(text, tex_path):
+            for occurrence in LaTeXSupport.extract_label_reference_occurrences(source_text):
+                item = dict(occurrence)
+                if source is not None:
+                    item["file"] = source
+                if item["kind"] == "label":
+                    definitions.append(item)
+                else:
+                    references.append(item)
+
+        by_key: dict[str, list[dict]] = {}
+        for definition in definitions:
+            by_key.setdefault(definition["key"], []).append(definition)
+        defined_keys = set(by_key)
+        referenced_keys = {reference["key"] for reference in references}
+        duplicates = [definition for values in by_key.values() for definition in values[1:]]
+        unused = [values[0] for key, values in by_key.items()
+                  if key not in referenced_keys]
+        undefined = [reference for reference in references
+                     if reference["key"] not in defined_keys]
+        return {
+            "definitions": definitions,
+            "references": references,
+            "duplicates": duplicates,
+            "unused": unused,
+            "undefined": undefined,
+        }
+
+    @staticmethod
+    def find_duplicate_labels(text: str,
+                              tex_path: Optional[Path] = None) -> list[dict]:
+        """Return duplicate label definitions after the first occurrence."""
+        return LaTeXSupport.analyze_label_references(text, tex_path)["duplicates"]
+
+    @staticmethod
+    def find_unused_labels(text: str,
+                           tex_path: Optional[Path] = None) -> list[dict]:
+        """Return labels which have no matching reference anywhere in scope."""
+        return LaTeXSupport.analyze_label_references(text, tex_path)["unused"]
+
+    @staticmethod
+    def find_unused_references(text: str,
+                               tex_path: Optional[Path] = None) -> list[dict]:
+        """Return unused labels using the checker terminology."""
+        return LaTeXSupport.find_unused_labels(text, tex_path)
+
+    @staticmethod
+    def rename_label_multifile(tex_path: Path, old_label: str,
+                               new_label: str) -> list[Path]:
+        """Safely rename a label and exact references in the include tree."""
+        old_label = old_label.strip()
+        new_label = new_label.strip()
+        if not old_label or not new_label:
+            raise ValueError("Label names must not be empty")
+        if any(char in old_label + new_label for char in "{}\\\n\r"):
+            raise ValueError("Label names must not contain braces, backslashes or newlines")
+        if old_label == new_label:
+            return []
+
+        root = Path(tex_path).resolve()
+        files = LaTeXSupport.collect_project_files(root)
+        if not files:
+            raise ValueError("The LaTeX project root or its include tree was not found")
+        contents: dict[Path, str] = {}
+        definitions: list[dict] = []
+        for path in files:
+            source_text = _cached_read_text(path)
+            contents[path] = source_text
+            definitions.extend(token for token in _label_reference_tokens(source_text)
+                               if token["kind"] == "label")
+        labels = {definition["key"] for definition in definitions}
+        if old_label not in labels:
+            raise ValueError(f"Label not found: {old_label}")
+        if new_label in labels:
+            raise ValueError(f"Label already exists: {new_label}")
+
+        updates: dict[Path, str] = {}
+        for path, source_text in contents.items():
+            replacements = [(token["start"], token["end"], new_label)
+                            for token in _label_reference_tokens(source_text)
+                            if token["key"] == old_label]
+            if not replacements:
+                continue
+            updated = source_text
+            for start, end, replacement in reversed(replacements):
+                updated = updated[:start] + replacement + updated[end:]
+            updates[path] = updated
+
+        for path, updated in updates.items():
+            path.write_text(updated, encoding="utf-8")
+            _invalidate_cached_text(path)
+        return list(updates)
+
+    rename_label_across_files = rename_label_multifile
+
+    @staticmethod
     def extract_labels(text: str) -> list[str]:
         """Estrae tutte le \\label{} dal documento."""
-        return sorted(set(re.findall(r'\\label\{([^}]+)\}', text)))
+        return sorted({token["key"] for token in _label_reference_tokens(text)
+                       if token["kind"] == "label"})
 
     @staticmethod
     def extract_labels_with_context(text: str) -> list[tuple[str, str]]:
@@ -1432,8 +1848,10 @@ class LaTeXSupport:
         results: list[tuple[str, str]] = []
         seen: set[str] = set()
 
-        for m in re.finditer(r'\\label\{([^}]+)\}', text):
-            key = m.group(1).strip()
+        for token in _label_reference_tokens(text):
+            if token["kind"] != "label":
+                continue
+            key = token["key"]
             if key in seen:
                 continue
             seen.add(key)
@@ -1445,7 +1863,9 @@ class LaTeXSupport:
                 continue
 
             # 2. Contesto
-            context = text[max(0, m.start() - 600): m.start()]
+            context = strip_latex_comments(
+                text[max(0, token["command_start"] - 600): token["command_start"]]
+            )
             type_hint = ""
 
             sec_m = list(sec_re.finditer(context))
@@ -1491,12 +1911,8 @@ class LaTeXSupport:
     @staticmethod
     def extract_ref_keys(text: str) -> list[str]:
         """Chiavi usate in comandi \\ref{}, \\pageref{}, \\hyperref[], ecc."""
-        keys: set[str] = set()
-        for m in LaTeXSupport._REF_KEY_RE.finditer(text):
-            k = (m.group(1) or m.group(2) or "").strip()
-            if k:
-                keys.add(k)
-        return sorted(keys)
+        return sorted({token["key"] for token in _label_reference_tokens(text)
+                       if token["kind"] == "reference"})
 
     @staticmethod
     def extract_ref_keys_multifile(tex_path: Optional[Path]) -> list[str]:
@@ -1513,7 +1929,7 @@ class LaTeXSupport:
     @staticmethod
     def extract_hypertargets(text: str) -> list[str]:
         """Estrae i nomi definiti con \\hypertarget{nome}{...}."""
-        return sorted(set(re.findall(r'\\hypertarget\{([^}]+)\}', text)))
+        return sorted(set(re.findall(r'\\hypertarget\{([^}]+)\}', strip_latex_comments(text))))
 
     @staticmethod
     def extract_hypertargets_multifile(tex_path: Optional[Path]) -> list[str]:
@@ -1531,35 +1947,42 @@ class LaTeXSupport:
     def extract_bibtex_keys(text: str,
                              tex_path: Optional[Path] = None) -> list[str]:
         """
-        Estrae le chiavi BibTeX dai file .bib referenziati con
-        \\bibliography{} o \\addbibresource{}.
+        Estrae le chiavi BibTeX dal testo corrente e dai file .bib referenziati.
         """
-        keys: list[str] = []
+        code = strip_latex_comments(text)
+        entry_re = re.compile(r'@[A-Za-z][\w-]*\s*[({]\s*([^,\s]+)\s*,')
+        keys: set[str] = set(entry_re.findall(code))
 
         # Trova i file .bib referenziati
-        bib_files: list[str] = []
+        bib_files: set[str] = set()
         for m in re.finditer(
-            r'\\(?:bibliography|addbibresource)\{([^}]+)\}', text
+            r'\\(?:bibliography|addbibresource)\s*(?:\[[^]]*\])?\s*\{([^}]+)\}',
+            code,
         ):
             for f in m.group(1).split(","):
-                bib_files.append(f.strip())
+                if f.strip():
+                    bib_files.add(f.strip())
 
         if not bib_files or tex_path is None:
-            return keys
+            return sorted(keys)
 
-        base_dir = tex_path.parent
+        base_dir = Path(tex_path).parent
         for bib_name in bib_files:
-            if not bib_name.endswith(".bib"):
-                bib_name += ".bib"
             bib_path = base_dir / bib_name
-            if bib_path.exists():
+            candidates = [bib_path]
+            if bib_path.suffix.lower() != ".bib":
+                candidates.extend((bib_path.with_suffix(bib_path.suffix + ".bib"),
+                                   bib_path.with_suffix(".bib")))
+            for candidate in candidates:
+                if not candidate.exists():
+                    continue
                 try:
-                    bib_text = _cached_read_text(bib_path)
-                    keys.extend(re.findall(r'@\w+\{([^,\s]+)\s*,', bib_text))
+                    keys.update(entry_re.findall(_cached_read_text(candidate)))
                 except Exception:
                     pass
+                break
 
-        return sorted(set(keys))
+        return sorted(keys)
 
     @staticmethod
     def extract_custom_commands(text: str) -> list[str]:
@@ -1568,6 +1991,7 @@ class LaTeXSupport:
         \\DeclareMathOperator nel documento.
         """
         cmds: list[str] = []
+        text = strip_latex_comments(text)
         patterns = [
             r'\\(?:new|renew|provide)command\*?\{(\\[a-zA-Z]+)\}',
             r'\\DeclareMathOperator\*?\{(\\[a-zA-Z]+)\}',
@@ -1581,18 +2005,47 @@ class LaTeXSupport:
     @staticmethod
     def extract_custom_environments(text: str) -> list[str]:
         """Estrae gli ambienti definiti con \\newenvironment."""
+        text = strip_latex_comments(text)
         return sorted(set(re.findall(
             r'\\(?:new|renew)environment\*?\{([^}]+)\}', text
         )))
 
     @staticmethod
+    def extract_custom_environments_multifile(
+            tex_path: Optional[Path]) -> list[str]:
+        """Estrae gli ambienti custom da tutti i sorgenti inclusi."""
+        names: set[str] = set()
+        for fpath in LaTeXSupport.collect_project_files(tex_path):
+            try:
+                names.update(LaTeXSupport.extract_custom_environments(
+                    _cached_read_text(fpath)))
+            except Exception:
+                pass
+        return sorted(names)
+
+    @staticmethod
     def extract_used_packages(text: str) -> list[str]:
         """Estrae i pacchetti caricati con \\usepackage{}."""
         pkgs: list[str] = []
-        for m in re.finditer(r'\\usepackage(?:\[[^\]]*\])?\{([^}]+)\}', text):
+        for m in re.finditer(
+                r'\\usepackage(?:\[[^\]]*\])?\{([^}]+)\}',
+                strip_latex_comments(text)):
             for p in m.group(1).split(","):
                 pkgs.append(p.strip())
         return sorted(set(pkgs))
+
+    @staticmethod
+    def extract_used_packages_multifile(
+            tex_path: Optional[Path]) -> list[str]:
+        """Raccoglie i pacchetti dichiarati nell'intero progetto."""
+        packages: set[str] = set()
+        for fpath in LaTeXSupport.collect_project_files(tex_path):
+            try:
+                packages.update(LaTeXSupport.extract_used_packages(
+                    _cached_read_text(fpath)))
+            except Exception:
+                pass
+        return sorted(packages)
 
     @staticmethod
     def extract_sections(text: str) -> list[tuple[str, str, int]]:
@@ -1601,6 +2054,7 @@ class LaTeXSupport:
         Restituisce lista di (tipo, titolo, riga_0based).
         """
         sections: list[tuple[str, str, int]] = []
+        text = strip_latex_comments(text)
         _cmds = [
             "part", "chapter", "section", "subsection",
             "subsubsection", "paragraph", "subparagraph",
@@ -1625,13 +2079,18 @@ class LaTeXSupport:
         return cmds
 
     @staticmethod
-    def get_all_environments(text: str) -> list[str]:
+    def get_all_environments(text: str,
+                             tex_path: Optional[Path] = None) -> list[str]:
         """
         Restituisce tutti gli ambienti disponibili:
         standard + custom dal documento + ambienti dei pacchetti caricati.
         """
-        custom = LaTeXSupport.extract_custom_environments(text)
-        pkgs = LaTeXSupport.extract_used_packages(text)
+        if tex_path:
+            custom = LaTeXSupport.extract_custom_environments_multifile(tex_path)
+            pkgs = LaTeXSupport.extract_used_packages_multifile(tex_path)
+        else:
+            custom = LaTeXSupport.extract_custom_environments(text)
+            pkgs = LaTeXSupport.extract_used_packages(text)
         pkg_envs: list[str] = []
         for pkg in pkgs:
             pkg_envs.extend(PACKAGE_ENVIRONMENTS.get(pkg.lower(), []))
@@ -1677,7 +2136,7 @@ class LaTeXSupport:
 
         stack: list[str] = []
         for raw_line in lines:
-            code = _RE_COMMENT.split(raw_line, maxsplit=1)[0]
+            code = strip_latex_comments(raw_line)
             for m in _RE_BEGIN_END.finditer(code):
                 kind, env = m.group(1), m.group(2)
                 if kind == "begin":
@@ -1737,13 +2196,36 @@ class LaTeXSupport:
     def collect_project_files(tex_path: Optional[Path],
                                max_depth: int = 5) -> list[Path]:
         """
-        Trova ricorsivamente tutti i .tex inclusi via \\input{}, \\include{},
-        \\subfile{} a partire dal file radice.
+        Trova ricorsivamente i file sorgente inclusi, anche con i comandi a due
+        argomenti \\import, \\subimport, \\includefrom e \\subinputfrom.
         """
         if not tex_path or not tex_path.exists():
             return []
+        try:
+            from core.latex_project import resolve_project_root
+            resolved = Path(tex_path).resolve()
+            root = resolve_project_root(resolved)
+            if root.is_file():
+                tex_path = root
+        except (OSError, RuntimeError, ValueError):
+            pass
         visited: set[Path] = set()
         result: list[Path] = []
+
+        def _resolve_include(base_dir: Path, ref: str) -> Optional[Path]:
+            candidate = base_dir / ref.strip()
+            options = [candidate]
+            if candidate.suffix == "":
+                options.extend(candidate.with_suffix(ext)
+                               for ext in (".tex", ".ltx", ".latex"))
+            for option in options:
+                try:
+                    resolved = option.resolve()
+                except OSError:
+                    continue
+                if resolved.is_file():
+                    return resolved
+            return None
 
         def _collect(path: Path, depth: int) -> None:
             if depth > max_depth or path in visited:
@@ -1754,15 +2236,17 @@ class LaTeXSupport:
                 text = _cached_read_text(path)
             except Exception:
                 return
-            for m in _RE_INCLUDE_INPUT.finditer(text):
-                ref = m.group(1).strip()
-                if not ref.endswith(".tex"):
-                    ref += ".tex"
-                ref_path = (path.parent / ref).resolve()
-                if ref_path.exists():
+            for m in _RE_INCLUDE_INPUT.finditer(strip_latex_comments(text)):
+                if m.group(1) is not None:
+                    include_dir, ref = path.parent, m.group(1)
+                else:
+                    include_dir = path.parent / m.group(2).strip()
+                    ref = m.group(3)
+                ref_path = _resolve_include(include_dir, ref)
+                if ref_path is not None:
                     _collect(ref_path, depth + 1)
 
-        _collect(tex_path, 0)
+        _collect(Path(tex_path).resolve(), 0)
         return result
 
     @staticmethod
@@ -1814,19 +2298,29 @@ class LaTeXSupport:
 
         # Comandi custom dal documento corrente + file inclusi
         if tex_path:
-            all_cmds = LaTeXSupport.extract_custom_commands_multifile(tex_path)
+            all_cmds = set(LaTeXSupport.extract_custom_commands_multifile(tex_path))
+            all_cmds.update(LaTeXSupport.extract_custom_commands(text))
         else:
-            all_cmds = LaTeXSupport.extract_custom_commands(text)
-        api.extend(all_cmds)
+            all_cmds = set(LaTeXSupport.extract_custom_commands(text))
+        api.extend(sorted(all_cmds))
 
-        # Ambienti custom
-        for env in LaTeXSupport.extract_custom_environments(text):
+        # Ambienti custom e pacchetti: includi tutti i sorgenti del progetto,
+        # non solo il file attualmente aperto.
+        if tex_path:
+            custom_envs = set(LaTeXSupport.extract_custom_environments_multifile(tex_path))
+            custom_envs.update(LaTeXSupport.extract_custom_environments(text))
+            packages = set(LaTeXSupport.extract_used_packages_multifile(tex_path))
+            packages.update(LaTeXSupport.extract_used_packages(text))
+        else:
+            custom_envs = LaTeXSupport.extract_custom_environments(text)
+            packages = LaTeXSupport.extract_used_packages(text)
+
+        for env in sorted(custom_envs):
             api.append(f"\\begin{{{env}}}")
             api.append(f"\\end{{{env}}}")
 
         # Comandi dai pacchetti
-        packages = LaTeXSupport.extract_used_packages(text)
-        api.extend(LaTeXSupport.get_package_commands(packages))
+        api.extend(LaTeXSupport.get_package_commands(sorted(packages)))
 
         return api
 
@@ -1842,11 +2336,12 @@ class LaTeXSupport:
         stack: list[tuple[str, int]] = []  # (env_name, lineno)
 
         for lineno, line in enumerate(text.split("\n")):
-            stripped = _RE_COMMENT.sub('', line)
-            for m in _RE_BEGIN.finditer(stripped):
-                stack.append((m.group(1), lineno))
-            for m in _RE_END.finditer(stripped):
-                env_name = m.group(1)
+            stripped = strip_latex_comments(line)
+            for m in _RE_BEGIN_END.finditer(stripped):
+                kind, env_name = m.group(1), m.group(2)
+                if kind == "begin":
+                    stack.append((env_name, lineno))
+                    continue
                 if not stack:
                     errors.append({
                         "line": lineno, "env": env_name,
@@ -1864,7 +2359,6 @@ class LaTeXSupport:
                                 f"opened at line {top_line + 1}"
                             ),
                         })
-                        stack.pop()
 
         for env_name, lineno in stack:
             errors.append({
@@ -1896,7 +2390,7 @@ class LaTeXSupport:
 
         # ── Determina se il cursore è su un \begin{env} o \end{env} ─────────
         raw = lines[line]
-        stripped = _RE_COMMENT.sub('', raw)
+        stripped = strip_latex_comments(raw)
         kind = name = None
         for m in _RE_BEGIN_END.finditer(stripped):
             if m.start() <= col <= m.end():
@@ -1911,7 +2405,7 @@ class LaTeXSupport:
             def _iter_after():
                 depth = 0
                 for ln in range(line, nlines):
-                    row = _RE_COMMENT.sub('', lines[ln])
+                    row = strip_latex_comments(lines[ln])
                     for m2 in _RE_BEGIN_END.finditer(row):
                         if m2.group(2) != name:
                             continue
@@ -1928,7 +2422,7 @@ class LaTeXSupport:
             def _iter_before():
                 depth = 0
                 for ln in range(line, -1, -1):
-                    row = _RE_COMMENT.sub('', lines[ln])
+                    row = strip_latex_comments(lines[ln])
                     for m2 in reversed(list(_RE_BEGIN_END.finditer(row))):
                         if m2.group(2) != name:
                             continue
@@ -1953,7 +2447,7 @@ class LaTeXSupport:
         Usato per rilevare quando il cursore sta modificando il nome di un
         ambiente, per poi sincronizzare l'altro capo della coppia.
         """
-        stripped = _RE_COMMENT.sub('', line_text)
+        stripped = strip_latex_comments(line_text)
         for m in _RE_BEGIN_END.finditer(stripped):
             if m.start(2) <= col <= m.end(2):
                 return {
@@ -1982,7 +2476,7 @@ class LaTeXSupport:
         lines = text.split("\n")
         nlines = len(lines)
         raw = lines[line]
-        stripped = _RE_COMMENT.sub('', raw)
+        stripped = strip_latex_comments(raw)
         anchor = None
         for m in _RE_BEGIN_END.finditer(stripped):
             if m.start() == token_start:
@@ -1995,7 +2489,7 @@ class LaTeXSupport:
         if kind == "begin":
             depth = 0
             for ln in range(line, nlines):
-                row = _RE_COMMENT.sub('', lines[ln])
+                row = strip_latex_comments(lines[ln])
                 for m2 in _RE_BEGIN_END.finditer(row):
                     if ln == line and m2.start() < token_start:
                         continue
@@ -2009,7 +2503,7 @@ class LaTeXSupport:
         else:
             depth = 0
             for ln in range(line, -1, -1):
-                row = _RE_COMMENT.sub('', lines[ln])
+                row = strip_latex_comments(lines[ln])
                 matches = list(_RE_BEGIN_END.finditer(row))
                 if ln == line:
                     matches = [mm for mm in matches if mm.start() <= token_start]
@@ -2030,7 +2524,7 @@ class LaTeXSupport:
         Conta parole (corpo documento, escluso preambolo e comandi LaTeX).
         Restituisce {words, chars, chars_nospace, lines, paragraphs}.
         """
-        text_nc = _RE_COMMENT.sub('', text)
+        text_nc = strip_latex_comments(text)
         m = re.search(r'\\begin\{document\}', text_nc)
         body = text_nc[m.end():] if m else text_nc
         m2 = re.search(r'\\end\{document\}', body)
@@ -2055,15 +2549,71 @@ class LaTeXSupport:
     @staticmethod
     def is_in_math_mode(text: str, pos: int) -> bool:
         """
-        Euristica: True se la posizione è all'interno di un ambiente matematico.
+        True se la posizione è all'interno di un delimitatore matematico o
+        ambiente matematico noto.
         """
-        before = text[:pos]
-        dollar_count = len(re.findall(r'(?<!\\)\$', before))
-        if dollar_count % 2 == 1:
-            return True
-        opens  = len(re.findall(_MATH_BEGIN_PAT, before))
-        closes = len(re.findall(_MATH_END_PAT, before))
-        return opens > closes
+        limit = max(0, min(pos, len(text)))
+        i = 0
+        dollar_delim: Optional[str] = None
+        paired_delim: Optional[str] = None
+        env_stack: list[str] = []
+
+        while i < limit:
+            if text[i] == "%" and not _is_escaped(text, i):
+                newline = text.find("\n", i, limit)
+                i = limit if newline < 0 else newline + 1
+                continue
+
+            if env_stack:
+                match = re.match(r'\\(begin|end)\{([^}]+)\}', text[i:limit])
+                if match:
+                    name = match.group(2).rstrip("*")
+                    if match.group(1) == "begin" and name in _MATH_ENV_NAMES:
+                        env_stack.append(name)
+                    elif (match.group(1) == "end" and
+                          env_stack[-1] == name):
+                        env_stack.pop()
+                    i += match.end()
+                    continue
+                i += 1
+                continue
+
+            if dollar_delim:
+                if text.startswith(dollar_delim, i) and not _is_escaped(text, i):
+                    i += len(dollar_delim)
+                    dollar_delim = None
+                else:
+                    i += 1
+                continue
+            if paired_delim:
+                closer = "\\)" if paired_delim == "\\(" else "\\]"
+                if text.startswith(closer, i) and not _is_escaped(text, i):
+                    i += 2
+                    paired_delim = None
+                else:
+                    i += 1
+                continue
+
+            if text.startswith("\\(", i) or text.startswith("\\[", i):
+                paired_delim = text[i:i + 2]
+                i += 2
+                continue
+            if text.startswith("$$", i) and not _is_escaped(text, i):
+                dollar_delim = "$$"
+                i += 2
+                continue
+            if text[i] == "$" and not _is_escaped(text, i):
+                dollar_delim = "$"
+                i += 1
+                continue
+            match = re.match(r'\\begin\{([^}]+)\}', text[i:limit])
+            if match and match.group(1).rstrip("*") in _MATH_ENV_NAMES:
+                env_stack.append(match.group(1).rstrip("*"))
+                i += match.end()
+                continue
+            i += 2 if text[i] == "\\" and i + 1 < limit else 1
+
+        return bool(dollar_delim or paired_delim or env_stack)
 
 
 # ─── Funzione standalone extract_structure (wrap di extract_sections) ──────────

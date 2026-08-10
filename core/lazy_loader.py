@@ -814,6 +814,7 @@ class LazyLoader(QObject):
         # Torna all'inizio del file
         self._editor.setCursorPosition(0, 0)
         self._editor.ensureLineVisible(0)
+        self._editor.refresh_language_support(force_check=True)
         self._close_progress()
         self.progress.emit(100)
         self.load_finished.emit()

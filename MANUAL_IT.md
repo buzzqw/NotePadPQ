@@ -1,7 +1,7 @@
 # NotePadPQ: Manuale d'uso
 
-> Versione 0.9.13: Editor di testo avanzato basato su **QScintilla/PyQt6**  
-> Piattaforme: Linux, Windows, macOS
+> Versione 1.8.2: Editor di testo avanzato basato su **QScintilla/PyQt6**
+> Piattaforme: Linux, Windows, FreeBSD
 
 ---
 
@@ -76,6 +76,10 @@ L'interfaccia è composta da:
 
 ### File recenti
 **File → File recenti** mostra gli ultimi file aperti. Clicca per riaprirli. Il numero massimo è configurabile nelle Preferenze.
+Un click destro su una voce permette di **fissarla** in cima alla lista o rimuovere il fissaggio.
+
+### Switch rapido tra tab (`Ctrl+Tab`)
+Tieni premuto `Ctrl` e premi `Tab` per aprire il popup dei tab in ordine di ultimo utilizzo (MRU). Premi nuovamente `Tab` per avanzare, `Shift+Tab` per tornare indietro, quindi rilascia `Ctrl` per confermare; `Esc` annulla.
 
 ### Nuovo da modello
 **File → Nuovo da modello** crea un file con intestazione pronta per: Python, HTML, LaTeX, Markdown, Bash, C/C++, JavaScript.
@@ -94,6 +98,16 @@ NotePadPQ monitora i file aperti e reagisce in due modi distinti:
 **File eliminato dal disco**: appare un dialog separato ("Il file X è stato eliminato") con due opzioni:
 - **Chiudi il tab**: chiude il tab corrispondente
 - **Mantieni aperto** *(default)*: il tab rimane aperto con il contenuto in memoria (non salvato su disco)
+
+### File grandi e modalità paginata
+I file oltre 200 MB vengono caricati progressivamente e aperti in modalità paginata, senza caricare tutto il contenuto in memoria. La barra di stato mostra pagina, percentuale, offset e riga globale approssimativa.
+
+- **◀ Pag. prec. / Pag. succ. ▶**: naviga tra le pagine; se la pagina corrente è modificata viene chiesto se salvarla, scartarla o annullare.
+- **Vai a…**: salta a una percentuale del file.
+- **Ctrl+G**: in un file paginato apre il dialog per raggiungere una riga globale.
+- **Salva / Salva con nome**: scrivono in streaming senza ricostruire l'intero file in RAM.
+
+Le operazioni che richiedono l'intero documento, come alcune trasformazioni globali e l'ordinamento di tutte le righe, sono disabilitate o limitate alla pagina corrente.
 
 ---
 
@@ -186,6 +200,7 @@ Accessibile da **Modifica → Formatta**:
 | Corsivo (Markdown/LaTeX) | `Ctrl+I` |
 | Barrato (Markdown/LaTeX) | `Ctrl+Shift+X` |
 | Avvolgi in Ambiente / Tag HTML | `Alt+E` |
+| Avvolgi selezione in virgolette/parentesi/backtick | (nessuna) |
 | Allinea Tabella (Markdown/LaTeX) | `Alt+T` |
 
 > **Nota: A capo automatico vs. Spezza righe:**  
@@ -253,6 +268,8 @@ Senza selezione inserisce i delimitatori vuoti (`****` o `\textbf{}`) e posizion
 **Barrato** (`Ctrl+Shift+X`): applica la formattazione barrato:
 - **Markdown**: `~~testo~~`
 - **LaTeX**: `\sout{testo}` (richiede `\usepackage{ulem}` nel preambolo)
+
+**Avvolgi selezione**: quando digiti una virgoletta, parentesi o backtick con testo selezionato, la selezione viene racchiusa nella coppia corrispondente. Se la selezione contiene già delimitatori compatibili, questi vengono gestiti senza creare duplicati.
 
 **Avvolgi in Ambiente / Tag HTML** (`Alt+E`): chiede il nome di un ambiente (LaTeX) o tag (HTML). In base al tipo di file:
 - **LaTeX** (e per default): genera `\begin{nome}` ... `\end{nome}` con il testo selezionato indentato di 4 spazi all'interno
@@ -499,9 +516,11 @@ Apre il pannello Anteprima affiancato all'editor. Supporta:
 - **HTML**: preview diretta nel widget web integrato
 - **LaTeX**: albero della struttura navigabile (sezioni, label, figure, tabelle)
 - **reStructuredText**: rendering via docutils
-- **PDF**: visualizzazione con PyMuPDF, navigazione pagine, zoom, SyncTeX
+- **PDF**: visualizzazione con PyMuPDF, scorrimento continuo attivo per default, navigazione pagine, zoom e SyncTeX
 
-L'anteprima si aggiorna automaticamente con un delay configurabile (default 500ms). Non si aggiorna se il pannello è nascosto (risparmio CPU).
+L'anteprima si aggiorna automaticamente con un delay configurabile (default 500ms). Non si aggiorna se il pannello è nascosto (risparmio CPU). Per Markdown, il tipo viene ricalcolato anche quando un documento senza nome viene salvato con estensione `.md`.
+
+Nel visualizzatore PDF sono disponibili ricerca del testo, selezione e copia, navigazione da tastiera tra i risultati e lente d'ingrandimento.
 
 ### Anteprima hover (passaggio del mouse)
 
@@ -532,6 +551,7 @@ Tenendo il cursore fermo per mezzo secondo su determinati elementi, NotePadPQ mo
 - **Tipografia intelligente**: converte automaticamente i caratteri "grezzi" in varianti tipografiche corrette: `"..."` → `"..."`, `'...'` → `'...'`, `--` → `—`, `...` → `…`. Non si attiva dentro blocchi di codice. Attivabile da **Documento → Tipografia intelligente** o da **Preferenze → Editor → Scrittura**.
 - **Focus paragrafo**: attenua il testo fuori dal paragrafo corrente (delimitato da righe vuote) per favorire la concentrazione. Il colore di attenuazione si adatta automaticamente al tema chiaro/scuro. Attivabile da **Documento → Focus paragrafo**. Si aggiorna in tempo reale mentre si scrive e al cambio tab.
 - **Segna/desegna attività (`Ctrl+Shift+L`)**: su una riga di task list Markdown (`- [ ] testo` o `- [x] testo`), alterna tra completato e non completato. Funziona con i marcatori `-`, `*`, `+`.
+- **Modalità tail**: segue automaticamente la fine del file mentre arrivano nuove righe (utile per log e output).
 
 ### Tipo di file (syntax highlighting)
 
@@ -600,6 +620,8 @@ Nei comandi sono disponibili le seguenti variabili, accettate sia nella forma `$
 | `${EXT}` | Estensione del file con punto | `.tex` |
 | `${LINE}` | Riga corrente del cursore | `42` |
 | `${COL}` | Colonna corrente del cursore | `7` |
+| `${OUTDIR}` | Directory degli artefatti di build | `/home/utente/doc/build` |
+| `${ROOT}` | File root del progetto LaTeX | `/home/utente/doc/main.tex` |
 
 #### Nuove funzionalità avanzate
 
@@ -619,7 +641,17 @@ Nei comandi sono disponibili le seguenti variabili, accettate sia nella forma `$
 
 **Configurazione di progetto**: crea un file `.notepadpq-build.json` nella root del progetto con profili e task condivisi. Caricato automaticamente aprendo file in quella cartella.
 
+**Contesto LaTeX multi-file**: NotePadPQ risolve `% !TEX root`, `.latexmkrc`, `main.tex` e i file inclusi. Il root risolto viene usato per build, PDF, log e SyncTeX. I profili possono definire una `output_directory` e il backend `bib_backend` (`auto`, `bibtex`, `biber`, `none`).
+
+**Compila durante la modifica**: l'opzione nel menu Build avvia una build LaTeX dopo una pausa configurabile nella digitazione. Il debounce evita processi duplicati e l'opzione è disattivata di default.
+
 **Build concorrenti**: esegui una build nel pannello principale e un task nel tab Task contemporaneamente — ognuno ha il suo worker indipendente.
+
+**Draft Mode LaTeX**: dal menu Build abilita la modalità Draft per inserire `-draftmode` nei comandi `pdflatex`, `xelatex` o `lualatex`. Verifica il documento senza produrre un PDF.
+
+**Pulizia file ausiliari**: puoi eliminare i file ausiliari LaTeX prima e/o dopo la compilazione. L'opzione **Mantieni SyncTeX** conserva `.synctex.gz`, così la sincronizzazione cursore ↔ PDF resta disponibile.
+
+**Navigazione errori**: dopo una compilazione con errori usa `Alt+↑` e `Alt+↓`, oppure i pulsanti ▲/▼ nel pannello, per passare all'errore precedente o successivo.
 
 Esempio: compilazione LaTeX con pdflatex:
 ```
@@ -709,7 +741,7 @@ Tutti i plugin mostrano icone Lucide nel menu Plugin (stesso stile della toolbar
 | Plugin | Scorciatoia | Funzione |
 |---|---|---|
 | **Clipboard History** | `Ctrl+Shift+V` | Cronologia degli appunti con possibilità di incollare elementi precedenti |
-| **Compare & Merge** | `F7` | Confronto visuale side-by-side di due file o tab |
+| **Compare & Merge** | `F7` | Confronto modificabile a due o tre vie con syntax highlighting e scroll sincronizzato |
 | **Database** | — | Client SQL per SQLite, PostgreSQL, MySQL con generazione query AI |
 | **Encrypt/Decrypt** | `Ctrl+Shift+E` / `Ctrl+Shift+W` | Cifratura AES-256-GCM e ChaCha20-Poly1305 del testo selezionato o dell'intero file |
 | **FTP Browser** | — | Sfoglia e modifica file su server FTP |
@@ -719,8 +751,23 @@ Tutti i plugin mostrano icone Lucide nel menu Plugin (stesso stile della toolbar
 | **Hex Viewer** | `Ctrl+Alt+H` | Visualizza il file corrente in formato esadecimale |
 | **PDF Viewer** | — | Visualizza file PDF in un tab dedicato |
 | **Search PQ** | `Ctrl+Alt+F` | Ricerca e sostituzione avanzata nel documento: modalità TEXT/REGEXP/LIKE, coda risultati, filtro inline, sostituzione (vedi [sezione 24](#24-search-pq)) |
-| **Terminal** | `Ctrl+Alt+N` | Terminale xterm.js con PTY nativo come pannello dock indipendente (vedi [sezione 25](#25-terminal)) |
+| **Terminal** | `Ctrl+Alt+T` | Terminale xterm.js con PTY nativo come pannello dock indipendente (vedi [sezione 25](#25-terminal)) |
 | **Web Search** | — | Ricerca web e Wikipedia sul testo selezionato dal menu contestuale |
+
+### REST Client
+
+Il plugin REST Client offre un editor di richieste HTTP con wizard guidato, importazione cURL, collection persistenti (`.http`) e ambienti con variabili `{{VAR}}`.
+
+- Metodi HTTP, parametri, header e body JSON/XML/form-data/multipart con upload di file.
+- Autenticazione Nessuna, Bearer, Basic, API Key e OAuth 2.0 con richiesta automatica del token.
+- Timeout configurabile, verifica SSL e gestione dei redirect; pulsante Stop per annullare richieste in corso.
+- Script **Pre-request** per preparare variabili e test post-risposta con `pm.test(...)`, status, header, JSON, testo e tempo di risposta.
+- **Collection Runner**: seleziona le richieste, l'ambiente e il ritardo tra richieste; esegue in sequenza e consente di interrompere.
+- Generazione di snippet cURL, Python e JavaScript dalla richiesta corrente.
+
+### Compare & Merge
+
+Il confronto supporta modifica inline dei pannelli, syntax highlighting, diff a livello di carattere, navigazione tra le differenze, undo e scroll sincronizzato. Quando sono disponibili tre versioni puoi usare il confronto/merge a tre vie con una base comune.
 
 ### Plugin Git: dettaglio
 
@@ -773,6 +820,9 @@ Pannello con la lista di funzioni, classi e metodi del file corrente. Si aggiorn
 - **Context menu**: vai alla riga, copia nome funzione
 
 Linguaggi con parser dedicato: Python, JavaScript/TypeScript, C/C++, Java, Bash, SQL, LaTeX, Markdown.
+
+### Include List
+Il pannello **Include List** elenca immagini, file inclusi e riferimenti BibTeX del documento LaTeX/Markdown, evidenziando gli elementi mancanti o non usati. Il tooltip delle immagini mostra una miniatura al passaggio del mouse, anche per gli elementi trovati nella cartella di riferimento ma non ancora inclusi. Il menu contestuale permette di saltare alla riga, aprire il file o inserire il riferimento.
 
 ### Pannello compilazione (`` Ctrl+` ``)
 
@@ -929,6 +979,8 @@ NotePadPQ ha un supporto LaTeX completo, ma le funzionalità **avanzate** richie
 - **Scorciatoie markup**: `Ctrl+B` → `\textbf{...}`, `Ctrl+I` → `\textit{...}`, `Ctrl+Shift+X` → `\sout{...}`
 - **Struttura documento** (Function List): sezioni, label, figure, tabelle del file `.tex`
 - **Supporto multi-file**: label, chiavi BibTeX e comandi custom estratti dall'intero progetto seguendo `\input{}`, `\include{}`, `\subfile{}`
+- **Popup ambienti LaTeX**: si attiva già digitando `\be` o `\en`; rinominando il nome di un ambiente viene sincronizzata automaticamente anche la coppia `\begin{...}` / `\end{...}`.
+- **BibTeX Wizard**: da **LaTeX → BibTeX Wizard** crea voci bibliografiche guidate, genera la chiave e cerca i dati bibliografici da un DOI tramite Crossref; puoi copiare o inserire direttamente la voce risultante.
 - **Checker bilanciamento**: rileva `\begin{}`/`\end{}` sbilanciati in tempo reale con marcatori nel gutter
 - **Checker colonne tabella**: negli ambienti `tabular`, `tabular*`, `tabularx`, `tabulary`, `array`, `longtable`, `supertabular`, `xltabular`, confronta il numero di colonne dichiarate nella column spec (es. `{lXXXXXXX}`) con il numero di colonne effettive di ogni riga del corpo. Se una riga ha **più** colonne del dichiarato, sottolinea in ambra solo la parte in eccesso (dall'ultima `&` di troppo in poi); se la column spec dichiara **più** colonne di quelle usate da tutte le righe, sottolinea solo le lettere (`X`, `l`, `c`, `r`, `p`…) in eccesso nella column spec stessa. `\multicolumn{N}{...}{...}` viene conteggiato correttamente come N colonne.
 
@@ -1060,6 +1112,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+Q` | Esci |
 | `Shift+Ctrl+R` | Ricarica da disco |
 | `Ctrl+P` | Stampa |
+| `Ctrl+Tab` | Switch rapido tra tab (ordine MRU) |
 
 ### Modifica
 
@@ -1092,6 +1145,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+Shift+F2` | Ricerca incrementale inline |
 | `Ctrl+G` | Vai alla riga |
 | `Ctrl+]` | Vai alla parentesi corrispondente |
+| `Alt+↑` / `Alt+↓` | Errore build precedente / successivo |
 
 ### Evidenziazione colori
 
@@ -1126,6 +1180,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Ctrl+Shift+F` | Function List |
 | `` Ctrl+` `` | Pannello compilazione e terminale |
 | `Ctrl+Alt+N` | Modalità testo semplice (per tab) |
+| `Ctrl+Alt+T` | Apri terminale integrato |
 | `F4` | Controllo ortografico |
 | `Ctrl+Shift+L` | Segna/desegna attività (task list Markdown `[ ]` ↔ `[x]`) |
 
@@ -1207,13 +1262,15 @@ Il plugin AI Assistant (attivabile da Plugin Manager) aggiunge un pannello dock 
 | Provider | Modelli principali | Chiave API |
 |---|---|---|
 | **Anthropic (Claude)** | Lista dinamica dalla chiave inserita | console.anthropic.com |
-| **OpenAI** | gpt-4o, gpt-4o-mini, gpt-4-turbo | platform.openai.com |
-| **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro | aistudio.google.com |
-| **Ollama** | Lista dinamica dai modelli installati | nessuna (locale) |
+| **OpenAI (ChatGPT)** | GPT-5, GPT-4.1/4o e modelli serie o | platform.openai.com |
+| **Google Gemini** | Gemini 2.5 e modelli precedenti | aistudio.google.com |
+| **DeepSeek** | DeepSeek V4, incluso thinking | platform.deepseek.com |
+| **Ollama (locale)** | Lista dinamica dai modelli installati | nessuna (locale) |
+| **LlamaCPP (locale)** | Modelli dal server `llama-server` | nessuna (locale) |
 
 > **Nota Anthropic:** l'abbonamento *Claude Pro* (claude.ai) dà accesso alla chat web. Le API richiedono credito separato da console.anthropic.com.
 
-> **Modelli dinamici:** per Anthropic e Ollama il combo modelli si aggiorna automaticamente interrogando l'API al cambio provider. Il pulsante **↻** forza il ricaricamento manuale. Se la chiave non è ancora inserita viene mostrata la lista statica di default.
+> **Modelli dinamici:** per i provider cloud e i server locali il combo modelli si aggiorna automaticamente interrogando l'API al cambio provider. Il pulsante **↻** forza il ricaricamento manuale. Se il provider non è raggiungibile viene mostrata la lista statica di default.
 
 ### Configurazione
 
@@ -1231,8 +1288,11 @@ Il plugin AI Assistant (attivabile da Plugin Manager) aggiunge un pannello dock 
 | Azioni rapide | Pulsanti Spiega / Refactoring / Docstring / Correggi bug |
 | Menu contestuale | Tasto destro nell'editor → 🤖 Chiedi all'AI |
 | System prompt | Clicca **▶ System prompt** per personalizzare il comportamento |
-| Extended Thinking | Disponibile su claude-opus-4-7 (ragionamento esteso) |
+| Extended Thinking | Disponibile sui modelli che espongono il ragionamento, inclusi Claude Opus e DeepSeek V4 Pro |
 | Invio messaggio | `Ctrl+Invio` oppure pulsante ▶ Invia |
+| Allegati | Allega file di testo o immagini dai pulsanti del pannello (il supporto immagini dipende dal provider) |
+| Slash command | Usa i comandi rapidi disponibili nel campo chat |
+| Risposta | Interrompi lo streaming, rigenera la risposta o visualizza la stima token |
 
 ### Interazione con l'editor
 
@@ -1241,6 +1301,8 @@ Il plugin AI Assistant (attivabile da Plugin Manager) aggiunge un pannello dock 
 | **✏ Inline edit** *(checkbox)* | Se attivo, dopo l'invio la risposta AI sostituisce il testo selezionato nell'editor (o l'intero file se nulla è selezionato) |
 | **⬇ Al file** *(pulsante)* | Applica l'ultima risposta AI all'editor attivo; se la risposta contiene un blocco di codice, viene estratto automaticamente |
 | **📄 Nuovo tab** *(pulsante)* | Apre l'ultima risposta AI in un nuovo tab vuoto |
+| **📋 Copia** *(pulsante)* | Copia la risposta Markdown originale, preservando codice, LaTeX, indentazione e a capo |
+| **Diff** | Mostra le modifiche prima di applicare una risposta all'editor |
 
 ### Pannello Pensieri
 
@@ -1555,7 +1617,7 @@ Tasto destro su una riga: copia testo riga, posizione, tutte le occorrenze o CSV
 
 ## 25. Terminal
 
-Il plugin **Terminal** (`Ctrl+Alt+N`, oppure **Plugin → Terminal**) espone il terminale integrato (xterm.js + shell con PTY nativo) come pannello dock indipendente, riposizionabile e flottante come qualsiasi altro pannello.
+Il plugin **Terminal** (`Ctrl+Alt+T`, oppure **Plugin → Terminal**) espone il terminale integrato (xterm.js + shell con PTY nativo) come pannello dock indipendente, riposizionabile e flottante come qualsiasi altro pannello.
 
 - Si sincronizza automaticamente con la directory del file aperto nell'editor al cambio tab.
 - Supporta qualsiasi programma interattivo: vim, python REPL, ssh, git, compilatori.
@@ -1565,4 +1627,4 @@ Il pannello può essere agganciato a qualsiasi lato della finestra (alto, basso,
 
 ---
 
-*Manuale aggiornato: NotePadPQ 0.9.13*
+*Manuale aggiornato: NotePadPQ 1.8.2*

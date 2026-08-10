@@ -58,6 +58,7 @@ class FuncSymbol:
     parent:    str = ""
     icon:      str = ""   # emoji usata come icona
     level:     int = 0    # livello gerarchia (1=top) per MD/LaTeX; 0 = nessuna gerarchia
+    file_path: Optional[_Path] = None
 
 
 # ─── Parser per linguaggio ────────────────────────────────────────────────────
@@ -470,6 +471,22 @@ class _ParseWorker(QThread):
             self.done.emit(symbols, self._generation, self._is_hier)
 
 
+class _MultiFileParser(_Parser):
+    """Adatta un parser esistente aggiungendo l'origine a ogni simbolo."""
+
+    def __init__(self, parser: _Parser, sources: list[tuple[_Path, str]]):
+        self._parser = parser
+        self._sources = sources
+
+    def parse(self, _text: str) -> List[FuncSymbol]:
+        symbols: list[FuncSymbol] = []
+        for path, text in self._sources:
+            for symbol in self._parser.parse(text):
+                symbol.file_path = path
+                symbols.append(symbol)
+        return symbols
+
+
 # ─── Pannello ─────────────────────────────────────────────────────────────────
 
 class _FunctionListPanel(QWidget):
@@ -647,11 +664,17 @@ class _FunctionListPanel(QWidget):
     _HIERARCHICAL_PARSERS = (_MarkdownParser, _LaTeXParser)
 
     def _make_sym_item(self, sym: FuncSymbol) -> QStandardItem:
-        item = QStandardItem(f"{sym.icon}  {sym.name}  ({sym.line})")
+        prefix = f"{sym.file_path.name}: " if sym.file_path else ""
+        item = QStandardItem(f"{sym.icon}  {prefix}{sym.name}  ({sym.line})")
         item.setData(sym.line, Qt.ItemDataRole.UserRole)
+        if sym.file_path:
+            item.setData(str(sym.file_path), Qt.ItemDataRole.UserRole + 1)
         item.setToolTip(sym.signature)
         item.setEditable(False)
-        self._line_items.append((sym.line, item))
+        current_path = getattr(self._editor, "file_path", None)
+        if (sym.file_path is None or current_path is None
+                or sym.file_path.resolve() == current_path.resolve()):
+            self._line_items.append((sym.line, item))
         return item
 
     def _make_group_header(self, label: str) -> QStandardItem:
@@ -666,8 +689,12 @@ class _FunctionListPanel(QWidget):
         """Costruisce albero annidato per linguaggi con livelli (MD, LaTeX)."""
         stack: list[tuple[int, QStandardItem]] = []  # (level, item)
         flat: List[FuncSymbol] = []   # simboli senza gerarchia (level=0)
+        previous_file = None
 
         for sym in symbols:
+            if sym.file_path != previous_file:
+                stack.clear()
+                previous_file = sym.file_path
             if sym.level == 0:
                 flat.append(sym)
                 continue
@@ -729,7 +756,25 @@ class _FunctionListPanel(QWidget):
         text = editor.get_content() if hasattr(editor, "get_content") else editor.text()
         is_hier = (isinstance(parser, _JsonParser) and parser._hierarchical) \
                   or isinstance(parser, self._HIERARCHICAL_PARSERS)
-
+        if isinstance(parser, _LaTeXParser) and getattr(editor, "file_path", None):
+            try:
+                from core.latex_project import LatexProjectContext
+                context = LatexProjectContext(editor.file_path, text)
+                sources: list[tuple[_Path, str]] = []
+                seen: set[_Path] = set()
+                for source in context.included_files():
+                    source = source.resolve()
+                    if source in seen:
+                        continue
+                    seen.add(source)
+                    source_text = text if source == editor.file_path.resolve() else source.read_text(
+                        encoding="utf-8", errors="replace")
+                    sources.append((source, source_text))
+                if sources:
+                    parser = _MultiFileParser(parser, sources)
+                    text = ""
+            except (OSError, RuntimeError, ValueError):
+                pass
         self._cancel_parse_worker()
         self._parse_gen += 1
         gen = self._parse_gen
@@ -799,6 +844,16 @@ class _FunctionListPanel(QWidget):
         if not item:
             return
         line = item.data(Qt.ItemDataRole.UserRole)
+        file_ref = item.data(Qt.ItemDataRole.UserRole + 1)
+        if isinstance(file_ref, str) and self._editor:
+            target = _Path(file_ref)
+            current = getattr(self._editor, "file_path", None)
+            if current is None or target.resolve() != current.resolve():
+                try:
+                    self._mw.open_files([target])
+                    self._editor = self._mw._tab_manager.current_editor()
+                except Exception:
+                    return
         if isinstance(line, int) and self._editor:
             self._editor.go_to_line(line)
             self._editor.setFocus()
@@ -817,15 +872,16 @@ class _FunctionListPanel(QWidget):
         src = self._proxy.mapToSource(index)
         item = self._model.itemFromIndex(src)
         line = item.data(Qt.ItemDataRole.UserRole) if item else None
+        file_ref = item.data(Qt.ItemDataRole.UserRole + 1) if item else None
 
         menu = QMenu(self)
         if isinstance(line, int):
-            menu.addAction("Vai alla riga",
-                           lambda: self._editor and self._editor.go_to_line(line))
+            menu.addAction(tr("function_list.goto_line", default="Vai alla riga"),
+                           lambda idx=index: self._on_clicked(idx))
             menu.addAction(tr("function_list.copy_name"),
                            lambda: self._copy_name(item))
         menu.addSeparator()
-        menu.addAction("Aggiorna lista", self._refresh)
+        menu.addAction(tr("function_list.refresh", default="Aggiorna lista"), self._refresh)
         menu.exec(self._tree.viewport().mapToGlobal(pos))
 
     def _copy_name(self, item: QStandardItem) -> None:

@@ -142,7 +142,10 @@ class SyncTeX:
             if line.startswith("Input:"):
                 # Normalizza il path (synctex può aggiungere "./" o simili)
                 raw = line.split(":", 1)[1].strip()
-                result["file"] = str(Path(raw).resolve())
+                input_path = Path(raw)
+                if not input_path.is_absolute():
+                    input_path = self.tex_path.parent / input_path
+                result["file"] = str(input_path.resolve())
             elif line.startswith("Line:"):
                 try:
                     result["line"] = int(line.split(":")[1].strip())

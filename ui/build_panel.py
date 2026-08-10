@@ -264,10 +264,17 @@ class BuildPanel(QWidget):
         self._current_error_idx: int = -1
         self._full_log: list[str] = []
         self._running_workers: dict[str, bool] = {}
+        self._build_errors: list[dict] = []
+        self._checker_errors: list[dict] = []
+        self._bound_checker = None
+        self._bound_editor = None
+        self._bound_language_handler = None
 
         self._build_ui()
         self._connect_signals()
         QTimer.singleShot(0, self._sync_profile_to_editor)
+        QTimer.singleShot(0, lambda: self._bind_checker(
+            self._mw._tab_manager.current_editor()))
 
     def _build_ui(self) -> None:
         self.setMinimumHeight(0)
@@ -438,6 +445,9 @@ class BuildPanel(QWidget):
             self._mw._tab_manager.current_editor_changed.connect(
                 self._sync_profile_to_editor
             )
+            self._mw._tab_manager.current_editor_changed.connect(
+                self._bind_checker
+            )
         except Exception:
             pass
 
@@ -498,6 +508,8 @@ class BuildPanel(QWidget):
             self._set_active_profile("")
             return
 
+        self._populate_profile_combo(path)
+
         ext = path.suffix.lower()
         override = self._bm._profile_overrides.get(ext, "")
 
@@ -513,6 +525,72 @@ class BuildPanel(QWidget):
             self._profile_combo.blockSignals(False)
             name = self._bm.get_profile_for_file(path)
             self._set_active_profile(name or "")
+
+    def _bind_checker(self, editor) -> None:
+        """Unifica nel pannello build i problemi del checker LaTeX corrente."""
+        if self._bound_editor is not None and self._bound_language_handler is not None:
+            try:
+                self._bound_editor.language_changed.disconnect(
+                    self._bound_language_handler)
+            except (RuntimeError, TypeError):
+                pass
+        if self._bound_checker is not None:
+            try:
+                self._bound_checker.issues_found.disconnect(self._on_checker_issues)
+            except (RuntimeError, TypeError):
+                pass
+        self._bound_editor = editor
+        self._bound_language_handler = None
+        self._bound_checker = getattr(editor, "_latex_checker", None) if editor else None
+        if editor is not None:
+            self._bound_language_handler = (
+                lambda _language, _editor=editor: self._bind_checker(_editor))
+            try:
+                editor.language_changed.connect(self._bound_language_handler)
+            except (RuntimeError, TypeError):
+                self._bound_language_handler = None
+        self._checker_errors = []
+        if self._bound_checker is not None:
+            try:
+                self._bound_checker.issues_found.connect(self._on_checker_issues)
+                self._on_checker_issues(
+                    list(getattr(self._bound_checker, "_last_issues", [])))
+            except (RuntimeError, TypeError):
+                self._bound_checker = None
+        self._render_errors(self._build_errors + self._checker_errors)
+        self.error_count_changed.emit(
+            len(self._build_errors) + len(self._checker_errors))
+
+    def _on_checker_issues(self, issues: list[dict]) -> None:
+        self._checker_errors = [
+            {
+                "file": issue.get("file", ""),
+                "line": issue.get("line", 0) + 1,
+                "message": issue.get("msg", ""),
+                "source": "Checker",
+            }
+            for issue in issues
+        ]
+        self._render_errors(self._build_errors + self._checker_errors)
+        self.error_count_changed.emit(
+            len(self._build_errors) + len(self._checker_errors))
+
+    def _populate_profile_combo(self, path) -> None:
+        """Mostra anche i profili definiti nel progetto corrente."""
+        project = self._bm.get_project_profiles(path)
+        global_profiles = self._bm.get_profiles()
+        names = list(project)
+        names.extend(name for name in global_profiles if name not in project)
+        current = self._profile_combo.currentData()
+        self._profile_combo.blockSignals(True)
+        self._profile_combo.clear()
+        self._profile_combo.addItem(tr("build_panel.auto_profile"), userData=None)
+        for name in names:
+            label = f"{name}  (project)" if name in project else name
+            self._profile_combo.addItem(label, userData=name)
+        idx = self._profile_combo.findData(current)
+        self._profile_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        self._profile_combo.blockSignals(False)
 
     def _on_combo_changed(self, index: int) -> None:
         editor = self._mw._tab_manager.current_editor() if hasattr(self._mw, "_tab_manager") else None
@@ -665,6 +743,7 @@ class BuildPanel(QWidget):
     @pyqtSlot(str, bool, str)
     def _on_build_done(self, run_id: str, success: bool, message: str) -> None:
         if run_id != self._current_run_id:
+            self._bm.release_build_context(run_id)
             return
 
         self._btn_stop.setEnabled(False)
@@ -686,12 +765,16 @@ class BuildPanel(QWidget):
             f"background: {color_bg}; color: {color_fg}; border-top: 1px solid #3c3c3c;"
         )
 
+        build_context = self._bm.get_build_context(run_id)
         if success:
-            pdf_path = self._find_generated_pdf()
+            pdf_path = self._find_generated_pdf(run_id)
             if pdf_path:
                 mw = self.window()
                 if hasattr(mw, "_preview_panel_dock"):
-                    mw._preview_panel_dock.set_pdf_path(pdf_path)
+                    mw._preview_panel_dock.set_pdf_path(
+                        pdf_path,
+                        tex_path=getattr(build_context, "root", None),
+                    )
 
                 from config.settings import Settings
                 if Settings.instance().get("build/clean_aux_after_compile", False):
@@ -702,23 +785,31 @@ class BuildPanel(QWidget):
         n = 0
         if self._current_profile:
             output_text = "\n".join(self._full_log)
-            source = None
+            source = getattr(build_context, "root", None)
             editor = self._mw._tab_manager.current_editor() if hasattr(self._mw, "_tab_manager") else None
             if editor:
-                source = getattr(editor, "file_path", None)
+                source = source or getattr(editor, "file_path", None)
 
             from config.settings import Settings
             lsp_diags = None
             if Settings.instance().get("build/unified_errors", True) and source:
                 lsp_diags = self._bm.get_lsp_diagnostics(source)
 
-            errors = self._bm.parse_errors(output_text, self._current_profile, source, lsp_diags)
+            errors = self._bm.parse_errors(
+                output_text, self._current_profile, source, lsp_diags,
+                output_dir=getattr(build_context, "output_directory", None),
+            )
             self._show_errors(run_id, errors)
-            n = len(errors)
+            n = len(self._build_errors) + len(self._checker_errors)
         self.error_count_changed.emit(n)
+        self._bm.release_build_context(run_id)
 
-    def _find_generated_pdf(self):
+    def _find_generated_pdf(self, run_id: str = ""):
         from pathlib import Path
+        context = self._bm.get_build_context(run_id) if run_id else None
+        if context is not None:
+            pdf = context.pdf_path
+            return pdf if pdf.exists() else None
         mw = self.window()
         editor = None
         if hasattr(mw, "_tab_manager"):
@@ -813,6 +904,10 @@ class BuildPanel(QWidget):
     def _show_errors(self, run_id: str, errors: list) -> None:
         if run_id != self._current_run_id:
             return
+        self._build_errors = list(errors)
+        self._render_errors(self._build_errors + self._checker_errors)
+
+    def _render_errors(self, errors: list[dict]) -> None:
         self._error_tree.clear()
         for err in errors:
             source = err.get("source", err.get("severity", "Build"))
@@ -1187,6 +1282,11 @@ class BuildProfilesDialog(QDialog):
         self._run_edit.setPlaceholderText(tr("build_panel.cmd_placeholder_empty"))
         self._build_edit   = QLineEdit()
         self._build_edit.setPlaceholderText(tr("build_panel.cmd_placeholder_empty"))
+        self._output_dir_edit = QLineEdit()
+        self._output_dir_edit.setPlaceholderText(
+            tr("build_panel.output_dir_placeholder", default="empty = root directory"))
+        self._bib_backend_combo = QComboBox()
+        self._bib_backend_combo.addItems(["auto", "bibtex", "biber", "none"])
         self._regex_edit = QLineEdit()
         self._regex_edit.setPlaceholderText(r'es. File "([^"]+)", line (\d+)')
         self._regex_edit.setToolTip(tr("tooltip.build_error_regex"))
@@ -1209,9 +1309,19 @@ class BuildProfilesDialog(QDialog):
 
         form.addRow(tr("build_panel.profile_name_label"),    self._name_edit)
         form.addRow(tr("build_panel.extensions_label"),       self._ext_edit)
-        form.addRow(tr("action.compile", default="Compila") + " \u2192", self._compile_edit)
-        form.addRow(tr("action.run",     default="Esegui")  + " \u2192", self._run_edit)
-        form.addRow(tr("action.build",   default="Build")   + " \u2192", self._build_edit)
+        form.addRow(self._action_label(
+            "compile", tr("action.compile", default="Compila")) + " \u2192",
+            self._compile_edit)
+        form.addRow(self._action_label(
+            "run", tr("action.run", default="Esegui")) + " \u2192",
+            self._run_edit)
+        form.addRow(self._action_label(
+            "build", tr("action.build", default="Build")) + " \u2192",
+            self._build_edit)
+        form.addRow(tr("build_panel.output_directory", default="Output directory"),
+                    self._output_dir_edit)
+        form.addRow(tr("build_panel.bib_backend", default="Bibliography backend"),
+                    self._bib_backend_combo)
         form.addRow(tr("build_panel.error_regex_label"),     self._regex_edit)
         form.addRow("", self._regex_preview)
 
@@ -1249,9 +1359,13 @@ class BuildProfilesDialog(QDialog):
             "<td><i>es. .py</i></td></tr>"
             f"<tr><td><code>${{LINE}}</code></td><td>\u2014 {tr('build_panel.var_line_desc')}</td>"
             "<td><i>es. 42</i></td></tr>"
-            f"<tr><td><code>${{COL}}</code></td><td>\u2014 {tr('build_panel.var_col_desc')}</td>"
-            "<td><i>es. 7</i></td></tr>"
-            "</table></small>"
+             f"<tr><td><code>${{COL}}</code></td><td>\u2014 {tr('build_panel.var_col_desc')}</td>"
+             "<td><i>es. 7</i></td></tr>"
+             "<tr><td><code>${OUTDIR}</code></td><td>- directory degli artefatti</td>"
+             "<td><i>es. build/</i></td></tr>"
+             "<tr><td><code>${ROOT}</code></td><td>- file root LaTeX</td>"
+             "<td><i>es. main.tex</i></td></tr>"
+             "</table></small>"
         )
         var_lbl.setTextFormat(Qt.TextFormat.RichText)
         var_lbl.setWordWrap(True)
@@ -1308,9 +1422,11 @@ class BuildProfilesDialog(QDialog):
         right_outer.addWidget(scroll, 1)
 
         for w in [self._name_edit, self._ext_edit, self._compile_edit,
-                   self._run_edit, self._build_edit, self._regex_edit,
+                   self._run_edit, self._build_edit, self._output_dir_edit,
+                   self._regex_edit,
                    self._pre_hook_edit, self._post_hook_edit]:
             w.textChanged.connect(self._mark_dirty)
+        self._bib_backend_combo.currentTextChanged.connect(self._mark_dirty)
         self._env_edit.textChanged.connect(self._mark_dirty)
         self._pipeline_edit.textChanged.connect(self._mark_dirty)
         self._file_grp_spin.valueChanged.connect(self._mark_dirty)
@@ -1340,6 +1456,12 @@ class BuildProfilesDialog(QDialog):
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self._on_close)
         outer.addWidget(buttons)
+
+    def _action_label(self, action_name: str, label: str) -> str:
+        """Aggiunge la scorciatoia attuale all'etichetta del comando."""
+        action = getattr(self._mw, "_actions", {}).get(action_name)
+        shortcut = action.shortcut().toString() if action else ""
+        return f"{label} ({shortcut})" if shortcut else label
 
     def _load_profiles(self) -> None:
         self._profile_list.clear()
@@ -1382,6 +1504,11 @@ class BuildProfilesDialog(QDialog):
         self._compile_edit.setText(profile.get("compile", ""))
         self._run_edit.setText(    profile.get("run",     ""))
         self._build_edit.setText(  profile.get("build",   ""))
+        self._output_dir_edit.setText(
+            str(profile.get("output_directory", profile.get("output_dir", "")))
+        )
+        backend = str(profile.get("bib_backend", "auto")).lower()
+        self._bib_backend_combo.setCurrentText(backend if backend in {"auto", "bibtex", "biber", "none"} else "auto")
         self._regex_edit.setText(  profile.get("error_regex", ""))
 
         self._file_grp_spin.setValue(profile.get("error_file_group", 1))
@@ -1556,6 +1683,8 @@ class BuildProfilesDialog(QDialog):
             "compile":            self._compile_edit.text().strip(),
             "run":                self._run_edit.text().strip(),
             "build":              self._build_edit.text().strip(),
+            "output_directory":   self._output_dir_edit.text().strip(),
+            "bib_backend":        self._bib_backend_combo.currentText(),
             "error_regex":        self._regex_edit.text().strip(),
             "error_file_group":   self._file_grp_spin.value(),
             "error_line_group":   self._line_grp_spin.value(),
@@ -1602,6 +1731,7 @@ class BuildProfilesDialog(QDialog):
         name = name.strip()
         empty = {
             "extensions": [], "compile": "", "run": "", "build": "",
+            "output_directory": "", "bib_backend": "auto",
             "error_regex": "", "error_file_group": 1, "error_line_group": 2,
             "env": {}, "pre_hook": "", "post_hook": "", "pipeline": [],
         }

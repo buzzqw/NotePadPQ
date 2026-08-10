@@ -41,27 +41,47 @@ class MarkdownSupport:
         Collega i segnali dell'editor per il supporto Markdown avanzato.
         Va chiamato quando il lexer Markdown viene impostato.
         """
-        try:
-            editor.SCN_CHARADDED.disconnect(MarkdownSupport._on_char_added)
-        except Exception:
-            pass
+        MarkdownSupport.deactivate(editor)
 
-        editor.SCN_CHARADDED.connect(
-            lambda char: MarkdownSupport._on_char_added(editor, char)
-        )
+        def char_handler(char):
+            MarkdownSupport._on_char_added(editor, char)
+
+        editor._markdown_char_added_handler = char_handler
+        editor.SCN_CHARADDED.connect(char_handler)
 
         # YAML front matter: applica subito e ogni volta che il testo cambia
-        try:
-            editor.textChanged.disconnect(MarkdownSupport._yaml_fm_slot(editor))
-        except Exception:
-            pass
-        _slot = lambda: MarkdownSupport._apply_yaml_fm(editor)
+        def _slot():
+            MarkdownSupport._apply_yaml_fm(editor)
+
         editor._md_yaml_fm_slot = _slot
         editor.textChanged.connect(_slot)
         MarkdownSupport._apply_yaml_fm(editor)
 
         # Inizializza indicatori se non già fatto
         MarkdownSupport._init_indicators(editor)
+        editor._markdown_support_active = True
+
+    @staticmethod
+    def deactivate(editor: "EditorWidget") -> None:
+        """Scollega gli handler Markdown e cancella il relativo stato visivo."""
+        for signal_name, attr_name in (
+                ("SCN_CHARADDED", "_markdown_char_added_handler"),
+                ("textChanged", "_md_yaml_fm_slot")):
+            handler = getattr(editor, attr_name, None)
+            if handler is not None:
+                try:
+                    getattr(editor, signal_name).disconnect(handler)
+                except (RuntimeError, TypeError):
+                    pass
+                setattr(editor, attr_name, None)
+        try:
+            for indicator in (INDICATOR_YAML_FM, INDICATOR_SENTENCE_DIM):
+                editor.clearIndicatorRange(
+                    0, 0, editor.lines(), 0, indicator
+                )
+        except (RuntimeError, TypeError):
+            pass
+        editor._markdown_support_active = False
 
     @staticmethod
     def _yaml_fm_slot(editor: "EditorWidget"):

@@ -84,25 +84,28 @@ DEFAULT_PROFILES: dict[str, dict] = {
         "error_line_group": 2,
     },
     "LaTeX (pdflatex)": {
-        "extensions": [".tex"],
-        "compile":    "pdflatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "run":        "pdflatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "build":      "latexmk -pdf -file-line-error -synctex=1 -output-directory=${DIR} ${FILE}",
+        "extensions": [".tex", ".ltx", ".latex"],
+        "compile":    "pdflatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
+        "run":        "pdflatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
+        "build":      "latexmk -pdf -file-line-error -synctex=1 -output-directory=${OUTDIR} ${FILE}",
         "error_parser": "latex",
+        "bib_backend": "auto",
     },
     "LaTeX (xelatex)": {
-        "extensions": [".tex"],
-        "compile":    "xelatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "run":        "xelatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "build":      "latexmk -xelatex -file-line-error -synctex=1 -output-directory=${DIR} ${FILE}",
+        "extensions": [".tex", ".ltx", ".latex"],
+        "compile":    "xelatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
+        "run":        "xelatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
+        "build":      "latexmk -xelatex -file-line-error -synctex=1 -output-directory=${OUTDIR} ${FILE}",
         "error_parser": "latex",
+        "bib_backend": "auto",
     },
     "LaTeX (lualatex)": {
-        "extensions": [".tex"],
-        "compile":    "lualatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "run":        "lualatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${DIR} ${FILE}",
-        "build":      "latexmk -lualatex -file-line-error -synctex=1 -output-directory=${DIR} ${FILE}",
+        "extensions": [".tex", ".ltx", ".latex"],
+        "compile":    "lualatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
+        "run":        "lualatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
+        "build":      "latexmk -lualatex -file-line-error -synctex=1 -output-directory=${OUTDIR} ${FILE}",
         "error_parser": "latex",
+        "bib_backend": "auto",
     },
     "Make": {
         "extensions": [],
@@ -152,10 +155,10 @@ DEFAULT_PROFILES: dict[str, dict] = {
 }
 
 # Regex per il parser errori LaTeX (riusate, non ricompilate per ogni build)
-_RE_LATEX_FILE  = re.compile(r'\(([^\s()]+\.(?:tex|sty|cls|def|cfg|fd|clo))\b')
+_RE_LATEX_FILE  = re.compile(r'\(([^\s()]+\.(?:tex|ltx|latex|sty|cls|def|cfg|fd|clo))\b')
 _RE_LATEX_BANG  = re.compile(r'!\s*(.+)')
 _RE_LATEX_LNUM  = re.compile(r'^l\.(\d+)')
-_RE_LATEX_MODERN = re.compile(r'([^\s:]+\.(?:tex|sty|cls|aux)):(\d+):\s*(.+)')
+_RE_LATEX_MODERN = re.compile(r'([^\s:]+\.(?:tex|ltx|latex|sty|cls|aux)):(\d+):\s*(.+)')
 _RE_LATEX_WARN  = re.compile(r'(?:LaTeX|Package|Class)[\w\s]*Warning:\s*(.+)')
 
 
@@ -431,18 +434,23 @@ AUX_EXTENSIONS: list[str] = [
 ]
 
 
-def clean_aux_files(base_path: Path, keep_synctex: bool = True) -> list[str]:
+def clean_aux_files(base_path: Path, keep_synctex: bool = True,
+                    extra_bases: list[Path] | None = None) -> list[str]:
     removed = []
-    for ext in AUX_EXTENSIONS:
-        if keep_synctex and ext == ".synctex.gz":
-            continue
-        candidate = base_path.with_name(base_path.name + ext)
-        if candidate.exists():
+    seen: set[Path] = set()
+    for base in [base_path, *(extra_bases or [])]:
+        for ext in AUX_EXTENSIONS:
+            if keep_synctex and ext == ".synctex.gz":
+                continue
+            candidate = base.with_name(base.name + ext)
+            if candidate in seen or not candidate.exists():
+                continue
+            seen.add(candidate)
             try:
                 candidate.unlink()
                 removed.append(candidate.name)
             except OSError as e:
-                _log_warn(f"Could not remove aux file {candidate.name}: {e}")
+                _log_warn(f"Could not remove aux file {candidate}: {e}")
     return removed
 
 
@@ -470,6 +478,7 @@ class BuildManager(QObject):
         self._active_profile: str = ""
         self._profile_overrides: dict[str, str] = {}
         self._project_configs: dict[Path, tuple[int, dict]] = {}
+        self._build_contexts: dict[str, object] = {}
         self._load_user_profiles()
 
     @classmethod
@@ -606,6 +615,20 @@ class BuildManager(QObject):
             return tasks if isinstance(tasks, list) else []
         return []
 
+    @staticmethod
+    def _latex_context(file_path: Path, content: str | None = None,
+                       output_dir: str | Path | None = None):
+        from core.latex_project import LatexProjectContext
+        return LatexProjectContext(file_path, content, output_dir)
+
+    def get_build_context(self, run_id: str):
+        """Restituisce il contesto LaTeX associato a una build recente."""
+        return self._build_contexts.get(run_id)
+
+    def release_build_context(self, run_id: str) -> None:
+        """Rilascia il testo completo conservato per una build terminata."""
+        self._build_contexts.pop(run_id, None)
+
     # ── Esecuzione ────────────────────────────────────────────────────────────
 
     def run(self, action: str, editor: Optional["EditorWidget"],
@@ -613,7 +636,8 @@ class BuildManager(QObject):
         if editor is None or editor.file_path is None:
             return False
 
-        file_path = editor.file_path
+        editor_file_path = editor.file_path
+        file_path = editor_file_path
         if not run_id:
             run_id = f"build_{uuid4().hex[:8]}"
 
@@ -626,50 +650,92 @@ class BuildManager(QObject):
                     win.action_save()
 
         content = editor.get_content()
-        lines = content.splitlines()[:10]
-        for line in lines:
-            match = re.search(r'%\s*!TEX\s+root\s*=\s*(.+)', line)
-            if match:
-                root_file_str = match.group(1).strip()
-                possible_root = file_path.parent / root_file_str
-                if possible_root.exists():
-                    self.build_output.emit(run_id, tr("build.magic_comment_detected", root=possible_root.name))
-                    file_path = possible_root.resolve()
-                else:
-                    self.build_output.emit(run_id, tr("build.magic_comment_ignored", file=root_file_str, dir=str(file_path.parent)))
-                break
+        latex_context = None
+        if file_path.suffix.lower() in {".tex", ".ltx", ".latex"}:
+            latex_context = self._latex_context(file_path, content)
+            if latex_context.root != file_path.resolve():
+                self.build_output.emit(
+                    run_id,
+                    tr("build.magic_comment_detected", root=latex_context.root.name),
+                )
+            file_path = latex_context.root
+            self._build_contexts[run_id] = latex_context
 
-        profile_name = self.get_profile_for_file(file_path)
+        profile_name = self.get_profile_for_file(editor_file_path)
         if not profile_name:
             self.build_output.emit(run_id, tr("build.no_profile", suffix=file_path.suffix))
+            self.release_build_context(run_id)
             return False
 
-        project_profiles = self.get_project_profiles(file_path)
+        project_profiles = self.get_project_profiles(editor_file_path)
         profile = project_profiles.get(profile_name) or self._profiles.get(profile_name)
         if not isinstance(profile, dict):
             self.build_output.emit(run_id, tr("build.no_profile", suffix=file_path.suffix))
+            self.release_build_context(run_id)
             return False
+
+        if latex_context:
+            output_ref = profile.get("output_directory", profile.get("output_dir"))
+            if output_ref:
+                latex_context = self._latex_context(
+                    latex_context.current_file, latex_context.content, output_ref)
+                self._build_contexts[run_id] = latex_context
+            try:
+                latex_context.output_directory.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                self.build_output.emit(
+                    run_id,
+                    tr("build.output_dir_error", error=str(exc),
+                       default="Cannot create LaTeX output directory: {error}"),
+                )
+                self.release_build_context(run_id)
+                return False
 
         pipeline = profile.get("pipeline", [])
         if pipeline:
-            return self._run_pipeline(run_id, pipeline, file_path, editor, profile, interactive)
+            return self._run_pipeline(
+                run_id, pipeline, file_path, editor, profile, interactive,
+                latex_context.output_directory if latex_context else None,
+            )
 
         command = profile.get(action, "")
         if not command:
             self.build_output.emit(run_id, tr("build.no_command", action=action, profile=profile_name))
+            self.release_build_context(run_id)
             return False
 
-        command = self._expand_vars(command, file_path, editor)
+        command = self._expand_vars(
+            command, file_path, editor,
+            output_dir=latex_context.output_directory if latex_context else None,
+            root_file=latex_context.root if latex_context else None,
+        )
+        command = self._configure_bibliography_command(
+            command, profile, latex_context, editor.get_content())
 
-        if file_path.suffix == ".tex" and Settings.instance().get("build/draft_mode", False):
+        if file_path.suffix.lower() in {".tex", ".ltx", ".latex"} and Settings.instance().get("build/draft_mode", False):
             command = self._add_draftmode_flag(command)
 
-        env = self._build_env(file_path, profile)
+        env = self._build_env(
+            file_path, profile,
+            output_dir=latex_context.output_directory if latex_context else None,
+            root_file=latex_context.root if latex_context else None,
+        )
+        if latex_context:
+            backend = str(profile.get("bib_backend", "auto")).lower().strip()
+            if backend == "auto":
+                backend = self.detect_bibliography_backend(
+                    latex_context.root, editor.get_content())
+            env["NOTEPADPQ_BIB_BACKEND"] = backend
 
-        return self._do_run(run_id, command, str(file_path.parent), env,
-                           profile, file_path, editor, interactive,
-                           pre_hook=profile.get("pre_hook", ""),
-                           post_hook=profile.get("post_hook", ""))
+        started = self._do_run(
+            run_id, command, str(file_path.parent), env,
+            profile, file_path, editor, interactive,
+            pre_hook=profile.get("pre_hook", ""),
+            post_hook=profile.get("post_hook", ""),
+            output_dir=latex_context.output_directory if latex_context else None)
+        if not started:
+            self.release_build_context(run_id)
+        return started
 
     def run_task(self, cmd: str, cwd: Path, run_id: str = "",
                  interactive: bool = False) -> bool:
@@ -685,10 +751,63 @@ class BuildManager(QObject):
         self._spawn_worker(run_id, cmd, str(cwd), env, interactive)
         return True
 
+    @staticmethod
+    def detect_bibliography_backend(root_file: Path,
+                                   current_content: str = "") -> str:
+        """Rileva il backend bibliografico usato da un progetto LaTeX."""
+        from editor.latex_support import strip_latex_comments
+
+        texts = [current_content]
+        try:
+            from core.latex_project import collect_included_files
+            texts.extend(
+                path.read_text(encoding="utf-8", errors="replace")
+                for path in collect_included_files(root_file)
+                if path != root_file and path.is_file()
+            )
+        except OSError:
+            pass
+        code = "\n".join(strip_latex_comments(text) for text in texts)
+        biblatex = re.search(
+            r"\\usepackage\s*(?:\[([^]]*)\])?\s*\{biblatex\}", code,
+            re.IGNORECASE,
+        )
+        if biblatex:
+            options = (biblatex.group(1) or "").lower()
+            if re.search(r"backend\s*=\s*bibtex", options):
+                return "bibtex"
+            return "biber"
+        if re.search(r"\\(?:bibliography|bibliographystyle)\b", code):
+            return "bibtex"
+        return "none"
+
+    @classmethod
+    def _configure_bibliography_command(cls, command: str, profile: dict,
+                                         context, current_content: str) -> str:
+        """Configura solo le opzioni latexmk realmente supportate.
+
+        BibTeX può essere forzato con ``-bibtex``; Biber viene rilevato da
+        latexmk dal file `.bcf` e non richiede un flag equivalente.
+        """
+        if "latexmk" not in command.lower() or not context:
+            return command
+        backend = str(profile.get("bib_backend", "auto")).lower().strip()
+        if backend == "auto":
+            backend = cls.detect_bibliography_backend(context.root, current_content)
+        if backend == "bibtex" and "-bibtex" not in command:
+            return re.sub(r"(\blatexmk\b)", r"\1 -bibtex", command,
+                          count=1, flags=re.IGNORECASE)
+        if backend == "none" and "-nobibtex" not in command:
+            return re.sub(r"(\blatexmk\b)", r"\1 -nobibtex", command,
+                          count=1, flags=re.IGNORECASE)
+        return command
+
     def _run_pipeline(self, run_id: str, pipeline: list, file_path: Path,
-                      editor, profile: dict, interactive: bool) -> bool:
-        command = self._expand_vars(pipeline[0].get("cmd", ""), file_path, editor)
-        env = self._build_env(file_path, profile)
+                      editor, profile: dict, interactive: bool,
+                      output_dir: Path | None = None) -> bool:
+        command = self._expand_vars(
+            pipeline[0].get("cmd", ""), file_path, editor, output_dir=output_dir)
+        env = self._build_env(file_path, profile, output_dir=output_dir)
 
         self.build_started.emit(run_id, "pipeline")
         self.pipeline_step.emit(run_id, 1, len(pipeline), pipeline[0].get("name", "Step 1"))
@@ -706,6 +825,7 @@ class BuildManager(QObject):
             worker._pipeline_profile = profile
             worker._pipeline_interactive = interactive
             worker._pipeline_env = env
+            worker._pipeline_output_dir = output_dir
         return True
 
     def _continue_pipeline(self, run_id: str, success: bool) -> None:
@@ -738,8 +858,10 @@ class BuildManager(QObject):
         file_path = getattr(worker, "_pipeline_file_path", None)
         editor = getattr(worker, "_pipeline_editor", None)
         env = getattr(worker, "_pipeline_env", None)
+        output_dir = getattr(worker, "_pipeline_output_dir", None)
 
-        cmd = self._expand_vars(next_step.get("cmd", ""), file_path, editor)
+        cmd = self._expand_vars(
+            next_step.get("cmd", ""), file_path, editor, output_dir=output_dir)
         self.pipeline_step.emit(run_id, idx + 1, len(pipeline),
                                 next_step.get("name", f"Step {idx+1}"))
         self.build_output.emit(run_id, tr("build.pipeline_step",
@@ -747,15 +869,29 @@ class BuildManager(QObject):
                                           default="[{num}] {name}"))
 
         interactive = getattr(worker, "_pipeline_interactive", False)
-        self._spawn_worker(run_id, cmd, str(file_path.parent) if file_path else ".",
-                          env, interactive)
+        next_worker = self._spawn_worker(
+            run_id, cmd, str(file_path.parent) if file_path else ".",
+            env, interactive)
+        if next_worker:
+            next_worker._pipeline_index = idx
+            next_worker._pipeline = pipeline
+            next_worker._pipeline_file_path = file_path
+            next_worker._pipeline_editor = editor
+            next_worker._pipeline_profile = getattr(worker, "_pipeline_profile", {})
+            next_worker._pipeline_interactive = interactive
+            next_worker._pipeline_env = env
+            next_worker._pipeline_output_dir = output_dir
 
-    def _build_env(self, file_path: Path, profile: dict) -> dict:
+    def _build_env(self, file_path: Path, profile: dict,
+                   output_dir: Path | None = None,
+                   root_file: Path | None = None) -> dict:
         from core.external_open import clean_subprocess_env
         env = clean_subprocess_env()
         env["NOTEPADPQ_FILE"]     = str(file_path)
         env["NOTEPADPQ_DIR"]      = str(file_path.parent)
         env["NOTEPADPQ_BASENAME"] = file_path.stem
+        env["NOTEPADPQ_ROOT"]     = str(root_file or file_path)
+        env["NOTEPADPQ_OUTDIR"]   = str(output_dir or file_path.parent)
 
         profile_env = profile.get("env", {})
         if isinstance(profile_env, dict):
@@ -771,21 +907,36 @@ class BuildManager(QObject):
 
     def _do_run(self, run_id: str, command: str, cwd: str, env: dict,
                 profile: dict, file_path: Path, editor,
-                interactive: bool, pre_hook: str = "", post_hook: str = "") -> bool:
+                interactive: bool, pre_hook: str = "", post_hook: str = "",
+                output_dir: Path | None = None) -> bool:
 
         from config.settings import Settings
 
         def _exec_command(cmd: str) -> BuildWorker:
-            if file_path.suffix == ".tex" and Settings.instance().get("build/draft_mode", False):
+            if file_path.suffix.lower() in {".tex", ".ltx", ".latex"} and Settings.instance().get("build/draft_mode", False):
                 cmd = self._add_draftmode_flag(cmd)
 
             self.build_started.emit(run_id, "build")
             self.build_output.emit(run_id, tr("msg.build_started", command=cmd))
 
             if Settings.instance().get("build/clean_aux_before_compile", False):
+                aux_base = (output_dir / file_path.stem
+                            if output_dir else file_path.with_suffix(""))
+                extra_bases = []
+                context = self._build_contexts.get(run_id)
+                if context is not None:
+                    try:
+                        for source in context.included_files():
+                            extra_bases.extend((
+                                source.with_suffix(""),
+                                output_dir / source.stem if output_dir else source.with_suffix(""),
+                            ))
+                    except (OSError, RuntimeError):
+                        pass
                 removed = clean_aux_files(
-                    file_path.with_suffix(""),
+                    aux_base,
                     keep_synctex=Settings.instance().get("build/keep_synctex", True),
+                    extra_bases=extra_bases,
                 )
                 if removed:
                     self.build_output.emit(run_id,
@@ -794,7 +945,8 @@ class BuildManager(QObject):
             return self._spawn_worker(run_id, cmd, cwd, env, interactive)
 
         if pre_hook and pre_hook.strip():
-            hook_cmd = self._expand_vars(pre_hook.strip(), file_path, editor)
+            hook_cmd = self._expand_vars(
+                pre_hook.strip(), file_path, editor, output_dir=output_dir)
             self.build_output.emit(run_id, tr("build.pre_hook", cmd=hook_cmd,
                 default="Pre-hook: {cmd}"))
             hook_worker = self._spawn_worker(run_id + "_pre", hook_cmd, cwd, env, interactive)
@@ -807,7 +959,9 @@ class BuildManager(QObject):
                 hook_worker._main_file_path = file_path
                 hook_worker._main_editor = editor
                 hook_worker._main_interactive = interactive
+                hook_worker._main_output_dir = output_dir
                 hook_worker._post_hook = post_hook
+                hook_worker._output_dir = output_dir
             return True
 
         worker = _exec_command(command)
@@ -815,6 +969,7 @@ class BuildManager(QObject):
             worker._post_hook = post_hook
             worker._post_hook_file_path = file_path
             worker._post_hook_editor = editor
+            worker._output_dir = output_dir
         return worker is not None
 
     def _spawn_worker(self, run_id: str, command: str, cwd: str, env: dict,
@@ -877,7 +1032,16 @@ class BuildManager(QObject):
                 cwd = getattr(worker, "_main_cwd", ".")
                 env = getattr(worker, "_main_env", {})
                 interactive = getattr(worker, "_main_interactive", False)
-                self._spawn_worker(run_id.replace("_pre", ""), main_cmd, cwd, env, interactive)
+                self._do_run(
+                    run_id.replace("_pre", ""), main_cmd, cwd, env,
+                    getattr(worker, "_main_profile", {}),
+                    getattr(worker, "_main_file_path", None),
+                    getattr(worker, "_main_editor", None),
+                    interactive,
+                    pre_hook="",
+                    post_hook=getattr(worker, "_post_hook", ""),
+                    output_dir=getattr(worker, "_main_output_dir", None),
+                )
             else:
                 self.build_done.emit(run_id.replace("_pre", ""),
                                      False, tr("build.pre_hook_failed",
@@ -894,9 +1058,15 @@ class BuildManager(QObject):
             post_hook = getattr(worker, "_post_hook", "")
             file_path = getattr(worker, "_main_file_path", None)
             editor = getattr(worker, "_main_editor", None)
+            output_dir = getattr(worker, "_main_output_dir", None)
 
             self._do_run(run_id, cmd, cwd, env, getattr(worker, "_main_profile", {}),
-                        file_path, editor, interactive, pre_hook="", post_hook=post_hook)
+                        file_path, editor, interactive, pre_hook="", post_hook=post_hook,
+                        output_dir=output_dir)
+            return
+
+        if hasattr(worker, "_pipeline"):
+            self._continue_pipeline(run_id, ok)
             return
 
         msg = tr("msg.build_finished_ok", seconds=f"{secs:.1f}") if ok else \
@@ -904,9 +1074,12 @@ class BuildManager(QObject):
         self.build_done.emit(run_id, ok, msg)
 
         if ok and hasattr(worker, "_post_hook") and worker._post_hook:
-            hook_cmd = self._expand_vars(worker._post_hook.strip(),
-                                         getattr(worker, "_post_hook_file_path", None),
-                                         getattr(worker, "_post_hook_editor", None))
+            hook_cmd = self._expand_vars(
+                worker._post_hook.strip(),
+                getattr(worker, "_post_hook_file_path", None),
+                getattr(worker, "_post_hook_editor", None),
+                output_dir=getattr(worker, "_output_dir", None),
+            )
             self.build_output.emit(run_id, tr("build.post_hook", cmd=hook_cmd,
                 default="Post-hook: {cmd}"))
             env = {**os.environ}
@@ -915,8 +1088,6 @@ class BuildManager(QObject):
             hook_rid = run_id + "_post"
             self._spawn_worker(hook_rid, hook_cmd, ".", env, False)
 
-        if hasattr(worker, "_pipeline"):
-            self._continue_pipeline(run_id, ok)
 
     def stop(self, run_id: str = "") -> None:
         if run_id:
@@ -944,7 +1115,9 @@ class BuildManager(QObject):
     # ── Espansione variabili ──────────────────────────────────────────────────
 
     def _expand_vars(self, command: str, path: Path,
-                     editor: Optional["EditorWidget"]) -> str:
+                     editor: Optional["EditorWidget"],
+                     output_dir: Path | None = None,
+                     root_file: Path | None = None) -> str:
         line, col = (1, 1)
         if editor:
             line, col = editor.get_cursor_position_1based()
@@ -958,6 +1131,8 @@ class BuildManager(QObject):
             "FILENAME": path.name if path else "",
             "LINE":     str(line),
             "COL":      str(col),
+            "OUTDIR":   str(output_dir or (path.parent if path else "")),
+            "ROOT":     str(root_file or path or ""),
         }
         for name, val in vals.items():
             command = command.replace(f"${{{name}}}", val)
@@ -994,7 +1169,8 @@ class BuildManager(QObject):
 
     def parse_errors(self, output: str, profile_name: str,
                      source_file: Path | None = None,
-                     lsp_diagnostics: list[dict] | None = None) -> list[dict]:
+                     lsp_diagnostics: list[dict] | None = None,
+                     output_dir: Path | None = None) -> list[dict]:
         profile = self._profiles.get(profile_name, {})
         if not profile and source_file:
             profile = self.get_project_profiles(source_file).get(profile_name, {})
@@ -1002,13 +1178,13 @@ class BuildManager(QObject):
             profile = {}
 
         if profile.get("error_parser") == "latex":
-            errors = self._parse_latex_log(output, source_file)
+            errors = self._parse_latex_log(output, source_file, output_dir)
         elif output and (
             "! " in output[:3000]
-            or re.search(r'\.tex:\d+:', output[:3000])
+            or re.search(r'\.(?:tex|ltx|latex):\d+:', output[:3000])
             or re.search(r'l\.\d+', output[:3000])
         ):
-            errors = self._parse_latex_log(output, source_file)
+            errors = self._parse_latex_log(output, source_file, output_dir)
         else:
             pattern = profile.get("error_regex", "")
             if not pattern:
@@ -1046,13 +1222,15 @@ class BuildManager(QObject):
         return errors
 
     @staticmethod
-    def _parse_latex_log(output: str, source_file: Optional[Path] = None) -> list[dict]:
+    def _parse_latex_log(output: str, source_file: Optional[Path] = None,
+                         output_dir: Optional[Path] = None) -> list[dict]:
         errors: list[dict] = []
         seen: set[tuple] = set()
         fallback_file = str(source_file.name) if source_file else ""
 
         if source_file and source_file.exists():
-            log_path = source_file.with_suffix(".log")
+            log_base = output_dir or source_file.parent
+            log_path = Path(log_base) / f"{source_file.stem}.log"
             if log_path.exists():
                 try:
                     log_content = log_path.read_text(errors="replace")
@@ -1075,13 +1253,13 @@ class BuildManager(QObject):
                     f = f[2:]
                 file_stack.append(f)
                 current_file = f
-                if not main_file and f.endswith(".tex"):
+                if not main_file and f.lower().endswith((".tex", ".ltx", ".latex")):
                     main_file = f
             net_close = raw.count(')') - raw.count('(')
             if net_close > 0:
                 for _ in range(min(net_close, len(file_stack))):
                     file_stack.pop()
-                current_file = file_stack[-1] if file_stack else current_file
+                current_file = file_stack[-1] if file_stack else ""
 
             bm = _RE_LATEX_BANG.search(raw)
             if bm:
@@ -1098,7 +1276,7 @@ class BuildManager(QObject):
                         if lm:
                             line_num = int(lm.group(1))
                             break
-                eff_file = current_file if _RE_LATEX_MODERN.search(raw) else (main_file or current_file or fallback_file)
+                eff_file = current_file or main_file or fallback_file
                 key = (eff_file, line_num, msg)
                 if key not in seen:
                     seen.add(key)
@@ -1117,7 +1295,7 @@ class BuildManager(QObject):
                 msg  = fm.group(3).strip()
                 key  = (f, lnum, msg)
                 if key not in seen:
-                    if f and f.endswith(".tex"):
+                    if f and f.lower().endswith((".tex", ".ltx", ".latex")):
                         current_file = f
                     seen.add(key)
                     errors.append({"file": f or current_file, "line": lnum, "message": msg})
@@ -1132,7 +1310,7 @@ class BuildManager(QObject):
             for lm_match in re.finditer(r'l\.(\d+)', before):
                 lm = lm_match
             line_num = int(lm.group(1)) if lm else 0
-            eff_file = main_file or current_file or fallback_file
+            eff_file = current_file or main_file or fallback_file
             key = (eff_file, line_num, msg[:120])
             if key not in seen:
                 seen.add(key)

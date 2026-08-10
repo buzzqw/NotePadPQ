@@ -650,6 +650,8 @@ class _ApiRebuildWorker(QThread):
                 from editor.latex_support import LaTeXSupport
                 if self._file_path:
                     labels = LaTeXSupport.extract_labels_with_context_multifile(self._file_path)
+                    labels = sorted(set(labels) | set(
+                        LaTeXSupport.extract_labels_with_context(self._text)))
                 else:
                     labels = LaTeXSupport.extract_labels_with_context(self._text)
             except Exception:
@@ -659,6 +661,8 @@ class _ApiRebuildWorker(QThread):
                     from editor.latex_support import LaTeXSupport
                     if self._file_path:
                         bibtex = LaTeXSupport.extract_bibtex_keys_multifile(self._file_path)
+                        bibtex = sorted(set(bibtex) | set(
+                            LaTeXSupport.extract_bibtex_keys(self._text, self._file_path)))
                     else:
                         bibtex = LaTeXSupport.extract_bibtex_keys(self._text, None)
                 except Exception:
@@ -668,6 +672,8 @@ class _ApiRebuildWorker(QThread):
                     from editor.latex_support import LaTeXSupport
                     if self._file_path:
                         hypertargets = LaTeXSupport.extract_hypertargets_multifile(self._file_path)
+                        hypertargets = sorted(set(hypertargets) | set(
+                            LaTeXSupport.extract_hypertargets(self._text)))
                     else:
                         hypertargets = LaTeXSupport.extract_hypertargets(self._text)
                 except Exception:
@@ -688,9 +694,10 @@ class AutoCompleteManager(QObject):
     """
 
     def __init__(self, editor: "EditorWidget", parent: QObject = None):
-        super().__init__(parent)
+        super().__init__(parent if parent is not None else editor)
 
         self._editor   = editor
+        editor._autocomplete = self
         self._language = ""
         self._levels   = AutoCompleteLevel.DOCUMENT | AutoCompleteLevel.API_DICT
         self._api: Optional[QsciAPIs] = None
@@ -699,6 +706,16 @@ class AutoCompleteManager(QObject):
         self._api_worker: Optional[_ApiRebuildWorker] = None
         self._old_api_workers: list = []
         self._api_gen: int = 0
+        self._shutting_down = False
+        self._cross_tab_connected = False
+        self._local_completion_keys: set[str] = set()
+        self._lsp_client = None
+        self._lsp_signal_client = None
+        self._lsp_request_id: Optional[int] = None
+        self._lsp_request_uri = ""
+        self._lsp_request_cursor: tuple[int, int] | None = None
+        self._lsp_items: dict[str, dict] = {}
+        self._lsp_popup_open = False
 
         # Cache label/bibtex/hypertarget precalcolate in background dal worker.
         # Usate dai popup '{' per evitare I/O sincrono su Dropbox.
@@ -721,6 +738,26 @@ class AutoCompleteManager(QObject):
         self._doc_change_timer.timeout.connect(self._rebuild_api)
 
         self._setup_base()
+        editor.SCN_CHARADDED.connect(self._on_char_added_for_lsp)
+        editor.userListActivated.connect(self._on_lsp_user_list_selection)
+        editor.destroyed.connect(self.shutdown)
+
+        try:
+            from config.settings import Settings
+            if Settings.instance().get("autocomplete/lsp", False):
+                self._levels |= AutoCompleteLevel.LSP
+        except Exception:
+            pass
+
+        language = getattr(editor, "_current_language", "")
+        if language:
+            self.set_language(language.lower())
+            try:
+                from editor.lexers import refresh_language_support
+                refresh_language_support(editor, force_check=True,
+                                         refresh_autocomplete=False)
+            except Exception:
+                pass
 
     # ── Setup ─────────────────────────────────────────────────────────────────
 
@@ -786,7 +823,19 @@ class AutoCompleteManager(QObject):
         Imposta il linguaggio e ricarica il dizionario API appropriato.
         language: stringa lowercase es. "python", "latex", "html"
         """
+        if self._shutting_down:
+            return
+        if self._language != language.lower():
+            self._disconnect_lsp_client()
         self._language = language.lower()
+        if self._levels & AutoCompleteLevel.API_DICT:
+            self._local_completion_keys = {
+                self._completion_key(term.split("?", 1)[0])
+                for term in _LANGUAGE_APIS.get(self._language, [])
+                if term.split("?", 1)[0].strip()
+            }
+        else:
+            self._local_completion_keys.clear()
         # Per LaTeX, \ deve essere un word-character in modo che \label{},
         # \pageref{} ecc. vengano abbinati quando si digita \la…, \pa…
         # (senza questa impostazione \ non è word-char e le voci API con \cmd{}
@@ -837,6 +886,10 @@ class AutoCompleteManager(QObject):
                 terms.append(f"{trigger}?5\n{description}")
         except Exception:
             pass
+        self._local_completion_keys = ({
+            self._completion_key(term.split("?", 1)[0]) for term in terms
+            if term.split("?", 1)[0].strip()
+        } if self._levels & AutoCompleteLevel.API_DICT else set())
         if not terms:
             return
         api = QsciAPIs(lexer)
@@ -850,9 +903,10 @@ class AutoCompleteManager(QObject):
         """Avvia un worker asincrono per ricostruire le API di autocompletamento.
         Snapshot di testo e parole cross-tab presi qui sul main thread;
         il parsing I/O (build_dynamic_api) gira in background."""
+        if self._shutting_down:
+            return
         lexer = self._editor.lexer()
         if lexer is None:
-            QTimer.singleShot(100, self._rebuild_api)
             return
 
         # Elimina worker precedenti non più in esecuzione
@@ -888,6 +942,10 @@ class AutoCompleteManager(QObject):
         operazioni Qt (add + prepare) che devono stare sul main thread."""
         if gen != self._api_gen:
             return
+        self._local_completion_keys = ({
+            self._completion_key(term.split("?", 1)[0]) for term in terms
+            if term.split("?", 1)[0].strip()
+        } if self._levels & AutoCompleteLevel.API_DICT else set())
         self._api_worker = None
         lexer = self._editor.lexer()
         if lexer is None:
@@ -927,8 +985,9 @@ class AutoCompleteManager(QObject):
     def set_tab_manager(self, tab_manager) -> None:
         """Collega il tab manager per il completamento cross-documento."""
         self._tab_manager_ref = tab_manager
-        if self._tab_manager_ref:
+        if self._tab_manager_ref and not self._cross_tab_connected:
             self._editor.textChanged.connect(self._cross_tab_timer.start)
+            self._cross_tab_connected = True
 
     def _rebuild_all_docs_words(self) -> None:
         """Ricostruisce il dizionario includendo parole aggiornate degli altri tab."""
@@ -939,7 +998,181 @@ class AutoCompleteManager(QObject):
 
     def trigger_manual(self) -> None:
         """Forza la visualizzazione del popup (Ctrl+Space)."""
+        self._request_lsp_completions(force=True)
         self._editor.autoCompleteFromAll()
+
+    # ── Completamento LSP ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def _completion_key(value: str) -> str:
+        """Chiave stabile per confrontare voci locali e LSP."""
+        value = str(value or "").strip().casefold()
+        return re.sub(r"\([^()]*\)$", "", value)
+
+    def _on_char_added_for_lsp(self, _char: int) -> None:
+        self._request_lsp_completions()
+
+    def _disconnect_lsp_client(self) -> None:
+        client = self._lsp_signal_client
+        if client is not None:
+            try:
+                client.completion_response.disconnect(self._on_lsp_completions)
+            except (RuntimeError, TypeError, AttributeError):
+                pass
+        self._lsp_signal_client = None
+        self._lsp_client = None
+        self._lsp_request_id = None
+        self._lsp_items.clear()
+        self._lsp_popup_open = False
+
+    def _connect_lsp_client(self, client) -> bool:
+        if client is None:
+            return False
+        if client is self._lsp_signal_client:
+            return True
+        self._disconnect_lsp_client()
+        signal = getattr(client, "completion_response", None)
+        if signal is None:
+            return False
+        try:
+            signal.connect(self._on_lsp_completions)
+        except (RuntimeError, TypeError):
+            return False
+        self._lsp_client = client
+        self._lsp_signal_client = client
+        return True
+
+    def _request_lsp_completions(self, force: bool = False) -> None:
+        if self._shutting_down or not (self._levels & AutoCompleteLevel.LSP):
+            return
+        path = getattr(self._editor, "file_path", None)
+        client = getattr(self._editor, "_lsp_client", None)
+        if client is not None and getattr(client, "_stopped", False):
+            try:
+                window = self._editor.window()
+                reconnect = getattr(window, "_lsp_connect_editor", None)
+                if reconnect is not None:
+                    reconnect(self._editor, sync_content=True)
+                    client = getattr(self._editor, "_lsp_client", None)
+            except Exception:
+                client = None
+        if path is None or client is None:
+            self._disconnect_lsp_client()
+            return
+        if not self._connect_lsp_client(client):
+            return
+
+        line, col = self._editor.getCursorPosition()
+        # Una nuova posizione rende obsolete tutte le risposte precedenti.
+        self._lsp_request_id = None
+        if not force and not self._completion_prefix(line, col):
+            return
+        try:
+            request_id = client.request_completions(path, line, col)
+        except Exception:
+            return
+        if request_id is None:
+            return
+        self._lsp_request_id = request_id
+        self._lsp_request_uri = path.as_uri()
+        self._lsp_request_cursor = (line, col)
+
+    def _completion_prefix(self, line: int, col: int) -> str:
+        try:
+            text = self._editor.text(line)[:col]
+        except Exception:
+            return ""
+        match = re.search(r"[\w\\]*$", text, re.UNICODE)
+        return match.group(0) if match else ""
+
+    def _on_lsp_completions(self, request_id: int, uri: str, items: list) -> None:
+        if request_id != self._lsp_request_id or uri != self._lsp_request_uri:
+            return
+        if self._lsp_request_cursor != self._editor.getCursorPosition():
+            return
+
+        self._lsp_items.clear()
+        seen: set[str] = set()
+        labels: list[str] = []
+        for item in items or []:
+            label = str(item.get("label", "")).strip() if isinstance(item, dict) else ""
+            if not label:
+                continue
+            key = self._completion_key(label)
+            if key in self._local_completion_keys or key in seen:
+                continue
+            seen.add(key)
+            self._lsp_items[label] = item
+            labels.append(label)
+
+        if not labels:
+            # Se il server ha restituito solo voci già locali, lascia aperto il
+            # popup nativo: la sorgente locale deve restare utilizzabile.
+            self._cancel_lsp_popup()
+            return
+        self._cancel_lsp_popup()
+        try:
+            # QScintilla non può accodare una user-list al popup API già aperto.
+            self._editor.SendScintilla(QsciScintilla.SCI_AUTOCCANCEL)
+            self._editor.showUserList(20, labels)
+            self._lsp_popup_open = True
+        except Exception:
+            self._lsp_items.clear()
+
+    def _cancel_lsp_popup(self) -> None:
+        try:
+            self._editor.SendScintilla(QsciScintilla.SCI_AUTOCCANCEL)
+        except Exception:
+            pass
+        self._lsp_popup_open = False
+
+    def _on_lsp_user_list_selection(self, list_id: int, label: str) -> None:
+        if list_id != 20:
+            return
+        item = self._lsp_items.pop(label, None)
+        self._lsp_popup_open = False
+        if item is None:
+            return
+        text_edit = item.get("textEdit")
+        edit_range = text_edit.get("range") if isinstance(text_edit, dict) else None
+        if edit_range is None and isinstance(text_edit, dict):
+            edit_range = text_edit.get("replace")
+        if isinstance(edit_range, dict):
+            start = edit_range.get("start", {})
+            end = edit_range.get("end", {})
+            self._replace_lsp_range(
+                int(start.get("line", 0)), int(start.get("character", 0)),
+                int(end.get("line", 0)), int(end.get("character", 0)),
+                str(text_edit.get("newText", item.get("insertText", label))),
+            )
+            return
+
+        line, col = self._editor.getCursorPosition()
+        prefix = self._completion_prefix(line, col)
+        self._replace_lsp_range(line, col - len(prefix), line, col,
+                                str(item.get("insertText", label)))
+
+    def _replace_lsp_range(self, start_line: int, start_char: int,
+                           end_line: int, end_char: int, text: str) -> None:
+        try:
+            start_col = self._utf16_to_column(start_line, start_char)
+            end_col = self._utf16_to_column(end_line, end_char)
+            self._editor.setSelection(start_line, start_col, end_line, end_col)
+            self._editor.replaceSelectedText(text)
+        except Exception:
+            pass
+
+    def _utf16_to_column(self, line: int, character: int) -> int:
+        line_text = self._editor.text(line)
+        if character <= 0:
+            return 0
+        units = 0
+        for col, char in enumerate(line_text):
+            next_units = units + (2 if ord(char) > 0xFFFF else 1)
+            if next_units > character:
+                return col
+            units = next_units
+        return len(line_text)
 
     # ── Completamento speciale per LaTeX ──────────────────────────────────────
 
@@ -1179,7 +1412,8 @@ class AutoCompleteManager(QObject):
         self._env_popup_needs_brace = needs_brace
         try:
             from editor.latex_support import LaTeXSupport
-            envs = LaTeXSupport.get_all_environments(self._editor.text())
+            envs = LaTeXSupport.get_all_environments(
+                self._editor.text(), getattr(self._editor, "_file_path", None))
         except Exception:
             from editor.latex_support import STANDARD_ENVIRONMENTS
             envs = STANDARD_ENVIRONMENTS
@@ -1292,7 +1526,7 @@ class AutoCompleteManager(QObject):
         Pianifica un rebuild dell'API per aggiornare label/comandi custom.
         Solo per LaTeX: usa un timer per non rallentare la digitazione.
         """
-        if self._language in ("latex", "bibtex"):
+        if not self._shutting_down and self._language in ("latex", "bibtex"):
             self._doc_change_timer.start()
 
     # ── Soglia e trigger ──────────────────────────────────────────────────────
@@ -1307,3 +1541,46 @@ class AutoCompleteManager(QObject):
     def refresh(self) -> None:
         """Forza il rebuild del dizionario API (es. dopo cambio tema/lingua)."""
         self._rebuild_api()
+
+    def shutdown(self) -> None:
+        """Ferma timer e worker prima della distruzione dell'editor."""
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        self._cross_tab_timer.stop()
+        self._doc_change_timer.stop()
+        self._api_gen += 1
+        if self._cross_tab_connected:
+            try:
+                self._editor.textChanged.disconnect(self._cross_tab_timer.start)
+            except (RuntimeError, TypeError):
+                pass
+            self._cross_tab_connected = False
+
+        workers = []
+        if self._api_worker is not None:
+            workers.append(self._api_worker)
+            self._api_worker = None
+        workers.extend(self._old_api_workers)
+        self._old_api_workers.clear()
+        seen = set()
+        for worker in workers:
+            if worker in seen:
+                continue
+            seen.add(worker)
+            try:
+                worker.cancel()
+                if worker.isRunning():
+                    worker.wait(1000)
+                if not worker.isRunning():
+                    worker.deleteLater()
+                else:
+                    worker.finished.connect(self._forget_api_workers)
+                    self._old_api_workers.append(worker)
+            except RuntimeError:
+                pass
+
+    def _forget_api_workers(self) -> None:
+        self._old_api_workers = [
+            worker for worker in self._old_api_workers if worker.isRunning()
+        ]

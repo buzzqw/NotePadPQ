@@ -71,10 +71,15 @@ Runs natively on Linux, Windows, and FreeBSD.
 - **Session restore**: unsaved (untitled) editor buffers are automatically recovered at the next startup, so you never lose work in progress.
 
 ### 🗂️ Tab Management & Split View
-- **Multiple tabs** with drag & drop, modification indicator, session restore at startup.
+- **Multiple tabs** with drag & drop, modification indicator, session restore at startup, and a most-recently-used switcher (`Ctrl+Tab`).
 - **Horizontal and vertical split view** (`Ctrl+Alt+2` / `Ctrl+Alt+3`).
 - **Clone tab** to work on the same file at two positions simultaneously.
 - **Project Manager** (PSPad-style): group files into named projects saved as `.npqproj` (JSON); toolbar to create groups, add/remove files; double-click to open.
+- **Pinned recent files** and **tail mode** for files that are updated continuously on disk.
+
+### 📦 Large Files
+- Files larger than 200 MB are opened progressively and edited in paged mode, without loading the entire document into memory.
+- Page navigation and `Ctrl+G` line navigation remain available; Save and Save As write the current page in streaming mode.
 
 ### 🔍 Search, Navigation & Command Palette
 - **Command Palette** (`Ctrl+Shift+P`): fuzzy-search over all editor commands.
@@ -96,16 +101,20 @@ Runs natively on Linux, Windows, and FreeBSD.
 - **Sort lines** by 5 criteria: alphabetical, reverse, by length, random.
 - **Word frequency**: occurrence analysis on the document or selection.
 - **Table alignment** for Markdown/LaTeX, **wrap in environment/tag**.
-- **Smart LaTeX environment popup**: typing `\begin`/`\end` suggests environments — most-used first for `\begin`, currently-open (innermost first) for `\end` — with a single correctly-paired insertion (no duplicate/mismatched `\end{}`).
+- **Wrap selection** in matching quotes, brackets, or backticks, with automatic handling of existing delimiters.
+- **Smart LaTeX environment popup**: typing `\be`/`\en` suggests environments — most-used first for `\begin`, currently-open (innermost first) for `\end`; renaming an environment keeps the matching pair synchronized.
+- **BibTeX Wizard**: create and validate BibTeX/BibLaTeX entries from a guided form, generate keys, detect duplicates, and look up DOI metadata through Crossref.
 - **Color Translator**: pick a color and get HTML/CSS name, `#HEX`, `rgb()`, `rgb(%)`, `hsl()`: insert or copy each format individually.
 - **Lorem Ipsum generator**: insert placeholder text with configurable paragraphs, sentences, and separator.
 - Interactive regex tester, numeric converter (dec/hex/bin/oct).
 
 ### 🏗️ Build Panel
 - Configurable **build profiles** per language: 13 built-in (Python, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) + unlimited user-defined profiles.
-- **Command variables**: `${FILE}` (full path), `${DIR}` (directory), `${BASENAME}` (name without extension), `${BASEFILE}` (full path without extension), `${FILENAME}`, `${EXT}`, `${LINE}`, `${COL}`. Also accepted as `$(VAR)`.
+- **Command variables**: `${FILE}` (root/source path), `${DIR}` (root directory), `${OUTDIR}` (artifact directory), `${ROOT}` (LaTeX root), `${BASENAME}`, `${BASEFILE}`, `${FILENAME}`, `${EXT}`, `${LINE}`, `${COL}`. Also accepted as `$(VAR)`.
 - **Extended task discovery**: auto-detects tasks from Makefile, `package.json`, `pyproject.toml`, `Cargo.toml`, `CMakeLists.txt`, `Gradle` (`build.gradle`), `Docker Compose`, `Dockerfile`, `justfile`.
 - **Project-level config** (`.notepadpq-build.json`): share build profiles and tasks with your team via Git.
+- **LaTeX project context**: resolves `% !TEX root`, `.latexmkrc`, `main.tex`, included files and custom output directories consistently across build, PDF preview and SyncTeX.
+- **BibTeX/Biber detection**: `latexmk` automatically receives the appropriate backend option when the project uses BibTeX or `biblatex`/Biber.
 - **Environment variables** per profile: set custom `PATH`, `VIRTUAL_ENV`, `JAVA_HOME`, etc.
 - **Pre/post build hooks**: commands executed before and after the main build (e.g. activate virtualenv, cleanup scripts).
 - **Multi-step pipeline**: define sequential build steps (`lint → compile → test → deploy`) with per-step error handling.
@@ -115,7 +124,8 @@ Runs natively on Linux, Windows, and FreeBSD.
 - Real-time output with **clickable error list**; click an error to jump directly to the line.
 - **Configurable output limit**: prevent memory issues with very large build logs.
 - **Automatic PDF detection**: the preview button activates instantly if a compiled PDF is already present.
-- **Auto-save** before compilation, **build-on-save** option, Keep `.synctex.gz` option (sync survives aux-file cleanup).
+- **Draft Mode** for LaTeX checks (`-draftmode`, no PDF output), plus auxiliary-file cleanup and next/previous build-error navigation.
+- **Auto-save** before compilation, **build-on-save** and optional debounced **build-while-editing**, Keep `.synctex.gz` option (sync survives aux-file cleanup).
 
 ### 👁️ Preview Panel
 - **Live preview** for Markdown, HTML, reStructuredText, LaTeX (structure), PDF.
@@ -123,8 +133,10 @@ Runs natively on Linux, Windows, and FreeBSD.
 - **Math equation rendering** on hover in LaTeX/Markdown files (`$...$`, `$$...$$`, `\[...\]`). MathJax 3 also renders formulas inside the live Markdown preview (auto-detected, requires internet).
 - **Mermaid diagrams**: ` ```mermaid ` blocks in Markdown are automatically rendered as diagrams in the preview panel via Mermaid.js (requires internet; toggle in Preferences → Preview).
 - **SyncTeX**: bidirectional sync between editor cursor and PDF position — click in the editor, the PDF jumps to the right page and vice versa.
+- **LaTeX templates**: built-in article/report/Beamer templates plus user/project templates from `.notepadpq/templates`.
 - **Smart Crop**: auto-trim PDF white margins (`✂`).
-- Zoom with `Ctrl+Wheel`, page-by-page navigation with the scroll wheel.
+- Continuous PDF scrolling is enabled by default; zoom and page navigation remain available with the mouse wheel.
+- PDF text search, selection/copy, keyboard result navigation, and magnifier tools are available in the integrated viewer.
 - **Print as PDF** (raw text) and **Export as PDF** (rendered Markdown) — two distinct, clearly labelled actions.
 
 > 💡 The LaTeX workflow in NotePadPQ is unmatched: Function List for document navigation, SyncTeX bidirectional sync, inline equation hover preview, and a full Build Panel — all in one window.
@@ -151,12 +163,14 @@ Dock panel with multi-provider AI chat:
 
 | Provider | Special features |
 |---|---|
-| **Anthropic Claude** | SSE streaming, Extended Thinking (Opus), **dynamic model list** from the API key |
-| **OpenAI** | GPT-4o, GPT-4o-mini, o3-mini |
-| **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro |
-| **Ollama** | Local models auto-detected (no key, no cost) |
+| **Anthropic Claude** | SSE streaming, Extended Thinking, dynamic model discovery |
+| **OpenAI** | GPT-5/4.1/4o and o-series models, dynamic model discovery |
+| **Google Gemini** | Gemini 2.5 models, dynamic model discovery |
+| **DeepSeek** | DeepSeek V4 models and thinking mode |
+| **Ollama / LlamaCPP** | Local models auto-detected (no key, no cost) |
 
 Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) directly from right-click in the editor. Bring-your-own-key; each provider has its own configurable API key.
+The assistant also supports streaming responses, slash commands, file/image attachments where supported, token estimates, response regeneration, and an inline diff before applying edits.
 
 ### 🔌 Plugin System
 
@@ -168,7 +182,7 @@ Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) d
 |--------|----------|
 | **AI Assistant** | Multi-provider AI chat with streaming, Extended Thinking, and dynamic model list |
 | **Clipboard History** | Multi-entry clipboard with quick selection |
-| **Compare & Merge** | Visual side-by-side file comparison |
+| **Compare & Merge** | Editable three-way comparison with syntax highlighting, character-level diffs and synchronized scrolling |
 | **Database** | Browser and query editor for SQLite, PostgreSQL, MySQL/MariaDB with AI SQL generation |
 | **Encrypt/Decrypt** | AES-256-GCM and ChaCha20-Poly1305 encryption |
 | **Rich Text Editor** | WYSIWYG editor for .doc, .docx, .odt, .rtf, .html powered by Jodit 4 |
@@ -177,7 +191,7 @@ Contextual actions (Explain, Refactor, Docstring, Fix bug, Unit tests, Review) d
 | **FTP Browser** | Browse and edit files on FTP/SFTP servers; **SSH** interactive terminal (paramiko); **SMB** mount helper — detects if share is already mounted, otherwise mounts via `mount.cifs` (Linux), `net use` (Windows), `mount_smbfs` (macOS) with credentials and domain/workgroup |
 | **Git Integration** | Full Git panel: status, log, diff, branch, PR/MR |
 | **Hex Viewer** | Hexadecimal view of binary files |
-| **REST Client** | Integrated HTTP/REST client with 4-step wizard, collection manager, environment variables (dev/staging/prod), Bearer/Basic/API-Key auth, JSON/XML pretty-print (`Ctrl+Alt+R`) |
+| **REST Client** | HTTP/REST client with wizard, OAuth 2.0, multipart upload, pre-request scripts, assertions, Collection Runner, environments and cURL/Python/JS snippets |
 | **Search PQ** | Dock panel for advanced search and replace: TEXT mode (AND/NOT), regexp, LIKE; result queue, inline filter, context menu (`Ctrl+Alt+F`) |
 | **Terminal** | xterm.js+PTY terminal as an independent dock panel, synced with the open file's directory (`Ctrl+Alt+T`) |
 | **Web Search** | Web and Wikipedia search on selected text directly from the context menu |
@@ -451,10 +465,15 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Recupero buffer non salvati**: i tab aperti non ancora salvati vengono ripristinati automaticamente all'avvio successivo, così non perdi mai il lavoro in corso.
 
 ### 🗂️ Gestione tab e split view
-- **Tab multipli** con drag & drop, indicatore di modifica, ripristino sessione all'avvio.
+- **Tab multipli** con drag & drop, indicatore di modifica, ripristino sessione all'avvio e switcher MRU (`Ctrl+Tab`).
 - **Split view** orizzontale e verticale (`Ctrl+Alt+2` / `Ctrl+Alt+3`).
 - **Clona tab** per lavorare sulla stessa vista in due posizioni.
 - **Gestione Progetti** stile PSPad: raggruppa file in progetti salvati come `.npqproj` (JSON); toolbar per creare gruppi, aggiungere/rimuovere file; doppio clic per aprire.
+- **File recenti fissati** e **modalità tail** per file aggiornati continuamente su disco.
+
+### 📦 File grandi
+- I file oltre 200 MB vengono aperti progressivamente e modificati in modalità paginata, senza caricare l'intero documento in memoria.
+- La navigazione tra pagine e `Ctrl+G` restano disponibili; Salva e Salva con nome scrivono la pagina corrente in streaming.
 
 ### 🔍 Ricerca, navigazione e palette comandi
 - **Command Palette** (`Ctrl+Shift+P`): accesso fuzzy-search a tutti i comandi dell'editor.
@@ -476,13 +495,17 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Ordina righe** con 5 criteri: alfabetico, inverso, per lunghezza, casuale.
 - **Frequenza parole**: analisi delle occorrenze sul documento o sulla selezione.
 - **Allineamento tabelle** Markdown/LaTeX, **avvolgimento** in ambienti/tag.
-- **Popup ambienti LaTeX intelligente**: digitando `\begin`/`\end` propone gli ambienti — i più usati per `\begin`, quelli ancora aperti (dal più interno) per `\end` — con inserimento sempre corretto (niente `\end{}` duplicati o spaiati).
+- **Avvolgi selezione** tra virgolette, parentesi o backtick corrispondenti, gestendo automaticamente i delimitatori già presenti.
+- **Popup ambienti LaTeX intelligente**: digitando `\be`/`\en` propone gli ambienti — i più usati per `\begin`, quelli ancora aperti (dal più interno) per `\end`; rinominando un ambiente mantiene sincronizzata la coppia corrispondente.
+- **BibTeX Wizard**: crea e valida voci BibTeX/BibLaTeX da un modulo guidato, genera le chiavi, rileva duplicati e recupera i metadati da un DOI tramite Crossref.
 - **Traduttore colori**: seleziona un colore e ottieni immediatamente nome HTML/CSS, `#HEX`, `rgb()`, `rgb(%)`, `hsl()`: pulsante inserisci/copia per ogni formato.
 - **Generatore Lorem Ipsum**: inserisce testo segnaposto con opzioni (paragrafi, frasi, separatore, primo paragrafo classico).
 - Tester regex interattivo, convertitore numerico (dec/hex/bin/oct).
 
 ### 🏗️ Pannello Build
 - **Profili di build** configurabili per linguaggio: 13 built-in (Python, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) + illimitati profili utente.
+- **Contesto progetto LaTeX**: risolve `% !TEX root`, `.latexmkrc`, `main.tex`, file inclusi e directory output coerentemente tra build, PDF e SyncTeX.
+- **Rilevamento BibTeX/Biber**: `latexmk` riceve automaticamente il backend corretto quando il progetto usa BibTeX o `biblatex`/Biber.
 - **Variabili nei comandi**: `${FILE}` (percorso completo), `${DIR}` (cartella), `${BASENAME}` (nome senza estensione), `${BASEFILE}` (percorso senza estensione), `${FILENAME}`, `${EXT}`, `${LINE}`, `${COL}`. Accettate anche nella forma `$(VAR)`.
 - **Task discovery estesa**: rileva automaticamente task da Makefile, `package.json`, `pyproject.toml`, `Cargo.toml`, `CMakeLists.txt`, `Gradle` (`build.gradle`), `Docker Compose`, `Dockerfile`, `justfile`.
 - **Configurazione di progetto** (`.notepadpq-build.json`): condividi profili e task build con il team via Git.
@@ -495,7 +518,8 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Output in tempo reale** con lista errori cliccabile; click su un errore salta direttamente alla riga.
 - **Limite output configurabile**: previeni problemi di memoria con log di build molto grandi.
 - **Rilevamento PDF automatico**: il pulsante anteprima si abilita istantaneamente se è presente un PDF già compilato.
-- **Salvataggio automatico** prima della compilazione, opzione **compila al salvataggio**, mantieni `.synctex.gz` (sopravvive alla pulizia file ausiliari).
+- **Modalità Draft** per i controlli LaTeX (`-draftmode`, senza produrre PDF), pulizia dei file ausiliari e navigazione errore precedente/successivo.
+- **Salvataggio automatico** prima della compilazione, opzioni **compila al salvataggio** e **compila durante la modifica** con debounce, mantieni `.synctex.gz` (sopravvive alla pulizia file ausiliari).
 
 ### 👁️ Pannello Anteprima
 - **Anteprima live** di Markdown, HTML, reStructuredText, LaTeX (struttura), PDF.
@@ -503,8 +527,10 @@ Scritto interamente in **Python 3** con **PyQt6** e **QScintilla**, gira nativam
 - **Rendering equazioni** matematiche inline con hover (file LaTeX/Markdown con `$...$`, `$$...$$`, `\[...\]`). MathJax 3 renderizza anche le formule dentro l'anteprima live Markdown (auto-rilevato, richiede internet).
 - **Diagrammi Mermaid**: i blocchi ` ```mermaid ` nel Markdown vengono renderizzati come diagrammi nell'anteprima tramite Mermaid.js (richiede internet; attivabile/disattivabile in Preferenze → Anteprima).
 - **SyncTeX**: sincronizzazione bidirezionale cursore editor ↔ posizione nel PDF — clicca nell'editor e il PDF salta alla pagina giusta, e viceversa.
+- **Template LaTeX**: template integrati per articolo/report/Beamer e template personalizzati da `.notepadpq/templates` utente o progetto.
 - **Smart Crop**: elimina automaticamente i margini bianchi dei PDF (`✂`).
-- Zoom con `Ctrl+Rotella`, navigazione pagina per pagina con la rotella del mouse.
+- Lo scorrimento continuo dei PDF è attivo per default; restano disponibili zoom e navigazione pagina con la rotella.
+- Il visualizzatore integrato supporta ricerca nel testo PDF, selezione/copia, navigazione da tastiera dei risultati e lente d'ingrandimento.
 - **Stampa come PDF** (testo grezzo) ed **Esporta come PDF** (Markdown renderizzato) — due azioni distinte e chiaramente etichettate.
 
 > 💡 Il flusso di lavoro LaTeX in NotePadPQ è senza rivali: Function List per navigare il documento, SyncTeX bidirezionale, hover preview delle equazioni, e Build Panel completo — tutto in un'unica finestra.
@@ -531,12 +557,14 @@ Panel dock con chat AI multi-provider:
 
 | Provider | Funzionalità speciali |
 |---|---|
-| **Anthropic Claude** | Streaming SSE, Extended Thinking (Opus), **lista modelli dinamica** dalla chiave API |
-| **OpenAI** | GPT-4o, GPT-4o-mini, o3-mini |
-| **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro |
-| **Ollama** | Modelli locali rilevati automaticamente (nessuna chiave, nessun costo) |
+| **Anthropic Claude** | Streaming SSE, Extended Thinking, scoperta dinamica dei modelli |
+| **OpenAI** | Modelli GPT-5/4.1/4o e serie o, scoperta dinamica |
+| **Google Gemini** | Modelli Gemini 2.5, scoperta dinamica |
+| **DeepSeek** | Modelli DeepSeek V4 e modalità thinking |
+| **Ollama / LlamaCPP** | Modelli locali rilevati automaticamente (nessuna chiave, nessun costo) |
 
 Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, Review) direttamente da tasto destro nell'editor. Bring-your-own-key; ogni provider ha la propria chiave configurabile.
+L'assistente supporta inoltre risposte in streaming, slash command, allegati di file/immagini dove disponibili, stima dei token, rigenerazione della risposta e diff inline prima di applicare le modifiche.
 
 ### 🔌 Sistema Plugin
 
@@ -548,7 +576,7 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 |--------|----------|
 | **AI Assistant** | Chat AI multi-provider con streaming, Extended Thinking e lista modelli dinamica |
 | **Clipboard History** | Cronologia degli appunti con selezione rapida |
-| **Compare & Merge** | Confronto visuale side-by-side tra due file o versioni |
+| **Compare & Merge** | Confronto modificabile a tre vie con syntax highlighting, diff a livello di carattere e scroll sincronizzato |
 | **Database** | Browser e query editor per SQLite, PostgreSQL, MySQL/MariaDB con AI SQL generation |
 | **Editor Rich Text** | Editor WYSIWYG per .doc, .docx, .odt, .rtf, .html basato su Jodit 4 |
 | **Encrypt/Decrypt** | Cifratura/decifratura con AES-256-GCM e ChaCha20-Poly1305 |
@@ -557,7 +585,7 @@ Azioni contestuali (Spiega, Refactoring, Docstring, Correggi bug, Test unitari, 
 | **FTP Browser** | Navigazione e modifica file su server FTP/SFTP; terminale **SSH** interattivo (paramiko); helper **SMB** — rileva se la share è già montata, altrimenti la monta via `mount.cifs` (Linux), `net use` (Windows), `mount_smbfs` (macOS) con credenziali, dominio e workgroup |
 | **Git Integration** | Stato repo, commit, diff, branch, PR/MR direttamente dall'editor |
 | **Hex Viewer** | Visualizzazione esadecimale dei file binari |
-| **REST Client** | Client HTTP/REST integrato con wizard guidato 4-step, gestione collection, variabili d'ambiente (dev/staging/prod), auth Bearer/Basic/API-Key, pretty-print JSON/XML (`Ctrl+Alt+R`) |
+| **REST Client** | Client HTTP/REST con wizard, OAuth 2.0, upload multipart, script pre-request, asserzioni, Collection Runner, ambienti e snippet cURL/Python/JS |
 | **Search PQ** | Pannello dock per ricerca e sostituzione avanzata: modalità TEXT (AND/NOT), regexp, LIKE; coda di risultati, filtro inline, contesto menu (`Ctrl+Alt+F`) |
 | **Terminal** | Terminale xterm.js+PTY come pannello dock indipendente, sincronizzato con la directory del file aperto (`Ctrl+Alt+T`) |
 | **Web Search** | Ricerca web e Wikipedia sul testo selezionato direttamente dal menu contestuale |

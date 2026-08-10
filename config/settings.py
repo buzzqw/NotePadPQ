@@ -53,6 +53,8 @@ _DEFAULTS: dict[str, Any] = {
     "build/save_before":       True,
     "build/keep_synctex":      True,
     "build/trigger_on_save":   False,
+    "build/trigger_on_edit":   False,
+    "build/trigger_on_edit_delay_ms": 900,
     "build/output_max_lines":  10000,
     "build/unified_errors":    True,
     # i18n

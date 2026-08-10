@@ -112,13 +112,28 @@ class LaTeXLexer(QsciLexerCustom):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._bytes_cache: bytes | None = None
+        self._state_cache: dict[int, tuple[str, tuple[str, ...]]] = {
+            0: ("default", ())
+        }
         # Invalida la cache solo quando il testo cambia.
         # Durante scroll/navigazione (testo invariato) la cache è riusata.
         if parent is not None:
             parent.textChanged.connect(self._on_text_changed)
 
     def _on_text_changed(self) -> None:
+        self.invalidate_cache()
+
+    def invalidate_cache(self) -> None:
+        """Scarta lo snapshot byte del documento dell'editor padre."""
         self._bytes_cache = None
+        self._state_cache = {0: ("default", ())}
+
+    def recolor(self) -> None:
+        """Invalida la cache e forza Scintilla a ristilizzare il documento."""
+        self.invalidate_cache()
+        parent = self.parent()
+        if parent is not None:
+            parent.SendScintilla(parent.SCI_COLOURISE, 0, -1)
 
     def language(self) -> str:
         return "LaTeX"
@@ -131,6 +146,267 @@ class LaTeXLexer(QsciLexerCustom):
         return _STYLE_NAMES.get(style, "")
 
     # ── Motore di highlighting ────────────────────────────────────────────────
+
+    @staticmethod
+    def _is_escaped(text_b: bytes, pos: int) -> bool:
+        count = 0
+        pos -= 1
+        while pos >= 0 and text_b[pos] == _B_BACKSLASH:
+            count += 1
+            pos -= 1
+        return bool(count % 2)
+
+    @staticmethod
+    def _command(text_b: bytes, pos: int) -> tuple[int, str] | None:
+        i = pos + 1
+        if i >= len(text_b) or text_b[i] >= 128:
+            return None
+        if not (chr(text_b[i]).isalpha() or text_b[i] == ord('@')):
+            return None
+        while i < len(text_b) and text_b[i] < 128 and (
+                chr(text_b[i]).isalpha() or chr(text_b[i]) in ('@', '*')):
+            i += 1
+        return i, text_b[pos + 1:i].decode('ascii')
+
+    @classmethod
+    def _math_environment_token(cls, text_b: bytes, pos: int):
+        command = cls._command(text_b, pos)
+        if command is None or command[1] not in ('begin', 'end'):
+            return None
+        end, kind = command
+        if end >= len(text_b) or text_b[end] != _B_LBRACE:
+            return None
+        close = text_b.find(b'}', end + 1)
+        if close < 0:
+            return None
+        name = text_b[end + 1:close].decode('ascii', 'ignore').rstrip('*')
+        if name not in {
+            'equation', 'align', 'gather', 'multline', 'math', 'displaymath',
+            'split', 'cases', 'alignat', 'flalign', 'subequations',
+        }:
+            return None
+        return close + 1, kind, name
+
+    def _state_at(self, text_b: bytes, offset: int):
+        checkpoint = max((p for p in self._state_cache if p <= offset), default=0)
+        mode, envs = self._state_cache[checkpoint]
+        envs = list(envs)
+        i = checkpoint
+        while i < offset:
+            if text_b[i] == _B_NEWLINE:
+                i += 1
+                self._state_cache[i] = (mode, tuple(envs))
+                continue
+            if text_b[i] == _B_PERCENT and not self._is_escaped(text_b, i):
+                newline = text_b.find(b'\n', i, offset)
+                i = offset if newline < 0 else newline
+                continue
+            if mode == 'default':
+                if text_b[i] == _B_DOLLAR and not self._is_escaped(text_b, i):
+                    width = 2 if text_b[i:i + 2] == b'$$' else 1
+                    mode = 'double' if width == 2 else 'dollar'
+                    i += width
+                    continue
+                if text_b[i:i + 2] in (b'\\(', b'\\['):
+                    mode = 'paren' if text_b[i + 1] == ord('(') else 'bracket'
+                    i += 2
+                    continue
+                token = self._math_environment_token(text_b, i)
+                if token is not None and token[1] == 'begin':
+                    mode = 'environment'
+                    envs.append(token[2])
+                    i = token[0]
+                    continue
+                i += 2 if text_b[i] == _B_BACKSLASH and i + 1 < offset else 1
+                continue
+            if mode == 'dollar' and text_b[i] == _B_DOLLAR and not self._is_escaped(text_b, i):
+                mode = 'default'
+                i += 1
+                continue
+            if mode == 'double' and text_b[i:i + 2] == b'$$' and not self._is_escaped(text_b, i):
+                mode = 'default'
+                i += 2
+                continue
+            if mode == 'paren' and text_b[i:i + 2] == b'\\)' and not self._is_escaped(text_b, i):
+                mode = 'default'
+                i += 2
+                continue
+            if mode == 'bracket' and text_b[i:i + 2] == b'\\]' and not self._is_escaped(text_b, i):
+                mode = 'default'
+                i += 2
+                continue
+            if mode == 'environment' and text_b[i] == _B_BACKSLASH:
+                token = self._math_environment_token(text_b, i)
+                if token is not None:
+                    if token[1] == 'begin':
+                        envs.append(token[2])
+                    elif envs and envs[-1] == token[2]:
+                        envs.pop()
+                        if not envs:
+                            mode = 'default'
+                    i = token[0]
+                    continue
+            i += 1
+        return mode, tuple(envs)
+
+    def _style_with_state(self, start: int, end: int, text_b: bytes) -> None:
+        tlen = len(text_b)
+        nl = text_b.rfind(b'\n', 0, start)
+        safe = 0 if nl < 0 else nl + 1
+        end = min(end, tlen, safe + _MAX_STYLE_BYTES)
+        if safe >= end:
+            return
+        styles = bytearray(end - safe)
+        mode, envs = self._state_at(text_b, safe)
+        envs = list(envs)
+        last_cmd = ''
+
+        def paint(pos: int, stop: int, style: int) -> None:
+            lo = max(pos, safe) - safe
+            hi = min(stop, end) - safe
+            if hi > lo:
+                styles[lo:hi] = bytes([style]) * (hi - lo)
+
+        pos = safe
+        while pos < end:
+            b = text_b[pos]
+            if b == _B_NEWLINE:
+                self._state_cache[pos + 1] = (mode, tuple(envs))
+                pos += 1
+                last_cmd = ''
+                continue
+            if b == _B_PERCENT and not self._is_escaped(text_b, pos):
+                stop = text_b.find(b'\n', pos, end)
+                stop = end if stop < 0 else stop
+                paint(pos, stop, S_COMMENT)
+                pos = stop
+                continue
+
+            if mode == 'default':
+                if b == _B_DOLLAR and not self._is_escaped(text_b, pos):
+                    width = 2 if text_b[pos:pos + 2] == b'$$' else 1
+                    paint(pos, pos + width, S_MATH)
+                    mode = 'double' if width == 2 else 'dollar'
+                    pos += width
+                    continue
+                if text_b[pos:pos + 2] in (b'\\(', b'\\['):
+                    paint(pos, pos + 2, S_MATH)
+                    mode = 'paren' if text_b[pos + 1] == ord('(') else 'bracket'
+                    pos += 2
+                    continue
+                if b == _B_BACKSLASH:
+                    token = self._math_environment_token(text_b, pos)
+                    command = self._command(text_b, pos)
+                    if token is not None and token[1] == 'begin':
+                        paint(pos, token[0], S_MATH)
+                        mode = 'environment'
+                        envs.append(token[2])
+                        pos = token[0]
+                        continue
+                    if command is not None:
+                        stop, last_cmd = command
+                        style = (S_STRUCTURE if last_cmd in _STRUCTURE_CMDS else
+                                 S_REFERENCE if last_cmd in _REFERENCE_CMDS else S_COMMAND)
+                        paint(pos, stop, style)
+                        pos = stop
+                        continue
+                    paint(pos, pos + 2, S_COMMAND)
+                    pos += 2 if pos + 1 < end else 1
+                    last_cmd = ''
+                    continue
+                if b == _B_LBRACE:
+                    paint(pos, pos + 1, S_BRACE)
+                    pos += 1
+                    if last_cmd in _REFERENCE_CMDS:
+                        i, depth = pos, 1
+                        while i < tlen and depth:
+                            if text_b[i] == _B_BACKSLASH and i + 1 < tlen:
+                                i += 2
+                                continue
+                            if text_b[i] == _B_LBRACE:
+                                depth += 1
+                            elif text_b[i] == _B_RBRACE:
+                                depth -= 1
+                            i += 1
+                        content_end = i - 1 if depth == 0 else i
+                        paint(pos, content_end, S_REF_ARG)
+                        pos = min(content_end, end)
+                    last_cmd = ''
+                    continue
+                if b == _B_LBRACKET:
+                    paint(pos, pos + 1, S_BRACE)
+                    close = text_b.find(b']', pos + 1, tlen)
+                    newline = text_b.find(b'\n', pos + 1, tlen)
+                    if close >= 0 and (newline < 0 or close < newline):
+                        paint(pos + 1, close, S_OPTION)
+                        pos = close
+                    else:
+                        pos += 1
+                    continue
+                if b in (_B_RBRACE, _B_RBRACKET):
+                    paint(pos, pos + 1, S_BRACE)
+                    pos += 1
+                    continue
+                special = _RE_SPECIAL_BYTES.search(text_b, pos, end)
+                newline = text_b.find(b'\n', pos, end)
+                stop = min((special.start() if special else end),
+                           (newline if newline >= 0 else end))
+                if stop > pos:
+                    pos = stop
+                    last_cmd = ''
+                    continue
+                last_cmd = ''
+                pos += 1
+                continue
+
+            if mode == 'environment' and b == _B_BACKSLASH:
+                token = self._math_environment_token(text_b, pos)
+                if token is not None:
+                    paint(pos, token[0], S_MATH)
+                    if token[1] == 'begin':
+                        envs.append(token[2])
+                    elif envs and envs[-1] == token[2]:
+                        envs.pop()
+                        if not envs:
+                            mode = 'default'
+                    pos = token[0]
+                    continue
+            if mode == 'dollar' and b == _B_DOLLAR and not self._is_escaped(text_b, pos):
+                paint(pos, pos + 1, S_MATH)
+                mode, pos = 'default', pos + 1
+                continue
+            if mode == 'double' and text_b[pos:pos + 2] == b'$$' and not self._is_escaped(text_b, pos):
+                paint(pos, pos + 2, S_MATH)
+                mode, pos = 'default', pos + 2
+                continue
+            if mode == 'paren' and text_b[pos:pos + 2] == b'\\)' and not self._is_escaped(text_b, pos):
+                paint(pos, pos + 2, S_MATH)
+                mode, pos = 'default', pos + 2
+                continue
+            if mode == 'bracket' and text_b[pos:pos + 2] == b'\\]' and not self._is_escaped(text_b, pos):
+                paint(pos, pos + 2, S_MATH)
+                mode, pos = 'default', pos + 2
+                continue
+            special = _RE_SPECIAL_BYTES.search(text_b, pos, end)
+            newline = text_b.find(b'\n', pos, end)
+            stop = min((special.start() if special else end),
+                       (newline if newline >= 0 else end))
+            if stop > pos:
+                paint(pos, stop, S_MATH)
+                pos = stop
+            else:
+                paint(pos, pos + 1, S_MATH)
+                pos += 1
+
+        self.startStyling(safe)
+        i = 0
+        while i < len(styles):
+            style = styles[i]
+            j = i + 1
+            while j < len(styles) and styles[j] == style:
+                j += 1
+            self.setStyling(j - i, style)
+            i = j
 
     def styleText(self, start: int, end: int) -> None:
         # Ottieni bytes (con cache): evita encode O(n) ad ogni chiamata.
@@ -148,164 +424,7 @@ class LaTeXLexer(QsciLexerCustom):
         tlen = len(text_b)
         if tlen == 0 or start >= tlen:
             return
-
-        # Ripartenza sicura: inizio della riga che contiene start.
-        # % e $ inline sono sempre su riga singola → ripartire dall'inizio riga è corretto.
-        nl = text_b.rfind(b'\n', 0, start)
-        safe = 0 if nl == -1 else nl + 1
-        end = min(end, tlen)
-        # Limita il range per evitare freeze: Scintilla richiama per il resto al prossimo idle.
-        # Con _MAX_STYLE_BYTES = 8000 ogni call dura ~10ms invece di 1-2s per documenti grandi.
-        end = min(end, safe + _MAX_STYLE_BYTES)
-        if safe >= end:
-            return
-
-        region_len = end - safe
-        # Bytearray di stili: ogni byte = stile per il byte corrispondente in text_b[safe:end].
-        # S_DEFAULT = 0 = valore iniziale → le span di testo normale non richiedono fill.
-        styles = bytearray(region_len)
-
-        pos = safe
-        last_cmd = ""
-
-        while pos < end:
-            b = text_b[pos]
-            idx = pos - safe
-
-            # ── % commento ────────────────────────────────────────────────────
-            if b == _B_PERCENT:
-                eol = text_b.find(b'\n', pos)
-                n = (min(eol, end) - pos) if eol != -1 else (end - pos)
-                if n > 0:
-                    styles[idx:idx + n] = bytes([S_COMMENT]) * n
-                pos += n if n > 0 else 1
-                last_cmd = ""
-
-            # ── \ comando ─────────────────────────────────────────────────────
-            elif b == _B_BACKSLASH:
-                i = pos + 1
-                # Nomi comando LaTeX: solo ASCII (a-zA-Z @).
-                # Il check < 128 evita che byte UTF-8 multi-byte vengano trattati come lettere.
-                if i < tlen and text_b[i] < 128 and (
-                    chr(text_b[i]).isalpha() or chr(text_b[i]) == '@'
-                ):
-                    while i < tlen and text_b[i] < 128 and (
-                        chr(text_b[i]).isalpha() or chr(text_b[i]) in ('@', '*')
-                    ):
-                        i += 1
-                    cmd = text_b[pos + 1:i].decode('ascii')
-                    last_cmd = cmd
-                    if cmd in _STRUCTURE_CMDS:
-                        sty = S_STRUCTURE
-                    elif cmd in _REFERENCE_CMDS:
-                        sty = S_REFERENCE
-                    else:
-                        sty = S_COMMAND
-                    n = min(i, end) - pos
-                    if n > 0:
-                        styles[idx:idx + n] = bytes([sty]) * n
-                    pos = min(i, end)
-                else:
-                    # \\ \{ \} \$ \[ \] ecc. — simbolo escape singolo
-                    n = min(2 if i < tlen else 1, end - pos)
-                    if n > 0:
-                        styles[idx:idx + n] = bytes([S_COMMAND]) * n
-                    pos += n if n > 0 else 1
-                    last_cmd = ""
-
-            # ── $ math ────────────────────────────────────────────────────────
-            elif b == _B_DOLLAR:
-                if pos + 1 < tlen and text_b[pos + 1] == _B_DOLLAR:
-                    end_m = text_b.find(b'$$', pos + 2)
-                    n = (end_m + 2 - pos) if end_m != -1 else (tlen - pos)
-                else:
-                    i = pos + 1
-                    while i < tlen and text_b[i] != _B_DOLLAR and text_b[i] != _B_NEWLINE:
-                        if text_b[i] == _B_BACKSLASH:
-                            i += 1
-                        i += 1
-                    n = (i + 1 - pos) if (i < tlen and text_b[i] == _B_DOLLAR) else 1
-                n = min(n, end - pos)
-                if n > 0:
-                    styles[idx:idx + n] = bytes([S_MATH]) * n
-                pos += n if n > 0 else 1
-                last_cmd = ""
-
-            # ── { graffa aperta ───────────────────────────────────────────────
-            elif b == _B_LBRACE:
-                styles[idx] = S_BRACE
-                pos += 1
-                # Colora l'argomento dopo \label \cite \ref ecc.
-                if last_cmd in _REFERENCE_CMDS:
-                    i, depth = pos, 1
-                    while i < tlen and depth > 0:
-                        bc = text_b[i]
-                        if bc == _B_LBRACE:
-                            depth += 1
-                        elif bc == _B_RBRACE:
-                            depth -= 1
-                        elif bc == _B_BACKSLASH and i + 1 < tlen:
-                            i += 1
-                        i += 1
-                    content = min(
-                        (i - pos - 1) if depth == 0 else (i - pos),
-                        end - pos
-                    )
-                    if content > 0:
-                        ci = pos - safe
-                        styles[ci:ci + content] = bytes([S_REF_ARG]) * content
-                        pos += content
-                    # la } di chiusura viene gestita al giro successivo
-                last_cmd = ""
-
-            # ── } graffa chiusa ───────────────────────────────────────────────
-            elif b == _B_RBRACE:
-                styles[idx] = S_BRACE
-                pos += 1
-
-            # ── [ opzione ─────────────────────────────────────────────────────
-            elif b == _B_LBRACKET:
-                styles[idx] = S_BRACE
-                pos += 1
-                # Cerca ] sulla stessa riga (opzioni LaTeX non span multi-riga)
-                eol = text_b.find(b'\n', pos)
-                line_end = eol if eol != -1 else tlen
-                bracket_end = text_b.find(b']', pos, line_end)
-                if bracket_end != -1:
-                    content = min(bracket_end - pos, end - pos)
-                    if content > 0:
-                        ci = pos - safe
-                        styles[ci:ci + content] = bytes([S_OPTION]) * content
-                        pos += content
-                # ] viene gestito al giro successivo
-
-            # ── ] chiude opzione ──────────────────────────────────────────────
-            elif b == _B_RBRACKET:
-                styles[idx] = S_BRACE
-                pos += 1
-
-            # ── testo normale (incluse sequenze UTF-8 multi-byte) ─────────────
-            else:
-                # S_DEFAULT = 0: bytearray già a 0, basta avanzare pos.
-                m = _RE_SPECIAL_BYTES.search(text_b, pos, end)
-                next_pos = m.start() if m else end
-                if next_pos <= pos:
-                    next_pos = pos + 1
-                pos = next_pos
-
-        # Applica gli stili con run-length encoding: una chiamata setStyling()
-        # per run di stile identico invece di una per byte.
-        # SCI_SETSTYLINGEX via SendScintilla non funziona in PyQt6: SIP sceglie
-        # l'overload const char* null-terminated e si ferma al primo \x00 (S_DEFAULT).
-        self.startStyling(safe)
-        i = 0
-        while i < region_len:
-            s = styles[i]
-            j = i + 1
-            while j < region_len and styles[j] == s:
-                j += 1
-            self.setStyling(j - i, s)
-            i = j
+        self._style_with_state(start, end, text_b)
 
     # ── Applicazione tema ─────────────────────────────────────────────────────
 

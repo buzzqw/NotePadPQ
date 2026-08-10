@@ -19,11 +19,13 @@ Uso:
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.Qsci import QsciScintilla
+from editor.latex_support import strip_latex_comments
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -36,12 +38,11 @@ _MARKER_WARNING = 23
 _MARKER_ERROR_SYM   = QsciScintilla.MarkerSymbol.Circle
 _MARKER_WARNING_SYM = QsciScintilla.MarkerSymbol.RightTriangle
 
-_RE_COMMENT  = re.compile(r'(?<!\\)%.*')
 _RE_REF      = re.compile(r'\\(?:ref|eqref|pageref|cref|Cref|autoref|nameref|vref)\{([^}]+)\}')
 _RE_CITE     = re.compile(r'\\(?:cite[a-zA-Z]*|parencite|footcite|textcite|autocite)\{([^}]+)\}')
 _RE_BEGIN_ENV = re.compile(r'\\begin\{([^}]+)\}')
 _RE_END_ENV   = re.compile(r'\\end\{([^}]+)\}')
-_RE_MULTICOL  = re.compile(r'\\multicolumn\{(\d+)\}')
+_RE_BEGIN_END  = re.compile(r'\\(begin|end)\{([^}]+)\}')
 _COL_CHARS    = frozenset("lcrpLCRX")
 
 # Ambienti tabellari LaTeX con specifica colonne
@@ -76,6 +77,9 @@ class _CheckWorker(QThread):
         issues.extend(self._check_undefined_labels())
         if self._cancelled:
             return
+        issues.extend(self._check_label_consistency())
+        if self._cancelled:
+            return
         issues.extend(self._check_undefined_citations())
         if self._cancelled:
             return
@@ -83,35 +87,88 @@ class _CheckWorker(QThread):
         if not self._cancelled:
             self.done.emit(self._generation, issues)
 
+    def _project_sources(self):
+        """Restituisce i sorgenti del progetto con il testo corrente in memoria."""
+        if not self._file_path:
+            return [(None, self._text)]
+        from editor.latex_support import LaTeXSupport
+        current = Path(self._file_path).resolve()
+        sources = []
+        for path in LaTeXSupport.collect_project_files(current):
+            try:
+                source_text = (self._text if path.resolve() == current
+                               else path.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+            sources.append((path, source_text))
+        return sources or [(current, self._text)]
+
     def _check_balance(self) -> list[dict]:
         from editor.latex_support import LaTeXSupport
-        raw = LaTeXSupport.check_environment_balance(self._text)
-        return [
-            {"line": e["line"], "severity": "error", "msg": e["msg"]}
-            for e in raw
-        ]
+        issues = []
+        for path, source in self._project_sources():
+            for error in LaTeXSupport.check_environment_balance(source):
+                issue = {"line": error["line"], "severity": "error",
+                         "msg": error["msg"]}
+                if path is not None:
+                    issue["file"] = path
+                issues.append(issue)
+        return issues
 
     def _check_undefined_labels(self) -> list[dict]:
         from editor.latex_support import LaTeXSupport
         fp = self._file_path
-        if fp:
-            defined = set(LaTeXSupport.extract_labels_multifile(fp))
-        else:
-            defined = set(LaTeXSupport.extract_labels(self._text))
+        analysis = LaTeXSupport.analyze_label_references(self._text, fp)
+        defined = {item["key"] for item in analysis["definitions"]}
+        defined.update(LaTeXSupport.extract_labels(self._text))
 
         issues: list[dict] = []
-        for lineno, line in enumerate(self._text.split("\n")):
+        for occurrence in LaTeXSupport.extract_label_reference_occurrences(self._text):
             if self._cancelled:
                 return []
-            stripped = _RE_COMMENT.sub('', line)
-            for m in _RE_REF.finditer(stripped):
-                key = m.group(1).strip()
-                if key and key not in defined:
-                    issues.append({
-                        "line":     lineno,
-                        "severity": "warning",
-                        "msg":      f"Undefined label: '{key}'",
-                    })
+            if occurrence["kind"] != "reference":
+                continue
+            key = occurrence["key"]
+            if key and key not in defined:
+                issues.append({
+                    "line":     occurrence["line"],
+                    "severity": "warning",
+                    "msg":      f"Undefined label: '{key}'",
+                })
+        return issues
+
+    def _check_label_consistency(self) -> list[dict]:
+        """Check duplicate definitions and labels never referenced.
+
+        Cross-file issues retain ``file`` for a future editor/navigation
+        integration.  Current marker rendering deliberately handles only the
+        open file, so no UI files are required by this checker refactor.
+        """
+        from editor.latex_support import LaTeXSupport
+        analysis = LaTeXSupport.analyze_label_references(
+            self._text, self._file_path,
+        )
+        issues: list[dict] = []
+        for item in analysis["duplicates"]:
+            issue = {
+                "line": item["line"],
+                "severity": "error",
+                "msg": f"Duplicate label: '{item['key']}'",
+                "label": item["key"],
+            }
+            if item.get("file") is not None:
+                issue["file"] = item["file"]
+            issues.append(issue)
+        for item in analysis["unused"]:
+            issue = {
+                "line": item["line"],
+                "severity": "warning",
+                "msg": f"Unused label: '{item['key']}'",
+                "label": item["key"],
+            }
+            if item.get("file") is not None:
+                issue["file"] = item["file"]
+            issues.append(issue)
         return issues
 
     def _check_undefined_citations(self) -> list[dict]:
@@ -119,6 +176,7 @@ class _CheckWorker(QThread):
         fp = self._file_path
         if fp:
             known = set(LaTeXSupport.extract_bibtex_keys_multifile(fp))
+            known.update(LaTeXSupport.extract_bibtex_keys(self._text, fp))
         else:
             known = set(LaTeXSupport.extract_bibtex_keys(self._text, fp))
 
@@ -129,7 +187,7 @@ class _CheckWorker(QThread):
         for lineno, line in enumerate(self._text.split("\n")):
             if self._cancelled:
                 return []
-            stripped = _RE_COMMENT.sub('', line)
+            stripped = strip_latex_comments(line)
             for m in _RE_CITE.finditer(stripped):
                 for key in m.group(1).split(","):
                     key = key.strip()
@@ -142,6 +200,19 @@ class _CheckWorker(QThread):
         return issues
 
     def _check_tabular_columns(self) -> list[dict]:
+        if not self._file_path:
+            return self._check_tabular_columns_single()
+        issues = []
+        for path, source in self._project_sources():
+            worker = _CheckWorker(source, path, self._generation)
+            worker._cancelled = self._cancelled
+            for issue in worker._check_tabular_columns_single():
+                if path is not None:
+                    issue["file"] = path
+                issues.append(issue)
+        return issues
+
+    def _check_tabular_columns_single(self) -> list[dict]:
         """Controlla che le righe del corpo tabella abbiano lo stesso numero
         di colonne dichiarato nella specifica colonne (es. {llX})."""
         issues: list[dict] = []
@@ -150,7 +221,7 @@ class _CheckWorker(QThread):
         while i < len(lines):
             if self._cancelled:
                 return issues
-            stripped = _RE_COMMENT.sub('', lines[i])
+            stripped = strip_latex_comments(lines[i])
             bm = _RE_BEGIN_ENV.search(stripped)
             if not bm or bm.group(1) not in _TABULAR_ENVS:
                 i += 1
@@ -171,11 +242,13 @@ class _CheckWorker(QThread):
             for j in range(i + 1, len(lines)):
                 if self._cancelled:
                     return issues
-                s = _RE_COMMENT.sub('', lines[j])
-                depth += len(_RE_BEGIN_ENV.findall(s))
-                depth -= len(_RE_END_ENV.findall(s))
-                if depth <= 0:
-                    end_line = j
+                s = strip_latex_comments(lines[j])
+                for match in _RE_BEGIN_END.finditer(s):
+                    depth += 1 if match.group(1) == "begin" else -1
+                    if depth <= 0:
+                        end_line = j
+                        break
+                if end_line == j:
                     break
             else:
                 end_line = len(lines) - 1
@@ -186,7 +259,7 @@ class _CheckWorker(QThread):
             for row in range(i + 1, end_line):
                 if self._cancelled:
                     return issues
-                rs = _RE_COMMENT.sub('', lines[row])
+                rs = strip_latex_comments(lines[row])
                 if not rs.strip():
                     continue
                 if re.match(r'^\s*\\(?:hline|toprule|midrule|bottomrule|cline)\b', rs):
@@ -325,28 +398,113 @@ class _CheckWorker(QThread):
     def _nth_ampersand_pos(row: str, n: int) -> int:
         """Posizione (offset caratteri) dell'n-esimo & (1-based) in una riga
         tabella. Ritorna -1 se non trovato."""
-        count = 0
-        for i, ch in enumerate(row):
-            if ch == '&':
-                count += 1
-                if count == n:
-                    return i
-        return -1
+        positions = _CheckWorker._separator_positions(row)
+        return positions[n - 1] if 0 < n <= len(positions) else -1
+
+    @staticmethod
+    def _separator_positions(row: str) -> list[int]:
+        """Return unescaped, top-level column separators in a table row."""
+        positions: list[int] = []
+        depth = 0
+        i = 0
+        while i < len(row):
+            ch = row[i]
+            if ch == "\\" and i + 1 < len(row):
+                i += 2
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}" and depth:
+                depth -= 1
+            elif ch == "&" and depth == 0:
+                positions.append(i)
+            i += 1
+        return positions
+
+    @staticmethod
+    def _read_group(text: str, start: int) -> tuple[str, int] | None:
+        if start >= len(text) or text[start] != "{":
+            return None
+        depth = 1
+        i = start + 1
+        while i < len(text):
+            if text[i] == "\\" and i + 1 < len(text):
+                i += 2
+                continue
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start + 1:i], i + 1
+            i += 1
+        return None
+
+    @classmethod
+    def _multicolumn_counts(cls, row: str) -> list[int]:
+        counts: list[int] = []
+        for match in re.finditer(r"\\multicolumn\s*\{", row):
+            group = cls._read_group(row, match.end() - 1)
+            if group is None:
+                continue
+            try:
+                counts.append(int(group[0].strip()))
+            except ValueError:
+                pass
+        return counts
 
     @staticmethod
     def _count_tabular_cols(col_spec: str) -> int:
         """Conta le colonne in una specifica tabellare. Es. '|l|c|r|' → 3."""
-        count = sum(1 for c in col_spec if c in _COL_CHARS)
-        return max(1, count)
+        def count_spec(spec: str) -> int:
+            count = 0
+            i = 0
+            while i < len(spec):
+                ch = spec[i]
+                if ch == "\\":
+                    i += 1
+                    while i < len(spec) and (spec[i].isalpha() or spec[i] == "@"):
+                        i += 1
+                    continue
+                if ch == "*":
+                    j = i + 1
+                    while j < len(spec) and spec[j].isspace():
+                        j += 1
+                    number = _CheckWorker._read_group(spec, j)
+                    if number is not None:
+                        k = number[1]
+                        repeated = _CheckWorker._read_group(spec, k)
+                        if repeated is not None:
+                            try:
+                                count += int(number[0].strip()) * count_spec(repeated[0])
+                                i = repeated[1]
+                                continue
+                            except ValueError:
+                                pass
+                if ch in _COL_CHARS:
+                    count += 1
+                    i += 1
+                    if ch in "pmb" and i < len(spec) and spec[i] == "{":
+                        group = _CheckWorker._read_group(spec, i)
+                        if group is not None:
+                            i = group[1]
+                    continue
+                if ch in "><!@" and i + 1 < len(spec):
+                    group = _CheckWorker._read_group(spec, i + 1)
+                    if group is not None:
+                        i = group[1]
+                        continue
+                i += 1
+            return count
+
+        return max(1, count_spec(col_spec))
 
     @staticmethod
     def _count_row_cols(row: str) -> int:
         """Conta le colonne effettive di una riga tabella, tenendo conto
         che \\multicolumn{N}{...}{...} occupa N colonne ma conta come 1 entry."""
-        multicols = _RE_MULTICOL.findall(row)
-        extra_cols = sum(int(n) - 1 for n in multicols)
-        cleaned = _RE_MULTICOL.sub('', row)
-        return max(1, cleaned.count('&') + 1 + extra_cols)
+        extra_cols = sum(max(0, n - 1) for n in _CheckWorker._multicolumn_counts(row))
+        return max(1, len(_CheckWorker._separator_positions(row)) + 1 + extra_cols)
 
 
 class LaTeXChecker(QObject):
@@ -362,12 +520,16 @@ class LaTeXChecker(QObject):
         self._editor  = editor
         self._enabled = True
         self._worker: Optional[_CheckWorker] = None
+        self._old_workers: set[_CheckWorker] = set()
         self._gen: int = 0
+        self._started = False
+        self._last_issues: list[dict] = []
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(1500)  # debounce: 1.5 secondi dopo l'ultima modifica
         self._timer.timeout.connect(self._run_check)
+        editor.destroyed.connect(self.stop)
 
         self._setup_markers()
 
@@ -386,24 +548,63 @@ class LaTeXChecker(QObject):
 
     def start(self) -> None:
         """Collega il checker all'editor."""
+        if self._started:
+            return
         self._editor.textChanged.connect(self._on_text_changed)
+        self._started = True
 
     def stop(self) -> None:
         """Scollega il checker."""
-        try:
-            self._editor.textChanged.disconnect(self._on_text_changed)
-        except Exception:
-            pass
+        if self._started:
+            try:
+                self._editor.textChanged.disconnect(self._on_text_changed)
+            except (RuntimeError, TypeError):
+                pass
+            self._started = False
         self._timer.stop()
+        self._gen += 1
+        self._last_issues = []
+        workers = set(self._old_workers)
+        self._old_workers.clear()
         if self._worker is not None:
-            self._worker.cancel()
+            workers.add(self._worker)
             self._worker = None
+        for worker in workers:
+            try:
+                worker.finished.connect(self._forget_finished_workers)
+            except RuntimeError:
+                pass
+            if not self._retire_worker(worker):
+                self._old_workers.add(worker)
         self._clear_markers()
         self._clear_tabular_indicators()
+        try:
+            self.issues_found.emit([])
+        except RuntimeError:
+            pass
+
+    def _retire_worker(self, worker: _CheckWorker) -> bool:
+        """Cancella e attende un worker senza lasciarlo vivere oltre l'editor."""
+        try:
+            worker.cancel()
+            if worker.isRunning():
+                worker.wait(1000)
+            if not worker.isRunning():
+                worker.deleteLater()
+                return True
+        except RuntimeError:
+            return True
+        return False
+
+    def _forget_finished_workers(self) -> None:
+        self._old_workers = {
+            worker for worker in self._old_workers if worker.isRunning()
+        }
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
         if not enabled:
+            self._last_issues = []
             self._clear_markers()
             self._clear_tabular_indicators()
             self.issues_found.emit([])
@@ -422,8 +623,13 @@ class LaTeXChecker(QObject):
     # ── Controllo (asincrono) ──────────────────────────────────────────────────
 
     def _run_check(self) -> None:
+        if not self._enabled or not self._started:
+            return
         if self._worker is not None:
             self._worker.cancel()
+            old = self._worker
+            self._old_workers.add(old)
+            old.finished.connect(self._forget_finished_workers)
 
         self._gen += 1
         text = self._editor.text()
@@ -439,6 +645,7 @@ class LaTeXChecker(QObject):
         if gen != self._gen:
             return
         self._worker = None
+        self._last_issues = list(issues)
         self._apply_markers(issues)
         self._apply_tabular_indicators(issues)
         self.issues_found.emit(issues)
@@ -446,12 +653,30 @@ class LaTeXChecker(QObject):
     # ── Marcatori gutter ─────────────────────────────────────────────────────
 
     def _clear_markers(self) -> None:
-        self._editor.markerDeleteAll(_MARKER_ERROR)
-        self._editor.markerDeleteAll(_MARKER_WARNING)
+        try:
+            self._editor.markerDeleteAll(_MARKER_ERROR)
+            self._editor.markerDeleteAll(_MARKER_WARNING)
+        except RuntimeError:
+            pass
 
     def _apply_markers(self, issues: list[dict]) -> None:
         self._clear_markers()
+        current_file = getattr(self._editor, "file_path", None)
+        if current_file is not None:
+            try:
+                current_file = Path(current_file).resolve()
+            except (OSError, TypeError, ValueError):
+                current_file = None
         for issue in issues:
+            issue_file = issue.get("file")
+            if issue_file is not None and current_file is None:
+                continue
+            if issue_file is not None and current_file is not None:
+                try:
+                    if Path(issue_file).resolve() != current_file:
+                        continue
+                except (OSError, TypeError, ValueError):
+                    continue
             line = issue.get("line", 0)
             marker = (_MARKER_ERROR
                       if issue.get("severity") == "error"
@@ -462,13 +687,16 @@ class LaTeXChecker(QObject):
 
     def _clear_tabular_indicators(self) -> None:
         """Rimuove gli indicatori colonne tabella dall'editor."""
-        from editor.editor_widget import INDICATOR_LATEX_COL
-        ed = self._editor
-        last_line = ed.lines() - 1
-        if last_line < 0:
-            return
-        ed.clearIndicatorRange(0, 0, last_line,
-                               ed.lineLength(last_line), INDICATOR_LATEX_COL)
+        try:
+            from editor.editor_widget import INDICATOR_LATEX_COL
+            ed = self._editor
+            last_line = ed.lines() - 1
+            if last_line < 0:
+                return
+            ed.clearIndicatorRange(0, 0, last_line,
+                                   ed.lineLength(last_line), INDICATOR_LATEX_COL)
+        except RuntimeError:
+            pass
 
     def _apply_tabular_indicators(self, issues: list[dict]) -> None:
         """Sottolinea con squiggly ambra: (a) & di troppo nelle righe del corpo

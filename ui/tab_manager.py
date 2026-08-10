@@ -154,7 +154,7 @@ class TabManager(QTabWidget):
     # ── Creazione tab ─────────────────────────────────────────────────────────
 
     def new_tab(self, path: Optional[Path] = None,
-                template_ext: str = "") -> EditorWidget:
+                template_ext: str = "", template_name: str = "") -> EditorWidget:
         """
         Crea un nuovo tab con un EditorWidget.
         Se path è fornito, imposta il file_path ma non carica il contenuto
@@ -205,16 +205,24 @@ class TabManager(QTabWidget):
             ac = AutoCompleteManager(editor)
             ac.set_tab_manager(self)
             editor._autocomplete = ac
-            # Il lexer è già impostato prima di questa riga: propaga la lingua all'AC
-            lang = getattr(editor, "_current_language", "")
-            if lang:
-                ac.set_language(lang.lower())
         except Exception:
             pass
 
         # Template base
         if template_ext and not path:
-            content = self._get_template(template_ext)
+            if template_name:
+                try:
+                    from core.latex_templates import LatexTemplateCatalog
+                    current = self.current_editor()
+                    project_dir = (current.file_path.parent
+                                   if current and current.file_path else None)
+                    content = LatexTemplateCatalog(project_dir=project_dir).render(
+                        template_name, title="Titolo", author="Autore",
+                        language="italian")
+                except Exception:
+                    content = self._get_template(template_ext)
+            else:
+                content = self._get_template(template_ext)
             if content:
                 editor.load_content(content)
 

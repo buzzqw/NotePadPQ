@@ -1,7 +1,7 @@
 # NotePadPQ: User Manual
 
-> Version 0.9.13: Advanced text editor based on **QScintilla/PyQt6**
-> Platforms: Linux, Windows, macOS
+> Version 1.8.2: Advanced text editor based on **QScintilla/PyQt6**
+> Platforms: Linux, Windows, FreeBSD
 
 ---
 
@@ -74,6 +74,10 @@ The interface consists of:
 
 ### Recent Files
 **File → Recent Files** shows the last opened files. Click to reopen. The maximum count is configurable in Preferences.
+Right-click a file to **pin** it at the top of the list or unpin it.
+
+### Quick Tab Switching (`Ctrl+Tab`)
+Hold `Ctrl` and press `Tab` to open the tab popup in most-recently-used (MRU) order. Press `Tab` again to move forward, `Shift+Tab` to move backward, then release `Ctrl` to confirm; `Esc` cancels.
 
 ### New from Template
 **File → New from Template** creates a file with a ready-made header for: Python, HTML, LaTeX, Markdown, Bash, C/C++, JavaScript.
@@ -92,6 +96,16 @@ NotePadPQ monitors open files and responds in two distinct ways:
 **File deleted from disk**: a separate dialog appears ("File X has been deleted") with two options:
 - **Close tab**: closes the corresponding tab
 - **Keep open** *(default)*: the tab stays open with the in-memory content (not saved to disk)
+
+### Large Files and Paged Mode
+Files larger than 200 MB are loaded progressively and opened in paged mode, without loading the entire document into memory. The status bar shows the page, percentage, offset, and approximate global line.
+
+- **◀ Previous page / Next page ▶**: navigate between pages; if the current page is modified, you are asked whether to save it, discard it, or cancel.
+- **Go to…**: jump to a percentage of the file.
+- **Ctrl+G**: in a paged file, opens the dialog for navigating to a global line.
+- **Save / Save as**: write in streaming mode without rebuilding the entire file in RAM.
+
+Operations that require the whole document, such as some global transformations and sorting all lines, are disabled or limited to the current page.
 
 ---
 
@@ -182,6 +196,7 @@ Accessible from **Edit → Format**:
 | Italic (Markdown/LaTeX) | `Ctrl+I` |
 | Strikethrough (Markdown/LaTeX) | `Ctrl+Shift+X` |
 | Wrap in Environment / HTML Tag | `Alt+E` |
+| Wrap selection in quotes/brackets/backticks | (none) |
 | Align Table (Markdown/LaTeX) | `Alt+T` |
 
 > **Note: Word wrap vs. Break lines**
@@ -249,6 +264,8 @@ Without a selection, inserts empty delimiters (`****` or `\textbf{}`) and places
 **Strikethrough** (`Ctrl+Shift+X`): applies strikethrough formatting:
 - **Markdown**: `~~text~~`
 - **LaTeX**: `\sout{text}` (requires `\usepackage{ulem}` in the preamble)
+
+**Wrap selection**: when you type a quote, bracket, or backtick with text selected, the selection is wrapped in the matching pair. Existing compatible delimiters are handled without creating duplicates.
 
 **Wrap in Environment / HTML Tag** (`Alt+E`): asks for an environment name (LaTeX) or tag name (HTML). Based on the file type:
 - **LaTeX** (and by default): generates `\begin{name}` ... `\end{name}` with the selected text indented by 4 spaces inside
@@ -491,9 +508,11 @@ Opens the Preview panel alongside the editor. Supports:
 - **HTML**: direct preview in the integrated web widget
 - **LaTeX**: navigable structure tree (sections, labels, figures, tables)
 - **reStructuredText**: rendering via docutils
-- **PDF**: display with PyMuPDF, page navigation, zoom, SyncTeX
+- **PDF**: display with PyMuPDF, continuous scrolling enabled by default, page navigation, zoom, and SyncTeX
 
-The preview updates automatically with a configurable delay (default 500ms). It does not update when the panel is hidden (saves CPU).
+The preview updates automatically with a configurable delay (default 500ms). It does not update when the panel is hidden (saves CPU). For Markdown, the type is also recalculated when an untitled document is saved with a `.md` extension.
+
+The PDF viewer provides text search, selection and copy, keyboard navigation between results, and a magnifier.
 
 ### Hover Preview (mouse-over)
 
@@ -522,6 +541,7 @@ Holding the cursor still for half a second over certain elements, NotePadPQ show
 - **Smart typography**: automatically converts "raw" characters to their proper typographic equivalents: `"..."` → `"..."`, `'...'` → `'...'`, `--` → `—`, `...` → `…`. Does not activate inside code blocks. Toggle from **Document → Smart typography** or from **Preferences → Editor → Writing**.
 - **Paragraph focus**: dims all text outside the current paragraph (delimited by blank lines) to aid concentration. The dim color adapts to light/dark themes automatically. Toggle from **Document → Paragraph focus**. Updates in real time while typing and when switching tabs.
 - **Toggle task (`Ctrl+Shift+L`)**: on a Markdown task list line (`- [ ] text` or `- [x] text`), toggles between completed and not completed. Works with `-`, `*`, `+` markers.
+- **Tail mode**: automatically follows the end of the file as new lines arrive, useful for logs and command output.
 
 ### File Type (Syntax Highlighting)
 
@@ -588,6 +608,8 @@ The following variables are available in commands, accepted in both `${VAR}` and
 | `${EXT}` | File extension with dot | `.tex` |
 | `${LINE}` | Current cursor line | `42` |
 | `${COL}` | Current cursor column | `7` |
+| `${OUTDIR}` | Build artifact directory | `/home/user/doc/build` |
+| `${ROOT}` | LaTeX project root file | `/home/user/doc/main.tex` |
 
 #### New Advanced Features
 
@@ -607,7 +629,17 @@ The following variables are available in commands, accepted in both `${VAR}` and
 
 **Project-level Config**: place a `.notepadpq-build.json` file in your project root with shared profiles and tasks. Automatically loaded when opening files in that directory tree.
 
+**Multi-file LaTeX context**: NotePadPQ resolves `% !TEX root`, `.latexmkrc`, `main.tex`, and included files. The resolved root is used consistently for build, PDF, logs, and SyncTeX. Profiles can define `output_directory` and `bib_backend` (`auto`, `bibtex`, `biber`, `none`).
+
+**Build while editing**: the Build menu option starts a LaTeX build after a configurable pause while typing. Debouncing prevents duplicate processes and the option is disabled by default.
+
 **Concurrent Builds**: run a build in the main panel and a task in the Task tab simultaneously — each has its own independent worker.
+
+**LaTeX Draft Mode**: enable Draft Mode from the Build menu to add `-draftmode` to `pdflatex`, `xelatex`, or `lualatex` commands. This checks the document without producing a PDF.
+
+**Auxiliary-file cleanup**: auxiliary LaTeX files can be removed before and/or after compilation. The **Keep SyncTeX** option preserves `.synctex.gz`, so editor cursor ↔ PDF synchronization remains available.
+
+**Error navigation**: after a build with errors, use `Alt+↑` and `Alt+↓`, or the ▲/▼ buttons in the panel, to move to the previous or next error.
 
 Example: LaTeX compilation with pdflatex:
 ```
@@ -697,7 +729,7 @@ All plugins show Lucide icons in the Plugins menu (same style as the main toolba
 | Plugin | Shortcut | Function |
 |---|---|---|
 | **Clipboard History** | `Ctrl+Shift+V` | Clipboard history with ability to paste previous items |
-| **Compare & Merge** | `F7` | Visual side-by-side comparison of two files or tabs |
+| **Compare & Merge** | `F7` | Editable two- or three-way comparison with syntax highlighting and synchronized scrolling |
 | **Database** | — | SQL client for SQLite, PostgreSQL, MySQL with AI query generation |
 | **Encrypt/Decrypt** | `Ctrl+Shift+E` / `Ctrl+Shift+W` | AES-256-GCM and ChaCha20-Poly1305 encryption of selected text or the entire file |
 | **FTP Browser** | — | Browse and edit files on FTP servers |
@@ -707,8 +739,23 @@ All plugins show Lucide icons in the Plugins menu (same style as the main toolba
 | **Hex Viewer** | `Ctrl+Alt+H` | View the current file in hexadecimal format |
 | **PDF Viewer** | — | View PDF files in a dedicated tab |
 | **Search PQ** | `Ctrl+Alt+F` | Advanced search and replace in the document: TEXT/REGEXP/LIKE modes, result queue, inline filter, replacement (see [section 24](#24-search-pq)) |
-| **Terminal** | `Ctrl+Alt+N` | xterm.js terminal with native PTY as an independent dock panel (see [section 25](#25-terminal)) |
+| **Terminal** | `Ctrl+Alt+T` | xterm.js terminal with native PTY as an independent dock panel (see [section 25](#25-terminal)) |
 | **Web Search** | — | Web and Wikipedia search on selected text from the context menu |
+
+### REST Client
+
+The REST Client plugin provides an HTTP request editor with a guided wizard, cURL import, persistent collections (`.http`), and environments with `{{VAR}}` variables.
+
+- HTTP methods, parameters, headers, and JSON/XML/form-data/multipart bodies with file uploads.
+- No auth, Bearer, Basic, API Key, and OAuth 2.0 authentication with automatic token requests.
+- Configurable timeout, SSL verification, and redirect handling; Stop cancels in-progress requests.
+- **Pre-request** scripts prepare variables, while post-response tests use `pm.test(...)`, status, headers, JSON, text, and elapsed time.
+- **Collection Runner**: select requests, environment, and delay; run them sequentially and stop the run when needed.
+- Generate cURL, Python, and JavaScript snippets from the current request.
+
+### Compare & Merge
+
+Comparison supports inline editing in both panels, syntax highlighting, character-level diffs, difference navigation, undo, and synchronized scrolling. When three versions are available, use the three-way comparison/merge with a common base.
 
 ### Git Plugin: Details
 
@@ -761,6 +808,9 @@ Panel with the list of functions, classes, and methods in the current file. Upda
 - **Context menu**: go to line, copy function name
 
 Languages with dedicated parser: Python, JavaScript/TypeScript, C/C++, Java, Bash, SQL, LaTeX, Markdown.
+
+### Include List
+The **Include List** panel lists images, included files, and BibTeX references from LaTeX/Markdown documents, highlighting missing or unused items. Image tooltips show a thumbnail on hover, including files found in the reference folder but not yet included. The context menu can jump to the source line, open the file, or insert the reference.
 
 ### Build Panel (`` Ctrl+` ``)
 
@@ -949,6 +999,8 @@ NotePadPQ has comprehensive LaTeX support, but **advanced** features require opt
 - **Markup shortcuts**: `Ctrl+B` → `\textbf{...}`, `Ctrl+I` → `\textit{...}`, `Ctrl+Shift+X` → `\sout{...}`
 - **Document structure** (Function List): sections, labels, figures, tables of the `.tex` file
 - **Multi-file support**: labels, BibTeX keys, and custom commands extracted from the entire project following `\input{}`, `\include{}`, `\subfile{}`
+- **LaTeX environment popup**: triggers as early as `\be` or `\en`; renaming an environment automatically synchronizes the matching `\begin{...}` / `\end{...}` pair.
+- **BibTeX Wizard**: from **LaTeX → BibTeX Wizard**, create guided bibliography entries, generate a key, and look up bibliographic data from a DOI via Crossref; copy or insert the resulting entry.
 - **Balance checker**: detects unbalanced `\begin{}`/`\end{}` in real time with gutter markers
 - **Table column checker**: in `tabular`, `tabular*`, `tabularx`, `tabulary`, `array`, `longtable`, `supertabular`, and `xltabular` environments, compares the number of columns declared in the column spec (e.g. `{lXXXXXXX}`) against the actual number of columns in each body row. If a row has **more** columns than declared, only the excess part is underlined in amber (from the extra `&` onward); if the column spec declares **more** columns than any row actually uses, only the excess letters (`X`, `l`, `c`, `r`, `p`…) in the column spec itself are underlined. `\multicolumn{N}{...}{...}` is correctly counted as N columns.
 
@@ -1080,6 +1132,7 @@ Regexes use Python syntax (`re` module). Available wherever the "Regular express
 | `Ctrl+Q` | Exit |
 | `Shift+Ctrl+R` | Reload from disk |
 | `Ctrl+P` | Print |
+| `Ctrl+Tab` | Quick tab switching (MRU order) |
 
 ### Edit
 
@@ -1112,6 +1165,7 @@ Regexes use Python syntax (`re` module). Available wherever the "Regular express
 | `Ctrl+Shift+F2` | Inline incremental search |
 | `Ctrl+G` | Go to line |
 | `Ctrl+]` | Go to matching bracket |
+| `Alt+↑` / `Alt+↓` | Previous / next build error |
 
 ### Color Highlighting
 
@@ -1146,6 +1200,7 @@ Regexes use Python syntax (`re` module). Available wherever the "Regular express
 | `Ctrl+Shift+F` | Function List |
 | `` Ctrl+` `` | Build and Terminal panel |
 | `Ctrl+Alt+N` | Plain text mode (per tab) |
+| `Ctrl+Alt+T` | Open integrated terminal |
 | `F4` | Spell check |
 | `Ctrl+Shift+L` | Toggle task (Markdown task list `[ ]` ↔ `[x]`) |
 
@@ -1227,13 +1282,15 @@ The AI Assistant plugin (activatable from Plugin Manager) adds a dock panel with
 | Provider | Main Models | API Key |
 |---|---|---|
 | **Anthropic (Claude)** | Dynamic list from the inserted key | console.anthropic.com |
-| **OpenAI** | gpt-4o, gpt-4o-mini, gpt-4-turbo | platform.openai.com |
-| **Google Gemini** | gemini-2.0-flash, gemini-1.5-pro | aistudio.google.com |
-| **Ollama** | Dynamic list from installed models | none (local) |
+| **OpenAI (ChatGPT)** | GPT-5, GPT-4.1/4o and o-series models | platform.openai.com |
+| **Google Gemini** | Gemini 2.5 and earlier models | aistudio.google.com |
+| **DeepSeek** | DeepSeek V4, including thinking | platform.deepseek.com |
+| **Ollama (local)** | Dynamic list from installed models | none (local) |
+| **LlamaCPP (local)** | Models from a `llama-server` instance | none (local) |
 
 > **Note for Anthropic:** a *Claude Pro* subscription (claude.ai) gives access to the web chat. The API requires separate credit from console.anthropic.com.
 
-> **Dynamic model list:** for Anthropic and Ollama, the model combo updates automatically by querying the API when the provider is selected. The **↻** button forces a manual refresh. If no key is configured yet, the default static list is shown.
+> **Dynamic model list:** for cloud providers and local servers, the model combo updates automatically by querying the API when the provider is selected. The **↻** button forces a manual refresh. If the provider is unreachable, the default static list is shown.
 
 ### Configuration
 
@@ -1251,8 +1308,11 @@ The AI Assistant plugin (activatable from Plugin Manager) adds a dock panel with
 | Quick actions | Explain / Refactor / Docstring / Fix bug buttons |
 | Context menu | Right-click in editor → 🤖 Ask AI |
 | System prompt | Click **▶ System prompt** to customize behavior |
-| Extended Thinking | Available on claude-opus-4-7 (extended reasoning) |
+| Extended Thinking | Available on reasoning-capable models, including Claude Opus and DeepSeek V4 Pro |
 | Send message | `Ctrl+Enter` or ▶ Send button |
+| Attachments | Attach text files or images from the panel buttons (image support depends on the provider) |
+| Slash commands | Use the quick commands available in the chat field |
+| Response | Stop streaming, regenerate the response, or view the token estimate |
 
 ### Editor Interaction
 
@@ -1261,6 +1321,8 @@ The AI Assistant plugin (activatable from Plugin Manager) adds a dock panel with
 | **✏ Inline edit** *(checkbox)* | If active, after sending the AI response replaces the selected text in the editor (or the entire file if nothing is selected) |
 | **⬇ To file** *(button)* | Applies the last AI response to the active editor; if the response contains a code block, it is extracted automatically |
 | **📄 New tab** *(button)* | Opens the last AI response in a new empty tab |
+| **📋 Copy** *(button)* | Copies the original Markdown response, preserving code, LaTeX, indentation, and line breaks |
+| **Diff** | Shows changes before applying a response to the editor |
 
 ### Thoughts Panel
 
@@ -1573,7 +1635,7 @@ Right-click on a result row: copy line text, position, all occurrences, or CSV; 
 
 ## 25. Terminal
 
-The **Terminal** plugin (`Ctrl+Alt+N`, or **Plugins → Terminal**) exposes the integrated terminal (xterm.js + shell with native PTY) as an independent dock panel, repositionable and floatable like any other panel.
+The **Terminal** plugin (`Ctrl+Alt+T`, or **Plugins → Terminal**) exposes the integrated terminal (xterm.js + shell with native PTY) as an independent dock panel, repositionable and floatable like any other panel.
 
 - Automatically syncs with the directory of the file open in the editor on tab change.
 - Supports any interactive program: vim, Python REPL, ssh, git, compilers.
@@ -1583,4 +1645,4 @@ The panel can be docked to any side of the window (top, bottom, left, right) or 
 
 ---
 
-*Manual updated: NotePadPQ 0.9.13*
+*Manual updated: NotePadPQ 1.8.2*

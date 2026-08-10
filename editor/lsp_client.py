@@ -65,6 +65,58 @@ def lang_to_id(language: str) -> str:
     return LANG_ID_MAP.get(language.lower(), language.lower())
 
 
+def _completion_documentation(value) -> str:
+    """Converte Documentation/MarkupContent LSP in testo semplice."""
+    if isinstance(value, dict):
+        return str(value.get("value", ""))
+    if isinstance(value, list):
+        return "\n".join(
+            _completion_documentation(part) if isinstance(part, (dict, list))
+            else str(part)
+            for part in value
+        )
+    return str(value or "")
+
+
+def normalize_completion_item(item: dict) -> Optional[dict]:
+    """Normalizza un CompletionItem LSP per il popup dell'editor."""
+    if not isinstance(item, dict):
+        return None
+    label = str(item.get("label", "")).strip()
+    if not label:
+        return None
+
+    raw_edit = item.get("textEdit")
+    text_edit = dict(raw_edit) if isinstance(raw_edit, dict) else None
+    edit_text = text_edit.get("newText") if text_edit else None
+    insert_text = item.get("insertText")
+    if not isinstance(insert_text, str) or not insert_text:
+        insert_text = edit_text if isinstance(edit_text, str) and edit_text else label
+
+    return {
+        "label": label,
+        "detail": str(item.get("detail") or ""),
+        "documentation": _completion_documentation(item.get("documentation")),
+        "insertText": insert_text,
+        "textEdit": text_edit,
+        "kind": item.get("kind", 0),
+    }
+
+
+def normalize_completion_items(items) -> list[dict]:
+    """Normalizza una risposta CompletionList o una lista di CompletionItem."""
+    if isinstance(items, dict):
+        items = items.get("items", [])
+    if not isinstance(items, list):
+        return []
+    normalized = []
+    for item in items[:50]:
+        item = normalize_completion_item(item)
+        if item is not None:
+            normalized.append(item)
+    return normalized
+
+
 # ─── Protocollo LSP (JSON-RPC su stdio) ──────────────────────────────────────
 
 class LSPProtocol:
@@ -114,6 +166,7 @@ class LSPWorker(QThread):
         self._exit_msg: Optional[dict] = None
 
     def run(self) -> None:
+        error_reported = False
         try:
             with self._startup_lock:
                 if self._stop_requested.is_set():
@@ -200,9 +253,12 @@ class LSPWorker(QThread):
                     pass
 
         except Exception as e:
+            error_reported = True
             self.server_error.emit(str(e))
         finally:
             self._running = False
+            if not self._stop_requested.is_set() and not error_reported:
+                self.server_error.emit("LSP server exited unexpectedly")
 
     def send(self, msg: dict) -> None:
         with self._send_lock:
@@ -257,6 +313,7 @@ class LSPClient(QObject):
     """Client LSP per un linguaggio. Un'istanza per linguaggio+workspace."""
 
     completions_ready = pyqtSignal(list)
+    completion_response = pyqtSignal(int, str, list)  # request id, uri, items
     diagnostics_ready = pyqtSignal(str, list)   # uri, lista diagnostics
     hover_ready       = pyqtSignal(str)
     definition_ready  = pyqtSignal(str, int, int)  # uri, line, col (0-based)
@@ -275,10 +332,12 @@ class LSPClient(QObject):
         self._worker: Optional[LSPWorker] = None
         self._proto       = LSPProtocol()
         self._pending: dict[int, str] = {}
+        self._completion_uris: dict[int, str] = {}
         self._initialized = False
         # uri -> [numero tab, contenuto iniziale, language id]. Conservare le
         # aperture prima di initialize evita di perdere didOpen sui server lenti.
         self._open_files: dict[str, list] = {}
+        self._document_versions: dict[str, int] = {}
         self._stopped = False
 
     @classmethod
@@ -316,10 +375,27 @@ class LSPClient(QObject):
         cmd = LSP_SERVERS[self._language]["cmd"]
         self._worker = LSPWorker(cmd, self._workspace)
         self._worker.response_received.connect(self._handle_response)
-        self._worker.server_error.connect(
-            lambda e: print(f"[LSP:{self._language}] {e}")
-        )
+        self._worker.server_error.connect(self._handle_server_error)
         self._worker.start()
+
+    def _handle_server_error(self, error: str) -> None:
+        print(f"[LSP:{self._language}] {error}")
+        self._initialized = False
+        self._stopped = True
+        with type(self)._instances_lock:
+            for key, client in list(type(self)._instances.items()):
+                if client is self:
+                    type(self)._instances.pop(key, None)
+        self._worker = None
+        # Lascia che il popup abbandoni una richiesta rimasta senza risposta.
+        for req_id, req_type in list(self._pending.items()):
+            if req_type != "completion":
+                continue
+            self._pending.pop(req_id, None)
+            uri = self._completion_uris.pop(req_id, "")
+            self.completions_ready.emit([])
+            self.completion_response.emit(req_id, uri, [])
+        self._pending.clear()
 
     def _handle_response(self, msg: dict) -> None:
         if self._stopped:
@@ -332,16 +408,15 @@ class LSPClient(QObject):
             self.diagnostics_ready.emit(params.get("uri", ""), params.get("diagnostics", []))
             return
 
-        if msg_id and msg_id in self._pending:
+        if msg_id is not None and msg_id in self._pending:
             req_type = self._pending.pop(msg_id)
             result   = msg.get("result")
 
             if req_type == "completion":
-                items = result if isinstance(result, list) else (result or {}).get("items", [])
-                self.completions_ready.emit([
-                    {"label": i.get("label", ""), "detail": i.get("detail", ""), "kind": i.get("kind", 0)}
-                    for i in items[:50]
-                ])
+                items = normalize_completion_items(result)
+                uri = self._completion_uris.pop(msg_id, "")
+                self.completions_ready.emit(items)
+                self.completion_response.emit(msg_id, uri, items)
 
             elif req_type == "hover":
                 contents = (result or {}).get("contents", "") if result else ""
@@ -396,6 +471,7 @@ class LSPClient(QObject):
         if self._stopped:
             return
         uri = path.as_uri()
+        self._document_versions.setdefault(uri, 1)
         if uri in self._open_files:
             self._open_files[uri][0] += 1
             return
@@ -411,10 +487,16 @@ class LSPClient(QObject):
         }))
 
     def update_file(self, path: Path, content: str, version: int) -> None:
+        uri = path.as_uri()
         if not self._initialized or not self._worker:
+            opened = self._open_files.get(uri)
+            if opened is not None:
+                # Conserva l'ultimo snapshot anche se il server non ha ancora
+                # completato initialize: sarà usato dal didOpen differito.
+                opened[1] = content
             return
         self._worker.send(self._proto.notification("textDocument/didChange", {
-            "textDocument": {"uri": path.as_uri(), "version": version},
+            "textDocument": {"uri": uri, "version": version},
             "contentChanges": [{"text": content}],
         }))
 
@@ -427,21 +509,31 @@ class LSPClient(QObject):
         if opened[0] > 0:
             return
         self._open_files.pop(uri, None)
+        self._document_versions.pop(uri, None)
         if self._initialized and self._worker:
             self._worker.send(self._proto.notification(
                 "textDocument/didClose", {"textDocument": {"uri": uri}}
             ))
         self._release_if_unused()
 
-    def request_completions(self, path: Path, line: int, col: int) -> None:
+    def next_document_version(self, path: Path) -> int:
+        """Genera una versione monotona condivisa tra i tab dello stesso file."""
+        uri = path.as_uri()
+        version = self._document_versions.get(uri, 1) + 1
+        self._document_versions[uri] = version
+        return version
+
+    def request_completions(self, path: Path, line: int, col: int) -> Optional[int]:
         if not self._initialized or not self._worker:
-            return
+            return None
         req_id = self._proto.next_id()
         self._pending[req_id] = "completion"
+        self._completion_uris[req_id] = path.as_uri()
         self._worker.send(self._proto.request("textDocument/completion", {
             "textDocument": {"uri": path.as_uri()},
             "position":     {"line": line, "character": col},
         }, req_id=req_id))
+        return req_id
 
     def request_hover(self, path: Path, line: int, col: int) -> None:
         if not self._initialized or not self._worker:
@@ -515,6 +607,7 @@ class LSPClient(QObject):
         self._initialized = False
         self._open_files.clear()
         self._pending.clear()
+        self._completion_uris.clear()
         if worker:
             if was_initialized and worker.isRunning():
                 req_id = self._proto.next_id()

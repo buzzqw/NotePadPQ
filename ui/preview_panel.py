@@ -46,12 +46,22 @@ try:
 except ImportError:
     _HAS_WEBENGINE = False
 
-# python-markdown opzionale
-try:
-    import markdown as _markdown_lib
-    _HAS_MARKDOWN = True
-except ImportError:
-    _HAS_MARKDOWN = False
+# python-markdown opzionale — caricato solo al primo rendering Markdown
+_markdown_lib = None
+_HAS_MARKDOWN: bool | None = None
+
+
+def _get_markdown():
+    """Carica python-markdown solo quando l'anteprima Markdown viene usata."""
+    global _markdown_lib, _HAS_MARKDOWN
+    if _HAS_MARKDOWN is None:
+        try:
+            import markdown as markdown_lib
+            _markdown_lib = markdown_lib
+            _HAS_MARKDOWN = True
+        except ImportError:
+            _HAS_MARKDOWN = False
+    return _markdown_lib
 
 import re as _re
 
@@ -77,12 +87,22 @@ def _fix_img_percent_dimensions(html: str, viewport_width: int = 800) -> str:
 
     return _re.sub(r'<img\b[^>]*>', _rewrite, html, flags=_re.IGNORECASE)
 
-# docutils opzionale
-try:
-    from docutils.core import publish_parts as _rst_publish
-    _HAS_DOCUTILS = True
-except ImportError:
-    _HAS_DOCUTILS = False
+# docutils opzionale — caricato solo al primo rendering reStructuredText
+_rst_publish = None
+_HAS_DOCUTILS: bool | None = None
+
+
+def _get_rst_publish():
+    """Carica docutils solo quando l'anteprima reStructuredText viene usata."""
+    global _rst_publish, _HAS_DOCUTILS
+    if _HAS_DOCUTILS is None:
+        try:
+            from docutils.core import publish_parts
+            _rst_publish = publish_parts
+            _HAS_DOCUTILS = True
+        except ImportError:
+            _HAS_DOCUTILS = False
+    return _rst_publish
 
 # PyMuPDF opzionale — caricato in lazy loading al primo utilizzo
 _fitz = None
@@ -257,7 +277,8 @@ class _MarkdownWorker(QThread):
         try:
             import re as _re
             preprocessed, anchor_lines = _inject_md_line_anchors(self._text)
-            if _HAS_MARKDOWN:
+            markdown_lib = _get_markdown()
+            if markdown_lib is not None:
                 # Inject markdown="1" into <div> tags that lack it so that
                 # md_in_html renders Markdown inside them (GitHub-style behaviour).
                 preprocessed = _re.sub(
@@ -266,7 +287,7 @@ class _MarkdownWorker(QThread):
                               if 'markdown=' not in (m.group(2) or '') else m.group(0),
                     preprocessed,
                 )
-                body = _markdown_lib.markdown(
+                body = markdown_lib.markdown(
                     preprocessed,
                     extensions=["tables", "fenced_code", "toc", "md_in_html"],
                 )
@@ -658,6 +679,7 @@ class PreviewPanel(QWidget):
         self._render_gen: int = 0
         self._pdf_single_render_pending: bool = False
         self._synctex_scroll_y_pt: Optional[float] = None  # scroll da applicare dopo render
+        self._pdf_tex_path = None  # root .tex associato al PDF corrente
 
         # Worker asincrono per SyncTeX forward (tex→pdf)
         self._synctex_fwd_worker: Optional[_SyncTeXFwdWorker] = None
@@ -985,6 +1007,7 @@ class PreviewPanel(QWidget):
 
         self._editor = editor
         self._pdf_cursor_highlight = None
+        self._pdf_tex_path = None
 
         # FIX: Forza il re-render invalidando la memoria dell'ultimo testo
         self._last_hash = 0
@@ -1003,6 +1026,12 @@ class PreviewPanel(QWidget):
         if mode == "pdf":
             # Se l'editor ha un .tex, punta al PDF corrispondente
             pdf_path = _tex_pdf_path(editor) or path
+            if path and str(path).lower().endswith((".tex", ".ltx", ".latex")):
+                try:
+                    from core.latex_project import resolve_project_root
+                    self._pdf_tex_path = resolve_project_root(path, editor.text())
+                except Exception:
+                    self._pdf_tex_path = path
             new_path = str(pdf_path) if pdf_path else None
             if new_path != self._pdf_path:
                 if self._pdf_doc is not None:
@@ -1043,7 +1072,7 @@ class PreviewPanel(QWidget):
 
         self._schedule_update()
 
-    def set_pdf_path(self, pdf_path) -> None:
+    def set_pdf_path(self, pdf_path, tex_path=None) -> None:
         """
         Carica direttamente un PDF nel pannello senza passare per un EditorWidget.
         Usato da BuildPanel dopo la compilazione LaTeX.
@@ -1051,6 +1080,7 @@ class PreviewPanel(QWidget):
         from pathlib import Path as _Path
         path = _Path(str(pdf_path))
         path_str = str(path)
+        self._pdf_tex_path = _Path(str(tex_path)) if tex_path else None
 
         # Imposta modalità pdf
         self._set_mode("pdf")
@@ -1434,9 +1464,10 @@ class PreviewPanel(QWidget):
 
     def _render_rst(self, text: str) -> None:
         import html as _html
-        if _HAS_DOCUTILS:
+        rst_publish = _get_rst_publish()
+        if rst_publish is not None:
             try:
-                parts = _rst_publish(text, writer_name="html")
+                parts = rst_publish(text, writer_name="html")
                 body  = parts.get("html_body", "")
                 self._show_html(_wrap_html(body), force_webengine=False)
                 return
@@ -2409,7 +2440,9 @@ class PreviewPanel(QWidget):
             return
         from pathlib import Path as _Path
         pdf_p = _Path(self._pdf_path)
-        self._run_synctex_bwd(pdf_p.with_suffix(".tex"), pdf_p, page_idx + 1, pdf_x, pdf_y)
+        self._run_synctex_bwd(
+            self._synctex_source_path() or pdf_p.with_suffix(".tex"),
+            pdf_p, page_idx + 1, pdf_x, pdf_y)
 
     def _pdf_on_cont_scrollbar_changed(self, _value: int = 0) -> None:
         """Fa partire il timer di aggiornamento pagina solo se non è già in
@@ -2463,6 +2496,20 @@ class PreviewPanel(QWidget):
         self._pdf_page_num = best_idx
 
     # ── SyncTeX ───────────────────────────────────────────────────────────────
+
+    def _synctex_source_path(self):
+        """Restituisce il root sorgente associato al PDF visualizzato."""
+        from pathlib import Path as _Path
+        if self._pdf_tex_path is not None:
+            return self._pdf_tex_path
+        if self._editor and getattr(self._editor, "file_path", None):
+            try:
+                from core.latex_project import resolve_project_root
+                return resolve_project_root(
+                    self._editor.file_path, self._editor.text())
+            except Exception:
+                return self._editor.file_path
+        return _Path(self._pdf_path).with_suffix(".tex") if self._pdf_path else None
 
     def _update_synctex_label(self, pdf_path) -> None:
         """Aggiorna la label SyncTeX in base alla disponibilità del file .synctex.gz."""
@@ -2525,7 +2572,8 @@ class PreviewPanel(QWidget):
         try:
             from pathlib import Path as _Path
             pdf_p = _Path(self._pdf_path)
-            self._run_synctex_bwd(pdf_p.with_suffix(".tex"), pdf_p,
+            self._run_synctex_bwd(
+                                   self._synctex_source_path() or pdf_p.with_suffix(".tex"), pdf_p,
                                    self._pdf_page_num + 1, pdf_x, pdf_y)
         except Exception:
             pass
@@ -2547,6 +2595,14 @@ class PreviewPanel(QWidget):
                     break
         if editor is None:
             editor = mw._tab_manager.current_editor()
+        current_path = getattr(editor, "file_path", None) if editor else None
+        if target and target.exists() and (
+                current_path is None or current_path.resolve() != target.resolve()):
+            try:
+                mw.open_files([target])
+                editor = mw._tab_manager.current_editor()
+            except Exception:
+                pass
         if editor:
             editor.go_to_line(line)
 
@@ -2599,7 +2655,7 @@ class PreviewPanel(QWidget):
         from pathlib import Path as _Path
         self._synctex_fwd_gen += 1
         worker = _SyncTeXFwdWorker(
-            editor.file_path,
+            self._editor.file_path,
             _Path(self._pdf_path),
             line,
             self._synctex_fwd_gen,
@@ -2788,9 +2844,27 @@ def _tex_pdf_path(editor):
     if path is None:
         return None
     p = _Path(str(path))
-    if p.suffix.lower() != ".tex":
+    if p.suffix.lower() not in (".tex", ".latex", ".ltx"):
         return None
-    pdf = p.with_suffix(".pdf")
+    try:
+        from core.latex_project import LatexProjectContext
+        context = LatexProjectContext(p, editor.text())
+        try:
+            from core.build_manager import BuildManager
+            manager = BuildManager.instance()
+            profile_name = manager.get_profile_for_file(p)
+            profile = (manager.get_project_profiles(p).get(profile_name, {})
+                       if profile_name else {})
+            if not profile:
+                profile = manager.get_profiles().get(profile_name, {}) if profile_name else {}
+            output_ref = profile.get("output_directory", profile.get("output_dir"))
+            if output_ref:
+                context = LatexProjectContext(p, editor.text(), output_ref)
+        except Exception:
+            pass
+        pdf = context.pdf_path
+    except Exception:
+        pdf = p.with_suffix(".pdf")
     return pdf if pdf.exists() else None
 
 
@@ -2804,12 +2878,13 @@ def _detect_mode(editor) -> str:
     if path:
         ext = str(path).rsplit(".", 1)[-1].lower() if "." in str(path) else ""
         # Per .tex: se esiste il PDF corrispondente, mostra quello direttamente
-        if ext == "tex":
+        if ext in ("tex", "latex", "ltx"):
             return "pdf" if _tex_pdf_path(editor) else "latex"
         ext_map = {
-            "md": "markdown", "markdown": "markdown",
+            "md": "markdown", "markdown": "markdown", "mdown": "markdown",
+            "mkdn": "markdown", "mdwn": "markdown", "rmd": "markdown",
             "html": "html", "htm": "html",
-            "rst": "rst", "pdf": "pdf"
+            "rst": "rst", "rest": "rst", "pdf": "pdf"
         }
         if ext in ext_map:
             return ext_map[ext]

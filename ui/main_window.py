@@ -276,6 +276,7 @@ class MainWindow(QMainWindow):
 
         self._tab_manager: SplitViewManager = SplitViewManager(self)
         self._statusbar: StatusBar    = StatusBar(self)
+        self._prev_editor: Optional[EditorWidget] = None
         
         # Usa ScreenResolution per far coincidere i DPI di QScintilla con quelli di stampa
         self._printer: QPrinter = QPrinter(QPrinter.PrinterMode.ScreenResolution)
@@ -303,8 +304,6 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         self._setup_resource_monitor()
         self._setup_tab_switcher()
-
-        self._prev_editor: Optional[EditorWidget] = None
 
         # Loader in corso per file grandi (lazy/paged), tenuti vivi qui
         # per poterli cancellare se il tab viene chiuso durante il caricamento.
@@ -652,7 +651,18 @@ class MainWindow(QMainWindow):
     def _setup_lsp(self) -> None:
         self._lsp_hover_pos: tuple[int, int] = (0, 0)
 
-    def _lsp_connect_editor(self, editor) -> None:
+    @staticmethod
+    def _lsp_disconnect_content_sync(editor) -> None:
+        handler = getattr(editor, "_lsp_text_changed_handler", None)
+        if handler is None:
+            return
+        try:
+            editor.textChanged.disconnect(handler)
+        except (RuntimeError, TypeError):
+            pass
+        editor._lsp_text_changed_handler = None
+
+    def _lsp_connect_editor(self, editor, sync_content: bool = False) -> None:
         """Connette l'editor al server LSP appropriato (se disponibile)."""
         if editor is None or not editor.file_path:
             return
@@ -665,6 +675,7 @@ class MainWindow(QMainWindow):
             old_path = getattr(editor, "_lsp_path", None)
             client    = LSPClient.get(lang, workspace)
             if client is None:
+                self._lsp_disconnect_content_sync(editor)
                 if old_client is not None and old_path is not None:
                     old_client.close_file(old_path)
                 editor._lsp_client = None
@@ -673,8 +684,13 @@ class MainWindow(QMainWindow):
 
             # Evita di acquisire due volte lo stesso documento per questo tab.
             if old_client is client and old_path == editor.file_path:
+                if getattr(editor, "_lsp_text_changed_handler", None) is None:
+                    self._lsp_attach_content_sync(editor, client)
+                if sync_content:
+                    self._lsp_sync_content(editor, client)
                 return
 
+            self._lsp_disconnect_content_sync(editor)
             editor._lsp_client = client
             editor._lsp_path = editor.file_path
 
@@ -739,8 +755,30 @@ class MainWindow(QMainWindow):
                 pass
             client.references_ready.connect(self._on_lsp_references)
 
+            self._lsp_attach_content_sync(editor, client)
+
         except Exception as e:
             print(f"[LSP] _lsp_connect_editor: {e}")
+
+    def _lsp_attach_content_sync(self, editor, client) -> None:
+        """Invia didChange al server LSP per ogni modifica dell'editor."""
+        self._lsp_disconnect_content_sync(editor)
+
+        def _on_changed(_editor=editor, _client=client):
+            if (getattr(_editor, "_lsp_client", None) is not _client
+                    or not getattr(_editor, "file_path", None)):
+                return
+            self._lsp_sync_content(_editor, _client)
+
+        editor._lsp_text_changed_handler = _on_changed
+        editor.textChanged.connect(_on_changed)
+
+    @staticmethod
+    def _lsp_sync_content(editor, client) -> None:
+        if not getattr(editor, "file_path", None):
+            return
+        version = client.next_document_version(editor.file_path)
+        client.update_file(editor.file_path, editor.text(), version)
 
     def _lsp_request_hover(self, editor, client, line: int, col: int) -> None:
         self._lsp_hover_pos = (line, col)
@@ -1013,6 +1051,8 @@ class MainWindow(QMainWindow):
         sub_tmpl = m.addMenu(tr("action.new_from_template"))
         self._menus["new_from_template"] = sub_tmpl
         self._populate_templates_menu(sub_tmpl)
+        sub_tmpl.aboutToShow.connect(
+            lambda menu=sub_tmpl: self._populate_templates_menu(menu))
 
         self._sep(m)
         m.addAction(self._act("open",          "Ctrl+O",           self.action_open))
@@ -1059,10 +1099,10 @@ class MainWindow(QMainWindow):
 
     def _populate_templates_menu(self, menu: QMenu) -> None:
         """Popola il submenu Nuovo da modello."""
+        menu.clear()
         templates = [
             ("Python",     ".py"),
             ("HTML",       ".html"),
-            ("LaTeX",      ".tex"),
             ("Markdown",   ".md"),
             ("Bash",       ".sh"),
             ("C/C++",      ".c"),
@@ -1074,6 +1114,22 @@ class MainWindow(QMainWindow):
                 lambda checked, e=ext: self.action_new_from_template(e)
             )
             menu.addAction(action)
+
+        latex_menu = menu.addMenu("LaTeX")
+        try:
+            from core.latex_templates import LatexTemplateCatalog
+            editor = self._current_editor()
+            project_dir = (editor.file_path.parent
+                           if editor and editor.file_path else None)
+            names = LatexTemplateCatalog(project_dir=project_dir).list_templates()
+        except Exception:
+            names = ("article",)
+        for name in names:
+            action = QAction(name, self)
+            action.triggered.connect(
+                lambda checked, n=name: self.action_new_from_template(".tex", n)
+            )
+            latex_menu.addAction(action)
 
     def _populate_recent_menu(self) -> None:
         """Popola il submenu File recenti dalla cronologia (i pinnati restano in cima)."""
@@ -1493,7 +1549,7 @@ class MainWindow(QMainWindow):
             "Bash/Shell", "C/C++", "C#", "CMake", "CSS", "Diff",
             "HTML", "INI/Config", "Java", "JavaScript",
             "JSON", "LaTeX", "Lua", "Makefile", "Markdown",
-            "Python", "Ruby", "SQL",
+            "Python", "Ruby", "SQL", "reStructuredText",
             "Testo normale", "TypeScript", "XML", "YAML",
             # Pygments
             "Dart", "Elixir", "Go", "Haskell", "Julia",
@@ -1646,6 +1702,13 @@ class MainWindow(QMainWindow):
                                        checkable=True, checked=build_on_save_checked)
         build_on_save_act.setToolTip(tr("tooltip.build_trigger_on_save"))
         m.addAction(build_on_save_act)
+
+        build_on_edit_checked = Settings.instance().get("build/trigger_on_edit", False)
+        build_on_edit_act = self._act(
+            "build_trigger_on_edit", "", self._toggle_build_on_edit,
+            checkable=True, checked=build_on_edit_checked)
+        build_on_edit_act.setToolTip(tr("tooltip.build_trigger_on_edit"))
+        m.addAction(build_on_edit_act)
 
         unified_checked = Settings.instance().get("build/unified_errors", True)
         unified_act = self._act("build_unified_errors", "", self._toggle_unified_errors,
@@ -1908,6 +1971,9 @@ class MainWindow(QMainWindow):
     def _on_editor_changed(self, editor: Optional[EditorWidget]) -> None:
         """Aggiorna titolo finestra e statusbar quando cambia il tab attivo."""
         if editor is None:
+            if self._prev_editor is not None:
+                self._detach_latex_autobuild(self._prev_editor)
+                self._prev_editor = None
             # Potrebbe essere un tab spreadsheet: mostra il suo nome nel titolo
             path = self._tab_manager.current_custom_path()
             if path:
@@ -2041,6 +2107,7 @@ class MainWindow(QMainWindow):
                 prev.paste_clipboard_image_requested.disconnect()
             except (RuntimeError, TypeError):
                 pass
+            self._detach_latex_autobuild(prev)
 
         # Collega i segnali del nuovo editor allo statusbar
         editor.cursor_changed.connect(self._statusbar.set_cursor)
@@ -2074,6 +2141,7 @@ class MainWindow(QMainWindow):
         editor.paste_clipboard_image_requested.connect(
             lambda ed=editor: self._paste_clipboard_image_as_latex(ed)
         )
+        self._attach_latex_autobuild(editor)
 
         # Se il tab appena selezionato aveva una modifica esterna in sospeso,
         # mostra ora il dialogo (non prima, per non disturbare mentre si
@@ -2177,8 +2245,10 @@ class MainWindow(QMainWindow):
     def action_new(self) -> None:
         self._tab_manager.new_tab()
 
-    def action_new_from_template(self, extension: str) -> None:
-        self._tab_manager.new_tab(template_ext=extension)
+    def action_new_from_template(self, extension: str,
+                                 template_name: str = "") -> None:
+        self._tab_manager.new_tab(
+            template_ext=extension, template_name=template_name)
 
     def action_open(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
@@ -2280,6 +2350,9 @@ class MainWindow(QMainWindow):
                     # Aggiorna statusbar con il linguaggio rilevato
                     if hasattr(self, "_statusbar"):
                         self._statusbar._update_lang(tab)
+                    # Il caricamento lazy blocca textChanged: riallinea il
+                    # documento già aperto nel server LSP con il contenuto reale.
+                    self._lsp_connect_editor(tab, sync_content=True)
 
                 def _on_error(msg: str, tab=tab, path=path) -> None:
                     self._lazy_loaders.pop(tab, None)
@@ -3517,6 +3590,7 @@ class MainWindow(QMainWindow):
         if not editor:
             return
         set_lexer_by_name(editor, lang)
+        self._lsp_connect_editor(editor, sync_content=True)
         # Aggiorna statusbar e checkmark menu
         if hasattr(self, "_statusbar"):
             self._statusbar._update_lang(editor)
@@ -3660,6 +3734,60 @@ class MainWindow(QMainWindow):
     def _toggle_build_on_save(self, checked: bool) -> None:
         from config.settings import Settings
         Settings.instance().set("build/trigger_on_save", checked)
+
+    def _toggle_build_on_edit(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("build/trigger_on_edit", checked)
+
+    def _attach_latex_autobuild(self, editor) -> None:
+        """Debounce build LaTeX durante la digitazione, se abilitato."""
+        self._detach_latex_autobuild(editor)
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+
+        def on_changed(_editor=editor, _timer=timer):
+            from config.settings import Settings
+            if (not Settings.instance().get("build/trigger_on_edit", False)
+                    or not getattr(_editor, "file_path", None)
+                    or _editor.file_path.suffix.lower() not in {".tex", ".ltx", ".latex"}):
+                return
+            delay = Settings.instance().get("build/trigger_on_edit_delay_ms", 900)
+            try:
+                _timer.start(max(250, int(delay)))
+            except (TypeError, ValueError):
+                _timer.start(900)
+
+        def trigger(_editor=editor):
+            from core.build_manager import BuildManager
+            if not BuildManager.instance().is_running():
+                self._trigger_build_on_edit(_editor)
+
+        timer.timeout.connect(trigger)
+        editor._latex_autobuild_timer = timer
+        editor._latex_autobuild_handler = on_changed
+        editor.textChanged.connect(on_changed)
+
+    @staticmethod
+    def _detach_latex_autobuild(editor) -> None:
+        timer = getattr(editor, "_latex_autobuild_timer", None)
+        handler = getattr(editor, "_latex_autobuild_handler", None)
+        if handler is not None:
+            try:
+                editor.textChanged.disconnect(handler)
+            except (RuntimeError, TypeError):
+                pass
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        editor._latex_autobuild_timer = None
+        editor._latex_autobuild_handler = None
+
+    def _trigger_build_on_edit(self, editor) -> None:
+        from core.build_manager import BuildManager
+        from uuid import uuid4
+        BuildManager.instance().run(
+            "build", editor, run_id=f"autoedit_{uuid4().hex[:8]}"
+        )
 
     def _toggle_unified_errors(self, checked: bool) -> None:
         from config.settings import Settings
@@ -4548,6 +4676,7 @@ class MainWindow(QMainWindow):
                 print(f"[LSP] close file: {e}")
         editor._lsp_client = None
         editor._lsp_path = None
+        self._detach_latex_autobuild(editor)
 
 
     # ── Multi-cursore ─────────────────────────────────────────────────────────

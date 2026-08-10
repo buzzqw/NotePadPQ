@@ -15,7 +15,7 @@ import re
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtGui import QAction, QKeySequence
-from PyQt6.QtWidgets import QMenu
+from PyQt6.QtWidgets import QMenu, QFileDialog, QMessageBox
 
 from i18n.i18n import tr
 
@@ -412,6 +412,8 @@ class LatexMenuManager:
         s.addSeparator()
         self._act(s, tr("latex_menu.bibtex_wizard", default="BibTeX Wizard..."),
                   self._open_bibtex_wizard)
+        self._act(s, tr("latex_menu.import_bibtex", default="Importa file BibTeX..."),
+                  self._import_bibtex_file)
         return s
 
     def _open_bibtex_wizard(self) -> None:
@@ -421,6 +423,18 @@ class LatexMenuManager:
         from editor.bibtex_wizard import BibTeXWizardDialog
         dlg = BibTeXWizardDialog(ed, parent=self._mw)
         dlg.exec()
+
+    def _import_bibtex_file(self) -> None:
+        """Apre in un tab il file esportato da Zotero/JabRef."""
+        from pathlib import Path
+        path, _ = QFileDialog.getOpenFileName(
+            self._mw, "Importa BibTeX", "", "BibTeX (*.bib);;Tutti i file (*)")
+        if not path:
+            return
+        try:
+            self._mw.open_files([Path(path)])
+        except OSError as exc:
+            QMessageBox.warning(self._mw, "Importa BibTeX", str(exc))
 
     def _build_modifica_tabelle(self) -> QMenu:
         s = self._sub(tr("latex_menu.edit_tables", default="Modifica tabelle"))

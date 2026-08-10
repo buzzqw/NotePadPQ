@@ -22,8 +22,10 @@ Implementazione note:
 """
 from __future__ import annotations
 
+import bisect
 import re
-from PyQt6.Qsci import QsciLexerCustom
+
+from PyQt6.Qsci import QsciLexerCustom, QsciScintilla
 
 # ── Numeri di stile ───────────────────────────────────────────────────────────
 
@@ -109,24 +111,64 @@ _MAX_STYLE_BYTES = 8000  # ~100 righe × 80 char
 class LaTeXLexer(QsciLexerCustom):
     """Custom LaTeX lexer con highlighting stile TeXstudio."""
 
+    # Bit di SCN_MODIFIED che indicano un vero inserimento/cancellazione di
+    # testo (a differenza di SC_MOD_CHANGESTYLE, che è la nostra stessa
+    # chiamata a setStyling() e va ignorata per non auto-invalidare la cache
+    # ad ogni styleText()).
+    _EDIT_MASK = QsciScintilla.SC_MOD_INSERTTEXT | QsciScintilla.SC_MOD_DELETETEXT
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._bytes_cache: bytes | None = None
         self._state_cache: dict[int, tuple[str, tuple[str, ...]]] = {
             0: ("default", ())
         }
-        # Invalida la cache solo quando il testo cambia.
-        # Durante scroll/navigazione (testo invariato) la cache è riusata.
+        # Chiavi di _state_cache in ordine crescente, per lookup O(log n)
+        # via bisect invece di una scansione lineare di tutta la cache.
+        self._state_cache_order: list[int] = [0]
         if parent is not None:
+            # Il testo è cambiato: lo snapshot byte è comunque da rileggere.
             parent.textChanged.connect(self._on_text_changed)
+            # Potatura precisa della cache di stato: solo le voci con
+            # offset > position dell'edit sono invalidate (il testo prima
+            # della modifica, e il suo stato, restano identici). Senza
+            # questo, un singolo carattere digitato in fondo a un file da
+            # 2-3 MB forzava una ri-scansione dell'intero documento da
+            # zero ad ogni tasto premuto (centinaia di ms → secondi).
+            parent.SCN_MODIFIED.connect(self._on_scn_modified)
 
     def _on_text_changed(self) -> None:
-        self.invalidate_cache()
+        self._bytes_cache = None
+
+    def _on_scn_modified(self, position, modification_type, text, length,
+                          lines_added, line, fold_now, fold_prev, token,
+                          annotation_lines_added) -> None:
+        if not (modification_type & self._EDIT_MASK):
+            return
+        self._invalidate_state_from(position)
+
+    def _invalidate_state_from(self, position: int) -> None:
+        """Scarta le voci di _state_cache con offset > position: dopo un
+        insert/delete i byte a quelle posizioni sono shiftati e non più
+        validi. Le voci precedenti restano corrette e vengono conservate."""
+        order = self._state_cache_order
+        idx = bisect.bisect_right(order, position)
+        if idx < len(order):
+            for key in order[idx:]:
+                del self._state_cache[key]
+            del order[idx:]
+
+    def _cache_state(self, pos: int, mode: str, envs: tuple) -> None:
+        if pos not in self._state_cache:
+            bisect.insort(self._state_cache_order, pos)
+        self._state_cache[pos] = (mode, envs)
 
     def invalidate_cache(self) -> None:
-        """Scarta lo snapshot byte del documento dell'editor padre."""
+        """Scarta lo snapshot byte e l'intera cache di stato (usato per un
+        re-highlight completo, es. cambio tema — non per ogni keystroke)."""
         self._bytes_cache = None
         self._state_cache = {0: ("default", ())}
+        self._state_cache_order = [0]
 
     def recolor(self) -> None:
         """Invalida la cache e forza Scintilla a ristilizzare il documento."""
@@ -188,14 +230,22 @@ class LaTeXLexer(QsciLexerCustom):
         return close + 1, kind, name
 
     def _state_at(self, text_b: bytes, offset: int):
-        checkpoint = max((p for p in self._state_cache if p <= offset), default=0)
+        # Guardia economica: se qualcuno ha riassegnato _state_cache
+        # direttamente (es. test white-box) senza passare da _cache_state/
+        # _invalidate_state_from, la lista ordinata si disallinea. Un
+        # confronto di lunghezza (O(1)) la ricostruisce solo in quel caso
+        # raro — nel percorso caldo normale non costa nulla.
+        if len(self._state_cache_order) != len(self._state_cache):
+            self._state_cache_order = sorted(self._state_cache)
+        idx = bisect.bisect_right(self._state_cache_order, offset) - 1
+        checkpoint = self._state_cache_order[idx] if idx >= 0 else 0
         mode, envs = self._state_cache[checkpoint]
         envs = list(envs)
         i = checkpoint
         while i < offset:
             if text_b[i] == _B_NEWLINE:
                 i += 1
-                self._state_cache[i] = (mode, tuple(envs))
+                self._cache_state(i, mode, tuple(envs))
                 continue
             if text_b[i] == _B_PERCENT and not self._is_escaped(text_b, i):
                 newline = text_b.find(b'\n', i, offset)
@@ -271,7 +321,7 @@ class LaTeXLexer(QsciLexerCustom):
         while pos < end:
             b = text_b[pos]
             if b == _B_NEWLINE:
-                self._state_cache[pos + 1] = (mode, tuple(envs))
+                self._cache_state(pos + 1, mode, tuple(envs))
                 pos += 1
                 last_cmd = ''
                 continue

@@ -36,6 +36,7 @@ xlrd>=2.0.1            # Lettura XLS (formato Excel legacy, sola lettura)
 odfpy>=1.4.1           # Lettura/scrittura ODS (fallback se openpyxl non supporta ODS)
 
 # --- Plugin Database / FTP (Opzionali) ---
+psycopg2-binary>=2.9          # Connessione PostgreSQL
 mysql-connector-python>=8.0  # Connessione MySQL/MariaDB
 oracledb>=1.0                # Connessione Oracle
 paramiko>=3.0               # Connessione SFTP

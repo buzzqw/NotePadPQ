@@ -6,6 +6,7 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt6.Qsci import QsciScintilla
 from PyQt6.QtWidgets import QApplication
 
 from editor.latex_checker import _CheckWorker
@@ -151,6 +152,148 @@ class LatexSupportTest(unittest.TestCase):
                      b"\\begin{gather}x\ny\\end{gather}"):
             lexer._state_cache = {0: ("default", ())}
             self.assertEqual(lexer._state_at(text, len(text))[0], "default")
+
+
+class LaTeXLexerIncrementalCacheTest(unittest.TestCase):
+    """Copre la potatura incrementale della cache di stato (SCN_MODIFIED +
+    bisect) introdotta per eliminare il freeze multi-secondo per keystroke.
+
+    I test in LatexSupportTest istanziano LaTeXLexer(parent=None) (SCN_MODIFIED
+    non è mai collegato) e mutano _state_cache direttamente bypassando
+    _cache_state/_invalidate_state_from: la logica di potatura non era
+    esercitata da nessun test."""
+
+    @staticmethod
+    def _expand_styles(setStyling_mock) -> list[int]:
+        out: list[int] = []
+        for call in setStyling_mock.call_args_list:
+            count, style = call.args
+            out.extend([style] * count)
+        return out
+
+    def _styled_lexer(self, text_b: bytes, start: int, end: int) -> tuple[LaTeXLexer, int, list[int]]:
+        lexer = LaTeXLexer()
+        lexer.startStyling = mock.Mock()
+        lexer.setStyling = mock.Mock()
+        lexer._style_with_state(start, end, text_b)
+        safe = lexer.startStyling.call_args.args[0]
+        return lexer, safe, self._expand_styles(lexer.setStyling)
+
+    def test_invalidate_state_from_keeps_prefix_and_boundary(self):
+        lexer = LaTeXLexer()
+        lexer._state_cache = {
+            0: ("default", ()), 5: ("dollar", ()),
+            10: ("default", ()), 20: ("environment", ("equation",)),
+        }
+        lexer._state_cache_order = [0, 5, 10, 20]
+
+        lexer._invalidate_state_from(10)
+
+        # L'entry esattamente sulla posizione dell'edit descrive il testo
+        # PRIMA dell'edit e resta valida (bisect_right, non bisect_left).
+        self.assertEqual(lexer._state_cache_order, [0, 5, 10])
+        self.assertEqual(set(lexer._state_cache), {0, 5, 10})
+        self.assertEqual(lexer._state_cache[10], ("default", ()))
+
+    def test_invalidate_state_from_no_op_when_edit_after_all_checkpoints(self):
+        lexer = LaTeXLexer()
+        lexer._state_cache = {0: ("default", ()), 5: ("dollar", ())}
+        lexer._state_cache_order = [0, 5]
+
+        lexer._invalidate_state_from(100)
+
+        self.assertEqual(lexer._state_cache_order, [0, 5])
+        self.assertEqual(set(lexer._state_cache), {0, 5})
+
+    def test_on_scn_modified_ignores_style_only_notifications(self):
+        lexer = LaTeXLexer()
+        lexer._state_cache = {0: ("default", ()), 5: ("dollar", ())}
+        lexer._state_cache_order = [0, 5]
+
+        # SC_MOD_CHANGESTYLE è la nostra stessa setStyling(): se invalidasse
+        # la cache si tornerebbe al bug originale (rescan completo ad ogni
+        # styleText invece che ad ogni vera modifica di testo).
+        lexer._on_scn_modified(0, QsciScintilla.SC_MOD_CHANGESTYLE,
+                                b"", 0, 0, 0, 0, 0, 0, 0)
+
+        self.assertEqual(lexer._state_cache_order, [0, 5])
+        self.assertEqual(set(lexer._state_cache), {0, 5})
+
+    def test_on_scn_modified_prunes_on_insert_and_delete(self):
+        for mod_type in (QsciScintilla.SC_MOD_INSERTTEXT, QsciScintilla.SC_MOD_DELETETEXT):
+            with self.subTest(mod_type=mod_type):
+                lexer = LaTeXLexer()
+                lexer._state_cache = {0: ("default", ()), 5: ("dollar", ()), 12: ("default", ())}
+                lexer._state_cache_order = [0, 5, 12]
+
+                lexer._on_scn_modified(5, mod_type, b"x", 1, 0, 0, 0, 0, 0, 0)
+
+                self.assertEqual(lexer._state_cache_order, [0, 5])
+                self.assertEqual(set(lexer._state_cache), {0, 5})
+
+    def test_incremental_restyle_after_deleting_math_delimiter_matches_full_rescan(self):
+        """Il caso reale del bug: documento con molte righe, edit vicino alla
+        fine che cambia lo stato (chiude/apre il math mode). L'highlighting
+        prodotto riusando la cache potata a partire dal punto di edit deve
+        essere IDENTICO a quello di una riscansione completa dallo zero —
+        la potatura non deve lasciare stato stantio dopo il punto di edit."""
+        lines = [r"\documentclass{article}", r"\begin{document}"]
+        for i in range(40):
+            lines.append(f"Text line {i} with $m_{i}$ math end.")
+        lines.append(r"\end{document}")
+        before_text = ("\n".join(lines) + "\n").encode("ascii")
+
+        # Rimuove il '$' di chiusura sulla riga "Text line 35": da lì in poi
+        # il documento resta in modalità 'dollar' aperta fino a EOF, quindi
+        # tutte le righe successive vanno reinterpretate diversamente.
+        after_lines = list(lines)
+        after_lines[37] = after_lines[37].replace("$m_35$", "$m_35", 1)
+        after_text = ("\n".join(after_lines) + "\n").encode("ascii")
+        self.assertNotEqual(before_text, after_text)
+
+        prefix_len = 0
+        limit = min(len(before_text), len(after_text))
+        while prefix_len < limit and before_text[prefix_len] == after_text[prefix_len]:
+            prefix_len += 1
+        edit_position = prefix_len
+        self.assertGreater(edit_position, 0)
+
+        lexer = LaTeXLexer()
+        lexer.startStyling = mock.Mock()
+        lexer.setStyling = mock.Mock()
+        lexer._style_with_state(0, len(before_text), before_text)
+
+        # Sanity: sono stati cachati molti checkpoint (uno per riga), non solo
+        # {0: default} — altrimenti il test non eserciterebbe davvero la cache.
+        self.assertGreater(len(lexer._state_cache), 30)
+        checkpoints_before_edit = {p for p in lexer._state_cache if p <= edit_position}
+        self.assertGreater(len(checkpoints_before_edit), 5)
+
+        lexer._on_scn_modified(edit_position, QsciScintilla.SC_MOD_DELETETEXT,
+                                b"$", 1, 0, 0, 0, 0, 0, 0)
+        lexer._on_text_changed()
+
+        # I checkpoint precedenti l'edit sopravvivono intatti...
+        self.assertEqual({p for p in lexer._state_cache if p <= edit_position},
+                          checkpoints_before_edit)
+        # ...quelli successivi sono stati scartati.
+        self.assertTrue(all(p <= edit_position for p in lexer._state_cache))
+
+        lexer.setStyling.reset_mock()
+        lexer.startStyling.reset_mock()
+        lexer._style_with_state(edit_position, len(after_text), after_text)
+        safe = lexer.startStyling.call_args.args[0]
+        incremental_styles = self._expand_styles(lexer.setStyling)
+
+        _, safe_gt, ground_styles = self._styled_lexer(after_text, 0, len(after_text))
+        self.assertEqual(safe_gt, 0)
+
+        region = ground_styles[safe:safe + len(incremental_styles)]
+        self.assertEqual(
+            incremental_styles, region,
+            "la potatura incrementale della cache produce un highlighting diverso "
+            "da una riscansione completa: dopo l'edit la cache contiene stato stantio",
+        )
 
 
 if __name__ == "__main__":

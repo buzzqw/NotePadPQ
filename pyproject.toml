@@ -1,6 +1,6 @@
 [project]
 name = "notepadpq"
-version = "1.8.4"
+version = "1.8.5"
 description = "One editor. Every language. Every workflow — a modern cross-platform text editor built with Python and PyQt6"
 readme = "README.md"
 license = {text = "EUPL-1.2"}

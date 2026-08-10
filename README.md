@@ -16,7 +16,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20FreeBSD-lightgrey)]()
 [![Version](https://img.shields.io/badge/Version-1.8.1-orange)]()
 
-[🇬🇧 English](#-english) · [🇮🇹 Italiano](#-italiano) · [💖 Dona / Donate](https://www.paypal.com/donate/?business=azanzani%40gmail.com&currency_code=EUR)
+[🇬🇧 English](#-english) · [🇮🇹 Italiano](#-italiano) · [💖 Dona / Donate](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=azanzani@gmail.com&item_name=Support+NotePadPQ+Project)
 
 </div>
 
@@ -387,7 +387,7 @@ NotePadPQ is developed in spare time with passion. If you find it useful, consid
 
 <div align="center">
 
-[![Donate with PayPal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/donate/?business=azanzani%40gmail.com&currency_code=EUR)
+[![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=azanzani@gmail.com&item_name=Support+NotePadPQ+Project)
 
 </div>
 

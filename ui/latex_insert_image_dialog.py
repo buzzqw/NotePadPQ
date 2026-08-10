@@ -9,18 +9,25 @@ figure/figure* completo, con opzioni dimensioni, didascalia ed etichetta.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFileDialog,
-    QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QCheckBox, QComboBox, QPushButton, QSizePolicy,
-    QTextEdit, QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
-
 
 _WIDTH_UNITS  = ["\\linewidth", "\\textwidth", "\\columnwidth", "cm", "mm", "in", "px"]
 _HEIGHT_UNITS = ["\\textheight", "\\lineheight", "cm", "mm", "in", "px"]
@@ -34,8 +41,8 @@ _CAP_POS      = [
 class LatexInsertImageDialog(QDialog):
     """Dialogo per inserire un'immagine LaTeX (stile TeXstudio)."""
 
-    def __init__(self, parent: Optional[QWidget] = None,
-                 base_dir: Optional[Path] = None) -> None:
+    def __init__(self, parent: QWidget | None = None,
+                 base_dir: Path | None = None) -> None:
         super().__init__(parent)
         self._base_dir = base_dir
         self.setWindowTitle(tr("latex_img_dlg.title", default="Inserisci immagine"))
@@ -97,6 +104,16 @@ class LatexInsertImageDialog(QDialog):
         row.addWidget(self._file_edit)
         row.addWidget(btn_browse)
         return w
+
+    def set_file_path(self, path: str | Path) -> None:
+        """Precompila il percorso quando il dialogo viene aperto da drag/drop."""
+        candidate = Path(path)
+        if self._base_dir and candidate.is_absolute():
+            try:
+                candidate = candidate.resolve().relative_to(Path(self._base_dir).resolve())
+            except (OSError, ValueError):
+                pass
+        self._file_edit.setText(str(candidate))
 
     def _build_image_options(self) -> QGroupBox:
         gb = QGroupBox(tr("latex_img_dlg.image_options", default="Opzioni immagine"), self)
@@ -231,7 +248,7 @@ class LatexInsertImageDialog(QDialog):
 
     def set_image_file(self, path: str) -> None:
         """Pre-popola il campo file con il percorso dato."""
-        self._file_edit.setText(path)
+        self.set_file_path(path)
 
     def _browse_file(self) -> None:
         start = ""

@@ -60,7 +60,7 @@ class LatexMenuManager:
     def _is_latex(editor: Optional["EditorWidget"]) -> bool:
         if editor is None:
             return False
-        if editor.file_path and editor.file_path.suffix.lower() == ".tex":
+        if editor.file_path and editor.file_path.suffix.lower() in {".tex", ".ltx", ".latex"}:
             return True
         return getattr(editor, "_current_language", "").lower() == "latex"
 
@@ -157,7 +157,7 @@ class LatexMenuManager:
         # Azioni rapide di inserimento
         self._act(m, tr("latex_menu.insert_image", default="Inserisci immagine…"),
                   self._open_image_dialog)
-        self._act(m, tr("latex_menu.insert_table_quick", default="Inserisci tabella…"),
+        self._act(m, tr("latex_menu.quick_table", default="Tabella rapida…"),
                   self._insert_table_env)
         m.addSeparator()
 
@@ -191,6 +191,73 @@ class LatexMenuManager:
 
         m.addMenu(self._build_modifica_tabelle())
         m.addMenu(self._build_commenti_magici())
+        m.addMenu(self._build_project_tools())
+
+    def _build_project_tools(self) -> QMenu:
+        """Strumenti aggiuntivi composti sulle infrastrutture già esistenti."""
+        s = self._sub(tr("latex_menu.project_tools", default="Strumenti progetto"))
+        self._act(
+            s,
+            tr("latex_menu.wizard", default="Assistente tabelle/equazioni/ambienti…"),
+            self._open_latex_wizard,
+        )
+        self._act(
+            s,
+            tr("latex_menu.symbol_palette", default="Palette simboli LaTeX…"),
+            self._open_symbol_palette,
+        )
+        self._act(
+            s,
+            tr("latex_menu.project_dashboard", default="Dashboard progetto…"),
+            lambda: self._mw._show_latex_project_dashboard(),
+        )
+        self._act(
+            s,
+            tr("latex_menu.recipe_manager", default="Ricette di compilazione…"),
+            lambda: self._mw._show_latex_recipe_manager(),
+        )
+        self._act(
+            s,
+            tr("latex_menu.toolchain", default="Verifica toolchain…"),
+            lambda: self._mw._show_latex_toolchain(),
+        )
+        self._act(
+            s,
+            tr("latex_menu.references_panel", default="Riferimenti globali"),
+            lambda: self._mw._toggle_latex_references_panel(True),
+        )
+        self._act(
+            s,
+            tr("latex_menu.external_tools", default="ChkTeX / lacheck / latexindent…"),
+            lambda: self._mw._show_latex_external_tools(),
+        )
+        s.addSeparator()
+        aux = s.addMenu(tr("latex_menu.auxiliary_tools", default="Indici e glossari"))
+        self._act(aux, r"\makeindex", lambda: self._insert(r"\makeindex" + "\n"))
+        self._act(aux, r"\makeglossaries", lambda: self._insert(r"\makeglossaries" + "\n"))
+        self._act(aux, r"\makenomenclature", lambda: self._insert(r"\makenomenclature" + "\n"))
+        aux.addSeparator()
+        for label, kind in [
+            ("Esegui makeindex", "makeindex"),
+            ("Esegui makeglossaries", "makeglossaries"),
+            ("Esegui nomencl", "nomencl"),
+        ]:
+            self._act(aux, label, lambda k=kind: self._mw._run_latex_auxiliary_tool(k))
+        return s
+
+    def _open_symbol_palette(self) -> None:
+        ed = self._ed()
+        if not ed:
+            return
+        from ui.latex_symbol_palette import LatexSymbolPaletteDialog
+        LatexSymbolPaletteDialog(ed, parent=self._mw).exec()
+
+    def _open_latex_wizard(self) -> None:
+        ed = self._ed()
+        if not ed:
+            return
+        from editor.latex_wizard import LaTeXWizardDialog
+        LaTeXWizardDialog(ed, parent=self._mw).exec()
 
     # ── Submenus ──────────────────────────────────────────────────────────────
 
@@ -372,6 +439,11 @@ class LatexMenuManager:
         s.addSeparator()
         self._act(s, "\\cite{}", lambda: self._insert_cmd("\\cite"))
         self._act(s, "\\cite[]{}", self._insert_cite_opt)
+        self._act(
+            s,
+            tr("latex_menu.choose_citation", default="Scegli citazione..."),
+            self._open_citation_chooser,
+        )
         self._act(s, "\\nocite{}", lambda: self._insert_cmd("\\nocite"))
         s.addSeparator()
         self._act(s, "\\footnote{}", lambda: self._insert_cmd("\\footnote"))
@@ -423,6 +495,44 @@ class LatexMenuManager:
         from editor.bibtex_wizard import BibTeXWizardDialog
         dlg = BibTeXWizardDialog(ed, parent=self._mw)
         dlg.exec()
+
+    def _open_citation_chooser(self) -> None:
+        """Select an existing project key, then use the normal insertion path."""
+        ed = self._ed()
+        if not ed:
+            return
+        from PyQt6.QtWidgets import QDialog
+        from ui.latex_citation_dialog import (
+            LatexCitationChooserDialog, project_bibtex_keys,
+        )
+
+        dlg = LatexCitationChooserDialog(project_bibtex_keys(ed), parent=self._mw)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selected_key:
+            ed.setFocus()
+            return
+        self._insert_citation_key(dlg.selected_key)
+
+    def _insert_citation_key(self, key: str) -> None:
+        """Insert a complete citation, or replace a partial active argument."""
+        ed = self._ed()
+        if not ed:
+            return
+        line, col = ed.getCursorPosition()
+        prefix = ed.text(line)[:col]
+        in_citation = re.search(
+            r"\\(?:cite[a-zA-Z]*|(?:paren|text|foot|auto|smart|super)cites?)\*?"
+            r"(?:\s*\[[^\]]*\]){0,2}\s*\{[^{}\n]*$",
+            prefix,
+        )
+        if in_citation and hasattr(ed, "_insert_replacing_partial_and_close_brace"):
+            ed.beginUndoAction()
+            try:
+                ed._insert_replacing_partial_and_close_brace(key)
+            finally:
+                ed.endUndoAction()
+        else:
+            self._insert(f"\\cite{{{key}}}")
+        ed.setFocus()
 
     def _import_bibtex_file(self) -> None:
         """Apre in un tab il file esportato da Zotero/JabRef."""

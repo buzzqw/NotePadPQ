@@ -48,6 +48,7 @@ _DEFAULTS: dict[str, Any] = {
     "preview/enabled":         False,
     "preview/delay_ms":        500,
     "preview/sync_cursor":     True,
+    "preview/external_viewer_command": "",
     "rest/max_response_bytes": 50 * 1024 * 1024,
     # Build
     "build/save_before":       True,
@@ -55,6 +56,7 @@ _DEFAULTS: dict[str, Any] = {
     "build/trigger_on_save":   False,
     "build/trigger_on_edit":   False,
     "build/trigger_on_edit_delay_ms": 900,
+    "build/latex_auxiliary_auto": False,
     "build/output_max_lines":  10000,
     "build/unified_errors":    True,
     # i18n
@@ -71,6 +73,7 @@ _DEFAULTS: dict[str, Any] = {
     "spellcheck/language":     "it",
     # LaTeX
     "latex/env_usage_counts":  "{}",  # JSON: {env_name: count} per ordinare il popup \begin{
+    "latex/cwl_directories":    [],    # directory .cwl aggiuntive, in ordine di precedenza
     # Function List
     "function_list/latex_hidden_kinds": "",  # CSV: "subsubsection,command" ecc.
     "function_list/disabled_presets":   "",  # CSV: preset JSON disabilitati

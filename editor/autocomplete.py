@@ -590,7 +590,7 @@ class _ApiRebuildWorker(QThread):
     latex_cache = pyqtSignal(list, list, list)  # (label_pairs, bibtex_keys, hypertarget_names)
 
     def __init__(self, language: str, levels, text: str, file_path,
-                 all_docs_words: list, generation: int):
+                 all_docs_words: list, generation: int, cwl_enabled: bool = False):
         super().__init__(None)
         self._language       = language
         self._levels         = levels
@@ -598,6 +598,7 @@ class _ApiRebuildWorker(QThread):
         self._file_path      = file_path
         self._all_docs_words = all_docs_words
         self._gen            = generation
+        self._cwl_enabled    = cwl_enabled
         self._cancelled      = False
 
     def cancel(self) -> None:
@@ -634,7 +635,9 @@ class _ApiRebuildWorker(QThread):
         if self._language in ("latex", "bibtex"):
             try:
                 from editor.latex_support import LaTeXSupport
-                dynamic = LaTeXSupport.build_dynamic_api(self._text, self._file_path)
+                dynamic = LaTeXSupport.build_dynamic_api(
+                    self._text, self._file_path, include_cwl=self._cwl_enabled
+                )
                 terms.extend(dynamic)
             except Exception:
                 pass
@@ -716,6 +719,7 @@ class AutoCompleteManager(QObject):
         self._lsp_request_cursor: tuple[int, int] | None = None
         self._lsp_items: dict[str, dict] = {}
         self._lsp_popup_open = False
+        self._cwl_enabled = False
 
         # Cache label/bibtex/hypertarget precalcolate in background dal worker.
         # Usate dai popup '{' per evitare I/O sincrono su Dropbox.
@@ -827,6 +831,7 @@ class AutoCompleteManager(QObject):
             return
         if self._language != language.lower():
             self._disconnect_lsp_client()
+            self._cwl_enabled = False
         self._language = language.lower()
         if self._levels & AutoCompleteLevel.API_DICT:
             self._local_completion_keys = {
@@ -927,7 +932,8 @@ class AutoCompleteManager(QObject):
         self._api_gen += 1
         gen    = self._api_gen
         worker = _ApiRebuildWorker(
-            self._language, self._levels, text, fp, all_docs_words, gen
+            self._language, self._levels, text, fp, all_docs_words, gen,
+            self._cwl_enabled,
         )
         worker.done.connect(lambda terms, g=gen: self._on_api_ready(terms, g))
         worker.latex_cache.connect(
@@ -998,6 +1004,7 @@ class AutoCompleteManager(QObject):
 
     def trigger_manual(self) -> None:
         """Forza la visualizzazione del popup (Ctrl+Space)."""
+        self._enable_cwl_for_completion()
         self._request_lsp_completions(force=True)
         self._editor.autoCompleteFromAll()
 
@@ -1010,7 +1017,17 @@ class AutoCompleteManager(QObject):
         return re.sub(r"\([^()]*\)$", "", value)
 
     def _on_char_added_for_lsp(self, _char: int) -> None:
+        self._enable_cwl_for_completion()
         self._request_lsp_completions()
+
+    def _enable_cwl_for_completion(self, force: bool = False) -> None:
+        """Defer CWL directory I/O until a LaTeX completion context exists."""
+        if self._language != "latex" or self._cwl_enabled:
+            return
+        line, col = self._editor.getCursorPosition()
+        if force or re.search(r"\\[A-Za-z@]*$", self._editor.text(line)[:col]):
+            self._cwl_enabled = True
+            self._rebuild_api()
 
     def _disconnect_lsp_client(self) -> None:
         client = self._lsp_signal_client
@@ -1184,6 +1201,8 @@ class AutoCompleteManager(QObject):
         if self._language != "latex" or char != "{":
             return False
 
+        self._enable_cwl_for_completion(force=True)
+
         ed = self._editor
         line, col = ed.getCursorPosition()
         line_text = ed.text(line)[:col]
@@ -1260,6 +1279,8 @@ class AutoCompleteManager(QObject):
         """
         if self._language != "latex" or bracket != "[":
             return False
+
+        self._enable_cwl_for_completion(force=True)
 
         ed = self._editor
         line, col = ed.getCursorPosition()
@@ -1409,6 +1430,7 @@ class AutoCompleteManager(QObject):
 
     def _complete_environments(self, is_end: bool = False, needs_brace: bool = False) -> None:
         """Popup con tutti gli ambienti LaTeX: standard + custom del documento."""
+        self._enable_cwl_for_completion(force=True)
         self._env_popup_needs_brace = needs_brace
         try:
             from editor.latex_support import LaTeXSupport
@@ -1470,6 +1492,7 @@ class AutoCompleteManager(QObject):
 
     def _complete_packages(self) -> None:
         """Popup con i pacchetti LaTeX più comuni (per \\usepackage{)."""
+        self._enable_cwl_for_completion(force=True)
         from editor.latex_support import PACKAGE_COMMANDS
         # Pacchetti noti + aggiunge quelli comuni non nel dict
         known = list(PACKAGE_COMMANDS.keys())
@@ -1503,6 +1526,25 @@ class AutoCompleteManager(QObject):
             "etoolbox", "ifthen", "calc",
         ]
         all_pkgs = sorted(set(known + extra))
+        try:
+            from editor.latex_support import LaTeXSupport
+            cwl = LaTeXSupport.get_cwl_model(
+                getattr(self._editor, "file_path", None)
+            )
+            all_pkgs = sorted(
+                set(all_pkgs) | set(cwl.package_names), key=str.casefold
+            )
+            descriptions = {
+                package.name.casefold(): package.description
+                for package in cwl.packages.values() if package.description
+            }
+            all_pkgs = [
+                f"{package}  [{descriptions[package.casefold()]}]"
+                if package.casefold() in descriptions else package
+                for package in all_pkgs
+            ]
+        except Exception:
+            pass
         self._editor.showUserList(5, all_pkgs)
 
     def _complete_documentclasses(self) -> None:

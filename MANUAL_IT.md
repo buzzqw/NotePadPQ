@@ -606,7 +606,7 @@ Esegue il comando associato al tipo di file corrente e mostra l'output nel panne
 
 #### Profili di compilazione e variabili
 
-I profili di compilazione si configurano da **Build → Profili di compilazione** (`F8`). 13 profili predefiniti (Python, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) e possibilità di crearne di personalizzati illimitati. Ogni profilo associa un'estensione file a uno o più comandi (Compila, Esegui, Build).
+I profili di compilazione si configurano da **Build → Profili di compilazione** (`F8`). 12 profili predefiniti (Python, Python uv, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) e possibilità di crearne di personalizzati illimitati. Ogni profilo associa un'estensione file a uno o più comandi (Compila, Esegui, Build).
 
 Nei comandi sono disponibili le seguenti variabili, accettate sia nella forma `${VAR}` che `$(VAR)`:
 
@@ -1012,6 +1012,109 @@ sudo pacman -S python-pymupdf python-matplotlib python-sympy texlive-bin
 > Su Debian/Ubuntu, se `pip` è bloccato dall'ambiente gestito dal sistema, `setup.sh` propone automaticamente di usare un virtualenv dedicato (`<progetto>/.venv`).
 
 Le funzionalità opzionali si attivano automaticamente se le librerie sono presenti; non è necessaria nessuna configurazione aggiuntiva.
+
+### Strumenti progetto e navigazione semantica
+
+Il menu dinamico **LaTeX** include strumenti costruiti sulle infrastrutture
+esistenti del progetto, del checker e della build:
+
+- **Palette simboli**: ricerca comandi LaTeX divisi per lettere greche,
+  operatori, relazioni, frecce, delimitatori e font, con indicazione del
+  pacchetto spesso necessario.
+- **Chooser citazioni**: cerca le chiavi BibTeX in tutto il progetto corrente e
+  inserisce la chiave selezionata senza duplicare il BibTeX Wizard.
+- **Navigazione semantica**: Ctrl+click o hover su `\ref`, `\pageref`, `\eqref`,
+  `\hyperref`, label e citazioni. Il parser multi-file locale è usato quando
+  texlab non è disponibile; la navigazione LSP esistente resta disponibile.
+- **Dashboard progetto**: mostra root risolta, numero di sorgenti, percorsi
+  output/PDF, profilo selezionato, salute del progetto, tool ausiliari e stato
+  della toolchain.
+- **Riferimenti globali**: analizza definizioni, riferimenti, citazioni, label
+  duplicate/inutilizzate, inclusioni e asset mancanti nel progetto risolto.
+  Il doppio click porta alla posizione nel sorgente.
+- **Toolchain**: mostra percorsi e versioni di engine LaTeX, latexmk,
+  BibTeX/Biber, SyncTeX, texdoc, ChkTeX, lacheck, latexindent e tool indice.
+- **Visualizzatore PDF esterno**: nelle preferenze Anteprima puoi indicare un
+  comando come `zathura {PDF}` o `SumatraPDF.exe {PDF}`. Lasciandolo vuoto viene
+  usato il viewer predefinito del sistema; il token `{PDF}` viene sostituito
+  come argomento sicuro.
+
+### Strumenti LaTeX esterni
+
+Il checker interno continua a funzionare indipendentemente. Da **LaTeX →
+Strumenti progetto** puoi eseguire esplicitamente gli strumenti opzionali:
+
+- **ChkTeX** o **lacheck**: le diagnostiche vengono convertite in una lista
+  navigabile.
+- **latexindent**: formatta il documento solo dopo un subprocess riuscito; in
+  caso di errore il testo originale resta invariato e la sostituzione è una
+  singola operazione di undo.
+- **texdoc** e **CTAN**: la documentazione di comandi/pacchetti è disponibile
+  dal menu contestuale dell'editor; i tooltip statici offline restano il
+  fallback.
+
+Per una toolchain completa sono consigliati anche `pdflatex`, `xelatex`,
+`lualatex`, `latexmk`, `bibtex`, `biber`, `synctex`, `texdoc`, `chktex`,
+`lacheck`, `latexindent`, `makeindex` e `makeglossaries`. Su Arch Linux il
+pacchetto `texlive-meta` copre la maggior parte della distribuzione; per
+BibLaTeX, formattazione e LSP installa:
+
+```bash
+sudo pacman -S biber perl-yaml-tiny perl-file-homedir texlab
+```
+
+`perl-yaml-tiny` e `perl-file-homedir` sono necessari perché lo script
+`latexindent` possa avviarsi.
+`texlab` è opzionale: il parser locale di NotePadPQ mantiene navigazione e
+completamento di base anche senza server LSP.
+
+### Indici, glossari e ricette
+
+Il menu LaTeX può inserire `\makeindex`, `\makeglossaries` e
+`\makenomenclature`, oppure eseguire i relativi processori sulla directory
+output configurata. Nel menu Build è disponibile l'opzione **tool ausiliari
+automatici**; quando attiva, i comandi nel sorgente vengono rilevati e la
+sequenza diventa:
+
+```text
+LaTeX → makeindex/makeglossaries/nomencl → LaTeX finale
+```
+
+La finestra **Ricette LaTeX** seleziona il profilo attivo e ne mostra comandi e
+pipeline. È costruita sopra i profili globali e di progetto già esistenti, che
+restano compatibili.
+
+### Assistenti tabelle ed equazioni
+
+Nel menu **LaTeX** sono disponibili due strumenti complementari:
+
+- **Assistente LaTeX**: genera equazioni, ambienti e tabelle con contenuto
+  modificabile nelle celle. L'anteprima del codice generato è ampia e può
+  essere corretta prima di inserirla nel documento.
+- **Tabella rapida**: configura velocemente ambiente, allineamenti, bordi,
+  merge, caption e label. È indicata quando serve definire la struttura della
+  tabella senza compilare manualmente ogni cella.
+
+I due strumenti non sono duplicati: il primo è orientato al contenuto e alla
+generazione di più tipi di codice, il secondo alla configurazione visuale del
+layout tabellare.
+
+### Autocompletamento pacchetti configurabile
+
+I file `.cwl` in stile TeXstudio vengono caricati in modo lazy dalle directory
+built-in, utente, configurate e di progetto. L'autocompletamento statico esistente
+resta il fallback. Le directory aggiuntive si configurano nelle preferenze
+LaTeX o tramite la variabile d'ambiente `NOTEPADPQ_CWL_DIRS`; i file corrotti
+vengono ignorati.
+
+### Drag & drop immagini
+
+Trascinando PNG, JPEG, SVG, PDF o altre immagini supportate sull'editor LaTeX
+si apre l'assistente figura esistente con il percorso già compilato. Dopo la
+conferma vengono generati `\includegraphics`, dimensioni, ambiente `figure`,
+caption e label secondo le opzioni scelte; il percorso viene reso relativo al
+progetto quando possibile e `graphicx` viene assicurato nel preambolo. I drop
+su altri linguaggi mantengono il normale comportamento di apertura file.
 
 ---
 

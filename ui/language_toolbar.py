@@ -792,7 +792,7 @@ class _LanguageToolbarWidget(QWidget):
         btn.clicked.connect(self._show_latex_table_picker)
 
         menu = QMenu(btn)
-        menu.addAction(tr("action.latex_insert_table", default="Inserisci tabella…"),
+        menu.addAction(tr("latex_menu.quick_table", default="Tabella rapida…"),
                        self._show_latex_table_picker)
         menu.addSeparator()
         for label, action, where in [

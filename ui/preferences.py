@@ -18,6 +18,7 @@ Emette settings_changed su ogni modifica salvata.
 from __future__ import annotations
 
 import json as _json
+import os
 from typing import Optional
 
 from PyQt6.QtCore import Qt
@@ -312,6 +313,24 @@ class PreferencesDialog(QDialog):
         gl.addLayout(fl)
 
         vl.addWidget(grp)
+        cwl_grp = QGroupBox("LaTeX package completion (.cwl)")
+        cwl_layout = QVBoxLayout(cwl_grp)
+        cwl_row = QHBoxLayout()
+        self._cwl_dirs = QLineEdit()
+        self._cwl_dirs.setPlaceholderText("Directory separate da ; (Windows) o : (Unix)")
+        cwl_browse = QPushButton("Sfoglia…")
+        cwl_browse.clicked.connect(self._browse_cwl_dir)
+        cwl_row.addWidget(self._cwl_dirs, 1)
+        cwl_row.addWidget(cwl_browse)
+        cwl_layout.addLayout(cwl_row)
+        cwl_note = QLabel(
+            "Ordine: built-in, utente, directory configurate, progetto. "
+            "I file .cwl vengono caricati solo durante il completamento LaTeX."
+        )
+        cwl_note.setWordWrap(True)
+        cwl_note.setStyleSheet("color: #858585; font-size: 11px;")
+        cwl_layout.addWidget(cwl_note)
+        vl.addWidget(cwl_grp)
         vl.addStretch()
         return w
 
@@ -338,9 +357,18 @@ class PreferencesDialog(QDialog):
         gl.addLayout(fl)
 
         self._preview_mermaid = QCheckBox(tr("pref.preview.mermaid",
-                                             default="Rendering diagrammi Mermaid (```mermaid)"))
+                                              default="Rendering diagrammi Mermaid (```mermaid)"))
         self._preview_mermaid.setToolTip(tr("tooltip.pref_mermaid"))
         gl.addWidget(self._preview_mermaid)
+
+        self._preview_external_viewer = QLineEdit()
+        self._preview_external_viewer.setPlaceholderText(
+            "es. zathura {PDF} oppure SumatraPDF.exe {PDF}"
+        )
+        self._preview_external_viewer.setToolTip(
+            "Lascia vuoto per usare il visualizzatore predefinito del sistema."
+        )
+        fl.addRow("Visualizzatore PDF esterno:", self._preview_external_viewer)
 
         vl.addWidget(grp)
         vl.addStretch()
@@ -633,6 +661,10 @@ class PreferencesDialog(QDialog):
         self._ac_api.setChecked(s.get("autocomplete/api_dict", True))
         self._ac_lsp.setChecked(s.get("autocomplete/lsp", False))
         self._ac_threshold.setValue(s.get("autocomplete/threshold", 2))
+        cwl_dirs = s.get("latex/cwl_directories", [])
+        if isinstance(cwl_dirs, (list, tuple)):
+            cwl_dirs = os.pathsep.join(str(value) for value in cwl_dirs)
+        self._cwl_dirs.setText(str(cwl_dirs or ""))
 
         # Editor — Scrittura
         self._typewriter_deadzone.setValue(s.get("editor/typewriter_deadzone", 3))
@@ -641,6 +673,9 @@ class PreferencesDialog(QDialog):
         self._preview_sync.setChecked(s.get("preview/sync_cursor", True))
         self._preview_delay.setValue(s.get("preview/delay_ms", 500))
         self._preview_mermaid.setChecked(s.get("preview/mermaid", True))
+        self._preview_external_viewer.setText(
+            s.get("preview/external_viewer_command", "")
+        )
 
         # Build
         for key, cb in self._build_settings_map.items():
@@ -759,6 +794,17 @@ class PreferencesDialog(QDialog):
         s.set("autocomplete/api_dict",  self._ac_api.isChecked())
         s.set("autocomplete/lsp",       self._ac_lsp.isChecked())
         s.set("autocomplete/threshold", self._ac_threshold.value())
+        s.set(
+            "latex/cwl_directories",
+            [value.strip() for value in self._cwl_dirs.text().split(os.pathsep) if value.strip()],
+        )
+        mw_cwl = self.parent()
+        while mw_cwl is not None and not hasattr(mw_cwl, "_refresh_latex_completion_apis"):
+            mw_cwl = mw_cwl.parent()
+        if mw_cwl is not None:
+            mw_cwl._refresh_latex_completion_apis()
+            if hasattr(mw_cwl, "_refresh_lsp_connections"):
+                mw_cwl._refresh_lsp_connections()
 
         # Editor — Scrittura
         s.set("editor/typewriter_deadzone", self._typewriter_deadzone.value())
@@ -767,6 +813,10 @@ class PreferencesDialog(QDialog):
         s.set("preview/sync_cursor", self._preview_sync.isChecked())
         s.set("preview/delay_ms",    self._preview_delay.value())
         s.set("preview/mermaid",     self._preview_mermaid.isChecked())
+        s.set(
+            "preview/external_viewer_command",
+            self._preview_external_viewer.text().strip(),
+        )
 
         # Build (data-driven + explicit defaults)
         for key, cb in self._build_settings_map.items():
@@ -827,6 +877,18 @@ class PreferencesDialog(QDialog):
         )
         if d:
             self._autobackup_dir.setText(d)
+
+    def _browse_cwl_dir(self) -> None:
+        directory = QFileDialog.getExistingDirectory(
+            self, "Seleziona directory CWL", self._cwl_dirs.text().split(os.pathsep)[0]
+            if self._cwl_dirs.text().strip() else ""
+        )
+        if not directory:
+            return
+        values = [value.strip() for value in self._cwl_dirs.text().split(os.pathsep) if value.strip()]
+        if directory not in values:
+            values.append(directory)
+        self._cwl_dirs.setText(os.pathsep.join(values))
 
     def _open_theme_editor(self) -> None:
         try:

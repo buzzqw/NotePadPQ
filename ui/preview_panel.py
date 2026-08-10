@@ -2039,6 +2039,24 @@ class PreviewPanel(QWidget):
         """Apre il PDF corrente con il visualizzatore esterno predefinito."""
         if not self._pdf_path:
             return
+        from config.settings import Settings
+        import os
+        import shlex
+        from PyQt6.QtCore import QProcess
+        configured = Settings.instance().get("preview/external_viewer_command", "")
+        if isinstance(configured, str) and configured.strip():
+            try:
+                argv = shlex.split(configured, posix=os.name != "nt")
+                argv = [
+                    token.replace("{PDF}", str(self._pdf_path)).replace(
+                        "%PDF%", str(self._pdf_path)
+                    )
+                    for token in argv
+                ]
+                if argv and QProcess.startDetached(argv[0], argv[1:]):
+                    return
+            except (ValueError, OSError):
+                pass
         from PyQt6.QtCore import QUrl
         _open_url(QUrl.fromLocalFile(self._pdf_path))
 

@@ -666,6 +666,19 @@ class MainWindow(QMainWindow):
         """Connette l'editor al server LSP appropriato (se disponibile)."""
         if editor is None or not editor.file_path:
             return
+        from config.settings import Settings
+        if not Settings.instance().get("autocomplete/lsp", False):
+            self._lsp_disconnect_content_sync(editor)
+            old_client = getattr(editor, "_lsp_client", None)
+            old_path = getattr(editor, "_lsp_path", None)
+            if old_client is not None and old_path is not None:
+                try:
+                    old_client.close_file(old_path)
+                except (RuntimeError, OSError, TypeError, ValueError):
+                    pass
+            editor._lsp_client = None
+            editor._lsp_path = None
+            return
         try:
             from editor.lsp_client import LSPClient, lang_to_id
             from editor.lexers import get_language_name
@@ -1362,6 +1375,18 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("view_file_browser",    "Ctrl+Shift+E", self._toggle_file_browser,    checkable=True, checked=False))
         m.addAction(self._act("view_project_manager", "",             self._toggle_project_manager, checkable=True, checked=False))
         m.addAction(self._act("view_character_panel", "",             self._toggle_character_panel, checkable=True, checked=False))
+        self._latex_references_action = QAction(
+            tr("view.latex_references", default="Riferimenti LaTeX globali"), self,
+        )
+        self._latex_references_action.setCheckable(True)
+        self._latex_references_action.setChecked(
+            bool(getattr(self, "_latex_references_dock", None)
+                 and self._latex_references_dock.isVisible())
+        )
+        self._latex_references_action.triggered.connect(
+            self._toggle_latex_references_panel
+        )
+        m.addAction(self._latex_references_action)
         m.addAction(self._act("preview_toggle",       "F12",          self._toggle_preview,         checkable=True, checked=False))
         self._sep(m)
 
@@ -1695,6 +1720,15 @@ class MainWindow(QMainWindow):
                                checkable=True, checked=draft_checked)
         draft_act.setToolTip(tr("tooltip.build_draft_mode"))
         m.addAction(draft_act)
+        auxiliary_checked = Settings.instance().get("build/latex_auxiliary_auto", False)
+        auxiliary_act = self._act(
+            "build_latex_auxiliary_auto", "", self._toggle_latex_auxiliary_auto,
+            checkable=True, checked=auxiliary_checked,
+        )
+        auxiliary_act.setToolTip(
+            "Esegue automaticamente makeindex, makeglossaries e nomencl durante Build"
+        )
+        m.addAction(auxiliary_act)
         self._sep(m)
 
         build_on_save_checked = Settings.instance().get("build/trigger_on_save", False)
@@ -1973,6 +2007,13 @@ class MainWindow(QMainWindow):
         if editor is None:
             if self._prev_editor is not None:
                 self._detach_latex_autobuild(self._prev_editor)
+                try:
+                    old_refs_handler = getattr(self._prev_editor, "_mw_latex_refs_handler", None)
+                    if old_refs_handler is not None:
+                        self._prev_editor.textChanged.disconnect(old_refs_handler)
+                        self._prev_editor._mw_latex_refs_handler = None
+                except (RuntimeError, TypeError):
+                    pass
                 self._prev_editor = None
             # Potrebbe essere un tab spreadsheet: mostra il suo nome nel titolo
             path = self._tab_manager.current_custom_path()
@@ -2107,6 +2148,17 @@ class MainWindow(QMainWindow):
                 prev.paste_clipboard_image_requested.disconnect()
             except (RuntimeError, TypeError):
                 pass
+            try:
+                prev.latex_image_drop_requested.disconnect()
+            except (RuntimeError, TypeError, AttributeError):
+                pass
+            try:
+                old_refs_handler = getattr(prev, "_mw_latex_refs_handler", None)
+                if old_refs_handler is not None:
+                    prev.textChanged.disconnect(old_refs_handler)
+                    prev._mw_latex_refs_handler = None
+            except (RuntimeError, TypeError):
+                pass
             self._detach_latex_autobuild(prev)
 
         # Collega i segnali del nuovo editor allo statusbar
@@ -2141,6 +2193,14 @@ class MainWindow(QMainWindow):
         editor.paste_clipboard_image_requested.connect(
             lambda ed=editor: self._paste_clipboard_image_as_latex(ed)
         )
+        editor.latex_image_drop_requested.connect(
+            lambda path, ed=editor: self._insert_dropped_latex_image(ed, path)
+        )
+        if hasattr(self, "_latex_references_panel"):
+            handler = lambda _ed=editor: self._schedule_latex_references_scan()
+            editor._mw_latex_refs_handler = handler
+            editor.textChanged.connect(handler)
+            self._schedule_latex_references_scan()
         self._attach_latex_autobuild(editor)
 
         # Se il tab appena selezionato aveva una modifica esterna in sospeso,
@@ -2210,6 +2270,36 @@ class MainWindow(QMainWindow):
             line, col = editor.getCursorPosition()
             editor.insert(code)
             editor.setCursorPosition(line, col + len(code.split("\n")[0]))
+        editor.setFocus()
+
+    def _insert_dropped_latex_image(self, editor: "EditorWidget", path: Path) -> None:
+        """Apre l'assistente figura per un'immagine trascinata nel LaTeX editor."""
+        from PyQt6.QtWidgets import QDialog
+        from ui.latex_insert_image_dialog import LatexInsertImageDialog
+
+        base_dir = editor.file_path.parent if editor.file_path else None
+        dialog = LatexInsertImageDialog(parent=self, base_dir=base_dir)
+        dialog.set_image_file(str(path))
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            editor.setFocus()
+            return
+        code = dialog.get_latex_code()
+        if not code:
+            editor.setFocus()
+            return
+        toolbar = getattr(self, "_lang_toolbar", None)
+        if toolbar and hasattr(toolbar, "_ensure_latex_package"):
+            toolbar._ensure_latex_package(editor, "graphicx")
+        editor.beginUndoAction()
+        try:
+            if editor.hasSelectedText():
+                editor.replaceSelectedText(code)
+            else:
+                line, col = editor.getCursorPosition()
+                editor.insert(code)
+                editor.setCursorPosition(line, col + len(code.split("\n")[0]))
+        finally:
+            editor.endUndoAction()
         editor.setFocus()
 
     @pyqtSlot(object, bool)
@@ -3339,6 +3429,187 @@ class MainWindow(QMainWindow):
         else:
             self._project_dock.hide()
 
+    def _ensure_latex_references_dock(self) -> None:
+        """Crea il pannello riferimenti solo quando viene richiesto dall'utente."""
+        if hasattr(self, "_latex_references_dock"):
+            return
+        from ui.latex_references_panel import LatexReferencesPanel
+        self._latex_references_panel = LatexReferencesPanel(self)
+        self._latex_references_panel.navigate_requested.connect(
+            self._on_latex_reference_navigation
+        )
+        self._latex_references_dock = QDockWidget(
+            tr("dock.latex_references", default="Riferimenti LaTeX"), self
+        )
+        self._latex_references_dock.setObjectName("LatexReferencesDock")
+        self._latex_references_dock.setWidget(self._latex_references_panel)
+        self._latex_references_dock.setMinimumWidth(520)
+        self._latex_references_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+        self._latex_references_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetClosable |
+            QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._latex_references_dock)
+        self._latex_references_dock.visibilityChanged.connect(
+            self._on_latex_references_visibility
+        )
+        self._latex_references_timer = QTimer(self)
+        self._latex_references_timer.setSingleShot(True)
+        self._latex_references_timer.timeout.connect(self._refresh_latex_references)
+
+    def _toggle_latex_references_panel(self, checked: bool = True) -> None:
+        self._ensure_latex_references_dock()
+        if checked:
+            self._latex_references_dock.show()
+            self._schedule_latex_references_scan()
+        else:
+            self._latex_references_dock.hide()
+
+    def _on_latex_references_visibility(self, visible: bool) -> None:
+        action = getattr(self, "_latex_references_action", None)
+        if action is not None:
+            action.blockSignals(True)
+            action.setChecked(visible)
+            action.blockSignals(False)
+        if visible:
+            self._schedule_latex_references_scan()
+
+    def _schedule_latex_references_scan(self) -> None:
+        if not hasattr(self, "_latex_references_dock"):
+            return
+        if not self._latex_references_dock.isVisible():
+            return
+        self._latex_references_timer.start(250)
+
+    def _refresh_latex_references(self) -> None:
+        editor = self._current_editor()
+        if editor is None:
+            return
+        is_latex = (
+            editor.file_path is not None
+            and editor.file_path.suffix.lower() in {".tex", ".ltx", ".latex"}
+        ) or "latex" in getattr(editor, "_current_language", "").lower()
+        if is_latex:
+            self._latex_references_panel.set_project(
+                editor.file_path, editor.get_content(), asynchronous=True
+            )
+
+    def _on_latex_reference_navigation(self, path, line: int, column: int) -> None:
+        try:
+            target = Path(path)
+            if target == Path("<memory>") or not target.exists():
+                return
+
+            def find_editor():
+                for candidate in self._tab_manager.all_editors():
+                    try:
+                        if candidate.file_path and candidate.file_path.resolve() == target.resolve():
+                            return candidate
+                    except OSError:
+                        continue
+                return None
+
+            def focus_target() -> None:
+                editor = find_editor()
+                if editor is None:
+                    return
+                self._tab_manager.set_current_editor(editor)
+                editor.go_to_line(line)
+                editor.setCursorPosition(max(0, line - 1), max(0, column))
+                editor.setFocus()
+
+            editor = find_editor()
+            if editor is None:
+                self.open_files([target])
+                QTimer.singleShot(0, focus_target)
+                editor = find_editor()
+            loader = getattr(self, "_lazy_loaders", {}).get(editor) if editor else None
+            if loader is not None and hasattr(loader, "load_finished"):
+                loader.load_finished.connect(focus_target)
+            else:
+                QTimer.singleShot(0, focus_target)
+        except (OSError, TypeError, ValueError):
+            pass
+
+    def _show_latex_toolchain(self) -> None:
+        from ui.latex_toolchain_dialog import LatexToolchainDialog
+        editor = self._current_editor()
+        path = editor.file_path if editor else None
+        LatexToolchainDialog(path, parent=self).exec()
+
+    def _show_latex_recipe_manager(self) -> None:
+        from ui.latex_recipe_dialog import LatexRecipeDialog
+        editor = self._current_editor()
+        LatexRecipeDialog(
+            editor=editor,
+            edit_profiles=lambda: self.action_build_profiles(),
+            parent=self,
+        ).exec()
+
+    def _show_latex_project_dashboard(self) -> None:
+        from ui.latex_project_dashboard import LatexProjectDashboardDialog
+        editor = self._current_editor()
+        LatexProjectDashboardDialog(
+            editor=editor,
+            open_references=lambda: self._toggle_latex_references_panel(True),
+            open_toolchain=self._show_latex_toolchain,
+            parent=self,
+        ).exec()
+
+    def _refresh_latex_completion_apis(self) -> None:
+        """Ricarica le API LaTeX dopo una modifica alle directory CWL."""
+        for editor in self._tab_manager.all_editors():
+            language = getattr(editor, "_current_language", "").lower()
+            if "latex" in language or "tex" in language:
+                autocomplete = getattr(editor, "_autocomplete", None)
+                if autocomplete is not None and hasattr(autocomplete, "refresh"):
+                    autocomplete.refresh()
+
+    def _refresh_lsp_connections(self) -> None:
+        """Applica subito la preferenza LSP agli editor già aperti."""
+        for editor in self._tab_manager.all_editors():
+            self._lsp_connect_editor(editor)
+
+    def _show_latex_external_tools(self) -> None:
+        from ui.latex_external_tools_dialog import LatexExternalToolsDialog
+        editor = self._current_editor()
+        if editor is None:
+            return
+        dialog = LatexExternalToolsDialog(editor, parent=self)
+        dialog.navigate_requested.connect(self._on_latex_reference_navigation)
+        dialog.exec()
+
+    def _run_latex_auxiliary_tool(self, kind: str) -> None:
+        """Esegue manualmente un tool ausiliario nel contesto output corrente."""
+        from core.latex_external_tools import (
+            makeglossaries_command,
+            makeindex_command,
+            nomencl_command,
+            quote_command,
+        )
+        from core.latex_project import LatexProjectContext
+        from core.build_manager import BuildManager
+
+        editor = self._current_editor()
+        if editor is None or editor.file_path is None:
+            return
+        context = LatexProjectContext(editor.file_path, editor.get_content())
+        output = context.output_directory
+        output.mkdir(parents=True, exist_ok=True)
+        if kind == "makeindex":
+            argv = makeindex_command(output / f"{context.root.stem}.idx")
+        elif kind == "makeglossaries":
+            argv = makeglossaries_command(output / context.root.name)
+        elif kind == "nomencl":
+            argv = nomencl_command(output / context.root.name)
+        else:
+            return
+        BuildManager.instance().run_task(
+            quote_command(argv), output,
+            run_id=f"latex_aux_{kind}",
+        )
+
     def _toggle_character_panel(self, checked: bool) -> None:
         if checked:
             self._character_panel_dock.show()
@@ -3730,6 +4001,10 @@ class MainWindow(QMainWindow):
     def _toggle_draft_mode(self, checked: bool) -> None:
         from config.settings import Settings
         Settings.instance().set("build/draft_mode", checked)
+
+    def _toggle_latex_auxiliary_auto(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("build/latex_auxiliary_auto", checked)
 
     def _toggle_build_on_save(self, checked: bool) -> None:
         from config.settings import Settings

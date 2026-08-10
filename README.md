@@ -99,6 +99,11 @@ LaTeX is a first-class workflow, not only a syntax-highlighting mode.
   references and included files, with hierarchical navigation.
 - LaTeX completion covers commands, environments, packages, labels,
   references, citations and bibliography keys across project files.
+- The LaTeX Wizard handles equations, environments and content-filled tables;
+  Quick Table handles visual table layout, borders and cell merges.
+- Dropping an image into a LaTeX document opens the figure assistant and
+  generates project-relative `\includegraphics` code with optional figure,
+  caption and label syntax.
 - Templates include article, report and Beamer variants. User and project
   templates can be placed under `.notepadpq/templates`.
 - SyncTeX connects editor positions and PDF positions in both directions.
@@ -118,6 +123,16 @@ The exact package names vary by distribution. Ensure that the selected engine
 `synctex` are available on `PATH`. Then open the root `.tex` file and use the
 LaTeX profile from the Build Panel. The project manual contains the complete
 LaTeX reference and troubleshooting notes.
+
+On Arch Linux, the optional project tools can be installed with:
+
+```bash
+sudo pacman -S biber perl-yaml-tiny perl-file-homedir texlab
+```
+
+`perl-yaml-tiny` and `perl-file-homedir` are required by `latexindent`;
+`texlab` enables LSP features, while NotePadPQ retains local LaTeX fallbacks
+without it.
 
 ### Build Panel and task runner
 
@@ -146,6 +161,8 @@ LaTeX reference and troubleshooting notes.
 - Mermaid blocks in Markdown can be rendered through Mermaid.js when enabled
   and network access is available.
 - Smart PDF crop, page navigation and PDF export workflows.
+- Optional external PDF viewer command with a safe `{PDF}` placeholder, while
+  the system default remains the fallback.
 
 ### LSP and integrated development tools
 

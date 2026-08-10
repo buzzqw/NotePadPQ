@@ -73,6 +73,12 @@ tests/*
 !tests/test_latex_templates.py
 !tests/test_bibtex_wizard_validation.py
 !tests/test_function_list_multifile.py
+!tests/test_latex_toolchain.py
+!tests/test_latex_external_tools.py
+!tests/test_latex_references.py
+!tests/test_cwl.py
+!tests/test_latex_navigation.py
+!tests/test_latex_image_dialog.py
 retroactive_notes.sh
 test.sh
 .junie/.venv-build/

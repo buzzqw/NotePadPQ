@@ -594,7 +594,7 @@ Runs the command associated with the current file type and shows output in the "
 
 #### Build Profiles and Variables
 
-Build profiles are configured from **Build → Build Profiles** (`F8`). 13 built-in profiles are provided (Python, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) and you can create unlimited custom profiles. Each profile associates a file extension with one or more commands (Compile, Run, Build).
+Build profiles are configured from **Build → Build Profiles** (`F8`). 12 built-in profiles are provided (Python, Python uv, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) and you can create unlimited custom profiles. Each profile associates a file extension with one or more commands (Compile, Run, Build).
 
 The following variables are available in commands, accepted in both `${VAR}` and `$(VAR)` form:
 
@@ -1032,6 +1032,102 @@ sudo pacman -S python-pymupdf python-matplotlib python-sympy texlive-bin
 > On Debian/Ubuntu, if `pip` is blocked by the system package manager, `setup.sh` automatically offers to install packages in a dedicated virtualenv (`<project>/.venv`).
 
 Optional features activate automatically if the libraries are present; no additional configuration is needed.
+
+### Project tools and semantic navigation
+
+The dynamic **LaTeX** menu includes tools that build on the existing project,
+checker and build infrastructure:
+
+- **Symbol Palette**: searchable LaTeX commands grouped by Greek letters,
+  operators, relations, arrows, delimiters and font commands. Entries show a
+  package hint when one is commonly required.
+- **Citation chooser**: searches BibTeX keys across the current project and
+  inserts the selected key without replacing the BibTeX entry wizard.
+- **Semantic navigation**: Ctrl-click or hover over `\ref`, `\pageref`,
+  `\eqref`, `\hyperref`, labels and citation keys. Local multi-file parsing is
+  used when texlab is not available; existing LSP navigation remains available.
+- **Project Dashboard**: shows resolved root, source count, output/PDF paths,
+  selected profile, project health, auxiliary tools and toolchain availability.
+- **Global References**: scans definitions, references, citations, duplicate or
+  unused labels, missing includes and missing assets in the resolved project.
+  Double-clicking an item navigates to its source location.
+- **Toolchain**: displays paths and versions for LaTeX engines, latexmk,
+  BibTeX/Biber, SyncTeX, texdoc, ChkTeX, lacheck, latexindent and index tools.
+- **External PDF viewer**: the Preview preferences accept a command such as
+  `zathura {PDF}` or `SumatraPDF.exe {PDF}`. Leave it empty to use the system
+  default viewer; the `{PDF}` token is replaced safely as one argument.
+
+### External LaTeX tools
+
+The internal checker remains active independently. From **LaTeX → Strumenti
+progetto** you can explicitly run optional external tools:
+
+- **ChkTeX** or **lacheck**: diagnostics are parsed into a navigable list.
+- **latexindent**: formats the document only after a successful subprocess;
+  the original text is preserved on failure and the replacement is one undo
+  operation.
+- **texdoc** and **CTAN**: package/command documentation is available from the
+  editor context menu. Static offline tooltips remain the fallback.
+
+For a complete toolchain, the recommended commands are `pdflatex`, `xelatex`,
+`lualatex`, `latexmk`, `bibtex`, `biber`, `synctex`, `texdoc`, `chktex`,
+`lacheck`, `latexindent`, `makeindex` and `makeglossaries`. On Arch Linux,
+`texlive-meta` covers most of TeX Live; install the remaining BibLaTeX,
+formatter and LSP components with:
+
+```bash
+sudo pacman -S biber perl-yaml-tiny perl-file-homedir texlab
+```
+
+`perl-yaml-tiny` and `perl-file-homedir` are required for the `latexindent`
+script to start. `texlab` is optional: NotePadPQ keeps local semantic
+navigation and completion fallbacks when no LSP server is installed.
+
+### Indexes, glossaries and recipes
+
+The LaTeX menu can insert `\makeindex`, `\makeglossaries` and
+`\makenomenclature`, or run their processors against the configured output
+directory. The Build menu has an optional **automatic auxiliary tools** toggle;
+when enabled, source commands are detected and the sequence is run as:
+
+```text
+LaTeX → makeindex/makeglossaries/nomencl → LaTeX finale
+```
+
+The **LaTeX recipes** dialog selects the active LaTeX profile and displays its
+commands and pipeline. It is a compatibility layer over the existing global
+and project profiles, so existing `.notepadpq-build.json` and build settings
+remain valid.
+
+### Table and equation assistants
+
+The **LaTeX** menu provides two complementary tools:
+
+- **LaTeX Wizard**: generates equations, environments and tables with editable
+  cell content. Its generated-code preview has enough space to review or edit
+  the result before insertion.
+- **Quick Table**: quickly configures the environment, alignments, borders,
+  merges, caption and label. It is intended for visual table-layout setup
+  without manually filling every generated cell.
+
+They are not duplicates: the wizard is content- and multi-purpose-oriented,
+while Quick Table is focused on visual table layout.
+
+### Configurable package completion
+
+TeXstudio-style `.cwl` files are loaded lazily from built-in, user, configured
+and project directories. Existing static completion remains the fallback.
+Additional directories can be configured through the LaTeX completion settings
+or the `NOTEPADPQ_CWL_DIRS` environment variable. Malformed files are ignored.
+
+### Image drag and drop
+
+Dropping a local PNG, JPEG, SVG, PDF or other supported image onto a LaTeX
+editor opens the existing figure assistant with the path pre-filled. After
+confirmation it generates `\includegraphics`, dimensions, the `figure`
+environment, caption and label according to the selected options; the path is
+made project-relative when possible and `graphicx` is ensured in the preamble.
+Drops in other languages continue to use the normal file-opening behavior.
 
 ---
 

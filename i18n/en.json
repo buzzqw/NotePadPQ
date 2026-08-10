@@ -102,6 +102,7 @@
     "build_clean_aux_before_toggle": "Clean LaTeX auxiliary files before compiling",
     "build_clean_aux_toggle": "Clean LaTeX auxiliary files after compiling",
     "build_keep_synctex_toggle": "Keep the .synctex.gz file",
+    "build_latex_auxiliary_auto": "Run LaTeX auxiliary tools automatically",
     "build_trigger_on_save": "Build on Save",
     "build_trigger_on_edit": "Build while editing",
     "build_unified_errors": "Unified Errors (LSP + Build)",

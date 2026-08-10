@@ -21,12 +21,13 @@ Uso:
 
 import re
 import sys
+from html import escape as _html_escape
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
-from PyQt6.QtGui import QColor, QFont, QKeySequence
+from PyQt6.QtGui import QColor, QFont, QKeySequence, QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import QWidget, QApplication, QMenu
 
 from PyQt6.Qsci import (
@@ -47,6 +48,153 @@ _HAS_MATPLOTLIB: bool | None = None
 _RE_SPELL = re.compile(r"(?<![\\])\b[^\W\d_]+\b", re.UNICODE)
 _SPELL_CONTEXT_LINES = 40
 _SPELL_MAX_SNAPSHOT_BYTES = 256 * 1024
+
+
+# Citation commands are deliberately parsed here rather than added to the
+# support checker: this parser is only used for the local editor interaction
+# and keeps source offsets intact (comments are masked, not removed).
+_CITATION_COMMANDS = frozenset({
+    "parencite", "parencites", "textcite", "textcites", "footcite",
+    "footcites", "autocite", "autocites", "smartcite", "smartcites",
+    "supercite", "supercites", "citeauthor", "citeyear", "citeyearpar",
+    "citealp", "citealt", "citet", "citep", "cites", "nocite",
+})
+_OPAQUE_CITATION_GROUP_COMMANDS = frozenset({
+    "url", "path", "nolinkurl", "texttt", "textsf", "textrm", "textit",
+    "textbf", "textup", "textnormal", "emph", "mbox", "fbox",
+})
+_VERBATIM_CITATION_COMMANDS = frozenset({
+    "verb", "Verb", "lstinline", "mintinline",
+})
+
+
+def _latex_scan_text(text: str) -> str:
+    """Mask comments without changing any character offsets."""
+    chars = list(text)
+    in_comment = False
+    for index, char in enumerate(text):
+        if char == "\n":
+            in_comment = False
+        elif in_comment:
+            chars[index] = " "
+        elif char == "%" and not _latex_escaped(text, index):
+            chars[index] = " "
+            in_comment = True
+    return "".join(chars)
+
+
+def _latex_escaped(text: str, position: int) -> bool:
+    slashes = 0
+    position -= 1
+    while position >= 0 and text[position] == "\\":
+        slashes += 1
+        position -= 1
+    return bool(slashes % 2)
+
+
+def _latex_balanced_group(text: str, start: int, opening: str = "{") -> tuple[int, int] | None:
+    """Return the content span of one balanced local LaTeX group."""
+    closing = "}" if opening == "{" else "]"
+    if start >= len(text) or text[start] != opening:
+        return None
+    depth = 1
+    index = start + 1
+    while index < len(text):
+        if text[index] == "\\" and index + 1 < len(text):
+            index += 2
+            continue
+        if text[index] == opening:
+            depth += 1
+        elif text[index] == closing:
+            depth -= 1
+            if depth == 0:
+                return start + 1, index
+        index += 1
+    return None
+
+
+def extract_latex_citation_occurrences(text: str) -> list[dict]:
+    """Return citation-key spans for common natbib/biblatex commands.
+
+    The result has the same ``kind``, ``key``, ``start`` and ``end`` shape as
+    ``LaTeXSupport.extract_label_reference_occurrences``.  It intentionally
+    does not attempt to interpret arbitrary TeX macros.
+    """
+    scanned = _latex_scan_text(text)
+    occurrences: list[dict] = []
+    index = 0
+    while index < len(scanned):
+        if scanned[index] != "\\" or _latex_escaped(scanned, index):
+            index += 1
+            continue
+        command_start = index
+        index += 1
+        name_start = index
+        while index < len(scanned) and (scanned[index].isalpha() or scanned[index] == "@"):
+            index += 1
+        name = scanned[name_start:index]
+        if name in _OPAQUE_CITATION_GROUP_COMMANDS:
+            while index < len(scanned) and scanned[index].isspace():
+                index += 1
+            if index < len(scanned) and scanned[index] == "*":
+                index += 1
+                while index < len(scanned) and scanned[index].isspace():
+                    index += 1
+            group = _latex_balanced_group(scanned, index)
+            index = len(scanned) if group is None else group[1] + 1
+            continue
+        if name in _VERBATIM_CITATION_COMMANDS:
+            while index < len(scanned) and scanned[index].isspace():
+                index += 1
+            if index < len(scanned):
+                delimiter = scanned[index]
+                end = scanned.find(delimiter, index + 1)
+                index = len(scanned) if end < 0 else end + 1
+            continue
+        if not name or (name not in _CITATION_COMMANDS and
+                        not name.lower().startswith("cite")):
+            continue
+        if index < len(scanned) and scanned[index] == "*":
+            index += 1
+
+        # natbib/biblatex allow one or two optional note arguments.
+        for _ in range(2):
+            while index < len(scanned) and scanned[index].isspace():
+                index += 1
+            if index >= len(scanned) or scanned[index] != "[":
+                break
+            optional = _latex_balanced_group(scanned, index, "[")
+            if optional is None:
+                index = len(scanned)
+                break
+            index = optional[1] + 1
+
+        while index < len(scanned) and scanned[index].isspace():
+            index += 1
+        group = _latex_balanced_group(scanned, index)
+        if group is None:
+            continue
+        content_start, content_end = group
+        part_start = content_start
+        for position in range(content_start, content_end + 1):
+            if position != content_end and scanned[position] != ",":
+                continue
+            key_start, key_end = part_start, position
+            while key_start < key_end and scanned[key_start].isspace():
+                key_start += 1
+            while key_end > key_start and scanned[key_end - 1].isspace():
+                key_end -= 1
+            if key_start < key_end:
+                occurrences.append({
+                    "kind": "citation", "key": text[key_start:key_end],
+                    "start": key_start, "end": key_end,
+                    "command_start": command_start,
+                    "line": text.count("\n", 0, key_start),
+                    "column": key_start - text.rfind("\n", 0, key_start) - 1,
+                })
+            part_start = position + 1
+        index = group[1] + 1
+    return occurrences
 
 
 class _SpellWorker(QThread):
@@ -330,6 +478,7 @@ class EditorWidget(QsciScintilla):
     lsp_hover_requested  = pyqtSignal(int, int)  # line, col (0-based) — per hover LSP
     context_menu_requested = pyqtSignal(object)  # QMenu — plugin possono aggiungere voci
     paste_clipboard_image_requested = pyqtSignal()  # incolla immagine clipboard come LaTeX
+    latex_image_drop_requested = pyqtSignal(object)  # file immagine trascinato su LaTeX
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -1492,6 +1641,60 @@ class EditorWidget(QsciScintilla):
 
     # ── Override eventi ───────────────────────────────────────────────────────
 
+    @staticmethod
+    def _is_latex_image_drop(path: Path) -> bool:
+        return path.suffix.lower() in {
+            ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff",
+            ".webp", ".svg", ".pdf", ".eps",
+        }
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        """Accetta immagini nel LaTeX editor per aprire l'assistente figura."""
+        if event.mimeData().hasUrls():
+            is_latex = (
+                (self.file_path and self.file_path.suffix.lower() in {".tex", ".ltx", ".latex"})
+                or getattr(self, "_current_language", "").lower() == "latex"
+            )
+            if is_latex and any(
+                    url.isLocalFile() and self._is_latex_image_drop(Path(url.toLocalFile()))
+                    for url in event.mimeData().urls()
+            ):
+                event.acceptProposedAction()
+                return
+            event.acceptProposedAction()
+            return
+        super().dragEnterEvent(event)
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        """Passa file immagine locali all'assistente LaTeX senza aprirli come tab."""
+        is_latex = (
+            (self.file_path and self.file_path.suffix.lower() in {".tex", ".ltx", ".latex"})
+            or getattr(self, "_current_language", "").lower() == "latex"
+        )
+        paths = [
+            Path(url.toLocalFile())
+            for url in event.mimeData().urls()
+            if url.isLocalFile() and self._is_latex_image_drop(Path(url.toLocalFile()))
+        ]
+        if is_latex and paths:
+            for path in paths:
+                self.latex_image_drop_requested.emit(path)
+            event.acceptProposedAction()
+            return
+        if event.mimeData().hasUrls():
+            paths = [
+                Path(url.toLocalFile())
+                for url in event.mimeData().urls()
+                if url.isLocalFile()
+            ]
+            if paths:
+                window = self.window()
+                if hasattr(window, "open_files"):
+                    window.open_files(paths)
+                event.acceptProposedAction()
+                return
+        super().dropEvent(event)
+
     def keyPressEvent(self, event) -> None:
         """Intercetta Insert per toggle overwrite e registra macro."""
         self._hide_hover_popup()
@@ -1613,6 +1816,16 @@ class EditorWidget(QsciScintilla):
     def mousePressEvent(self, event) -> None:
         """Un click nell'editor chiude sempre il popup di hover."""
         self._hide_hover_popup()
+        if (event.button() == Qt.MouseButton.LeftButton
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            position = self.SendScintilla(
+                QsciScintilla.SCI_POSITIONFROMPOINTCLOSE,
+                int(event.position().x()), int(event.position().y()),
+            )
+            token = self._latex_semantic_at_position(position)
+            if token is not None and self._navigate_latex_semantic(token):
+                event.accept()
+                return
         super().mousePressEvent(event)
 
     def focusOutEvent(self, event) -> None:
@@ -1632,32 +1845,6 @@ class EditorWidget(QsciScintilla):
             event.accept()
             return
         super().wheelEvent(event)
-
-    def dragEnterEvent(self, event) -> None:
-        """Accetta il drag di file."""
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-        else:
-            super().dragEnterEvent(event)
-
-    def dropEvent(self, event) -> None:
-        """
-        Drop di file: emette un segnale fake verso la MainWindow.
-        Il drop di testo è gestito da QScintilla in modo nativo.
-        """
-        if event.mimeData().hasUrls():
-            paths = [Path(u.toLocalFile())
-                     for u in event.mimeData().urls()
-                     if u.isLocalFile()]
-            if paths:
-                # Lascia che la MainWindow gestisca l'apertura via segnale Qt
-                # Usiamo la proprietà parent per risalire alla finestra
-                win = self.window()
-                if hasattr(win, "open_files"):
-                    win.open_files(paths)
-            event.acceptProposedAction()
-        else:
-            super().dropEvent(event)
 
     # ── Auto-indent paste ─────────────────────────────────────────────────────
 
@@ -2017,6 +2204,42 @@ class EditorWidget(QsciScintilla):
             )
             menu.addSeparator()
 
+            semantic = self._latex_semantic_at_position(click_pos)
+            if semantic is not None:
+                semantic_info = self._latex_semantic_info(semantic)
+                if semantic_info is not None:
+                    target_path, target_line, target_col, _description = semantic_info
+                    action_label = {
+                        "label": "Vai alla definizione dell'etichetta",
+                        "reference": "Vai alla definizione del riferimento",
+                        "citation": "Apri la voce BibTeX",
+                    }.get(semantic["kind"], "Vai alla destinazione")
+                    semantic_action = menu.addAction(
+                        f"{action_label}: {semantic['key']}"
+                    )
+                    semantic_action.setEnabled(target_line is not None)
+                    semantic_action.triggered.connect(
+                        lambda _checked, token=semantic:
+                        self._navigate_latex_semantic(token)
+                    )
+                    menu.addSeparator()
+
+            documentation = self._latex_documentation_target(click_pos)
+            if documentation is not None:
+                target, package = documentation
+                texdoc_action = menu.addAction(f"Apri texdoc: {target}")
+                texdoc_action.triggered.connect(
+                    lambda _checked, value=target: self._open_latex_texdoc(value)
+                )
+                ctan_action = menu.addAction(
+                    f"Apri documentazione CTAN: {package or target}"
+                )
+                ctan_action.triggered.connect(
+                    lambda _checked, value=package or target:
+                    self._open_latex_ctan(value)
+                )
+                menu.addSeparator()
+
         sel   = menu.addAction(tr("action.select_all"))
         sel.triggered.connect(self.selectAll)
 
@@ -2024,6 +2247,224 @@ class EditorWidget(QsciScintilla):
         self.context_menu_requested.emit(menu)
 
         menu.exec(event.globalPos())
+
+    def _latex_semantic_at_position(self, position: int) -> dict | None:
+        """Return the local semantic token under a Scintilla position."""
+        if position < 0:
+            return None
+        path = self.file_path
+        language = getattr(self, "_current_language", "").lower()
+        if not ((path and path.suffix.lower() in {".tex", ".ltx", ".latex"})
+                or language in {"latex", "tex", "plain tex", "plaintex"}):
+            return None
+        text = self.text()
+        from editor.latex_support import LaTeXSupport
+        occurrences = LaTeXSupport.extract_label_reference_occurrences(text)
+        occurrences.extend(extract_latex_citation_occurrences(text))
+        return next((item for item in occurrences
+                     if item["command_start"] <= position < item["end"]), None)
+
+    @staticmethod
+    def _same_path(left: Optional[Path], right: Optional[Path]) -> bool:
+        if left is None or right is None:
+            return left is right
+        try:
+            return left.resolve() == right.resolve()
+        except OSError:
+            return left == right
+
+    def _latex_text_for_path(self, path: Path) -> str:
+        """Prefer open, possibly unsaved tabs when inspecting project files."""
+        if self._same_path(self.file_path, path):
+            return self.text()
+        window = self.window()
+        tab_manager = getattr(window, "_tab_manager", None)
+        for editor in (tab_manager.all_editors() if tab_manager and
+                       hasattr(tab_manager, "all_editors") else []):
+            if self._same_path(getattr(editor, "file_path", None), path):
+                return editor.text()
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")
+        except (OSError, UnicodeError):
+            return ""
+
+    def _bibtex_target(self, key: str) -> tuple[Path, int, int] | None:
+        """Find a cited key in the BibTeX files referenced by this project."""
+        if not self.file_path:
+            return None
+        from editor.latex_support import LaTeXSupport
+
+        source_files = LaTeXSupport.collect_project_files(self.file_path)
+        if not source_files:
+            source_files = [self.file_path.resolve()]
+        bib_files: list[Path] = []
+        seen: set[Path] = set()
+        resource_re = re.compile(
+            r"\\(?:bibliography|addbibresource)\s*"
+            r"(?:\[[^\]]*\]\s*)?\{([^{}]*)\}"
+        )
+        for source_path in source_files:
+            source_text = self._latex_text_for_path(source_path)
+            # Keep the public extractor as the authority for which keys belong
+            # to a TeX source; this scan only supplies the source location.
+            if key not in set(LaTeXSupport.extract_bibtex_keys(source_text, source_path)):
+                continue
+            for match in resource_re.finditer(_latex_scan_text(source_text)):
+                for name in match.group(1).split(","):
+                    resource = Path(name.strip())
+                    candidates = [source_path.parent / resource]
+                    if resource.suffix.lower() != ".bib":
+                        candidates.append((source_path.parent / resource).with_suffix(".bib"))
+                    for candidate in candidates:
+                        try:
+                            candidate = candidate.resolve()
+                        except OSError:
+                            continue
+                        if candidate.is_file() and candidate not in seen:
+                            seen.add(candidate)
+                            bib_files.append(candidate)
+                            break
+
+        entry_re = re.compile(r"@[A-Za-z][\w-]*\s*[({]\s*([^,\s]+)\s*,")
+        for bib_path in bib_files:
+            bib_text = self._latex_text_for_path(bib_path)
+            for match in entry_re.finditer(_latex_scan_text(bib_text)):
+                if match.group(1) != key:
+                    continue
+                position = match.start(1)
+                line = bib_text.count("\n", 0, position)
+                line_start = bib_text.rfind("\n", 0, position)
+                return bib_path, line, position - line_start - 1
+        return None
+
+    def _latex_semantic_info(
+        self, token: dict
+    ) -> tuple[Optional[Path], Optional[int], Optional[int], str] | None:
+        """Resolve a token and create plain HTML-safe hover text."""
+        key = token["key"]
+        safe_key = _html_escape(key)
+        if token["kind"] in {"label", "reference"}:
+            from editor.latex_support import LaTeXSupport
+            analysis = LaTeXSupport.analyze_label_references(
+                self.text(), self.file_path
+            )
+            target = next((item for item in analysis["definitions"]
+                           if item["key"] == key), None)
+            if target is None:
+                return None, None, None, f"<b>Label:</b> {safe_key}<br>Non definita"
+            target_path = target.get("file")
+            location = f"{target_path.name}: {target['line'] + 1}" if target_path else (
+                f"riga {target['line'] + 1}"
+            )
+            description = f"<b>Label:</b> {safe_key}<br>{_html_escape(location)}"
+            return target_path, target["line"], target["column"], description
+
+        if token["kind"] == "citation":
+            target = self._bibtex_target(key)
+            if target is None:
+                return None, None, None, f"<b>Citation:</b> {safe_key}<br>Non trovata"
+            target_path, line, column = target
+            description = (
+                f"<b>Citation:</b> {safe_key}<br>"
+                f"{_html_escape(target_path.name)}: {line + 1}"
+            )
+            return target_path, line, column, description
+        return None
+
+    def _navigate_latex_semantic(self, token: dict) -> bool:
+        """Open and focus a local LaTeX label or BibTeX entry."""
+        info = self._latex_semantic_info(token)
+        if info is None:
+            return False
+        target_path, line, column, _description = info
+        if line is None or column is None:
+            return False
+        if target_path is None or self._same_path(target_path, self.file_path):
+            self.setCursorPosition(line, column)
+            self.ensureLineVisible(line)
+            self.SendScintilla(QsciScintilla.SCI_SCROLLCARET)
+            return True
+
+        window = self.window()
+        tab_manager = getattr(window, "_tab_manager", None)
+        if tab_manager is None:
+            return False
+
+        def find_editor():
+            for editor in (tab_manager.all_editors()
+                           if hasattr(tab_manager, "all_editors") else []):
+                if self._same_path(getattr(editor, "file_path", None), target_path):
+                    return editor
+            return None
+
+        def focus_target() -> None:
+            editor = find_editor()
+            if editor is None:
+                return
+            tab_manager.set_current_editor(editor)
+            editor.setCursorPosition(line, column)
+            editor.ensureLineVisible(line)
+            editor.SendScintilla(QsciScintilla.SCI_SCROLLCARET)
+
+        existing = find_editor()
+        if existing is not None:
+            tab_manager.set_current_editor(existing)
+            loader = getattr(window, "_lazy_loaders", {}).get(existing)
+            if loader is not None and hasattr(loader, "load_finished"):
+                loader.load_finished.connect(focus_target)
+            else:
+                focus_target()
+            return True
+
+        opener = getattr(window, "open_files", None)
+        if not callable(opener):
+            return False
+        try:
+            opener([target_path])
+        except (OSError, RuntimeError, ValueError):
+            return False
+
+        def prepare_target() -> None:
+            editor = find_editor()
+            if editor is None:
+                return
+            loader = getattr(window, "_lazy_loaders", {}).get(editor)
+            if loader is not None and hasattr(loader, "load_finished"):
+                loader.load_finished.connect(focus_target)
+            else:
+                focus_target()
+
+        QTimer.singleShot(0, prepare_target)
+        return True
+
+    def _latex_documentation_target(self, position: int) -> tuple[str, str | None] | None:
+        """Restituisce comando/pacchetto sotto il cursore per la documentazione."""
+        language = getattr(self, "_current_language", "").lower()
+        if "latex" not in language and "tex" not in language:
+            return None
+        line, column = self.lineIndexFromPosition(position)
+        text = self.text(line)
+        for match in re.finditer(r"\\usepackage(?:\[[^]]*\])?\{([^}]+)\}", text):
+            if match.start(1) <= column <= match.end(1):
+                package = match.group(1).split(",", 1)[0].strip()
+                return package, package
+        for match in re.finditer(r"\\([A-Za-z@]+)", text):
+            if match.start() <= column <= match.end():
+                return match.group(1), None
+        return None
+
+    @staticmethod
+    def _open_latex_texdoc(target: str) -> None:
+        from PyQt6.QtCore import QProcess
+        if not QProcess.startDetached("texdoc", [target]):
+            from core.external_open import open_url
+            open_url(f"https://ctan.org/search?phrase={target}")
+
+    @staticmethod
+    def _open_latex_ctan(target: str) -> None:
+        from core.external_open import open_url
+        safe = re.sub(r"[^A-Za-z0-9_.+-]", "", target)
+        open_url(f"https://ctan.org/pkg/{safe}" if safe else "https://ctan.org/")
 
     def _context_go_to_matching(self, line: int, col: int) -> None:
         """Handler della voce 'Vai alla corrispondenza' nel menu contestuale."""
@@ -2361,7 +2802,19 @@ class EditorWidget(QsciScintilla):
                 print(f"[Math Hover] Impossibile renderizzare la formula: {e}")
 
         # ---------------------------------------------------------
-        # PARTE 3: DOCUMENTAZIONE COMANDI LaTeX
+        # PARTE 3: RIFERIMENTI LOCALI E CITAZIONI
+        # ---------------------------------------------------------
+        semantic = self._latex_semantic_at_position(position)
+        if semantic is not None:
+            semantic_info = self._latex_semantic_info(semantic)
+            if semantic_info is not None:
+                self._create_html_tooltip_popup(
+                    semantic_info[3], x, y
+                )
+                return
+
+        # ---------------------------------------------------------
+        # PARTE 4: DOCUMENTAZIONE COMANDI LaTeX
         # ---------------------------------------------------------
         if "latex" in lang or "tex" in lang:
             from editor.latex_tooltips import get_latex_tooltip_html

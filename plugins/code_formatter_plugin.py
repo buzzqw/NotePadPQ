@@ -11,9 +11,10 @@ Formatter supportati:
   C/C++   → clang-format  (apt/brew/choco install clang-format)
   Rust    → rustfmt  (rustup component add rustfmt)
   Go      → gofmt  (incluso nel toolchain Go)
-  HTML    → prettier
-  CSS     → prettier
-  JSON    → python -m json.tool  (stdlib, sempre disponibile)
+   HTML    → prettier
+   CSS     → prettier
+   LaTeX   → latexindent (install latexindent through TeX Live)
+   JSON    → python -m json.tool  (stdlib, sempre disponibile)
   XML     → xmllint  (libxml2-utils) oppure python minidom
 
 Funzionamento "senza danni":
@@ -164,6 +165,11 @@ _DEFAULT_FORMATTERS: Dict[str, dict] = {
         "desc": "minidom (stdlib Python — sempre disponibile)",
         "builtin": "xml",
     },
+    "latex": {
+        "cmd":  ["latexindent", "-"],
+        "stdin": True,
+        "desc": "latexindent (TeX Live / MiKTeX)",
+    },
 }
 
 # mapping: nome linguaggio QScintilla/lexer → chiave in _DEFAULT_FORMATTERS
@@ -180,6 +186,7 @@ _LANG_MAP: Dict[str, str] = {
     "go":         "go",
     "json":       "json",
     "xml":        "xml",
+    "latex":      "latex",
 }
 
 

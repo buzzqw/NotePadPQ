@@ -10,15 +10,28 @@ Dialog per generare codice LaTeX per:
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QGridLayout, QFormLayout, QLabel, QLineEdit, QSpinBox,
-    QCheckBox, QComboBox, QPushButton, QPlainTextEdit,
-    QTableWidget, QTableWidgetItem, QDialogButtonBox,
-    QGroupBox, QHeaderView,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QPlainTextEdit,
+    QPushButton,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
@@ -29,11 +42,12 @@ if TYPE_CHECKING:
 
 class LaTeXWizardDialog(QDialog):
 
-    def __init__(self, editor: "EditorWidget", parent=None):
+    def __init__(self, editor: EditorWidget, parent=None):
         super().__init__(parent)
         self._editor = editor
         self.setWindowTitle(tr("latex_wizard.title", default="LaTeX Wizard"))
-        self.resize(680, 520)
+        self.setMinimumSize(780, 620)
+        self.resize(920, 740)
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -42,16 +56,18 @@ class LaTeXWizardDialog(QDialog):
         self._tabs.addTab(self._build_table_tab(),   tr("latex_wizard.tab_table"))
         self._tabs.addTab(self._build_formula_tab(), tr("latex_wizard.tab_formula"))
         self._tabs.addTab(self._build_env_tab(),     tr("latex_wizard.tab_environments"))
-        layout.addWidget(self._tabs, 1)
+        layout.addWidget(self._tabs, 3)
 
         # Preview codice
         grp = QGroupBox(tr("latex_wizard.grp_generated_code"))
         gl  = QVBoxLayout(grp)
         self._preview = QPlainTextEdit()
         self._preview.setReadOnly(False)
-        self._preview.setMaximumHeight(140)
+        self._preview.setMinimumHeight(220)
+        self._preview.setMaximumHeight(420)
+        self._preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         gl.addWidget(self._preview)
-        layout.addWidget(grp)
+        layout.addWidget(grp, 2)
 
         btns = QDialogButtonBox()
         btn_insert = btns.addButton(tr("latex_wizard.btn_insert"),
@@ -73,8 +89,12 @@ class LaTeXWizardDialog(QDialog):
 
         # Configurazione
         cfg = QFormLayout()
-        self._tbl_rows = QSpinBox(); self._tbl_rows.setRange(1, 30); self._tbl_rows.setValue(3)
-        self._tbl_cols = QSpinBox(); self._tbl_cols.setRange(1, 15); self._tbl_cols.setValue(3)
+        self._tbl_rows = QSpinBox()
+        self._tbl_rows.setRange(1, 30)
+        self._tbl_rows.setValue(3)
+        self._tbl_cols = QSpinBox()
+        self._tbl_cols.setRange(1, 15)
+        self._tbl_cols.setValue(3)
         self._tbl_rows.valueChanged.connect(self._rebuild_table_editor)
         self._tbl_cols.valueChanged.connect(self._rebuild_table_editor)
         cfg.addRow(tr("latex_wizard.label_rows"), self._tbl_rows)
@@ -82,9 +102,12 @@ class LaTeXWizardDialog(QDialog):
 
         self._tbl_booktabs = QCheckBox(tr("latex_wizard.chk_booktabs"))
         self._tbl_booktabs.setChecked(True)
-        self._tbl_caption = QLineEdit(); self._tbl_caption.setPlaceholderText(tr("latex_wizard.placeholder_caption"))
-        self._tbl_label   = QLineEdit(); self._tbl_label.setPlaceholderText(tr("latex_wizard.placeholder_label"))
-        self._tbl_pos     = QComboBox(); self._tbl_pos.addItems(["htbp", "h", "t", "b", "p"])
+        self._tbl_caption = QLineEdit()
+        self._tbl_caption.setPlaceholderText(tr("latex_wizard.placeholder_caption"))
+        self._tbl_label = QLineEdit()
+        self._tbl_label.setPlaceholderText(tr("latex_wizard.placeholder_label"))
+        self._tbl_pos = QComboBox()
+        self._tbl_pos.addItems(["htbp", "h", "t", "b", "p"])
         self._tbl_align   = QComboBox()
         self._tbl_align.addItems([
             tr("latex_wizard.align_centered"),

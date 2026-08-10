@@ -567,10 +567,14 @@ class BuildManager(QObject):
 
     def get_profile_for_file(self, path: Path) -> Optional[str]:
         ext = path.suffix.lower()
+        latex_ext = ext in {".tex", ".ltx", ".latex"}
         override = self._profile_overrides.get(ext, "")
-        if override and override in self._profiles:
+        if not override and latex_ext:
+            override = self._profile_overrides.get(".tex", "")
+        project_profiles = self.get_project_profiles(path)
+        if override and (override in self._profiles or override in project_profiles):
             return override
-        for name, profile in self.get_project_profiles(path).items():
+        for name, profile in project_profiles.items():
             if isinstance(profile, dict) and ext in profile.get("extensions", []):
                 return name
         for name, profile in self._profiles.items():
@@ -715,6 +719,40 @@ class BuildManager(QObject):
         if file_path.suffix.lower() in {".tex", ".ltx", ".latex"} and Settings.instance().get("build/draft_mode", False):
             command = self._add_draftmode_flag(command)
 
+        if (latex_context and action == "build"
+                and Settings.instance().get("build/latex_auxiliary_auto", False)
+                and not profile.get("pre_hook") and not profile.get("post_hook")):
+            from core.latex_external_tools import (
+                detect_latex_auxiliary_tools,
+                makeglossaries_command,
+                makeindex_command,
+                nomencl_command,
+            )
+            from core.latex_external_tools import quote_command
+            auxiliary = detect_latex_auxiliary_tools(editor.get_content())
+            if auxiliary:
+                output = latex_context.output_directory
+                auxiliary_pipeline = [{"name": "LaTeX", "cmd": command,
+                                       "stop_on_error": True}]
+                for kind in auxiliary:
+                    if kind == "makeindex":
+                        argv = makeindex_command(output / f"{latex_context.root.stem}.idx")
+                    elif kind == "makeglossaries":
+                        argv = makeglossaries_command(output / latex_context.root.name)
+                    else:
+                        argv = nomencl_command(output / latex_context.root.name)
+                    auxiliary_pipeline.append({
+                        "name": kind,
+                        "cmd": quote_command(argv),
+                        "stop_on_error": True,
+                    })
+                auxiliary_pipeline.append({"name": "LaTeX finale", "cmd": command,
+                                           "stop_on_error": True})
+                return self._run_pipeline(
+                    run_id, auxiliary_pipeline, file_path, editor, profile,
+                    interactive, latex_context.output_directory,
+                )
+
         env = self._build_env(
             file_path, profile,
             output_dir=latex_context.output_directory if latex_context else None,
@@ -843,6 +881,8 @@ class BuildManager(QObject):
                    default="Pipeline step failed: {name}"))
             self.build_done.emit(run_id, False, tr("build.pipeline_failed",
                 default="Pipeline stopped due to error"))
+            self._workers.pop(run_id, None)
+            self.release_build_context(run_id)
             return
 
         idx += 1
@@ -851,6 +891,8 @@ class BuildManager(QObject):
                 default="Pipeline completed successfully"))
             self.build_done.emit(run_id, True, tr("build.pipeline_success",
                 default="All pipeline steps passed"))
+            self._workers.pop(run_id, None)
+            self.release_build_context(run_id)
             return
 
         worker._pipeline_index = idx

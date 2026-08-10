@@ -2068,15 +2068,31 @@ class LaTeXSupport:
         return sections
 
     @staticmethod
-    def get_package_commands(packages: list[str]) -> list[str]:
+    def get_package_commands(packages: list[str],
+                             tex_path: Optional[Path] = None,
+                             include_cwl: bool = True) -> list[str]:
         """
         Restituisce i comandi aggiuntivi per i pacchetti caricati.
+        Le voci CWL configurate vengono aggiunte solo quando richieste.
         """
         cmds: list[str] = []
         for pkg in packages:
             pkg_cmds = PACKAGE_COMMANDS.get(pkg.lower(), [])
             cmds.extend(pkg_cmds)
+        if include_cwl:
+            try:
+                model = LaTeXSupport.get_cwl_model(tex_path)
+                cmds.extend(command.as_api_term()
+                             for command in model.commands_for(packages))
+            except Exception:
+                pass
         return cmds
+
+    @staticmethod
+    def get_cwl_model(tex_path: Optional[Path] = None):
+        """Load configured CWL data lazily for this document/project."""
+        from editor.cwl import load_cwl_for_project
+        return load_cwl_for_project(tex_path)
 
     @staticmethod
     def get_all_environments(text: str,
@@ -2094,6 +2110,11 @@ class LaTeXSupport:
         pkg_envs: list[str] = []
         for pkg in pkgs:
             pkg_envs.extend(PACKAGE_ENVIRONMENTS.get(pkg.lower(), []))
+        try:
+            cwl = LaTeXSupport.get_cwl_model(tex_path)
+            pkg_envs.extend(environment.name for environment in cwl.environments_for(pkgs))
+        except Exception:
+            pass
         return sorted(set(STANDARD_ENVIRONMENTS + custom + pkg_envs))
 
     # ── Frequenza d'uso ambienti (per ordinare il popup \begin{) ─────────────
@@ -2287,7 +2308,8 @@ class LaTeXSupport:
 
     @staticmethod
     def build_dynamic_api(text: str,
-                           tex_path: Optional[Path] = None) -> list[str]:
+                           tex_path: Optional[Path] = None,
+                           include_cwl: bool = True) -> list[str]:
         """
         Costruisce la lista API dinamica dal documento e dal progetto:
         - Comandi custom (\\newcommand) da tutti i file collegati
@@ -2320,7 +2342,12 @@ class LaTeXSupport:
             api.append(f"\\end{{{env}}}")
 
         # Comandi dai pacchetti
-        api.extend(LaTeXSupport.get_package_commands(sorted(packages)))
+        if include_cwl:
+            api.extend(LaTeXSupport.get_package_commands(sorted(packages), tex_path))
+        else:
+            api.extend(LaTeXSupport.get_package_commands(
+                sorted(packages), include_cwl=False
+            ))
 
         return api
 

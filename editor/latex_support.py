@@ -1308,13 +1308,24 @@ class LaTeXSupport:
 
         if not current_line_text.strip():
             editor.beginUndoAction()
-            editor.setCursorPosition(line, len(current_line_text.rstrip("\n")))
+            # L'auto-indent di Scintilla ha già potenzialmente copiato
+            # l'indentazione di \begin sulla riga vuota (autoIndent() e'
+            # True di default): la sostituiamo per intero invece di provare
+            # a "completarla" con la sola differenza, cosi' il risultato è
+            # corretto sia con auto-indent Scintilla attivo che disattivo.
+            line_end_col = len(current_line_text.rstrip("\n"))
+            editor.setSelection(line, 0, line, line_end_col)
+            editor.removeSelectedText()
+            editor.setCursorPosition(line, 0)
             if env in LaTeXSupport._LIST_ENVIRONMENTS:
                 editor.insert(f"{inner_indent}\\item \n{end_cmd}")
                 editor.setCursorPosition(line, len(inner_indent) + 6)
             else:
-                editor.insert(inner_indent.lstrip(indent_str) if indent_str else "    ")
-                editor.insert(f"\n{end_cmd}")
+                # Un'unica insert(): QsciScintilla.insert() NON avanza il
+                # cursore, quindi due chiamate separate finiscono per
+                # inserirsi nello stesso punto in ordine inverso (LIFO)
+                # invece di concatenarsi come atteso.
+                editor.insert(f"{inner_indent}\n{end_cmd}")
                 editor.setCursorPosition(line, len(inner_indent))
             editor.endUndoAction()
 
@@ -1580,7 +1591,13 @@ class LaTeXSupport:
         old_env = ""
 
         for r in range(begin_line, total):
-            line_text = editor.text(r)
+            # strip_latex_comments rimuove solo la coda della riga dopo un
+            # '%' non escaped: un \begin/\end che appare prima di un
+            # eventuale commento sulla stessa riga mantiene lo stesso
+            # offset, quindi bm.start()/bm.end() restano validi anche sul
+            # testo originale (vedi anche _has_matching_end_below, che usa
+            # lo stesso approccio per lo stesso motivo).
+            line_text = strip_latex_comments(editor.text(r))
             # Conta \begin e \end su questa riga
             for bm in re.finditer(r'\\(begin|end)\{([^}]+)\}', line_text):
                 cmd, name = bm.group(1), bm.group(2)

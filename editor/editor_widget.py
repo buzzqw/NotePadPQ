@@ -35,7 +35,7 @@ from PyQt6.Qsci import (
     QsciLexerPython,   # usato solo nel test standalone
 )
 
-from core.platform import get_preferred_monospace_font, IS_WINDOWS
+from core.platform import get_data_dir, get_preferred_monospace_font, IS_WINDOWS
 from i18n.i18n import tr
 
 # Dipendenze opzionali per hover preview — caricate in lazy loading al primo utilizzo
@@ -47,6 +47,41 @@ _HAS_MATPLOTLIB: bool | None = None
 # Pattern per spell check — Unicode, copre IT/EN/DE/FR/ES e qualsiasi alfabeto latino esteso
 _RE_SPELL = re.compile(r"(?<![\\])\b[^\W\d_]+\b", re.UNICODE)
 _SPELL_CONTEXT_LINES = 40
+
+
+def _personal_dict_path(lang: str) -> Path:
+    d = get_data_dir() / "spellcheck"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / f"{lang or 'default'}.txt"
+
+
+def _load_persisted_personal_words(lang: str) -> set[str]:
+    """Dizionario personale permanente ("Aggiungi al dizionario"), un file
+    di testo per lingua, una parola per riga. Distinto da _spell_personal,
+    che resta anche il posto dove vivono le parole ignorate solo per la
+    sessione corrente (mai scritte su disco)."""
+    try:
+        path = _personal_dict_path(lang)
+        if not path.exists():
+            return set()
+        return {
+            line.strip().lower()
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        }
+    except OSError:
+        return set()
+
+
+def _persist_personal_word(lang: str, word: str) -> None:
+    try:
+        path = _personal_dict_path(lang)
+        if word in _load_persisted_personal_words(lang):
+            return
+        with path.open("a", encoding="utf-8") as f:
+            f.write(word + "\n")
+    except OSError:
+        pass
 _SPELL_MAX_SNAPSHOT_BYTES = 256 * 1024
 
 
@@ -520,7 +555,7 @@ class EditorWidget(QsciScintilla):
         # --- SPELL CHECKER ---
         self._spell_checker = None
         self._spell_lang: str = ""
-        self._spell_personal: set[str] = set()  # dizionario personale persistente per sessione
+        self._spell_personal: set[str] = set()  # parole accettate per questa sessione ("ignora tutto" + dizionario permanente ricaricato all'attivazione)
         self._spell_timer = QTimer(self)
         self._spell_timer.setSingleShot(True)
         self._spell_timer.setInterval(1000)
@@ -1708,6 +1743,18 @@ class EditorWidget(QsciScintilla):
                 self._tabstops = []
                 self._tabstop_index = 0
                 # non blocca Escape: lo gestisce anche super() (chiude popup)
+        elif (event.key() == Qt.Key.Key_Tab
+                and not event.modifiers()
+                and not self.isListActive()
+                and not self.hasSelectedText()):
+            # Trigger + Tab espande lo snippet (editor/snippets.py). Se il
+            # testo prima del cursore non è un trigger noto, expand() non
+            # tocca nulla e il Tab prosegue come indentazione normale.
+            language = getattr(self, "_current_language", "")
+            if language:
+                from editor.snippets import SnippetManager
+                if SnippetManager.instance().expand(self, language):
+                    return
 
         if event.key() == Qt.Key.Key_Insert and not event.modifiers():
             self.toggle_overwrite()
@@ -1970,6 +2017,7 @@ class EditorWidget(QsciScintilla):
                 from spellchecker import SpellChecker
                 self._spell_lang = lang
                 self._spell_checker = SpellChecker(language=lang)
+                self._spell_personal |= _load_persisted_personal_words(lang)
                 if self._spell_personal:
                     self._spell_checker.word_frequency.load_words(self._spell_personal)
                 self._spell_text_hash = 0
@@ -1998,6 +2046,7 @@ class EditorWidget(QsciScintilla):
             from spellchecker import SpellChecker
             self._spell_lang = lang
             self._spell_checker = SpellChecker(language=lang)
+            self._spell_personal |= _load_persisted_personal_words(lang)
             if self._spell_personal:
                 self._spell_checker.word_frequency.load_words(self._spell_personal)
             self._spell_text_hash = 0
@@ -2129,7 +2178,7 @@ class EditorWidget(QsciScintilla):
                         na.setEnabled(False)
                     menu.addSeparator()
                     add_act = menu.addAction(tr("label.spell_add_dict"))
-                    add_act.triggered.connect(lambda _checked, w=word: self._spell_add_to_personal(w))
+                    add_act.triggered.connect(lambda _checked, w=word: self._spell_add_to_dictionary(w))
                     ign_act = menu.addAction(tr("label.spell_ignore_all"))
                     ign_act.triggered.connect(lambda _checked, w=word: self._spell_add_to_personal(w))
                     menu.addSeparator()
@@ -2493,13 +2542,21 @@ class EditorWidget(QsciScintilla):
         self.replaceSelectedText(replacement)
 
     def _spell_add_to_personal(self, word: str) -> None:
-        """Aggiunge la parola al dizionario personale (sessione corrente)."""
+        """Ignora la parola per la sessione corrente (solo in memoria, non
+        persistito): usato da "Ignora tutto" nel menu contestuale."""
         w = word.lower()
         self._spell_personal.add(w)
         if self._spell_checker:
             self._spell_checker.word_frequency.load_words([w])
         self._spell_text_hash = 0
         self._do_spell_check()
+
+    def _spell_add_to_dictionary(self, word: str) -> None:
+        """Aggiunge la parola al dizionario personale permanente: persistito
+        su disco per lingua e riletto da ogni editor/sessione futura, a
+        differenza di _spell_add_to_personal (solo sessione corrente)."""
+        self._spell_add_to_personal(word)
+        _persist_personal_word(self._spell_lang, word.lower())
 
     def _change_spell_lang_from_context(self, lang: str) -> None:
         """Cambia la lingua del dizionario dal context menu e aggiorna Settings."""

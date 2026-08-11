@@ -7,8 +7,11 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.Qsci import QsciScintilla
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication
 
+from editor.editor_widget import EditorWidget
 from editor.latex_checker import _CheckWorker
 from editor.latex_support import LaTeXSupport, strip_latex_comments
 from editor.lexer_latex_custom import S_DEFAULT, S_MATH, LaTeXLexer
@@ -81,6 +84,25 @@ class LatexSupportTest(unittest.TestCase):
         brace_default = _DollarEditor(r"\cmd{", 5)
         LaTeXSupport._handle_open_brace(brace_default)
         self.assertEqual(brace_default._text, r"\cmd{}")
+
+    def test_sync_end_environment_ignores_commented_begin_end(self):
+        # _has_matching_end_below maschera i commenti con strip_latex_comments
+        # prima di contare la profondità; _sync_end_environment non lo faceva,
+        # quindi un \begin commentato tra il \begin reale e il suo \end
+        # sballava il conteggio e impediva la rinomina (nessun errore,
+        # semplicemente non succedeva nulla).
+        editor = EditorWidget()
+        editor.setText(
+            "\\begin{itemize}\n% \\begin{fake}\ncontent\n\\end{itemize}\n"
+        )
+
+        LaTeXSupport._sync_end_environment(editor, "newname", 0)
+
+        self.assertEqual(
+            editor.text(),
+            "\\begin{itemize}\n% \\begin{fake}\ncontent\n\\end{newname}\n",
+        )
+        editor.deleteLater()
 
     def test_environment_balance_is_source_ordered_without_pop_cascade(self):
         errors = LaTeXSupport.check_environment_balance(
@@ -404,6 +426,61 @@ class LaTeXLexerVerbatimTest(unittest.TestCase):
         # altrimenti è un comando normale (o l'ambiente verbatim stesso).
         self.assertIsNone(LaTeXLexer._verb_inline_span(b"\\verbatim{x}", 0))
         self.assertIsNone(LaTeXLexer._verb_inline_span(b"\\verbose text", 0))
+
+
+class LaTeXNewlineIndentTest(unittest.TestCase):
+    """Copre _handle_newline dopo \\begin{env}. Il codice originale aveva due
+    bug distinti: (1) inner_indent.lstrip(indent_str) tratta l'argomento
+    come insieme di caratteri da togliere, non come prefisso — con
+    indent_str tutto spazi il risultato era sempre stringa vuota invece
+    dei 4 spazi extra attesi; (2) anche con quel valore corretto, due
+    chiamate separate a editor.insert() non si concatenano perché
+    QsciScintilla.insert() non avanza il cursore, quindi il secondo insert
+    finiva PRIMA del primo invece che dopo. Verificato con QsciScintilla
+    reale (non un editor fittizio) perché entrambi i bug dipendono dalla
+    sua semantica reale di insert()/autoIndent()."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _press_enter_after(self, initial_text: str) -> EditorWidget:
+        editor = EditorWidget()
+        LaTeXSupport.activate(editor)
+        editor.setText(initial_text)
+        editor.setCursorPosition(0, len(initial_text))
+        event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Return,
+                           Qt.KeyboardModifier.NoModifier, "\r")
+        editor.keyPressEvent(event)
+        self.addCleanup(editor.deleteLater)
+        return editor
+
+    def test_nested_non_list_environment_gets_one_extra_indent_level(self):
+        editor = self._press_enter_after("    \\begin{figure}")
+        self.assertEqual(
+            editor.text(), "    \\begin{figure}\n        \n    \\end{figure}"
+        )
+        self.assertEqual(editor.getCursorPosition(), (1, 8))
+
+    def test_top_level_non_list_environment_gets_one_indent_level(self):
+        editor = self._press_enter_after("\\begin{equation}")
+        self.assertEqual(editor.text(), "\\begin{equation}\n    \n\\end{equation}")
+        self.assertEqual(editor.getCursorPosition(), (1, 4))
+
+    def test_nested_list_environment_indents_correctly_not_doubled(self):
+        editor = self._press_enter_after("    \\begin{itemize}")
+        self.assertEqual(
+            editor.text(),
+            "    \\begin{itemize}\n        \\item \n    \\end{itemize}",
+        )
+        self.assertEqual(editor.getCursorPosition(), (1, 14))
+
+    def test_top_level_list_environment_indents_correctly(self):
+        editor = self._press_enter_after("\\begin{itemize}")
+        self.assertEqual(
+            editor.text(), "\\begin{itemize}\n    \\item \n\\end{itemize}"
+        )
+        self.assertEqual(editor.getCursorPosition(), (1, 10))
 
 
 if __name__ == "__main__":

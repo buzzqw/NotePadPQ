@@ -80,6 +80,8 @@ tests/*
 !tests/test_latex_navigation.py
 !tests/test_latex_image_dialog.py
 !tests/test_lsp_content_sync.py
+!tests/test_snippets.py
+!tests/test_spellcheck_personal_dict.py
 retroactive_notes.sh
 test.sh
 .junie/.venv-build/

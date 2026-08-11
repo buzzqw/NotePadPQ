@@ -203,14 +203,41 @@ def _iter_cwl_files(directory: Path) -> list[Path]:
         return []
 
 
+# Cache in-processo: {directory tuple: (signature, model)}. Il chiamante più
+# frequente (popup pacchetti su \usepackage{) invoca questo path in modo
+# sincrono sul thread UI a ogni trigger, quindi rileggere e riparsare tutti i
+# .cwl da zero ogni volta produceva uno stallo percettibile con directory
+# utente/progetto popolate. La signature (path, mtime, size) costa solo
+# iterdir+stat — niente lettura di contenuto — quindi resta economica anche
+# quando invalida la cache.
+_MODEL_CACHE: dict[tuple[Path, ...], tuple[tuple, "CWLModel"]] = {}
+
+
+def _cwl_signature(directories: Sequence[Path]) -> tuple:
+    signature = []
+    for directory in directories:
+        for path in _iter_cwl_files(directory):
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            signature.append((str(path), stat.st_mtime_ns, stat.st_size))
+    return tuple(signature)
+
+
 def load_cwl_directories(directories: Sequence[Path | str]) -> CWLModel:
     """Load immediate ``.cwl`` files in low-to-high precedence order.
 
     A higher-precedence file with the same package name replaces the complete
     lower-precedence package.  Commands and environments from different
     packages are also resolved in the same deterministic file order.
+
+    Risultato cachato per directory set finché nessun file .cwl coinvolto
+    cambia (vedi _cwl_signature): il caso comune (nessuna modifica ai .cwl
+    tra un trigger di completion e il successivo) evita completamente la
+    rilettura/parsing da disco.
     """
-    packages: dict[str, CWLPackage] = {}
+    resolved: list[Path] = []
     seen_directories: set[Path] = set()
     for raw_directory in directories:
         try:
@@ -220,6 +247,16 @@ def load_cwl_directories(directories: Sequence[Path | str]) -> CWLModel:
         if directory in seen_directories:
             continue
         seen_directories.add(directory)
+        resolved.append(directory)
+
+    cache_key = tuple(resolved)
+    signature = _cwl_signature(resolved)
+    cached = _MODEL_CACHE.get(cache_key)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+
+    packages: dict[str, CWLPackage] = {}
+    for directory in resolved:
         for path in _iter_cwl_files(directory):
             parsed = parse_cwl_file(path)
             if not parsed.commands and not parsed.environments and not parsed.description:
@@ -234,6 +271,7 @@ def load_cwl_directories(directories: Sequence[Path | str]) -> CWLModel:
             model.commands[key] = command
         for key, environment in package.environments.items():
             model.environments[key] = environment
+    _MODEL_CACHE[cache_key] = (signature, model)
     return model
 
 

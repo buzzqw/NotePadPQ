@@ -60,6 +60,28 @@ class LatexSupportTest(unittest.TestCase):
         LaTeXSupport._handle_dollar(opening)
         self.assertEqual(opening._text, "$$")
 
+    def test_dollar_and_brace_autoclose_respect_the_editor_toggle(self):
+        # _autoclose_enabled=False deve disattivare la chiusura automatica di
+        # '$' e '}' (set_autoclose_enabled in editor_widget.py). Prima del
+        # fix, il flag veniva salvato ma nessun percorso di codice lo
+        # leggeva: il toggle "Auto-chiusura parentesi" non aveva alcun
+        # effetto reale.
+        dollar_off = _DollarEditor("$", 1)
+        dollar_off._autoclose_enabled = False
+        LaTeXSupport._handle_dollar(dollar_off)
+        self.assertEqual(dollar_off._text, "$")
+
+        brace_off = _DollarEditor(r"\cmd{", 5)
+        brace_off._autoclose_enabled = False
+        LaTeXSupport._handle_open_brace(brace_off)
+        self.assertEqual(brace_off._text, r"\cmd{")
+
+        # Il default (nessun attributo impostato, come nei test esistenti
+        # sopra) resta invariato: chiusura automatica attiva.
+        brace_default = _DollarEditor(r"\cmd{", 5)
+        LaTeXSupport._handle_open_brace(brace_default)
+        self.assertEqual(brace_default._text, r"\cmd{}")
+
     def test_environment_balance_is_source_ordered_without_pop_cascade(self):
         errors = LaTeXSupport.check_environment_balance(
             r"\begin{a} \begin{b} \end{a} \end{b}"

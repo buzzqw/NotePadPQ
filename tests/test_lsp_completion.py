@@ -119,6 +119,60 @@ class LSPCompletionTest(unittest.TestCase):
         self.manager._on_lsp_user_list_selection(20, "result")
         self.assertEqual(self.editor.text(), "result_value")
 
+    def test_char_added_debounces_and_coalesces_completion_requests(self):
+        # Senza debounce, digitare N caratteri genera N richieste JSON-RPC,
+        # quasi tutte obsolete prima ancora della risposta. Qui verifichiamo
+        # che _on_char_added_for_lsp (il path "a ogni carattere") accorpi le
+        # digitazioni ravvicinate in una sola richiesta.
+        client = _CompletionClient()
+        self.editor._lsp_client = client
+        self.manager.set_level(AutoCompleteLevel.LSP, True)
+        self.editor.setText("res")
+        self.editor.setCursorPosition(0, 3)
+
+        for _ in range(3):
+            self.manager._on_char_added_for_lsp(ord("s"))
+        self.assertEqual(client.requests, [])
+        self.assertTrue(self.manager._lsp_completion_timer.isActive())
+
+        self.manager._lsp_completion_timer.timeout.emit()
+        self.assertEqual(len(client.requests), 1)
+
+    def test_trigger_manual_requests_completions_immediately(self):
+        # Ctrl+Space è un'azione esplicita: deve restare immediata e non
+        # passare dal debounce pensato per il flusso "a ogni carattere".
+        client = _CompletionClient()
+        self.editor._lsp_client = client
+        self.manager.set_level(AutoCompleteLevel.LSP, True)
+        self.editor.setText("res")
+        self.editor.setCursorPosition(0, 3)
+
+        self.manager.trigger_manual()
+
+        self.assertEqual(len(client.requests), 1)
+        self.assertFalse(self.manager._lsp_completion_timer.isActive())
+
+    def test_completion_request_flushes_pending_content_sync_first(self):
+        # didChange verso il server e' debounced (main_window.py); prima di
+        # chiedere un completamento dobbiamo garantire che il server veda
+        # gia' il testo corrente, altrimenti risponderebbe su una snapshot
+        # vecchia di qualche centinaio di ms.
+        client = _CompletionClient()
+        self.editor._lsp_client = client
+        self.manager.set_level(AutoCompleteLevel.LSP, True)
+        self.editor.setText("res")
+        self.editor.setCursorPosition(0, 3)
+
+        flushed = []
+        fake_window = mock.Mock()
+        fake_window._lsp_flush_content_sync = lambda ed, cl: flushed.append((ed, cl))
+        self.editor.window = lambda: fake_window
+
+        self.manager._request_lsp_completions()
+
+        self.assertEqual(flushed, [(self.editor, client)])
+        self.assertEqual(len(client.requests), 1)
+
     def test_missing_server_and_server_error_are_noops(self):
         with mock.patch("editor.lsp_client.is_server_available", return_value=False):
             self.assertIsNone(LSPClient.get("python", "/tmp"))

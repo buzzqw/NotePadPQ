@@ -741,6 +741,16 @@ class AutoCompleteManager(QObject):
         self._doc_change_timer.setInterval(2000)
         self._doc_change_timer.timeout.connect(self._rebuild_api)
 
+        # Debounce per le richieste di completion LSP: senza, ogni carattere
+        # digitato genera una richiesta JSON-RPC al server, la maggior parte
+        # delle quali diventa obsoleta prima ancora di ricevere risposta
+        # durante una digitazione veloce. 120ms è sotto la soglia di
+        # percezione umana per "istantaneo" ma accorpa i keystroke ravvicinati.
+        self._lsp_completion_timer = QTimer(self)
+        self._lsp_completion_timer.setSingleShot(True)
+        self._lsp_completion_timer.setInterval(120)
+        self._lsp_completion_timer.timeout.connect(self._request_lsp_completions)
+
         self._setup_base()
         editor.SCN_CHARADDED.connect(self._on_char_added_for_lsp)
         editor.userListActivated.connect(self._on_lsp_user_list_selection)
@@ -1018,7 +1028,7 @@ class AutoCompleteManager(QObject):
 
     def _on_char_added_for_lsp(self, _char: int) -> None:
         self._enable_cwl_for_completion()
-        self._request_lsp_completions()
+        self._lsp_completion_timer.start()
 
     def _enable_cwl_for_completion(self, force: bool = False) -> None:
         """Defer CWL directory I/O until a LaTeX completion context exists."""
@@ -1084,6 +1094,17 @@ class AutoCompleteManager(QObject):
         self._lsp_request_id = None
         if not force and not self._completion_prefix(line, col):
             return
+        try:
+            # Il didChange verso il server è debounced (vedi
+            # _lsp_attach_content_sync in main_window.py): prima di chiedere
+            # un completamento dobbiamo garantire che il server veda già il
+            # testo corrente, altrimenti risponderebbe su una snapshot vecchia.
+            window = self._editor.window()
+            flush = getattr(window, "_lsp_flush_content_sync", None)
+            if flush is not None:
+                flush(self._editor, client)
+        except Exception:
+            pass
         try:
             request_id = client.request_completions(path, line, col)
         except Exception:
@@ -1591,6 +1612,7 @@ class AutoCompleteManager(QObject):
         self._shutting_down = True
         self._cross_tab_timer.stop()
         self._doc_change_timer.stop()
+        self._lsp_completion_timer.stop()
         self._api_gen += 1
         if self._cross_tab_connected:
             try:

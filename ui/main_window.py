@@ -661,6 +661,10 @@ class MainWindow(QMainWindow):
         except (RuntimeError, TypeError):
             pass
         editor._lsp_text_changed_handler = None
+        timer = getattr(editor, "_lsp_sync_timer", None)
+        if timer is not None:
+            timer.stop()
+            editor._lsp_sync_timer = None
 
     def _lsp_connect_editor(self, editor, sync_content: bool = False) -> None:
         """Connette l'editor al server LSP appropriato (se disponibile)."""
@@ -773,18 +777,51 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"[LSP] _lsp_connect_editor: {e}")
 
+    # Quiete richiesta prima di inviare didChange al server LSP. editor.text()
+    # marshala l'intero documento da Scintilla e didChange lo rimanda per
+    # intero al server: senza questo coalescing, un utente che digita veloce
+    # (o incolla/cancella un blocco) genera un round-trip completo per ogni
+    # singolo carattere. Le richieste di completion (che hanno bisogno di
+    # contenuto sempre fresco) fanno comunque un flush immediato prima di
+    # interrogare il server: vedi _lsp_flush_content_sync.
+    _LSP_SYNC_DEBOUNCE_MS = 200
+
     def _lsp_attach_content_sync(self, editor, client) -> None:
-        """Invia didChange al server LSP per ogni modifica dell'editor."""
+        """Invia didChange al server LSP, con un breve debounce che accorpa
+        le modifiche ravvicinate in un solo invio."""
         self._lsp_disconnect_content_sync(editor)
+
+        timer = QTimer(editor)
+        timer.setSingleShot(True)
+        timer.setInterval(self._LSP_SYNC_DEBOUNCE_MS)
+        timer.timeout.connect(
+            lambda _e=editor, _c=client: self._lsp_flush_content_sync(_e, _c)
+        )
+        editor._lsp_sync_timer = timer
 
         def _on_changed(_editor=editor, _client=client):
             if (getattr(_editor, "_lsp_client", None) is not _client
                     or not getattr(_editor, "file_path", None)):
                 return
-            self._lsp_sync_content(_editor, _client)
+            t = getattr(_editor, "_lsp_sync_timer", None)
+            if t is not None:
+                t.start()
 
         editor._lsp_text_changed_handler = _on_changed
         editor.textChanged.connect(_on_changed)
+
+    def _lsp_flush_content_sync(self, editor, client) -> None:
+        """Invia subito il didChange pendente, se presente. Chiamata sia dal
+        timer di debounce sia prima di ogni richiesta di completion, cosi'
+        il server vede sempre il testo corrente nel momento in cui serve
+        davvero una risposta immediata."""
+        timer = getattr(editor, "_lsp_sync_timer", None)
+        if timer is not None:
+            timer.stop()
+        if (getattr(editor, "_lsp_client", None) is not client
+                or not getattr(editor, "file_path", None)):
+            return
+        self._lsp_sync_content(editor, client)
 
     @staticmethod
     def _lsp_sync_content(editor, client) -> None:
@@ -1454,7 +1491,7 @@ class MainWindow(QMainWindow):
         m.addAction(self._actions["view_word_wrap"])  # stessa action di Visualizza → checkbox sincronizzato
         m.addAction(self._act("auto_indent",       "", self._toggle_auto_indent,       checkable=True, checked=_S.instance().get("editor/auto_indent", True)))
         m.addAction(self._act("auto_indent_paste", "", self._toggle_auto_indent_paste, checkable=True, checked=_S.instance().get("editor/auto_indent_paste", False)))
-        m.addAction(self._act("autoclose_toggle",  "", self._toggle_autoclose,         checkable=True, checked=True))
+        m.addAction(self._act("autoclose_toggle",  "", self._toggle_autoclose,         checkable=True, checked=_S.instance().get("editor/autoclose", True)))
 
         _spell_enabled = _S.instance().get("spellcheck/enabled", False)
         _spell_saved   = _S.instance().get("spellcheck/language", "it")

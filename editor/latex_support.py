@@ -1326,7 +1326,7 @@ class LaTeXSupport:
         """
         ac = getattr(editor, "_autocomplete", None)
         handled = ac.handle_latex_special("{") if ac else False
-        if not handled:
+        if not handled and getattr(editor, "_autoclose_enabled", True):
             LaTeXSupport._auto_close_generic_brace(editor)
 
     # Pattern compilato una volta sola (nessun costo per keystroke)
@@ -1620,6 +1620,8 @@ class LaTeXSupport:
         """
         Dopo '$': auto-inserisce il '$' di chiusura se non già presente.
         """
+        if not getattr(editor, "_autoclose_enabled", True):
+            return
         line, col = editor.getCursorPosition()
         line_text = editor.text(line)
         dollar_pos = col - 1

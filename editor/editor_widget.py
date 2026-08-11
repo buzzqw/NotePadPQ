@@ -496,6 +496,9 @@ class EditorWidget(QsciScintilla):
         self._smart_highlight_enabled: bool = Settings.instance().get(
             "editor/smart_highlight_enabled", True
         )
+        self._autoclose_enabled: bool = Settings.instance().get(
+            "editor/autoclose", True
+        )
         self._plain_text_mode: bool = False
         self._saved_language: str = ""
         self._auto_indent_paste: bool = False
@@ -1448,14 +1451,9 @@ class EditorWidget(QsciScintilla):
         )
 
     def set_autoclose_enabled(self, enabled: bool) -> None:
-        """
-        Abilita/disabilita la chiusura automatica delle parentesi.
-        Richiede che AutoCloseBrackets sia installato nell'editor;
-        se non presente il metodo è un no-op sicuro.
-        """
+        """Abilita/disabilita la chiusura automatica di '}' e '$' letta da
+        LaTeXSupport._handle_open_brace/_handle_dollar."""
         self._autoclose_enabled = enabled
-        if hasattr(self, "_autoclose_brackets"):
-            self._autoclose_brackets.setEnabled(enabled)
 
     def set_indicator_range(self, indicator: int,
                             start: int, length: int) -> None:

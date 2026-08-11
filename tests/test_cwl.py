@@ -55,6 +55,38 @@ class CWLTest(unittest.TestCase):
             self.assertEqual(model.commands[r"\demo"].signature, r"\demo{project}")
             self.assertEqual(model.packages["demo"].source, (project / "demo.cwl").resolve())
 
+    def test_load_cwl_directories_caches_until_a_file_changes(self):
+        # _complete_packages (autocomplete.py) chiama load_cwl_directories in
+        # modo sincrono sul thread UI a ogni \usepackage{: senza cache,
+        # ogni trigger riparsa da zero tutti i .cwl configurati.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cwl_file = root / "demo.cwl"
+            cwl_file.write_text(r"\demo{first}")
+
+            import editor.cwl as cwl_module
+            with mock.patch(
+                "editor.cwl.parse_cwl_file", wraps=cwl_module.parse_cwl_file
+            ) as spy:
+                first = load_cwl_directories([root])
+                self.assertEqual(first.commands[r"\demo"].signature, r"\demo{first}")
+                self.assertEqual(spy.call_count, 1)
+
+                # Stessa directory, nessuna modifica: la seconda chiamata deve
+                # riusare il modello cachato senza riparsare da disco.
+                second = load_cwl_directories([root])
+                self.assertEqual(spy.call_count, 1)
+                self.assertIs(second, first)
+
+                # Il file cambia (contenuto + mtime): la cache deve
+                # invalidarsi e restituire i dati aggiornati.
+                new_mtime = cwl_file.stat().st_mtime + 5
+                cwl_file.write_text(r"\demo{second}")
+                os.utime(cwl_file, (new_mtime, new_mtime))
+                third = load_cwl_directories([root])
+                self.assertEqual(third.commands[r"\demo"].signature, r"\demo{second}")
+                self.assertEqual(spy.call_count, 2)
+
     def test_malformed_files_are_ignored_without_losing_lower_precedence_data(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

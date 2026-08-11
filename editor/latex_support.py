@@ -347,7 +347,47 @@ def _cached_read_text(path: Path) -> str:
     return text
 
 
+_stripped_cache_lock = threading.Lock()
+_stripped_cache: dict[Path, tuple[float, str]] = {}
+_stripped_cache_keys: list[Path] = []
+
+
+def _cached_read_text_stripped(path: Path) -> str:
+    """Come `_cached_read_text`, ma restituisce il testo già privato dei
+    commenti (`strip_latex_comments`), cachato per path+mtime.
+
+    `strip_latex_comments` è uno scan carattere per carattere in puro
+    Python: economico su un singolo file, ma le funzioni `*_multifile`
+    (ambienti custom, pacchetti, `collect_project_files`) lo richiamano
+    ciascuna sullo stesso file invariato a ogni trigger di completamento
+    LaTeX — su documenti grandi la somma di queste ripetizioni diventava
+    uno stallo percettibile a ogni `\\beg`/`\\end` digitato.
+    """
+    mtime = path.stat().st_mtime
+    with _stripped_cache_lock:
+        cached = _stripped_cache.get(path)
+        if cached is not None and cached[0] == mtime:
+            if path in _stripped_cache_keys:
+                _stripped_cache_keys.remove(path)
+            _stripped_cache_keys.append(path)
+            return cached[1]
+        while len(_stripped_cache_keys) >= _MAX_CACHE_SIZE:
+            old = _stripped_cache_keys.pop(0)
+            _stripped_cache.pop(old, None)
+    stripped = strip_latex_comments(_cached_read_text(path))
+    with _stripped_cache_lock:
+        _stripped_cache[path] = (mtime, stripped)
+        if path in _stripped_cache_keys:
+            _stripped_cache_keys.remove(path)
+        _stripped_cache_keys.append(path)
+    return stripped
+
+
 def _invalidate_cached_text(path: Path) -> None:
+    with _stripped_cache_lock:
+        _stripped_cache.pop(path, None)
+        if path in _stripped_cache_keys:
+            _stripped_cache_keys.remove(path)
     with _file_cache_lock:
         _file_cache.pop(path, None)
         if path in _cache_keys:
@@ -2022,12 +2062,16 @@ class LaTeXSupport:
         return sorted(set(cmds))
 
     @staticmethod
+    def _custom_environments_from_stripped(stripped_text: str) -> set[str]:
+        return set(re.findall(
+            r'\\(?:new|renew)environment\*?\{([^}]+)\}', stripped_text
+        ))
+
+    @staticmethod
     def extract_custom_environments(text: str) -> list[str]:
         """Estrae gli ambienti definiti con \\newenvironment."""
-        text = strip_latex_comments(text)
-        return sorted(set(re.findall(
-            r'\\(?:new|renew)environment\*?\{([^}]+)\}', text
-        )))
+        return sorted(LaTeXSupport._custom_environments_from_stripped(
+            strip_latex_comments(text)))
 
     @staticmethod
     def extract_custom_environments_multifile(
@@ -2036,22 +2080,26 @@ class LaTeXSupport:
         names: set[str] = set()
         for fpath in LaTeXSupport.collect_project_files(tex_path):
             try:
-                names.update(LaTeXSupport.extract_custom_environments(
-                    _cached_read_text(fpath)))
+                names.update(LaTeXSupport._custom_environments_from_stripped(
+                    _cached_read_text_stripped(fpath)))
             except Exception:
                 pass
         return sorted(names)
 
     @staticmethod
+    def _used_packages_from_stripped(stripped_text: str) -> set[str]:
+        pkgs: set[str] = set()
+        for m in re.finditer(
+                r'\\usepackage(?:\[[^\]]*\])?\{([^}]+)\}', stripped_text):
+            for p in m.group(1).split(","):
+                pkgs.add(p.strip())
+        return pkgs
+
+    @staticmethod
     def extract_used_packages(text: str) -> list[str]:
         """Estrae i pacchetti caricati con \\usepackage{}."""
-        pkgs: list[str] = []
-        for m in re.finditer(
-                r'\\usepackage(?:\[[^\]]*\])?\{([^}]+)\}',
-                strip_latex_comments(text)):
-            for p in m.group(1).split(","):
-                pkgs.append(p.strip())
-        return sorted(set(pkgs))
+        return sorted(LaTeXSupport._used_packages_from_stripped(
+            strip_latex_comments(text)))
 
     @staticmethod
     def extract_used_packages_multifile(
@@ -2060,8 +2108,8 @@ class LaTeXSupport:
         packages: set[str] = set()
         for fpath in LaTeXSupport.collect_project_files(tex_path):
             try:
-                packages.update(LaTeXSupport.extract_used_packages(
-                    _cached_read_text(fpath)))
+                packages.update(LaTeXSupport._used_packages_from_stripped(
+                    _cached_read_text_stripped(fpath)))
             except Exception:
                 pass
         return sorted(packages)
@@ -2273,10 +2321,10 @@ class LaTeXSupport:
             visited.add(path)
             result.append(path)
             try:
-                text = _cached_read_text(path)
+                stripped_text = _cached_read_text_stripped(path)
             except Exception:
                 return
-            for m in _RE_INCLUDE_INPUT.finditer(strip_latex_comments(text)):
+            for m in _RE_INCLUDE_INPUT.finditer(stripped_text):
                 if m.group(1) is not None:
                     include_dir, ref = path.parent, m.group(1)
                 else:

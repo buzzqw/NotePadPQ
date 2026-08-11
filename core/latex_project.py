@@ -69,18 +69,69 @@ def _tex_candidate(base_dir: Path, reference: str | Path) -> Path:
     return path
 
 
-def _ancestor_directories(directory: Path) -> Iterable[Path]:
-    """Yield ``directory`` and its parents, once each."""
+def _ancestor_directories_bounded(directory: Path, max_depth: int = 8) -> Iterable[Path]:
+    """Yield ``directory`` and its parents, once each — ma non risale oltre
+    la home dell'utente né oltre ``max_depth`` livelli: senza questo limite,
+    un file privo di ogni indizio di root (nessun marker ``%!TEX root``,
+    nessun ``main.tex``, nessun ``\\documentclass``) fa risalire la ricerca
+    fino alla radice del filesystem, scandendo ogni directory antenata.
+    """
+    home = Path.home()
     current = directory
+    depth = 0
     while True:
         yield current
-        if current.parent == current:
+        if current == home or current.parent == current or depth >= max_depth:
             return
         current = current.parent
+        depth += 1
 
 
 def _is_document_root(path: Path) -> bool:
-    return bool(_DOCUMENTCLASS_RE.search(_latex_code(_read_text(path))))
+    from editor.latex_support import _cached_read_text_stripped
+    try:
+        stripped = _cached_read_text_stripped(path)
+    except OSError:
+        return False
+    return bool(_DOCUMENTCLASS_RE.search(stripped))
+
+
+_NOT_FOUND = object()
+_ROOT_FALLBACK_CACHE: dict[Path, object] = {}
+_ROOT_FALLBACK_CACHE_MAX = 256
+
+
+def _find_root_by_scanning(start_dir: Path) -> Path | None:
+    """Ultima spiaggia di ``resolve_project_root``: cerca tra gli antenati un
+    file con ``\\documentclass``, leggendo e parsando ogni ``.tex`` trovato.
+
+    È l'unico ramo di ``resolve_project_root`` che tocca il disco per file
+    diversi da quello corrente, quindi è anche il più costoso — e viene
+    invocato a ogni trigger del popup ambienti/pacchetti (praticamente a
+    ogni parola scritta dopo ``\\`` in un file LaTeX). Cachato per directory
+    di partenza: il progetto non cambia struttura tra un tasto e l'altro.
+    """
+    cached = _ROOT_FALLBACK_CACHE.get(start_dir, _NOT_FOUND)
+    if cached is not _NOT_FOUND:
+        return cached  # type: ignore[return-value]
+
+    result: Path | None = None
+    for directory in _ancestor_directories_bounded(start_dir):
+        candidates = sorted(
+            (path for extension in _TEX_EXTENSIONS for path in directory.glob(f"*{extension}")),
+            key=lambda path: path.name.lower(),
+        )
+        for candidate in candidates:
+            if _is_document_root(candidate):
+                result = candidate.resolve()
+                break
+        if result is not None:
+            break
+
+    if len(_ROOT_FALLBACK_CACHE) >= _ROOT_FALLBACK_CACHE_MAX:
+        _ROOT_FALLBACK_CACHE.clear()
+    _ROOT_FALLBACK_CACHE[start_dir] = result
+    return result
 
 
 def resolve_project_root(current_file: str | Path, content: str | None = None) -> Path:
@@ -93,15 +144,32 @@ def resolve_project_root(current_file: str | Path, content: str | None = None) -
     disponibile, viene restituito il file corrente.
     """
     current = _resolved(current_file)
-    source = _read_text(current) if content is None else content
+    if content is None:
+        # Nessun contenuto "live" passato dal chiamante (caso comune per
+        # collect_project_files, cwl.py, ecc.): usa la cache condivisa per
+        # path+mtime invece di rileggere il file da disco a ogni chiamata —
+        # per un file di dimensioni non banali, ripetuto a ogni tasto
+        # premuto in contesto \begin/\end, il costo diventava percepibile.
+        from editor.latex_support import _cached_read_text
+        try:
+            source = _cached_read_text(current)
+        except OSError:
+            source = ""
+    else:
+        source = content
 
-    marker = _ROOT_MARKER_RE.search(source)
+    # Per convenzione (TeXstudio, TeXShop, latexmk) il marker "%!TEX root="
+    # vive nelle primissime righe del file: limitare la ricerca all'inizio
+    # evita di far scandire alla regex MULTILINE l'intero documento — con
+    # file di centinaia di KB/alcuni MB il costo diventava misurabile a
+    # ogni chiamata, nonostante la cache sul contenuto.
+    marker = _ROOT_MARKER_RE.search(source[:4096])
     if marker:
         candidate = _tex_candidate(current.parent, marker.group("path").strip())
         if candidate.is_file():
             return candidate.resolve()
 
-    for directory in _ancestor_directories(current.parent):
+    for directory in _ancestor_directories_bounded(current.parent):
         latexmkrc = directory / ".latexmkrc"
         if not latexmkrc.is_file():
             continue
@@ -112,23 +180,27 @@ def resolve_project_root(current_file: str | Path, content: str | None = None) -
                 return candidate.resolve()
         break
 
-    for directory in _ancestor_directories(current.parent):
+    for directory in _ancestor_directories_bounded(current.parent):
         for extension in _TEX_EXTENSIONS:
             main = directory / f"main{extension}"
             if main.is_file():
                 return main.resolve()
 
-    if _DOCUMENTCLASS_RE.search(_latex_code(source)):
+    if content is None:
+        from editor.latex_support import _cached_read_text_stripped
+        try:
+            stripped_source = _cached_read_text_stripped(current)
+        except OSError:
+            stripped_source = ""
+    else:
+        stripped_source = _latex_code(source)
+
+    if _DOCUMENTCLASS_RE.search(stripped_source):
         return current
 
-    for directory in _ancestor_directories(current.parent):
-        candidates = sorted(
-            (path for extension in _TEX_EXTENSIONS for path in directory.glob(f"*{extension}")),
-            key=lambda path: path.name.lower(),
-        )
-        for candidate in candidates:
-            if _is_document_root(candidate):
-                return candidate.resolve()
+    found = _find_root_by_scanning(current.parent)
+    if found is not None:
+        return found
 
     return current
 

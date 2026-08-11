@@ -679,6 +679,7 @@ class BuildPanel(QWidget):
             return
         self._output.clear()
         self._full_log.clear()
+        self._build_errors = []
         self._error_tree.clear()
         self._current_error_idx = -1
         self._btn_next_error.setEnabled(False)
@@ -767,6 +768,9 @@ class BuildPanel(QWidget):
 
         build_context = self._bm.get_build_context(run_id)
         if success:
+            # Gli errori del build precedente non devono sopravvivere a una build riuscita.
+            self._build_errors = []
+            self._render_errors(self._checker_errors)
             pdf_path = self._find_generated_pdf(run_id)
             if pdf_path:
                 mw = self.window()

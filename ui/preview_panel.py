@@ -657,6 +657,13 @@ class PreviewPanel(QWidget):
         self._cursor_sync_timer.setInterval(450)
         self._cursor_sync_timer.timeout.connect(self._do_cursor_sync)
         self._cursor_sync_line: int = 0
+        # cursorPositionChanged scatta anche scrivendo (il cursore avanza a
+        # ogni carattere): senza questo flag, digitare una parola con pause
+        # naturali >450ms tra le lettere fa scattare più sync forward in
+        # sequenza. Lo settiamo su ogni modifica testo e lo consumiamo al
+        # primo cursorPositionChanged successivo, così la sync resta attiva
+        # solo per la navigazione vera (click, frecce), non per la scrittura.
+        self._suppress_next_cursor_sync: bool = False
 
         # Debounce selection sync: evidenzia nel PDF il testo selezionato nel .tex
         self._selection_sync_timer = QTimer(self)
@@ -1149,6 +1156,7 @@ class PreviewPanel(QWidget):
 
     @pyqtSlot()
     def _on_text_changed(self) -> None:
+        self._suppress_next_cursor_sync = True
         if self._mode == "pdf":
             # L'anteprima PDF riflette il file compilato su disco, non il
             # buffer dell'editor: BuildPanel la aggiorna esplicitamente via
@@ -1220,8 +1228,15 @@ class PreviewPanel(QWidget):
     def _on_cursor_changed(self, line: int, col: int) -> None:
         if not self._sync_cursor:
             return
+        if self._suppress_next_cursor_sync:
+            # Questo spostamento del cursore è conseguenza di una modifica
+            # al testo (digitazione/cancellazione), non di una navigazione
+            # intenzionale: niente sync forward, altrimenti scriverebbe
+            # basterebbe a far "saltare" la preview a ogni tasto.
+            self._suppress_next_cursor_sync = False
+            return
         # Debounce: accumulate rapid movements (arrow key held down) and
-        # only sync after 200ms of inactivity. Avoids a SyncTeX subprocess
+        # only sync after a moment of inactivity. Avoids a SyncTeX subprocess
         # (or tree walk) on every single keystroke.
         self._cursor_sync_line = line
         self._cursor_sync_timer.start()

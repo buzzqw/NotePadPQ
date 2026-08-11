@@ -187,6 +187,88 @@ class TestLatexBuildContext(unittest.TestCase):
             self.assertIn(str(root / "build"), command)
             self.assertEqual(bm.get_build_context("context-test").root, main.resolve())
 
+    def test_ramdisk_profile_redirects_output_and_copies_back(self):
+        from unittest import mock
+        from core.build_manager import BuildManager
+
+        with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as runtime:
+            root = Path(temp)
+            main = root / "main.tex"
+            main.write_text(r"\documentclass{article}\begin{document}x\end{document}")
+
+            class FakeEditor:
+                file_path = main
+
+                def is_modified(self):
+                    return False
+
+                def get_content(self):
+                    return main.read_text()
+
+                def get_cursor_position_1based(self):
+                    return 1, 1
+
+            bm = BuildManager()
+            bm.save_profiles = mock.Mock()  # non toccare il config reale dell'utente
+            bm.add_profile("RamdiskLatex", {
+                "extensions": [".tex"],
+                "compile": "", "run": "",
+                "build": "latexmk -pdf -output-directory=${OUTDIR} ${FILE}",
+                "ramdisk": True,
+            })
+            bm.set_profile_override(".tex", "RamdiskLatex")
+            bm._do_run = mock.Mock(return_value=True)
+
+            with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": runtime}):
+                self.assertTrue(bm.run("build", FakeEditor(), run_id="ram-test"))
+
+            kwargs = bm._do_run.call_args.kwargs
+            output_dir = str(kwargs["output_dir"])
+            self.assertTrue(output_dir.startswith(str(Path(runtime) / "notepadpq-latex")))
+            self.assertIn(str(root)[1:], output_dir)  # mirrors project path under tmpfs
+            self.assertIn("cp -f", kwargs["post_hook"])
+            self.assertIn(str(root), kwargs["post_hook"])
+
+    def test_ramdisk_unavailable_falls_back_to_normal_directory(self):
+        from unittest import mock
+        from core.build_manager import BuildManager
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "main.tex"
+            main.write_text(r"\documentclass{article}\begin{document}x\end{document}")
+
+            class FakeEditor:
+                file_path = main
+
+                def is_modified(self):
+                    return False
+
+                def get_content(self):
+                    return main.read_text()
+
+                def get_cursor_position_1based(self):
+                    return 1, 1
+
+            bm = BuildManager()
+            bm.save_profiles = mock.Mock()  # non toccare il config reale dell'utente
+            bm.add_profile("RamdiskLatex", {
+                "extensions": [".tex"],
+                "compile": "", "run": "",
+                "build": "latexmk -pdf -output-directory=${OUTDIR} ${FILE}",
+                "ramdisk": True,
+            })
+            bm.set_profile_override(".tex", "RamdiskLatex")
+            bm._do_run = mock.Mock(return_value=True)
+
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("XDG_RUNTIME_DIR", None)
+                self.assertTrue(bm.run("build", FakeEditor(), run_id="ram-fallback"))
+
+            kwargs = bm._do_run.call_args.kwargs
+            self.assertEqual(str(kwargs["output_dir"]), str(root))
+            self.assertEqual(kwargs["post_hook"], "")
+
 
 class TestErrorParsing(unittest.TestCase):
 

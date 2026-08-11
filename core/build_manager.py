@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -34,6 +35,7 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
 from core.platform import get_default_shell, get_shell_exec_flag, IS_WINDOWS
 from core.platform import get_config_dir
+from core.latex_project import get_output_directory
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -635,6 +637,25 @@ class BuildManager(QObject):
 
     # ── Esecuzione ────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _ramdisk_build_dir(root: Path) -> Optional[Path]:
+        """Directory di build su tmpfs per ``root``, o None se non disponibile.
+
+        Rispecchia il percorso assoluto della directory di progetto sotto
+        ``$XDG_RUNTIME_DIR`` (di norma /run/user/<uid>, un tmpfs montato in
+        RAM) così da ottenere una directory univoca per progetto senza dover
+        calcolare hash. Non disponibile su Windows o se la sessione non
+        espone XDG_RUNTIME_DIR (es. login non via systemd/logind).
+        """
+        if IS_WINDOWS:
+            return None
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR")
+        if not runtime_dir or not Path(runtime_dir).is_dir():
+            return None
+        parent = root.parent
+        mirrored = Path(*parent.parts[1:]) if parent.is_absolute() else parent
+        return Path(runtime_dir) / "notepadpq-latex" / mirrored
+
     def run(self, action: str, editor: Optional["EditorWidget"],
             run_id: str = "", interactive: bool = False) -> bool:
         if editor is None or editor.file_path is None:
@@ -678,8 +699,25 @@ class BuildManager(QObject):
             self.release_build_context(run_id)
             return False
 
+        ramdisk_copy_cmd = ""
         if latex_context:
             output_ref = profile.get("output_directory", profile.get("output_dir"))
+            if profile.get("ramdisk"):
+                final_dir = get_output_directory(latex_context.root, output_ref)
+                ramdisk_dir = self._ramdisk_build_dir(latex_context.root)
+                if ramdisk_dir:
+                    output_ref = str(ramdisk_dir)
+                    dest = shlex.quote(str(final_dir))
+                    ramdisk_copy_cmd = (
+                        f'mkdir -p {dest} && '
+                        f'cp -f "${{OUTDIR}}/${{BASENAME}}.pdf" '
+                        f'"${{OUTDIR}}/${{BASENAME}}.synctex.gz" {dest}/ 2>/dev/null; true'
+                    )
+                else:
+                    self.build_output.emit(run_id, tr(
+                        "build.ramdisk_unavailable",
+                        default="RAM disk not available (XDG_RUNTIME_DIR missing): "
+                                "building in the normal directory instead."))
             if output_ref:
                 latex_context = self._latex_context(
                     latex_context.current_file, latex_context.content, output_ref)
@@ -697,6 +735,9 @@ class BuildManager(QObject):
 
         pipeline = profile.get("pipeline", [])
         if pipeline:
+            if ramdisk_copy_cmd:
+                pipeline = [*pipeline, {"name": "RAM disk → cartella predefinita",
+                                        "cmd": ramdisk_copy_cmd, "stop_on_error": False}]
             return self._run_pipeline(
                 run_id, pipeline, file_path, editor, profile, interactive,
                 latex_context.output_directory if latex_context else None,
@@ -748,6 +789,9 @@ class BuildManager(QObject):
                     })
                 auxiliary_pipeline.append({"name": "LaTeX finale", "cmd": command,
                                            "stop_on_error": True})
+                if ramdisk_copy_cmd:
+                    auxiliary_pipeline.append({"name": "RAM disk → cartella predefinita",
+                                               "cmd": ramdisk_copy_cmd, "stop_on_error": False})
                 return self._run_pipeline(
                     run_id, auxiliary_pipeline, file_path, editor, profile,
                     interactive, latex_context.output_directory,
@@ -765,11 +809,15 @@ class BuildManager(QObject):
                     latex_context.root, editor.get_content())
             env["NOTEPADPQ_BIB_BACKEND"] = backend
 
+        post_hook = profile.get("post_hook", "")
+        if ramdisk_copy_cmd:
+            post_hook = f"{ramdisk_copy_cmd} && {post_hook}" if post_hook else ramdisk_copy_cmd
+
         started = self._do_run(
             run_id, command, str(file_path.parent), env,
             profile, file_path, editor, interactive,
             pre_hook=profile.get("pre_hook", ""),
-            post_hook=profile.get("post_hook", ""),
+            post_hook=post_hook,
             output_dir=latex_context.output_directory if latex_context else None)
         if not started:
             self.release_build_context(run_id)

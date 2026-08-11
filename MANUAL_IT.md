@@ -643,6 +643,8 @@ Nei comandi sono disponibili le seguenti variabili, accettate sia nella forma `$
 
 **Contesto LaTeX multi-file**: NotePadPQ risolve `% !TEX root`, `.latexmkrc`, `main.tex` e i file inclusi. Il root risolto viene usato per build, PDF, log e SyncTeX. I profili possono definire una `output_directory` e il backend `bib_backend` (`auto`, `bibtex`, `biber`, `none`).
 
+**Compilazione su RAM disk**: nel dialog profili, la checkbox **Compila su RAM disk (tmpfs)** redirige la build sotto `$XDG_RUNTIME_DIR` (tipicamente `/run/user/<uid>` su Linux con systemd/logind), riducendo l'I/O su disco durante la compilazione. Al termine, `.pdf` e `.synctex.gz` vengono ricopiati automaticamente nella `output_directory` configurata (o accanto al `.tex` se vuota), così anteprima, SyncTeX e strumenti esterni continuano a trovarli nel posto consueto. Se `XDG_RUNTIME_DIR` non è disponibile (Windows, sessioni senza systemd/logind) la build prosegue normalmente nella directory di sempre, con un avviso nel pannello di output.
+
 **Compila durante la modifica**: l'opzione nel menu Build avvia una build LaTeX dopo una pausa configurabile nella digitazione. Il debounce evita processi duplicati e l'opzione è disattivata di default.
 
 **Build concorrenti**: esegui una build nel pannello principale e un task nel tab Task contemporaneamente — ognuno ha il suo worker indipendente.

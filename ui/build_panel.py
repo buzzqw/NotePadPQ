@@ -1289,6 +1289,14 @@ class BuildProfilesDialog(QDialog):
         self._output_dir_edit = QLineEdit()
         self._output_dir_edit.setPlaceholderText(
             tr("build_panel.output_dir_placeholder", default="empty = root directory"))
+        self._ramdisk_check = QCheckBox(tr("build_panel.ramdisk_label",
+            default="Compila su RAM disk (tmpfs), poi copia PDF/synctex nella cartella predefinita"))
+        self._ramdisk_check.setToolTip(tr("tooltip.build_ramdisk",
+            default="Usa $XDG_RUNTIME_DIR (es. /run/user/1000) come directory di build: "
+                    "riduce l'I/O su disco durante la compilazione. Al termine, il PDF e il "
+                    ".synctex.gz vengono copiati nella directory di output configurata sopra "
+                    "(o accanto al file .tex se vuota). Richiede Linux con sessione systemd/logind; "
+                    "se non disponibile la compilazione prosegue normalmente."))
         self._bib_backend_combo = QComboBox()
         self._bib_backend_combo.addItems(["auto", "bibtex", "biber", "none"])
         self._regex_edit = QLineEdit()
@@ -1324,6 +1332,7 @@ class BuildProfilesDialog(QDialog):
             self._build_edit)
         form.addRow(tr("build_panel.output_directory", default="Output directory"),
                     self._output_dir_edit)
+        form.addRow("", self._ramdisk_check)
         form.addRow(tr("build_panel.bib_backend", default="Bibliography backend"),
                     self._bib_backend_combo)
         form.addRow(tr("build_panel.error_regex_label"),     self._regex_edit)
@@ -1431,6 +1440,7 @@ class BuildProfilesDialog(QDialog):
                    self._pre_hook_edit, self._post_hook_edit]:
             w.textChanged.connect(self._mark_dirty)
         self._bib_backend_combo.currentTextChanged.connect(self._mark_dirty)
+        self._ramdisk_check.toggled.connect(self._mark_dirty)
         self._env_edit.textChanged.connect(self._mark_dirty)
         self._pipeline_edit.textChanged.connect(self._mark_dirty)
         self._file_grp_spin.valueChanged.connect(self._mark_dirty)
@@ -1511,6 +1521,7 @@ class BuildProfilesDialog(QDialog):
         self._output_dir_edit.setText(
             str(profile.get("output_directory", profile.get("output_dir", "")))
         )
+        self._ramdisk_check.setChecked(bool(profile.get("ramdisk", False)))
         backend = str(profile.get("bib_backend", "auto")).lower()
         self._bib_backend_combo.setCurrentText(backend if backend in {"auto", "bibtex", "biber", "none"} else "auto")
         self._regex_edit.setText(  profile.get("error_regex", ""))
@@ -1688,6 +1699,7 @@ class BuildProfilesDialog(QDialog):
             "run":                self._run_edit.text().strip(),
             "build":              self._build_edit.text().strip(),
             "output_directory":   self._output_dir_edit.text().strip(),
+            "ramdisk":            self._ramdisk_check.isChecked(),
             "bib_backend":        self._bib_backend_combo.currentText(),
             "error_regex":        self._regex_edit.text().strip(),
             "error_file_group":   self._file_grp_spin.value(),

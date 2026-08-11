@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import bisect
 import re
+import string
 
 from PyQt6.Qsci import QsciLexerCustom, QsciScintilla
 
@@ -87,6 +88,28 @@ _REFERENCE_CMDS = frozenset([
     'href', 'url', 'nolinkurl',
     'footnote', 'footnotemark', 'footnotetext',
 ])
+
+# Ambienti il cui contenuto è testo letterale: LaTeX non lo interpreta affatto
+# (comandi, $, % restano caratteri semplici) fino al \end corrispondente.
+_VERBATIM_ENVS = frozenset([
+    'verbatim', 'verbatim*', 'lstlisting', 'Verbatim', 'BVerbatim', 'minted',
+])
+
+
+def _char_table(chars: str) -> bytes:
+    """Tabella di lookup a 256 voci (0/1): evita chr(byte).isalpha() per
+    ogni singolo byte scansionato in _command(), che alloca una str Python
+    ad ogni chiamata sul percorso più caldo del lexer (ogni backslash)."""
+    table = bytearray(256)
+    for ch in chars:
+        table[ord(ch)] = 1
+    return bytes(table)
+
+
+# Primo carattere di un nome comando: lettere + '@' (LaTeX2e interno), niente '*'.
+_CMD_FIRST_CHARS = _char_table(string.ascii_letters + '@')
+# Caratteri successivi: come sopra più '*' (es. \section*).
+_CMD_CONT_CHARS = _char_table(string.ascii_letters + '@*')
 
 # Byte values ASCII dei caratteri speciali LaTeX (< 128 → mai in byte UTF-8 multi-byte)
 _B_PERCENT   = ord('%')
@@ -201,14 +224,56 @@ class LaTeXLexer(QsciLexerCustom):
     @staticmethod
     def _command(text_b: bytes, pos: int) -> tuple[int, str] | None:
         i = pos + 1
-        if i >= len(text_b) or text_b[i] >= 128:
+        n = len(text_b)
+        if i >= n or not _CMD_FIRST_CHARS[text_b[i]]:
             return None
-        if not (chr(text_b[i]).isalpha() or text_b[i] == ord('@')):
-            return None
-        while i < len(text_b) and text_b[i] < 128 and (
-                chr(text_b[i]).isalpha() or chr(text_b[i]) in ('@', '*')):
+        i += 1
+        while i < n and _CMD_CONT_CHARS[text_b[i]]:
             i += 1
         return i, text_b[pos + 1:i].decode('ascii')
+
+    @classmethod
+    def _verbatim_environment_token(cls, text_b: bytes, pos: int):
+        """Come _math_environment_token ma per \\begin/\\end di un ambiente
+        verbatim-like (contenuto letterale, non interpretato)."""
+        command = cls._command(text_b, pos)
+        if command is None or command[1] not in ('begin', 'end'):
+            return None
+        end, kind = command
+        if end >= len(text_b) or text_b[end] != _B_LBRACE:
+            return None
+        close = text_b.find(b'}', end + 1)
+        if close < 0:
+            return None
+        name = text_b[end + 1:close].decode('ascii', 'ignore')
+        if name not in _VERBATIM_ENVS:
+            return None
+        return close + 1, kind, name
+
+    @staticmethod
+    def _verb_inline_span(text_b: bytes, pos: int) -> int | None:
+        """pos punta al backslash. Riconosce \\verb / \\verb* seguito da un
+        delimitatore (qualunque carattere non lettera e non spazio) e ne
+        cerca la chiusura sulla stessa riga. Ritorna l'offset subito dopo
+        il delimitatore di chiusura, o None se pos non è l'inizio di un
+        \\verb valido (es. è in realtà \\verbatim o \\verbose)."""
+        n = len(text_b)
+        if text_b[pos + 1:pos + 6] == b'verb*':
+            i = pos + 6
+        elif text_b[pos + 1:pos + 5] == b'verb':
+            i = pos + 5
+        else:
+            return None
+        if i >= n:
+            return None
+        delim = text_b[i]
+        if delim == _B_BACKSLASH or delim == ord(' ') or (
+                delim < 128 and chr(delim).isalpha()):
+            return None
+        newline = text_b.find(b'\n', i + 1, n)
+        limit = newline if newline >= 0 else n
+        close = text_b.find(bytes([delim]), i + 1, limit)
+        return (close + 1) if close >= 0 else limit
 
     @classmethod
     def _math_environment_token(cls, text_b: bytes, pos: int):
@@ -247,7 +312,7 @@ class LaTeXLexer(QsciLexerCustom):
                 i += 1
                 self._cache_state(i, mode, tuple(envs))
                 continue
-            if text_b[i] == _B_PERCENT and not self._is_escaped(text_b, i):
+            if text_b[i] == _B_PERCENT and mode != 'verbatim' and not self._is_escaped(text_b, i):
                 newline = text_b.find(b'\n', i, offset)
                 i = offset if newline < 0 else newline
                 continue
@@ -266,6 +331,16 @@ class LaTeXLexer(QsciLexerCustom):
                     mode = 'environment'
                     envs.append(token[2])
                     i = token[0]
+                    continue
+                vtoken = self._verbatim_environment_token(text_b, i)
+                if vtoken is not None and vtoken[1] == 'begin':
+                    mode = 'verbatim'
+                    envs.append(vtoken[2])
+                    i = vtoken[0]
+                    continue
+                verb_end = self._verb_inline_span(text_b, i)
+                if verb_end is not None:
+                    i = verb_end
                     continue
                 i += 2 if text_b[i] == _B_BACKSLASH and i + 1 < offset else 1
                 continue
@@ -296,6 +371,23 @@ class LaTeXLexer(QsciLexerCustom):
                             mode = 'default'
                     i = token[0]
                     continue
+            if mode == 'verbatim':
+                newline = text_b.find(b'\n', i, offset)
+                backslash = text_b.find(b'\\', i, offset)
+                candidates = [p for p in (newline, backslash) if p >= 0]
+                stop = min(candidates) if candidates else offset
+                if stop > i:
+                    i = stop
+                    continue
+                vtoken = self._verbatim_environment_token(text_b, i)
+                if vtoken is not None and vtoken[1] == 'end' and envs and envs[-1] == vtoken[2]:
+                    envs.pop()
+                    if not envs:
+                        mode = 'default'
+                    i = vtoken[0]
+                else:
+                    i += 1
+                continue
             i += 1
         return mode, tuple(envs)
 
@@ -325,7 +417,7 @@ class LaTeXLexer(QsciLexerCustom):
                 pos += 1
                 last_cmd = ''
                 continue
-            if b == _B_PERCENT and not self._is_escaped(text_b, pos):
+            if b == _B_PERCENT and mode != 'verbatim' and not self._is_escaped(text_b, pos):
                 stop = text_b.find(b'\n', pos, end)
                 stop = end if stop < 0 else stop
                 paint(pos, stop, S_COMMENT)
@@ -352,6 +444,19 @@ class LaTeXLexer(QsciLexerCustom):
                         mode = 'environment'
                         envs.append(token[2])
                         pos = token[0]
+                        continue
+                    vtoken = self._verbatim_environment_token(text_b, pos)
+                    if vtoken is not None and vtoken[1] == 'begin':
+                        paint(pos, vtoken[0], S_STRUCTURE)
+                        mode = 'verbatim'
+                        envs.append(vtoken[2])
+                        pos = vtoken[0]
+                        continue
+                    verb_end = self._verb_inline_span(text_b, pos)
+                    if verb_end is not None:
+                        paint(pos, verb_end, S_COMMAND)
+                        pos = verb_end
+                        last_cmd = ''
                         continue
                     if command is not None:
                         stop, last_cmd = command
@@ -421,6 +526,24 @@ class LaTeXLexer(QsciLexerCustom):
                             mode = 'default'
                     pos = token[0]
                     continue
+            if mode == 'verbatim':
+                newline = text_b.find(b'\n', pos, end)
+                backslash = text_b.find(b'\\', pos, end)
+                candidates = [p for p in (newline, backslash) if p >= 0]
+                stop = min(candidates) if candidates else end
+                if stop > pos:
+                    pos = stop
+                    continue
+                vtoken = self._verbatim_environment_token(text_b, pos)
+                if vtoken is not None and vtoken[1] == 'end' and envs and envs[-1] == vtoken[2]:
+                    paint(pos, vtoken[0], S_STRUCTURE)
+                    envs.pop()
+                    if not envs:
+                        mode = 'default'
+                    pos = vtoken[0]
+                else:
+                    pos += 1
+                continue
             if mode == 'dollar' and b == _B_DOLLAR and not self._is_escaped(text_b, pos):
                 paint(pos, pos + 1, S_MATH)
                 mode, pos = 'default', pos + 1

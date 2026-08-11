@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import QApplication
 
 from editor.latex_checker import _CheckWorker
 from editor.latex_support import LaTeXSupport, strip_latex_comments
-from editor.lexer_latex_custom import S_MATH, LaTeXLexer
+from editor.lexer_latex_custom import S_DEFAULT, S_MATH, LaTeXLexer
 
 
 class _DollarEditor:
@@ -294,6 +294,94 @@ class LaTeXLexerIncrementalCacheTest(unittest.TestCase):
             "la potatura incrementale della cache produce un highlighting diverso "
             "da una riscansione completa: dopo l'edit la cache contiene stato stantio",
         )
+
+
+class LaTeXLexerVerbatimTest(unittest.TestCase):
+    """Copre il trattamento come testo letterale di verbatim/lstlisting/
+    minted e \\verb. Prima di questo fix il lexer interpretava sempre %, $
+    e i comandi anche dentro questi blocchi, producendo highlighting (e
+    stato residuo) sbagliato per il resto del documento."""
+
+    @staticmethod
+    def _painted_styles(lexer) -> list[int]:
+        out: list[int] = []
+        for call in lexer.setStyling.call_args_list:
+            count, style = call.args
+            out.extend([style] * count)
+        return out
+
+    def _style(self, text: bytes) -> tuple[LaTeXLexer, list[int]]:
+        lexer = LaTeXLexer()
+        lexer.startStyling = mock.Mock()
+        lexer.setStyling = mock.Mock()
+        lexer._style_with_state(0, len(text), text)
+        return lexer, self._painted_styles(lexer)
+
+    def test_percent_and_dollar_are_literal_inside_verbatim(self):
+        text = (b"\\begin{verbatim}\n"
+                b"50% not a comment, $not math$\n"
+                b"\\end{verbatim}\n")
+        lexer, styles = self._style(text)
+        self.assertEqual(styles[text.index(b"%")], S_DEFAULT)
+        self.assertEqual(styles[text.index(b"$")], S_DEFAULT)
+        self.assertEqual(lexer._state_at(text, len(text))[0], "default")
+
+    def test_percent_at_start_of_verbatim_line_is_not_a_comment(self):
+        # Il bulk-skip di verbatim salta da un backslash/newline al
+        # successivo senza mai "visitare" un '%' isolato in mezzo alla riga
+        # — ma se il '%' è il PRIMO byte dopo un a-capo, `safe` (inizio
+        # riga) coincide con la sua posizione e il controllo di riga in
+        # cima al loop lo vede direttamente: qui il guard mode!='verbatim'
+        # è l'unica cosa che impedisce di colorarlo come inizio commento.
+        text = b"\\begin{verbatim}\n%starts with percent\n\\end{verbatim}\n"
+        lexer, styles = self._style(text)
+        self.assertEqual(styles[text.index(b"%")], S_DEFAULT)
+
+    def test_state_inside_verbatim_block_is_verbatim(self):
+        text = b"\\begin{verbatim}\nhello\n\\end{verbatim}\n"
+        lexer, _ = self._style(text)
+        self.assertEqual(lexer._state_at(text, text.index(b"hello"))[0], "verbatim")
+
+    def test_mismatched_end_does_not_close_verbatim(self):
+        text = (b"\\begin{verbatim}\n"
+                b"\\end{other}\n"
+                b"still literal\n"
+                b"\\end{verbatim}\n"
+                b"after\n")
+        lexer, _ = self._style(text)
+        self.assertEqual(
+            lexer._state_at(text, text.index(b"still literal"))[0], "verbatim")
+        self.assertEqual(lexer._state_at(text, text.index(b"after"))[0], "default")
+
+    def test_lstlisting_and_minted_and_capitalized_verbatim_are_literal(self):
+        for env in (b"lstlisting", b"minted", b"Verbatim"):
+            with self.subTest(env=env):
+                text = (b"\\begin{" + env + b"}\n"
+                        b"$x$ % not math or comment\n"
+                        b"\\end{" + env + b"}\n")
+                lexer, _ = self._style(text)
+                self.assertEqual(lexer._state_at(text, len(text))[0], "default")
+
+    def test_verb_inline_with_dollar_delimiter_has_no_side_effects(self):
+        # \verb usa '$' come delimitatore: senza il fix, quel '$' verrebbe
+        # interpretato come apertura di math mode e romperebbe il resto
+        # della riga (compreso il $real math$ vero che segue).
+        text = b"Command \\verb$a%b$ then $real math$ here.\n"
+        lexer, styles = self._style(text)
+        self.assertEqual(lexer._state_at(text, len(text))[0], "default")
+        self.assertEqual(styles[text.index(b"$real")], S_MATH)
+
+    def test_verb_star_variant_with_pipe_delimiter(self):
+        text = b"See \\verb*|literal|text after.\n"
+        lexer, _ = self._style(text)
+        self.assertEqual(lexer._state_at(text, len(text))[0], "default")
+
+    def test_verbatim_like_prefix_is_not_mistaken_for_verb_command(self):
+        # \verbatim e \verbose iniziano per "verb" ma non sono \verb: il
+        # carattere seguente deve essere un delimitatore non alfabetico,
+        # altrimenti è un comando normale (o l'ambiente verbatim stesso).
+        self.assertIsNone(LaTeXLexer._verb_inline_span(b"\\verbatim{x}", 0))
+        self.assertIsNone(LaTeXLexer._verb_inline_span(b"\\verbose text", 0))
 
 
 if __name__ == "__main__":

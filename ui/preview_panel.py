@@ -679,6 +679,7 @@ class PreviewPanel(QWidget):
         self._render_gen: int = 0
         self._pdf_single_render_pending: bool = False
         self._synctex_scroll_y_pt: Optional[float] = None  # scroll da applicare dopo render
+        self._synctex_scroll_force: bool = True  # True = ricentra sempre, False solo se fuori viewport
         self._pdf_tex_path = None  # root .tex associato al PDF corrente
 
         # Worker asincrono per SyncTeX forward (tex→pdf)
@@ -1940,11 +1941,22 @@ class PreviewPanel(QWidget):
         y_pt = self._synctex_scroll_y_pt
         if y_pt is not None:
             self._synctex_scroll_y_pt = None
+            force = self._synctex_scroll_force
+            self._synctex_scroll_force = True
             oy_val = clip_rect.y0 if clip_rect else 0.0
             cy     = int((y_pt - oy_val) * self._pdf_zoom)
             vbar   = self._pdf_scroll.verticalScrollBar()
-            QTimer.singleShot(0, lambda: vbar.setValue(
-                max(0, cy - self._pdf_scroll.viewport().height() // 2)))
+            viewport_h = self._pdf_scroll.viewport().height()
+
+            def _do_scroll(vbar=vbar, cy=cy, viewport_h=viewport_h, force=force):
+                if not force:
+                    visible_top    = vbar.value()
+                    visible_bottom = visible_top + viewport_h
+                    if visible_top <= cy <= visible_bottom:
+                        return
+                vbar.setValue(max(0, cy - viewport_h // 2))
+
+            QTimer.singleShot(0, _do_scroll)
 
     def _on_pdf_render_worker_finished(self) -> None:
         worker = self.sender()
@@ -2398,8 +2410,10 @@ class PreviewPanel(QWidget):
         y = lbl.pos().y()
         self._pdf_scroll_cont.verticalScrollBar().setValue(max(0, y - 8))
 
-    def _scroll_cont_to_page_y(self, page_idx: int, y_pt: float) -> None:
-        """In modalità continua, scrolla alla posizione y_pt (punti PDF) sulla pagina page_idx."""
+    def _scroll_cont_to_page_y(self, page_idx: int, y_pt: float, force: bool = True) -> None:
+        """In modalità continua, scrolla alla posizione y_pt (punti PDF) sulla pagina page_idx.
+        Se force è False lo scroll viene ricentrato solo quando il punto non è
+        già visibile nel viewport corrente (evita salti ad ogni click)."""
         if page_idx >= len(self._pdf_cont_page_labels):
             return
         lbl      = self._pdf_cont_page_labels[page_idx]
@@ -2410,7 +2424,13 @@ class PreviewPanel(QWidget):
         cy        = int((y_pt - oy) * self._pdf_zoom)
         target    = page_top + cy
         vbar      = self._pdf_scroll_cont.verticalScrollBar()
-        vbar.setValue(max(0, target - self._pdf_scroll_cont.viewport().height() // 2))
+        viewport_h = self._pdf_scroll_cont.viewport().height()
+        if not force:
+            visible_top    = vbar.value()
+            visible_bottom = visible_top + viewport_h
+            if visible_top <= target <= visible_bottom:
+                return
+        vbar.setValue(max(0, target - viewport_h // 2))
 
     def _pdf_cont_clicked(self, page_idx: int, x: int, y: int) -> None:
         """Click su una pagina in modalità scroll continuo: gestisce link e backward SyncTeX."""
@@ -2700,14 +2720,21 @@ class PreviewPanel(QWidget):
             h_pt     = result.get("h")
             W_pt     = result.get("W")
             old_page = self._pdf_cursor_highlight[0] if self._pdf_cursor_highlight else None
+            # Se la riga cliccata ricade sulla pagina già visibile, evitiamo
+            # di ricentrare lo scroll ad ogni singolo click nell'editor: è
+            # sufficiente aggiornare l'indicatore, il salto va fatto solo
+            # quando la sincronizzazione porta davvero su un'altra pagina.
+            force_scroll = (old_page != new_page)
             self._pdf_cursor_highlight = (new_page, y_pt, h_pt, W_pt)
             self._pdf_page_num         = new_page
             if self._pdf_continuous:
                 self._pdf_update_cont_highlight(new_page, old_page)
                 if y_pt is not None:
-                    QTimer.singleShot(0, lambda: self._scroll_cont_to_page_y(new_page, y_pt))
+                    QTimer.singleShot(
+                        0, lambda: self._scroll_cont_to_page_y(new_page, y_pt, force_scroll))
             else:
                 self._synctex_scroll_y_pt = y_pt   # applicato in _on_pdf_page_rendered
+                self._synctex_scroll_force = force_scroll
                 self._pdf_show_page()
         else:
             if self._pdf_cursor_highlight is not None:

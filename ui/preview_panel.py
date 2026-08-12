@@ -2920,7 +2920,7 @@ def _tex_pdf_path(editor):
             output_ref = profile.get("output_directory", profile.get("output_dir"))
             if profile.get("ramdisk"):
                 ramdisk_dir = manager._ramdisk_build_dir(context.root)
-                if ramdisk_dir:
+                if ramdisk_dir and (ramdisk_dir / f"{context.root.stem}.pdf").exists():
                     output_ref = str(ramdisk_dir)
             if output_ref:
                 context = LatexProjectContext(p, editor.text(), output_ref)

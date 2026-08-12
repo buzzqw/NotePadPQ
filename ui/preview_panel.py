@@ -2918,6 +2918,10 @@ def _tex_pdf_path(editor):
             if not profile:
                 profile = manager.get_profiles().get(profile_name, {}) if profile_name else {}
             output_ref = profile.get("output_directory", profile.get("output_dir"))
+            if profile.get("ramdisk"):
+                ramdisk_dir = manager._ramdisk_build_dir(context.root)
+                if ramdisk_dir:
+                    output_ref = str(ramdisk_dir)
             if output_ref:
                 context = LatexProjectContext(p, editor.text(), output_ref)
         except Exception:

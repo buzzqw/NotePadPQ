@@ -1346,6 +1346,12 @@ class LaTeXSupport:
         inner_indent = indent_str + "    "
         end_cmd = f"{indent_str}\\end{{{env}}}"
 
+        # Se più sotto c'è già un \end{env} che chiude questo ambiente
+        # (es. un \end{multicols} preesistente senza il suo \begin), non
+        # aggiungiamo un secondo \end: creerebbe una coppia spuria segnalata
+        # dal checker di bilanciamento.
+        already_closed = LaTeXSupport._has_matching_end_below(editor, line - 1, env)
+
         if not current_line_text.strip():
             editor.beginUndoAction()
             # L'auto-indent di Scintilla ha già potenzialmente copiato
@@ -1357,7 +1363,11 @@ class LaTeXSupport:
             editor.setSelection(line, 0, line, line_end_col)
             editor.removeSelectedText()
             editor.setCursorPosition(line, 0)
-            if env in LaTeXSupport._LIST_ENVIRONMENTS:
+            if already_closed:
+                # Lascia solo la riga del body indentata, senza \end.
+                editor.insert(inner_indent)
+                editor.setCursorPosition(line, len(inner_indent))
+            elif env in LaTeXSupport._LIST_ENVIRONMENTS:
                 editor.insert(f"{inner_indent}\\item \n{end_cmd}")
                 editor.setCursorPosition(line, len(inner_indent) + 6)
             else:

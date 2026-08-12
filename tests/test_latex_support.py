@@ -482,6 +482,25 @@ class LaTeXNewlineIndentTest(unittest.TestCase):
         )
         self.assertEqual(editor.getCursorPosition(), (1, 10))
 
+    def test_does_not_add_end_when_unmatched_end_exists_below(self):
+        # Un \end{multicols} gia' presente sotto (senza un \begin{multicols}
+        # prima) deve impedire l'inserimento di un secondo \end: altrimenti
+        # si creerebbe una coppia begin/end spuria.
+        editor = EditorWidget()
+        LaTeXSupport.activate(editor)
+        editor.setText("\\begin{multicols}{2}\ncontenuto\n\\end{multicols}\n")
+        editor.setCursorPosition(0, len("\\begin{multicols}{2}"))
+        event = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Return,
+                           Qt.KeyboardModifier.NoModifier, "\r")
+        editor.keyPressEvent(event)
+        self.addCleanup(editor.deleteLater)
+
+        self.assertEqual(
+            editor.text(),
+            "\\begin{multicols}{2}\n    \ncontenuto\n\\end{multicols}\n",
+        )
+        self.assertEqual(editor.getCursorPosition(), (1, 4))
+
 
 if __name__ == "__main__":
     unittest.main()

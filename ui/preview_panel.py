@@ -1090,6 +1090,14 @@ class PreviewPanel(QWidget):
         path_str = str(path)
         self._pdf_tex_path = _Path(str(tex_path)) if tex_path else None
 
+        if tex_path:
+            # Marca subito questo PDF come "ultimo noto valido" per il file
+            # radice: se _tex_pdf_path() viene interpellata prima ancora di
+            # aver mai trovato da sola il PDF di questo progetto (es. subito
+            # dopo la primissima build), deve comunque avere un fallback
+            # pronto e non far ripiegare la preview sulla struttura.
+            _LAST_GOOD_PDF[str(_Path(str(tex_path)))] = path_str
+
         # Imposta modalità pdf
         self._set_mode("pdf")
         self._update_synctex_label(path)

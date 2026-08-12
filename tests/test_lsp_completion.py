@@ -173,6 +173,15 @@ class LSPCompletionTest(unittest.TestCase):
         self.assertEqual(flushed, [(self.editor, client)])
         self.assertEqual(len(client.requests), 1)
 
+    def test_incremental_change_uses_utf16_range_and_minimal_replacement(self):
+        change = LSPClient._incremental_change("one\nold 😀\nthree", "one\nnew 😀\nthree")
+
+        self.assertEqual(change["range"], {
+            "start": {"line": 1, "character": 0},
+            "end": {"line": 1, "character": 3},
+        })
+        self.assertEqual(change["text"], "new")
+
     def test_missing_server_and_server_error_are_noops(self):
         with mock.patch("editor.lsp_client.is_server_available", return_value=False):
             self.assertIsNone(LSPClient.get("python", "/tmp"))

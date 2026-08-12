@@ -73,6 +73,32 @@ class LSPContentSyncDebounceTest(unittest.TestCase):
         self.assertIsNone(self.editor._lsp_sync_timer)
         self.assertIsNone(self.editor._lsp_text_changed_handler)
 
+    def test_large_document_skips_automatic_full_content_sync(self):
+        self.editor.setText("x" * (MainWindow._LSP_AUTO_SYNC_MAX_BYTES + 1))
+        self.mw._lsp_attach_content_sync(self.editor, self.client)
+
+        self.editor.textChanged.emit()
+
+        self.assertFalse(self.editor._lsp_sync_timer.isActive())
+        self.mw._lsp_flush_content_sync(self.editor, self.client)
+        self.client.update_file.assert_not_called()
+
+    def test_manual_large_document_sync_remains_available(self):
+        self.editor.setText("x" * (MainWindow._LSP_AUTO_SYNC_MAX_BYTES + 1))
+
+        self.mw._lsp_flush_content_sync(self.editor, self.client, force=True)
+
+        self.client.update_file.assert_called_once()
+
+    def test_incremental_sync_allows_automatic_updates_for_large_documents(self):
+        self.editor.setText("x" * (MainWindow._LSP_AUTO_SYNC_MAX_BYTES + 1))
+        self.client.uses_incremental_sync = True
+        self.mw._lsp_attach_content_sync(self.editor, self.client)
+
+        self.editor.textChanged.emit()
+
+        self.assertTrue(self.editor._lsp_sync_timer.isActive())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -338,6 +338,7 @@ class LSPClient(QObject):
         # aperture prima di initialize evita di perdere didOpen sui server lenti.
         self._open_files: dict[str, list] = {}
         self._document_versions: dict[str, int] = {}
+        self._incremental_sync = False
         self._stopped = False
 
     @classmethod
@@ -459,6 +460,11 @@ class LSPClient(QObject):
                 return
 
         elif msg_id == 1:
+            capabilities = (msg.get("result") or {}).get("capabilities", {})
+            sync = capabilities.get("textDocumentSync", 0)
+            if isinstance(sync, dict):
+                sync = sync.get("change", 0)
+            self._incremental_sync = sync == 2  # TextDocumentSyncKind.Incremental
             self._initialized = True
             if self._worker:
                 self._worker.send(self._proto.notification("initialized", {}))
@@ -488,17 +494,55 @@ class LSPClient(QObject):
 
     def update_file(self, path: Path, content: str, version: int) -> None:
         uri = path.as_uri()
+        opened = self._open_files.get(uri)
         if not self._initialized or not self._worker:
-            opened = self._open_files.get(uri)
             if opened is not None:
                 # Conserva l'ultimo snapshot anche se il server non ha ancora
                 # completato initialize: sarà usato dal didOpen differito.
                 opened[1] = content
             return
+        previous = opened[1] if opened is not None else None
+        if previous == content:
+            return
+        changes = [{"text": content}]
+        if self._incremental_sync and isinstance(previous, str):
+            changes = [self._incremental_change(previous, content)]
+        if opened is not None:
+            opened[1] = content
         self._worker.send(self._proto.notification("textDocument/didChange", {
             "textDocument": {"uri": uri, "version": version},
-            "contentChanges": [{"text": content}],
+            "contentChanges": changes,
         }))
+
+    @staticmethod
+    def _incremental_change(previous: str, content: str) -> dict:
+        """Restituisce il singolo intervallo LSP che trasforma previous in content."""
+        start = 0
+        common_end = min(len(previous), len(content))
+        while start < common_end and previous[start] == content[start]:
+            start += 1
+        old_end, new_end = len(previous), len(content)
+        while old_end > start and new_end > start and previous[old_end - 1] == content[new_end - 1]:
+            old_end -= 1
+            new_end -= 1
+        return {
+            "range": {
+                "start": LSPClient._offset_to_position(previous, start),
+                "end": LSPClient._offset_to_position(previous, old_end),
+            },
+            "text": content[start:new_end],
+        }
+
+    @staticmethod
+    def _offset_to_position(text: str, offset: int) -> dict[str, int]:
+        before = text[:offset]
+        line = before.count("\n")
+        column = before.rsplit("\n", 1)[-1]
+        return {"line": line, "character": len(column.encode("utf-16-le")) // 2}
+
+    @property
+    def uses_incremental_sync(self) -> bool:
+        return self._incremental_sync
 
     def close_file(self, path: Path) -> None:
         uri = path.as_uri()

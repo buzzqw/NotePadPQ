@@ -188,6 +188,15 @@ class LatexSupportTest(unittest.TestCase):
             )
         self.assertEqual(result, ["figure", "align", "itemize", "table"])
 
+    def test_open_environments_from_editor_matches_text_parser(self):
+        editor = EditorWidget()
+        editor.setText("\\begin{figure}\n\\begin{center}\ntext")
+        self.addCleanup(editor.deleteLater)
+
+        result = LaTeXSupport.find_open_environments_in_editor(editor, 2, 4)
+
+        self.assertEqual(result, ["center", "figure"])
+
     def test_full_begin_restores_frequency_ordered_environment_popup(self):
         editor = EditorWidget()
         manager = AutoCompleteManager(editor)

@@ -789,6 +789,10 @@ class MainWindow(QMainWindow):
     # contenuto sempre fresco) fanno comunque un flush immediato prima di
     # interrogare il server: vedi _lsp_flush_content_sync.
     _LSP_SYNC_DEBOUNCE_MS = 200
+    # didChange invia oggi l'intero documento: oltre questa dimensione la
+    # sincronizzazione automatica può saturare UI e language server. Ctrl+Spazio
+    # conserva comunque il sync esplicito prima del completamento manuale.
+    _LSP_AUTO_SYNC_MAX_BYTES = 1_000_000
 
     def _lsp_attach_content_sync(self, editor, client) -> None:
         """Invia didChange al server LSP, con un breve debounce che accorpa
@@ -807,6 +811,9 @@ class MainWindow(QMainWindow):
             if (getattr(_editor, "_lsp_client", None) is not _client
                     or not getattr(_editor, "file_path", None)):
                 return
+            if (_editor.SendScintilla(_editor.SCI_GETLENGTH) > self._LSP_AUTO_SYNC_MAX_BYTES
+                    and getattr(_client, "uses_incremental_sync", False) is not True):
+                return
             t = getattr(_editor, "_lsp_sync_timer", None)
             if t is not None:
                 t.start()
@@ -814,7 +821,7 @@ class MainWindow(QMainWindow):
         editor._lsp_text_changed_handler = _on_changed
         editor.textChanged.connect(_on_changed)
 
-    def _lsp_flush_content_sync(self, editor, client) -> None:
+    def _lsp_flush_content_sync(self, editor, client, force: bool = False) -> None:
         """Invia subito il didChange pendente, se presente. Chiamata sia dal
         timer di debounce sia prima di ogni richiesta di completion, cosi'
         il server vede sempre il testo corrente nel momento in cui serve
@@ -824,6 +831,10 @@ class MainWindow(QMainWindow):
             timer.stop()
         if (getattr(editor, "_lsp_client", None) is not client
                 or not getattr(editor, "file_path", None)):
+            return
+        if (not force
+                and editor.SendScintilla(editor.SCI_GETLENGTH) > self._LSP_AUTO_SYNC_MAX_BYTES
+                and getattr(client, "uses_incremental_sync", False) is not True):
             return
         self._lsp_sync_content(editor, client)
 

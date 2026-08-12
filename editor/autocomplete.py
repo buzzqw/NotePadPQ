@@ -555,6 +555,8 @@ _API_JSON_KW: list[str] = [
     "true", "false", "null",
 ]
 
+_MAX_DYNAMIC_API_TERMS = 5_000
+
 # Mappa linguaggio → lista API
 _LANGUAGE_APIS: dict[str, list[str]] = {
     "python":     _API_PYTHON,
@@ -693,7 +695,10 @@ class _ApiRebuildWorker(QThread):
                 self.latex_cache.emit(labels, bibtex, hypertargets, environments)
 
         if not self._cancelled:
-            self.done.emit(terms)
+            # Una lista API enorme blocca il thread GUI nel successivo
+            # QsciAPIs.prepare(). Le voci statiche precedono quelle dinamiche,
+            # quindi il limite conserva sempre i completamenti essenziali.
+            self.done.emit(list(dict.fromkeys(terms))[:_MAX_DYNAMIC_API_TERMS])
 
 
 # ─── AutoCompleteManager ──────────────────────────────────────────────────────
@@ -1114,7 +1119,10 @@ class AutoCompleteManager(QObject):
             window = self._editor.window()
             flush = getattr(window, "_lsp_flush_content_sync", None)
             if flush is not None:
-                flush(self._editor, client)
+                if force:
+                    flush(self._editor, client, force=True)
+                else:
+                    flush(self._editor, client)
         except Exception:
             pass
         try:
@@ -1492,7 +1500,9 @@ class AutoCompleteManager(QObject):
             # per primo, es. multicols, small, center...), poi il resto come fallback.
             from editor.latex_support import LaTeXSupport
             line, col = self._editor.getCursorPosition()
-            open_envs = LaTeXSupport.find_open_environments(self._editor.text(), line, col)
+            open_envs = LaTeXSupport.find_open_environments_in_editor(
+                self._editor, line, col
+            )
             seen = set()
             open_envs = [e for e in open_envs if not (e in seen or seen.add(e))]
             rest = [e for e in sorted(set(envs)) if e not in seen]

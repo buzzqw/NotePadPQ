@@ -23,6 +23,7 @@ MINIMAP_WIDTH   = 100    # px larghezza widget
 CHAR_WIDTH      = 1      # px per carattere
 LINE_HEIGHT     = 2      # px per riga
 MAX_LINES       = 3000   # limite righe renderizzate
+MAX_SNAPSHOT_LINES = 1000  # copie dal buffer Scintilla per singolo aggiornamento
 UPDATE_DELAY_MS = 500    # ms debounce aggiornamento (era 300 — ridotto carico main thread)
 
 # Regex compilate una volta sola a livello modulo
@@ -176,8 +177,13 @@ class MinimapWidget(QWidget):
         ]
 
         total = self._editor.lines()
-        n = min(total, MAX_LINES)
-        lines = [self._editor.text(i) for i in range(n)]
+        # Per documenti grandi una minimap dei primi 3.000 record e' sia
+        # costosa da copiare sia poco rappresentativa. Campioniamo uniformemente
+        # l'intero file con un budget fisso di accessi a Scintilla.
+        n = min(total, MAX_SNAPSHOT_LINES)
+        step = max(1, (total + n - 1) // n)
+        lines = [self._editor.text(i) for i in range(0, total, step)][:n]
+        n = len(lines)
         height = max(n * LINE_HEIGHT, self.height())
 
         try:

@@ -543,6 +543,7 @@ class EditorWidget(QsciScintilla):
         self._tabstop_index: int = 0
         self._smart_hl_word: str = ""           # cache: evita regex se parola invariata
         self._smart_hl_text_len: int = 0         # lunghezza testo all'ultimo highlight
+        self._smart_hl_range: tuple[int, int] | None = None
         self._smart_hl_timer: QTimer = QTimer(self)
         self._smart_hl_timer.setSingleShot(True)
         self._smart_hl_timer.setInterval(600)    # 600ms: bilancia reattività e costo CPU
@@ -842,6 +843,9 @@ class EditorWidget(QsciScintilla):
         self.cursorPositionChanged.connect(
             lambda *_: self._smart_hl_timer.start()
         )
+        self.verticalScrollBar().valueChanged.connect(
+            lambda *_: self._smart_hl_timer.start() if self._smart_hl_word else None
+        )
 
         self.userListActivated.connect(self._on_user_list_selection)
 
@@ -1048,7 +1052,7 @@ class EditorWidget(QsciScintilla):
             return
         if self.hasSelectedText():
             if self._smart_hl_word:
-                self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+                self._clear_smart_highlight()
                 self._smart_hl_word = ""
                 self._smart_hl_text_len = 0
             return
@@ -1056,7 +1060,7 @@ class EditorWidget(QsciScintilla):
         word = self.wordAtLineIndex(line, col)
         if not word or len(word) < 2:
             if self._smart_hl_word:
-                self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+                self._clear_smart_highlight()
                 self._smart_hl_word = ""
                 self._smart_hl_text_len = 0
             return
@@ -1069,7 +1073,7 @@ class EditorWidget(QsciScintilla):
         left_is_word  = char_left.isalnum()  or char_left  == "_"
         if (left_is_word and not right_is_word) or (right_is_word and not left_is_word):
             if self._smart_hl_word:
-                self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+                self._clear_smart_highlight()
                 self._smart_hl_word = ""
                 self._smart_hl_text_len = 0
             return
@@ -1078,49 +1082,48 @@ class EditorWidget(QsciScintilla):
         doc_len = self.SendScintilla(self.SCI_GETLENGTH)
         if doc_len > 200_000:
             if self._smart_hl_word:
-                self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+                self._clear_smart_highlight()
                 self._smart_hl_word = ""
                 self._smart_hl_text_len = 0
             return
 
-        text = self.text()
-        text_len = len(text)
+        first_visible = self.SendScintilla(self.SCI_GETFIRSTVISIBLELINE)
+        start_line = max(0, self.SendScintilla(self.SCI_DOCLINEFROMVISIBLE, first_visible) - 60)
+        visible = max(1, self.SendScintilla(self.SCI_LINESONSCREEN))
+        end_line = min(self.lines() - 1, start_line + visible + 120)
+        text_len = doc_len
 
         # Salta il ricalcolo se parola E lunghezza del testo sono invariate
-        if word == self._smart_hl_word and text_len == self._smart_hl_text_len:
+        if (word == self._smart_hl_word and text_len == self._smart_hl_text_len
+                and self._smart_hl_range == (start_line, end_line)):
             return
         self._smart_hl_word = word
         self._smart_hl_text_len = text_len
-
-        import bisect
         pattern = r'\b' + re.escape(word) + r'\b'
-
-        # Costruisce la lista newline con str.find() — più veloce del list-comp char-by-char
-        newlines: list[int] = []
-        pos = text.find('\n')
-        while pos != -1:
-            newlines.append(pos)
-            pos = text.find('\n', pos + 1)
-
-        self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+        self._clear_smart_highlight()
+        self._smart_hl_range = (start_line, end_line)
 
         count = 0
-        for m in re.finditer(pattern, text):
-            start, end = m.start(), m.end()
-            line_s = bisect.bisect_right(newlines, start)
-            col_s  = start - (newlines[line_s - 1] + 1 if line_s > 0 else 0)
-            line_e = bisect.bisect_right(newlines, end)
-            col_e  = end - (newlines[line_e - 1] + 1 if line_e > 0 else 0)
-            self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SMART_HL)
-            count += 1
-            if count >= 500:  # parole troppo comuni rallentano tutto il rendering
-                break
+        for line_no in range(start_line, end_line + 1):
+            for match in re.finditer(pattern, self.text(line_no)):
+                self.fillIndicatorRange(
+                    line_no, match.start(), line_no, match.end(), INDICATOR_SMART_HL
+                )
+                count += 1
+                if count >= 500:
+                    return
+
+    def _clear_smart_highlight(self) -> None:
+        if self._smart_hl_range is not None:
+            start_line, end_line = self._smart_hl_range
+            self.clearIndicatorRange(start_line, 0, end_line + 1, 0, INDICATOR_SMART_HL)
+            self._smart_hl_range = None
 
     def set_smart_highlight_enabled(self, enabled: bool) -> None:
         """Abilita/disabilita lo smart highlight."""
         self._smart_highlight_enabled = enabled
         if not enabled:
-            self.clearIndicatorRange(0, 0, self.lines(), 0, INDICATOR_SMART_HL)
+            self._clear_smart_highlight()
 
     def set_plain_text_mode(self, enabled: bool) -> None:
         """

@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -42,6 +43,17 @@ class LatexCheckerRefactorTest(unittest.TestCase):
         self.assertIn("Undefined label: 'missing'", messages)
         self.assertIn("Duplicate label: 'same'", messages)
         self.assertIn("Unused label: 'unused'", messages)
+
+    def test_worker_reuses_label_analysis_between_checks(self):
+        worker = _CheckWorker("\\label{same}\n\\ref{missing}", None, 1)
+
+        with mock.patch.object(
+                LaTeXSupport, "analyze_label_references",
+                wraps=LaTeXSupport.analyze_label_references) as analysis:
+            worker._check_undefined_labels()
+            worker._check_label_consistency()
+
+        analysis.assert_called_once()
 
     def test_rename_label_updates_reachable_files_only_and_exact_tokens(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import json
+import io
 import xml.dom.minidom
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING, Optional
 
-from PyQt6.QtCore import Qt, QTimer, QSortFilterProxyModel
+from PyQt6.QtCore import Qt, QTimer, QThread, QSortFilterProxyModel, pyqtSignal
 from PyQt6.QtGui import (
     QAction, QBrush, QColor, QKeySequence, QStandardItem, QStandardItemModel,
 )
@@ -36,6 +37,43 @@ _COL_XML_VAL  = QColor("#6aab73")
 _ROLE_JUMP  = Qt.ItemDataRole.UserRole + 1   # chiave/tag per jump-to
 _ROLE_PATH  = Qt.ItemDataRole.UserRole + 2   # path JSON serializzato
 _ROLE_TYPE  = Qt.ItemDataRole.UserRole + 3   # "value" | "text" | "attr:<name>"
+_AUTO_REFRESH_MAX_BYTES = 1_000_000
+_MAX_TREE_NODES = 20_000
+
+
+class _JsonXmlParseWorker(QThread):
+    """Analizza il documento senza bloccare il thread dell'interfaccia."""
+
+    done = pyqtSignal(int, str, object, object, str)
+
+    def __init__(self, text: str, language: str, generation: int):
+        super().__init__(None)
+        self._text = text
+        self._language = language
+        self._generation = generation
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        try:
+            namespaces = {}
+            if self._language == "json":
+                parsed = json.loads(self._text)
+            else:
+                for _event, (prefix, uri) in ET.iterparse(
+                        io.StringIO(self._text), events=["start-ns"]):
+                    namespaces[uri] = prefix
+                parsed = ET.fromstring(self._text)
+            if not self._cancelled:
+                self.done.emit(self._generation, self._language, parsed, namespaces, "")
+        except (json.JSONDecodeError, ET.ParseError) as exc:
+            if not self._cancelled:
+                self.done.emit(self._generation, self._language, None, {}, str(exc))
+        except Exception as exc:
+            if not self._cancelled:
+                self.done.emit(self._generation, self._language, None, {}, str(exc))
 
 
 class JsonXmlPanel(QWidget):
@@ -52,6 +90,9 @@ class JsonXmlPanel(QWidget):
         self._updating_editor = False   # blocca loop textChanged ↔ itemChanged
         self._ns_map: dict[str, str] = {}   # uri → prefix per preservare i namespace XML
         self._needs_refresh = False
+        self._parse_worker: _JsonXmlParseWorker | None = None
+        self._old_parse_workers: list[_JsonXmlParseWorker] = []
+        self._parse_generation = 0
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -76,7 +117,9 @@ class JsonXmlPanel(QWidget):
         # Barra strumenti
         toolbar = QHBoxLayout()
         toolbar.setSpacing(2)
-        self._btn_refresh  = self._make_btn("↻", tr("tooltip.json_xml_refresh"),  self._refresh)
+        self._btn_refresh  = self._make_btn(
+            "↻", tr("tooltip.json_xml_refresh"), lambda: self._refresh(force=True)
+        )
         self._btn_expand   = self._make_btn("⊞", tr("tooltip.json_xml_expand"),   self._expand_all)
         self._btn_collapse = self._make_btn("⊟", tr("tooltip.json_xml_collapse"), self._collapse_all)
         self._btn_format   = QPushButton("⎁  " + tr("tooltip.json_xml_format"))
@@ -164,12 +207,15 @@ class JsonXmlPanel(QWidget):
             else:
                 self._needs_refresh = True
         else:
+            self._cancel_parse_worker()
             self._clear_tree()
             self._status.setText("")
             self._lang = ""
 
     def _on_text_changed(self) -> None:
         if not self._updating_editor:
+            self._parse_generation += 1
+            self._cancel_parse_worker()
             if self.isVisible():
                 self._timer.start()
             else:
@@ -207,12 +253,21 @@ class JsonXmlPanel(QWidget):
 
     # ── Aggiornamento albero ──────────────────────────────────────────────────
 
-    def _refresh(self) -> None:
+    def _refresh(self, force: bool = False) -> None:
         self._timer.stop()
         if not self.isVisible():
             self._needs_refresh = True
             return
         if self._editor is None:
+            return
+        if (not force
+                and self._editor.SendScintilla(self._editor.SCI_GETLENGTH)
+                > _AUTO_REFRESH_MAX_BYTES):
+            self._clear_tree()
+            self._status.setText(
+                tr("json_xml.large_document", default="Documento grande: aggiornamento automatico "
+                   "sospeso. Usa Aggiorna per analizzarlo.")
+            )
             return
         self._detect_lang()
         if not self._lang:
@@ -224,16 +279,44 @@ class JsonXmlPanel(QWidget):
             self._clear_tree()
             self._status.setText(tr("json_xml.empty_doc"))
             return
-        self._clear_tree()
+        self._cancel_parse_worker()
+        self._parse_generation += 1
+        worker = _JsonXmlParseWorker(text, self._lang, self._parse_generation)
+        worker.done.connect(self._on_parse_done)
+        self._parse_worker = worker
+        self._old_parse_workers.append(worker)
+        worker.finished.connect(lambda w=worker: self._forget_parse_worker(w))
+        worker.start()
+
+    def _cancel_parse_worker(self) -> None:
+        if self._parse_worker is not None:
+            self._parse_worker.cancel()
+            self._parse_worker = None
+
+    def _forget_parse_worker(self, worker: _JsonXmlParseWorker) -> None:
         try:
-            if self._lang == "json":
-                self._parse_json(text)
+            self._old_parse_workers.remove(worker)
+        except ValueError:
+            pass
+
+    def _on_parse_done(self, generation: int, language: str, parsed, namespaces: dict,
+                       error: str) -> None:
+        if generation != self._parse_generation or not self.isVisible():
+            return
+        self._parse_worker = None
+        self._clear_tree()
+        if error:
+            key = "json_xml.invalid_json" if language == "json" else "json_xml.invalid_xml"
+            self._status.setText(tr(key, msg=error, line="?", error=error))
+            return
+        try:
+            if language == "json":
+                self._build_json_tree(parsed)
             else:
-                self._parse_xml(text)
-        except json.JSONDecodeError as exc:
-            self._status.setText(tr("json_xml.invalid_json", msg=exc.msg, line=exc.lineno))
-        except ET.ParseError as exc:
-            self._status.setText(tr("json_xml.invalid_xml", error=str(exc)))
+                self._ns_map = namespaces
+                for prefix in namespaces.items():
+                    ET.register_namespace(prefix[1], prefix[0])
+                self._build_xml_tree(parsed)
         except Exception as exc:
             self._status.setText(tr("json_xml.parse_error", error=str(exc)))
 
@@ -243,9 +326,9 @@ class JsonXmlPanel(QWidget):
 
     # ── Parser JSON ───────────────────────────────────────────────────────────
 
-    def _parse_json(self, text: str) -> None:
-        data = json.loads(text)
+    def _build_json_tree(self, data) -> None:
         root = self._model.invisibleRootItem()
+        self._tree_node_count = 0
         self._add_json_node(root, "", data, [])
         n = self._model.rowCount()
         self._status.setText(tr("json_xml.valid_json", count=n))
@@ -259,6 +342,9 @@ class JsonXmlPanel(QWidget):
         key può essere str (chiave dict), int (indice lista) o "" (radice).
         path è la lista di chiavi dal root al padre corrente."""
 
+        if self._tree_node_count >= _MAX_TREE_NODES:
+            return
+        self._tree_node_count += 1
         # Percorso di questo nodo
         current_path: list = path + [key] if key != "" else path
         display_key: str = f"[{key}]" if isinstance(key, int) else str(key)
@@ -359,10 +445,9 @@ class JsonXmlPanel(QWidget):
             return f"{prefix}:{local}" if prefix else local
         return raw_tag
 
-    def _parse_xml(self, text: str) -> None:
-        self._collect_namespaces(text)
-        root_elem = ET.fromstring(text)
+    def _build_xml_tree(self, root_elem: ET.Element) -> None:
         root_item = self._model.invisibleRootItem()
+        self._tree_node_count = 0
         self._add_xml_node(root_item, root_elem, [])
         self._status.setText(tr("json_xml.valid_xml"))
         self._tree.expandToDepth(1)
@@ -371,6 +456,9 @@ class JsonXmlPanel(QWidget):
     def _add_xml_node(
         self, parent: QStandardItem, elem: ET.Element, elem_path: list
     ) -> None:
+        if self._tree_node_count >= _MAX_TREE_NODES:
+            return
+        self._tree_node_count += 1
         display_tag = self._tag_display(elem.tag)   # "con:setting" o "setting"
 
         tag_item = QStandardItem(f"<{display_tag}>")

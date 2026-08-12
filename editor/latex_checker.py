@@ -63,6 +63,8 @@ class _CheckWorker(QThread):
         self._file_path  = file_path
         self._generation = generation
         self._cancelled  = False
+        self._sources = None
+        self._label_analysis = None
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -89,19 +91,23 @@ class _CheckWorker(QThread):
 
     def _project_sources(self):
         """Restituisce i sorgenti del progetto con il testo corrente in memoria."""
+        if self._sources is not None:
+            return self._sources
         if not self._file_path:
-            return [(None, self._text)]
-        from editor.latex_support import LaTeXSupport
+            self._sources = [(None, self._text)]
+            return self._sources
+        from editor.latex_support import LaTeXSupport, _cached_read_text
         current = Path(self._file_path).resolve()
         sources = []
         for path in LaTeXSupport.collect_project_files(current):
             try:
                 source_text = (self._text if path.resolve() == current
-                               else path.read_text(encoding="utf-8", errors="replace"))
+                               else _cached_read_text(path))
             except OSError:
                 continue
             sources.append((path, source_text))
-        return sources or [(current, self._text)]
+        self._sources = sources or [(current, self._text)]
+        return self._sources
 
     def _check_balance(self) -> list[dict]:
         from editor.latex_support import LaTeXSupport
@@ -117,8 +123,7 @@ class _CheckWorker(QThread):
 
     def _check_undefined_labels(self) -> list[dict]:
         from editor.latex_support import LaTeXSupport
-        fp = self._file_path
-        analysis = LaTeXSupport.analyze_label_references(self._text, fp)
+        analysis = self._get_label_analysis()
         defined = {item["key"] for item in analysis["definitions"]}
         defined.update(LaTeXSupport.extract_labels(self._text))
 
@@ -144,10 +149,7 @@ class _CheckWorker(QThread):
         integration.  Current marker rendering deliberately handles only the
         open file, so no UI files are required by this checker refactor.
         """
-        from editor.latex_support import LaTeXSupport
-        analysis = LaTeXSupport.analyze_label_references(
-            self._text, self._file_path,
-        )
+        analysis = self._get_label_analysis()
         issues: list[dict] = []
         for item in analysis["duplicates"]:
             issue = {
@@ -170,6 +172,14 @@ class _CheckWorker(QThread):
                 issue["file"] = item["file"]
             issues.append(issue)
         return issues
+
+    def _get_label_analysis(self) -> dict:
+        if self._label_analysis is None:
+            from editor.latex_support import LaTeXSupport
+            self._label_analysis = LaTeXSupport.analyze_label_references(
+                self._text, self._file_path,
+            )
+        return self._label_analysis
 
     def _check_undefined_citations(self) -> list[dict]:
         from editor.latex_support import LaTeXSupport

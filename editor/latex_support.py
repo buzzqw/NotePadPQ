@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 import threading
+import bisect
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -1563,9 +1564,10 @@ class LaTeXSupport:
         nel mezzo). Se lo trova, insert_environment evita di aggiungere un
         secondo \\end duplicato.
         """
-        all_lines = editor.text().split("\n")
         stack: list[str] = []
-        for raw_line in all_lines[line + 1: line + 1 + max_lines]:
+        last_line = min(editor.lines(), line + 1 + max_lines)
+        for row in range(line + 1, last_line):
+            raw_line = editor.text(row)
             code = strip_latex_comments(raw_line)
             for m in _RE_BEGIN_END.finditer(code):
                 kind, env = m.group(1), m.group(2)
@@ -1766,11 +1768,13 @@ class LaTeXSupport:
     def extract_label_reference_occurrences(text: str) -> list[dict]:
         """Return exact label/ref occurrences outside comments and strings."""
         occurrences: list[dict] = []
+        newline_positions = [match.start() for match in re.finditer("\n", text)]
         for token in _label_reference_tokens(text):
             occurrence = dict(token)
             position = occurrence["start"]
-            occurrence["line"] = text.count("\n", 0, position)
-            previous_newline = text.rfind("\n", 0, position)
+            line = bisect.bisect_left(newline_positions, position)
+            occurrence["line"] = line
+            previous_newline = newline_positions[line - 1] if line else -1
             occurrence["column"] = position if previous_newline < 0 else position - previous_newline - 1
             occurrences.append(occurrence)
         return occurrences
@@ -2250,6 +2254,28 @@ class LaTeXSupport:
                     for i in range(len(stack) - 1, -1, -1):
                         if stack[i] == env:
                             del stack[i]
+                            break
+        return list(reversed(stack))
+
+    @staticmethod
+    def find_open_environments_in_editor(editor: "EditorWidget", line: int, col: int) -> list[str]:
+        """Versione lazy per il popup ``\\end``: legge solo le righe utili.
+
+        Evita ``editor.text()`` (copia del documento completo) per un'azione
+        che deve soltanto conoscere gli ambienti aperti prima del cursore.
+        """
+        stack: list[str] = []
+        for row in range(min(line + 1, editor.lines())):
+            raw_line = editor.text(row)
+            code = strip_latex_comments(raw_line[:col] if row == line else raw_line)
+            for match in _RE_BEGIN_END.finditer(code):
+                kind, env = match.group(1), match.group(2)
+                if kind == "begin":
+                    stack.append(env)
+                else:
+                    for index in range(len(stack) - 1, -1, -1):
+                        if stack[index] == env:
+                            del stack[index]
                             break
         return list(reversed(stack))
 

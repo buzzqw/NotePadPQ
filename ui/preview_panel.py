@@ -641,6 +641,7 @@ class PreviewPanel(QWidget):
         self._mode: str = "text"
         self._delay_ms: int = Settings.instance().get("preview/delay_ms", 500)
         self._sync_cursor: bool = Settings.instance().get("preview/sync_cursor", True)
+        self._sync_highlight: bool = Settings.instance().get("preview/sync_highlight", False)
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -828,6 +829,16 @@ class PreviewPanel(QWidget):
         self._pdf_btn_sync.setToolTip(tr("tooltip.preview_sync_toggle"))
         self._pdf_btn_sync.toggled.connect(self._toggle_sync)
 
+        self._pdf_btn_sync_highlight = QToolButton()
+        self._pdf_btn_sync_highlight.setText("⌖")
+        self._pdf_btn_sync_highlight.setCheckable(True)
+        self._pdf_btn_sync_highlight.setChecked(self._sync_highlight)
+        self._pdf_btn_sync_highlight.setToolTip(
+            tr("tooltip.preview_sync_highlight",
+               default="Evidenzia il punto del cursore nel PDF (richiede un redraw della pagina)")
+        )
+        self._pdf_btn_sync_highlight.toggled.connect(self._toggle_sync_highlight)
+
         self._pdf_btn_links = QToolButton()
         self._pdf_btn_links.setText("🔗")
         self._pdf_btn_links.setCheckable(True)
@@ -851,15 +862,15 @@ class PreviewPanel(QWidget):
                    self._pdf_zoom_out, self._pdf_zoom_in,
                    self._pdf_btn_zoom_reset, self._pdf_btn_fit_width,
                    self._pdf_btn_fit_page, self._pdf_btn_crop,
-                   self._pdf_btn_links, self._pdf_btn_sync,
-                   self._pdf_btn_open_external, self._pdf_lbl_synctex]:
+                    self._pdf_btn_links, self._pdf_btn_sync, self._pdf_btn_sync_highlight,
+                    self._pdf_btn_open_external, self._pdf_lbl_synctex]:
             pdf_nav.addWidget(w2)
         for btn in [self._pdf_btn_continuous,
                     self._pdf_btn_prev, self._pdf_btn_next,
                     self._pdf_zoom_out, self._pdf_zoom_in,
                     self._pdf_btn_zoom_reset, self._pdf_btn_fit_width,
                     self._pdf_btn_fit_page, self._pdf_btn_crop,
-                    self._pdf_btn_links, self._pdf_btn_sync,
+                    self._pdf_btn_links, self._pdf_btn_sync, self._pdf_btn_sync_highlight,
                     self._pdf_btn_open_external]:
             btn.setFixedSize(26, 26)
         
@@ -1171,6 +1182,10 @@ class PreviewPanel(QWidget):
             # set_pdf_path() dopo ogni compilazione riuscita. Rilanciare qui
             # il render del file compilato ad ogni tasto premuto è inutile e
             # rallenta pesantemente l'editing sui documenti con molte pagine.
+            # Annulla anche una sync cursor avviata subito prima della
+            # modifica: il risultato asincrono non deve ridisegnare il PDF
+            # mentre l'utente completa \begin, \vspace o un altro comando.
+            self._cancel_cursor_sync()
             return
         if self.isVisible():
             self._timer.start(self._delay_ms)
@@ -1232,6 +1247,17 @@ class PreviewPanel(QWidget):
                 self._pdf_selection_highlight = None
                 self._pdf_refresh()
 
+    @pyqtSlot(bool)
+    def _toggle_sync_highlight(self, enabled: bool) -> None:
+        """Mostra o nasconde il riquadro SyncTeX senza alterare la navigazione pagina."""
+        self._sync_highlight = enabled
+        Settings.instance().set("preview/sync_highlight", enabled)
+        if enabled:
+            return
+        self._cancel_selection_sync()
+        self._pdf_cursor_highlight = None
+        self._clear_pdf_selection_highlight()
+
     @pyqtSlot(int, int)
     def _on_cursor_changed(self, line: int, col: int) -> None:
         if not self._sync_cursor:
@@ -1248,6 +1274,14 @@ class PreviewPanel(QWidget):
         # (or tree walk) on every single keystroke.
         self._cursor_sync_line = line
         self._cursor_sync_timer.start()
+
+    def _cancel_cursor_sync(self) -> None:
+        self._cursor_sync_timer.stop()
+        self._synctex_fwd_gen += 1
+        if self._synctex_fwd_worker is not None:
+            self._synctex_fwd_worker.cancel()
+            self._park_worker(self._synctex_fwd_worker, self._old_synctex_fwd_workers)
+            self._synctex_fwd_worker = None
 
     def _do_cursor_sync(self) -> None:
         line = self._cursor_sync_line
@@ -1268,7 +1302,7 @@ class PreviewPanel(QWidget):
 
     @pyqtSlot()
     def _on_selection_changed(self) -> None:
-        if self._mode == "pdf" and self._sync_cursor:
+        if self._mode == "pdf" and self._sync_cursor and self._sync_highlight:
             # Una nuova selezione rende obsoleto un eventuale SyncTeX in
             # corso. Cancellarlo subito evita subprocess e refresh tardivi
             # mentre l'utente trascina o sostituisce una selezione ampia.
@@ -2762,25 +2796,28 @@ class PreviewPanel(QWidget):
             y_pt     = result.get("y") or result.get("v")
             h_pt     = result.get("h")
             W_pt     = result.get("W")
-            old_page = self._pdf_cursor_highlight[0] if self._pdf_cursor_highlight else None
+            old_page = self._pdf_page_num
             # Se la riga cliccata ricade sulla pagina già visibile, evitiamo
             # di ricentrare lo scroll ad ogni singolo click nell'editor: è
             # sufficiente aggiornare l'indicatore, il salto va fatto solo
             # quando la sincronizzazione porta davvero su un'altra pagina.
             force_scroll = (old_page != new_page)
-            self._pdf_cursor_highlight = (new_page, y_pt, h_pt, W_pt)
+            self._pdf_cursor_highlight = (
+                (new_page, y_pt, h_pt, W_pt) if self._sync_highlight else None
+            )
             self._pdf_page_num         = new_page
             if self._pdf_continuous:
-                self._pdf_update_cont_highlight(new_page, old_page)
+                if self._sync_highlight:
+                    self._pdf_update_cont_highlight(new_page, old_page)
                 if y_pt is not None:
                     QTimer.singleShot(
                         0, lambda: self._scroll_cont_to_page_y(new_page, y_pt, force_scroll))
-            else:
+            elif force_scroll or self._sync_highlight:
                 self._synctex_scroll_y_pt = y_pt   # applicato in _on_pdf_page_rendered
                 self._synctex_scroll_force = force_scroll
                 self._pdf_show_page()
         else:
-            if self._pdf_cursor_highlight is not None:
+            if self._sync_highlight and self._pdf_cursor_highlight is not None:
                 old_page = self._pdf_cursor_highlight[0]
                 self._pdf_cursor_highlight = None
                 if self._pdf_continuous:
@@ -2921,6 +2958,11 @@ class PreviewPanel(QWidget):
         s = Settings.instance()
         self._delay_ms    = s.get("preview/delay_ms",   500)
         self._sync_cursor = s.get("preview/sync_cursor", True)
+        self._sync_highlight = s.get("preview/sync_highlight", False)
+        if hasattr(self, "_pdf_btn_sync_highlight"):
+            self._pdf_btn_sync_highlight.blockSignals(True)
+            self._pdf_btn_sync_highlight.setChecked(self._sync_highlight)
+            self._pdf_btn_sync_highlight.blockSignals(False)
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────

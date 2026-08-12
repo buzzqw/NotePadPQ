@@ -487,6 +487,38 @@ class _MultiFileParser(_Parser):
         return symbols
 
 
+class _ProjectLaTeXParseWorker(_ParseWorker):
+    r"""Legge gli \input del progetto fuori dal thread grafico."""
+
+    def __init__(self, parser: "_Parser", current_path: _Path, current_text: str,
+                 generation: int, is_hierarchical: bool):
+        super().__init__(parser, current_text, generation, is_hierarchical)
+        self._current_path = current_path
+
+    def run(self) -> None:
+        try:
+            from core.latex_project import LatexProjectContext
+            context = LatexProjectContext(self._current_path, self._text)
+            sources: list[tuple[_Path, str]] = []
+            seen: set[_Path] = set()
+            current = self._current_path.resolve()
+            for source in context.included_files():
+                source = source.resolve()
+                if source in seen:
+                    continue
+                seen.add(source)
+                text = self._text if source == current else source.read_text(
+                    encoding="utf-8", errors="replace"
+                )
+                sources.append((source, text))
+            parser = _MultiFileParser(self._parser, sources) if sources else self._parser
+            symbols = parser.parse("")
+        except (OSError, RuntimeError, ValueError):
+            symbols = self._parser.parse(self._text)
+        if not self._cancelled:
+            self.done.emit(symbols, self._generation, self._is_hier)
+
+
 # ─── Pannello ─────────────────────────────────────────────────────────────────
 
 class _FunctionListPanel(QWidget):
@@ -756,29 +788,13 @@ class _FunctionListPanel(QWidget):
         text = editor.get_content() if hasattr(editor, "get_content") else editor.text()
         is_hier = (isinstance(parser, _JsonParser) and parser._hierarchical) \
                   or isinstance(parser, self._HIERARCHICAL_PARSERS)
-        if isinstance(parser, _LaTeXParser) and getattr(editor, "file_path", None):
-            try:
-                from core.latex_project import LatexProjectContext
-                context = LatexProjectContext(editor.file_path, text)
-                sources: list[tuple[_Path, str]] = []
-                seen: set[_Path] = set()
-                for source in context.included_files():
-                    source = source.resolve()
-                    if source in seen:
-                        continue
-                    seen.add(source)
-                    source_text = text if source == editor.file_path.resolve() else source.read_text(
-                        encoding="utf-8", errors="replace")
-                    sources.append((source, source_text))
-                if sources:
-                    parser = _MultiFileParser(parser, sources)
-                    text = ""
-            except (OSError, RuntimeError, ValueError):
-                pass
         self._cancel_parse_worker()
         self._parse_gen += 1
         gen = self._parse_gen
-        worker = _ParseWorker(parser, text, gen, is_hier)
+        if isinstance(parser, _LaTeXParser) and getattr(editor, "file_path", None):
+            worker = _ProjectLaTeXParseWorker(parser, editor.file_path, text, gen, is_hier)
+        else:
+            worker = _ParseWorker(parser, text, gen, is_hier)
         worker.done.connect(self._on_parse_done)
         self._parse_worker = worker
         self._old_parse_workers.append(worker)

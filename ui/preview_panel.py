@@ -1269,7 +1269,32 @@ class PreviewPanel(QWidget):
     @pyqtSlot()
     def _on_selection_changed(self) -> None:
         if self._mode == "pdf" and self._sync_cursor:
+            # Una nuova selezione rende obsoleto un eventuale SyncTeX in
+            # corso. Cancellarlo subito evita subprocess e refresh tardivi
+            # mentre l'utente trascina o sostituisce una selezione ampia.
+            self._cancel_selection_sync()
+            if not self._editor or not self._editor.hasSelectedText():
+                self._clear_pdf_selection_highlight()
+                return
             self._selection_sync_timer.start()
+
+    def _cancel_selection_sync(self) -> None:
+        self._selection_sync_timer.stop()
+        self._synctex_sel_gen += 1
+        if self._synctex_sel_worker is not None:
+            self._synctex_sel_worker.cancel()
+            self._park_worker(self._synctex_sel_worker, self._old_synctex_sel_workers)
+            self._synctex_sel_worker = None
+
+    def _clear_pdf_selection_highlight(self) -> None:
+        if self._pdf_selection_highlight is None:
+            return
+        old_sel_page = self._pdf_selection_highlight[0]
+        self._pdf_selection_highlight = None
+        if self._pdf_continuous:
+            self._pdf_update_cont_highlight(None, old_sel_page)
+        else:
+            self._pdf_show_page()
 
     def _do_selection_sync(self) -> None:
         """Evidenzia nel PDF la regione corrispondente al testo selezionato nel .tex.
@@ -1278,7 +1303,8 @@ class PreviewPanel(QWidget):
         scroll, cambio tab) per la durata della chiamata, specialmente con
         un .synctex.gz grande — la selezione cambia ad ogni movimento del
         cursore, quindi capitava molto spesso."""
-        if not self._editor or not self._pdf_path:
+        if (not self._editor or not self._pdf_path
+                or not self._editor.hasSelectedText()):
             return
         try:
             line_from, _idx_from, line_to, _idx_to = self._editor.getSelection()
@@ -1286,28 +1312,22 @@ class PreviewPanel(QWidget):
             return
 
         if line_from < 0:
-            if self._pdf_selection_highlight is not None:
-                old_sel_page = self._pdf_selection_highlight[0]
-                self._pdf_selection_highlight = None
-                if self._pdf_continuous:
-                    self._pdf_update_cont_highlight(None, old_sel_page)
-                else:
-                    self._pdf_show_page()
+            self._clear_pdf_selection_highlight()
             return
 
         tex_p = self._editor.file_path
         if not tex_p:
             return
 
-        if self._synctex_sel_worker is not None:
-            self._synctex_sel_worker.cancel()
-            self._park_worker(self._synctex_sel_worker, self._old_synctex_sel_workers)
-            self._synctex_sel_worker = None
-
-        try:
-            selected_text = self._editor.selectedText()
-        except Exception:
-            selected_text = ""
+        # La ricerca testuale nel PDF serve soltanto a selezioni corte sulla
+        # stessa riga. Evita di copiare un'intera selezione grande dal buffer
+        # Scintilla solo per scartarla poi nel worker.
+        selected_text = ""
+        if line_from == line_to and abs(_idx_to - _idx_from) <= 400:
+            try:
+                selected_text = self._editor.selectedText()
+            except Exception:
+                pass
 
         from pathlib import Path as _Path
         self._synctex_sel_gen += 1

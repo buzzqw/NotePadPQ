@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication
 
+from editor.autocomplete import AutoCompleteManager
 from editor.editor_widget import EditorWidget
 from editor.latex_checker import _CheckWorker
 from editor.latex_support import LaTeXSupport, strip_latex_comments
@@ -177,6 +178,48 @@ class LatexSupportTest(unittest.TestCase):
             self.assertIn(r"\begin{customenv}", api)
             self.assertIn(r"\lstinline{}", api)
             self.assertIn("lstlisting", LaTeXSupport.get_all_environments("", main))
+
+    def test_environment_order_uses_frequency_before_alphabetical_order(self):
+        with mock.patch.object(
+                LaTeXSupport, "_get_env_usage_counts",
+                return_value={"itemize": 4, "figure": 9, "align": 4}):
+            result = LaTeXSupport.sort_environments_by_usage(
+                ["itemize", "table", "figure", "align"]
+            )
+        self.assertEqual(result, ["figure", "align", "itemize", "table"])
+
+    def test_full_begin_restores_frequency_ordered_environment_popup(self):
+        editor = EditorWidget()
+        manager = AutoCompleteManager(editor)
+        manager._env_cache = ["figure", "itemize", "align"]
+        manager._env_popup_needs_brace = True
+        shown = []
+        editor.showUserList = lambda list_id, labels: shown.append((list_id, labels))
+        editor.setText(r"\begin")
+        editor.setCursorPosition(0, len(r"\begin"))
+        self.addCleanup(manager.shutdown)
+        self.addCleanup(editor.deleteLater)
+
+        LaTeXSupport._handle_env_word(editor)
+        self.app.processEvents()
+
+        self.assertEqual(shown, [(3, ["figure", "itemize", "align"])])
+
+    def test_environment_popup_uses_worker_cache_without_project_scan(self):
+        editor = EditorWidget()
+        manager = AutoCompleteManager(editor)
+        manager._available_envs = ["customenv", "figure"]
+        shown = []
+        editor.showUserList = lambda list_id, labels: shown.append((list_id, labels))
+        self.addCleanup(manager.shutdown)
+        self.addCleanup(editor.deleteLater)
+
+        with mock.patch.object(LaTeXSupport, "get_all_environments") as get_envs:
+            manager._complete_environments()
+
+        get_envs.assert_not_called()
+        self.assertEqual(shown[0][0], 3)
+        self.assertEqual(set(shown[0][1]), {"customenv", "figure"})
 
     def test_lexer_preserves_math_state_between_style_chunks(self):
         lexer = LaTeXLexer()

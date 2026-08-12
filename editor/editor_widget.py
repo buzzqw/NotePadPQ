@@ -548,6 +548,13 @@ class EditorWidget(QsciScintilla):
         self._smart_hl_timer.setInterval(600)    # 600ms: bilancia reattività e costo CPU
         self._smart_hl_timer.timeout.connect(self._do_smart_highlight)
 
+        # Durante il trascinamento della selezione selectedText() copia tutto
+        # il testo scelto. Rimandiamo il conteggio per non farlo a ogni pixel.
+        self._selection_info_timer = QTimer(self)
+        self._selection_info_timer.setSingleShot(True)
+        self._selection_info_timer.setInterval(100)
+        self._selection_info_timer.timeout.connect(self._emit_selection_info)
+
         # Accessibilità - screen reader (NVDA/JAWS/Narrator)
         self.setAccessibleName("Editor — Nessun file")
         self.setAccessibleDescription("Editor di testo con syntax highlighting")
@@ -936,9 +943,28 @@ class EditorWidget(QsciScintilla):
             self._env_rename_committing = False
 
     def _on_selection_changed(self) -> None:
-        # Ottimizzazione: selectedText() + encode() sono costosi; salta se non c'è selezione
+        # selectedText() + encode() sono costosi per selezioni grandi: durante
+        # il drag rimandiamo il calcolo finché la selezione non si stabilizza.
+        if not self.hasSelectedText():
+            self._selection_info_timer.stop()
+            self.selection_changed_info.emit(0, 0, 0)
+            return
+        self._selection_info_timer.start()
+
+    def _emit_selection_info(self) -> None:
         if not self.hasSelectedText():
             self.selection_changed_info.emit(0, 0, 0)
+            return
+        # Per selezioni grandi selectedText() duplica l'intero buffer scelto
+        # solo per aggiornare la barra di stato. Le coordinate Scintilla sono
+        # byte UTF-8 e permettono conteggi immediati; chars=-1 indica che il
+        # numero esatto di caratteri non e' stato materializzato.
+        start = self.SendScintilla(self.SCI_GETSELECTIONSTART)
+        end = self.SendScintilla(self.SCI_GETSELECTIONEND)
+        byte_count = abs(end - start)
+        if byte_count > 1_000_000:
+            line_from, _idx_from, line_to, _idx_to = self.getSelection()
+            self.selection_changed_info.emit(-1, abs(line_to - line_from) + 1, byte_count)
             return
         text = self.selectedText()
         lines = text.count("\n") + 1
@@ -1847,17 +1873,6 @@ class EditorWidget(QsciScintilla):
 
         super().keyPressEvent(event)
 
-        # --- INIZIO AUTOCOMPLETAMENTO BIBTEX ---
-        if event.text() == '{':
-            from editor.lexers import get_language_name
-            lang = get_language_name(self).lower()
-            if "latex" in lang or "tex" in lang:
-                line, index = self.getCursorPosition()
-                text_before = self.text(line)[:index]
-                if text_before.endswith(r"\cite{"):
-                    self._show_bibtex_autocomplete()
-        # --- FINE AUTOCOMPLETAMENTO BIBTEX ---
-
     def mousePressEvent(self, event) -> None:
         """Un click nell'editor chiude sempre il popup di hover."""
         self._hide_hover_popup()
@@ -2582,36 +2597,9 @@ class EditorWidget(QsciScintilla):
         self.replaceSelectedText(table_text)
         self.endUndoAction()
 
-    # ── Autocompletamento BibTeX ──────────────────────────────────────────────
-
-    def _show_bibtex_autocomplete(self) -> None:
-        """Cerca file .bib nella cartella e mostra le chiavi nel menu a tendina."""
-        if not self.file_path or not self.file_path.parent.exists():
-            return
-            
-        bib_keys = []
-        
-        # Cerca tutti i file .bib nella cartella corrente
-        for bib_file in self.file_path.parent.glob("*.bib"):
-            try:
-                content = bib_file.read_text(encoding="utf-8", errors="ignore")
-                # Trova tutto ciò che assomiglia a @tipo{CHIAVE,
-                matches = re.findall(r'@[a-zA-Z]+\s*\{\s*([^,]+),', content)
-                bib_keys.extend(matches)
-            except Exception:
-                pass
-        
-        if bib_keys:
-            # Rimuove i duplicati e ordina alfabeticamente
-            bib_keys = sorted(list(set(bib_keys)))
-            # Mostra la lista usando l'ID 1 (per distinguerlo da altri popup)
-            self.showUserList(1, bib_keys)
-
     def _on_user_list_selection(self, list_id: int, text: str) -> None:
         """Inserisce la voce selezionata nel testo."""
-        if list_id == 1:
-            self._insert_and_close_brace(text)
-        elif list_id in (2, 4, 9):
+        if list_id in (2, 4, 9):
             # Chiavi BibTeX (\citep/\citet/…), file paths, temi beamer
             # — rimpiazza il prefisso parziale digitato dopo {
             self._insert_replacing_partial_and_close_brace(text)

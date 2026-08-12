@@ -51,6 +51,7 @@ class JsonXmlPanel(QWidget):
         self._lang: str = ""
         self._updating_editor = False   # blocca loop textChanged ↔ itemChanged
         self._ns_map: dict[str, str] = {}   # uri → prefix per preservare i namespace XML
+        self._needs_refresh = False
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -158,7 +159,10 @@ class JsonXmlPanel(QWidget):
             editor.textChanged.connect(self._on_text_changed)
             editor.cursor_changed.connect(self._on_editor_cursor)
             self._detect_lang()
-            self._refresh()
+            if self.isVisible():
+                self._refresh()
+            else:
+                self._needs_refresh = True
         else:
             self._clear_tree()
             self._status.setText("")
@@ -166,6 +170,15 @@ class JsonXmlPanel(QWidget):
 
     def _on_text_changed(self) -> None:
         if not self._updating_editor:
+            if self.isVisible():
+                self._timer.start()
+            else:
+                self._needs_refresh = True
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._needs_refresh:
+            self._needs_refresh = False
             self._timer.start()
 
     # ── Rilevamento linguaggio ────────────────────────────────────────────────
@@ -196,6 +209,9 @@ class JsonXmlPanel(QWidget):
 
     def _refresh(self) -> None:
         self._timer.stop()
+        if not self.isVisible():
+            self._needs_refresh = True
+            return
         if self._editor is None:
             return
         self._detect_lang()

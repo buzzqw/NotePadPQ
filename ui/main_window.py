@@ -277,6 +277,10 @@ class MainWindow(QMainWindow):
         self._tab_manager: SplitViewManager = SplitViewManager(self)
         self._statusbar: StatusBar    = StatusBar(self)
         self._prev_editor: Optional[EditorWidget] = None
+        self._sentence_focus_timer = QTimer(self)
+        self._sentence_focus_timer.setSingleShot(True)
+        self._sentence_focus_timer.setInterval(120)
+        self._sentence_focus_timer.timeout.connect(self._apply_sentence_focus)
         
         # Usa ScreenResolution per far coincidere i DPI di QScintilla con quelli di stampa
         self._printer: QPrinter = QPrinter(QPrinter.PrinterMode.ScreenResolution)
@@ -5753,6 +5757,7 @@ class MainWindow(QMainWindow):
         try:
             from editor.markdown_support import MarkdownSupport
             if checked:
+                self._sentence_focus_timer.stop()
                 MarkdownSupport.apply_paragraph_focus(editor)
                 # Ricollega cursore per aggiornare il focus in tempo reale
                 try:
@@ -5761,6 +5766,7 @@ class MainWindow(QMainWindow):
                     pass
                 editor.cursorPositionChanged.connect(self._on_focus_cursor_moved)
             else:
+                self._sentence_focus_timer.stop()
                 MarkdownSupport.clear_paragraph_focus(editor)
                 try:
                     editor.cursorPositionChanged.disconnect(self._on_focus_cursor_moved)
@@ -5770,7 +5776,13 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_focus_cursor_moved(self) -> None:
-        """Aggiorna il focus paragrafo quando il cursore si sposta."""
+        """Accorpa gli spostamenti del cursore prima di aggiornare il focus."""
+        if not self._actions.get("sentence_focus", None) or \
+                not self._actions["sentence_focus"].isChecked():
+            return
+        self._sentence_focus_timer.start()
+
+    def _apply_sentence_focus(self) -> None:
         if not self._actions.get("sentence_focus", None) or \
                 not self._actions["sentence_focus"].isChecked():
             return

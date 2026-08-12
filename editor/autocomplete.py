@@ -587,7 +587,7 @@ class _ApiRebuildWorker(QThread):
     eseguiti qui; solo api.prepare() rimane sul main thread."""
 
     done        = pyqtSignal(list)         # list[str] — termini autocomplete
-    latex_cache = pyqtSignal(list, list, list)  # (label_pairs, bibtex_keys, hypertarget_names)
+    latex_cache = pyqtSignal(list, list, list, list)  # (labels, bibtex, hypertargets, environments)
 
     def __init__(self, language: str, levels, text: str, file_path,
                  all_docs_words: list, generation: int, cwl_enabled: bool = False):
@@ -648,7 +648,7 @@ class _ApiRebuildWorker(QThread):
         # Per LaTeX: pre-calcola label/bibtex/hypertarget in background così i popup
         # su '{' sono istantanei (usano la cache invece di fare I/O sul main thread).
         if self._language == "latex":
-            labels = bibtex = hypertargets = []
+            labels = bibtex = hypertargets = environments = []
             try:
                 from editor.latex_support import LaTeXSupport
                 if self._file_path:
@@ -682,7 +682,15 @@ class _ApiRebuildWorker(QThread):
                 except Exception:
                     pass
             if not self._cancelled:
-                self.latex_cache.emit(labels, bibtex, hypertargets)
+                try:
+                    from editor.latex_support import LaTeXSupport
+                    environments = LaTeXSupport.get_all_environments(
+                        self._text, self._file_path
+                    )
+                except Exception:
+                    pass
+            if not self._cancelled:
+                self.latex_cache.emit(labels, bibtex, hypertargets, environments)
 
         if not self._cancelled:
             self.done.emit(terms)
@@ -727,6 +735,7 @@ class AutoCompleteManager(QObject):
         self._bibtex_cache:      list = []
         self._hypertargets_cache: list = []
         self._env_cache:         list = []   # cache ambienti per refresh_env_popup
+        self._available_envs:    list = []   # popolata dal worker LaTeX
         self._env_popup_needs_brace: bool = False  # True se il popup e' partito da \begin/\end senza { ancora digitata
 
         # Timer per aggiornamento cross-tab (evita refresh ad ogni keystroke)
@@ -878,6 +887,7 @@ class AutoCompleteManager(QObject):
             self._labels_cache = []
             self._bibtex_cache = []
             self._hypertargets_cache = []
+            self._available_envs = []
         else:
             self._doc_change_timer.setInterval(2000)
         # Aggiorna subito la sorgente QScintilla (AcsAPIs per LaTeX, AcsAll per gli altri).
@@ -947,7 +957,7 @@ class AutoCompleteManager(QObject):
         )
         worker.done.connect(lambda terms, g=gen: self._on_api_ready(terms, g))
         worker.latex_cache.connect(
-            lambda lbl, bib, ht, g=gen: self._on_latex_cache(lbl, bib, ht, g)
+            lambda lbl, bib, ht, envs, g=gen: self._on_latex_cache(lbl, bib, ht, envs, g)
         )
         self._api_worker = worker
         self._old_api_workers.append(worker)
@@ -973,13 +983,15 @@ class AutoCompleteManager(QObject):
         lexer.setAPIs(api)
         self._api = api
 
-    def _on_latex_cache(self, labels: list, bibtex: list, hypertargets: list, gen: int) -> None:
-        """Aggiorna la cache label/bibtex/hypertarget precalcolata dal worker."""
+    def _on_latex_cache(self, labels: list, bibtex: list, hypertargets: list,
+                        environments: list, gen: int) -> None:
+        """Aggiorna le cache LaTeX precalcolate dal worker."""
         if gen != self._api_gen:
             return
         self._labels_cache       = labels
         self._bibtex_cache       = bibtex
         self._hypertargets_cache = hypertargets
+        self._available_envs      = environments
 
     def _collect_all_docs_words(self) -> list:
         """Estrae le parole da tutti gli altri tab (main thread, snapshot)."""
@@ -1449,17 +1461,31 @@ class AutoCompleteManager(QObject):
         except Exception:
             pass
 
+    def restore_env_word_popup(self, command: str) -> None:
+        """Ripristina il popup ambienti dopo l'autocomplete nativo.
+
+        QScintilla apre la lista API alfabetica appena ``\\begin`` o ``\\end``
+        raggiunge la soglia di completamento. Il popup ambienti era gia' pronto
+        dopo ``\\beg``: lo riapriamo dalla cache, senza riesaminare il documento.
+        """
+        if not self._env_popup_needs_brace or not self._env_cache:
+            return
+        try:
+            line, col = self._editor.getCursorPosition()
+            if not self._editor.text(line)[:col].endswith(f"\\{command}"):
+                return
+            from PyQt6.Qsci import QsciScintilla as _QSci
+            self._editor.SendScintilla(_QSci.SCI_AUTOCCANCEL)
+            self._editor.showUserList(3, self._env_cache)
+        except Exception:
+            pass
+
     def _complete_environments(self, is_end: bool = False, needs_brace: bool = False) -> None:
-        """Popup con tutti gli ambienti LaTeX: standard + custom del documento."""
+        """Popup con ambienti LaTeX dalla cache, senza I/O durante la digitazione."""
         self._enable_cwl_for_completion(force=True)
         self._env_popup_needs_brace = needs_brace
-        try:
-            from editor.latex_support import LaTeXSupport
-            envs = LaTeXSupport.get_all_environments(
-                self._editor.text(), getattr(self._editor, "_file_path", None))
-        except Exception:
-            from editor.latex_support import STANDARD_ENVIRONMENTS
-            envs = STANDARD_ENVIRONMENTS
+        from editor.latex_support import LaTeXSupport, STANDARD_ENVIRONMENTS
+        envs = self._available_envs or STANDARD_ENVIRONMENTS
 
         if is_end:
             # \end{: propone prima gli ambienti ancora aperti (il più interno

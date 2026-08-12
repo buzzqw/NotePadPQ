@@ -55,6 +55,7 @@ class MarkdownSupport:
 
         editor._md_yaml_fm_slot = _slot
         editor.textChanged.connect(_slot)
+        editor._md_yaml_fm_end_line = None
         MarkdownSupport._apply_yaml_fm(editor)
 
         # Inizializza indicatori se non già fatto
@@ -81,6 +82,8 @@ class MarkdownSupport:
                 )
         except (RuntimeError, TypeError):
             pass
+        editor._md_yaml_fm_end_line = None
+        editor._paragraph_focus_range = None
         editor._markdown_support_active = False
 
     @staticmethod
@@ -173,23 +176,27 @@ class MarkdownSupport:
         con uno sfondo tenue tramite INDICATOR_YAML_FM.
         """
         total = editor.lines()
-        editor.clearIndicatorRange(0, 0, total, 0, INDICATOR_YAML_FM)
-
-        if total < 2:
-            return
-        if editor.text(0).strip() != "---":
-            return
-
         end_line = None
-        for i in range(1, min(total, 100)):
-            if editor.text(i).strip() == "---":
-                end_line = i
-                break
-        if end_line is None:
-            return
+        if total >= 2 and editor.text(0).strip() == "---":
+            for i in range(1, min(total, 100)):
+                if editor.text(i).strip() == "---":
+                    end_line = i
+                    break
 
-        last_col = len(editor.text(end_line).rstrip("\n\r"))
-        editor.fillIndicatorRange(0, 0, end_line, last_col, INDICATOR_YAML_FM)
+        old_end_line = getattr(editor, "_md_yaml_fm_end_line", None)
+        if end_line == old_end_line:
+            return
+        # Il front matter e' confinato alle prime 100 righe: non cancellare
+        # l'indicatore sull'intero documento a ogni carattere digitato.
+        last_changed_line = max(
+            end_line if end_line is not None else 0,
+            old_end_line if old_end_line is not None else 0,
+        )
+        editor.clearIndicatorRange(0, 0, last_changed_line + 1, 0, INDICATOR_YAML_FM)
+        editor._md_yaml_fm_end_line = end_line
+        if end_line is not None:
+            last_col = len(editor.text(end_line).rstrip("\n\r"))
+            editor.fillIndicatorRange(0, 0, end_line, last_col, INDICATOR_YAML_FM)
 
     # ── Paragraph focus (Focus Mode) ─────────────────────────────────────────
 
@@ -228,6 +235,11 @@ class MarkdownSupport:
         while para_end < total - 1 and editor.text(para_end).strip():
             para_end += 1
 
+        current_range = (para_start, para_end)
+        if current_range == getattr(editor, "_paragraph_focus_range", None):
+            return
+        editor._paragraph_focus_range = current_range
+
         # Cancella tutto e poi attenua fuori dal paragrafo
         editor.clearIndicatorRange(0, 0, total, 0, indicator)
 
@@ -242,6 +254,7 @@ class MarkdownSupport:
     def clear_paragraph_focus(editor: "EditorWidget") -> None:
         """Rimuove la modalità focus paragrafo dall'editor."""
         editor.clearIndicatorRange(0, 0, editor.lines(), 0, INDICATOR_SENTENCE_DIM)
+        editor._paragraph_focus_range = None
 
     # ── Tipografia intelligente ───────────────────────────────────────────────
 

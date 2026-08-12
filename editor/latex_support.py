@@ -23,6 +23,8 @@ import threading
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
+from PyQt6.QtCore import QTimer
+
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
 
@@ -1440,6 +1442,11 @@ class LaTeXSupport:
             # documento ad ogni tasto — la scrittura non deve rallentare.
             if not getattr(ac, "_env_popup_needs_brace", False):
                 ac.complete_environments_from_word(is_end=is_end)
+            elif word in ("begin", "end"):
+                # Il popup API nativo, alfabetico, puo' aprirsi dopo quello
+                # personalizzato quando il comando e' completato velocemente.
+                # Rimettiamo in coda il popup dalla cache gia' ordinata.
+                QTimer.singleShot(0, lambda w=word: ac.restore_env_word_popup(w))
         else:
             ac.cancel_env_word_popup()
 
@@ -2248,12 +2255,9 @@ class LaTeXSupport:
 
     @staticmethod
     def sort_environments_by_usage(envs) -> list[str]:
-        """Ordina envs mettendo prima gli ambienti già usati almeno una volta
-        (alfabetico), poi tutti gli altri (alfabetico)."""
+        """Ordina gli ambienti per frequenza d'uso, poi alfabeticamente."""
         counts = LaTeXSupport._get_env_usage_counts()
-        used = sorted(e for e in envs if counts.get(e, 0) > 0)
-        unused = sorted(e for e in envs if counts.get(e, 0) <= 0)
-        return used + unused
+        return sorted(set(envs), key=lambda env: (-counts.get(env, 0), env.casefold()))
 
     # ── Indentazione intelligente ─────────────────────────────────────────────
 

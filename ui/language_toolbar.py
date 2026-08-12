@@ -861,7 +861,7 @@ class _LanguageToolbarWidget(QWidget):
         btn = QToolButton(self)
         btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        btn.setText(tr("tooltip.latex_wrap_menu", default="Wrap in environment"))
+        btn.setText(tr("latex_menu.wrap_label", default="Ambiente"))
         btn.setToolTip(tr("tooltip.latex_wrap_menu", default="Avvolgi in ambiente"))
         _last_env = ["center"]
         btn.clicked.connect(lambda: self._wrap_latex_env(_last_env[0]))

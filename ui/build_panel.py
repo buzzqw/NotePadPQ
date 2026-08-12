@@ -813,7 +813,29 @@ class BuildPanel(QWidget):
         context = self._bm.get_build_context(run_id) if run_id else None
         if context is not None:
             pdf = context.pdf_path
-            return pdf if pdf.exists() else None
+            if pdf.exists():
+                return pdf
+            # Il profilo può avere l'opzione RAM disk attiva ma un comando di
+            # compilazione che non la rispetta davvero (es. profilo salvato
+            # su disco prima dell'introduzione di ${OUTDIR}, quindi ancora
+            # su ${DIR}): il PDF finisce comunque nella cartella normale del
+            # progetto invece che in RAM disk. Controllala prima di rinunciare,
+            # così una build in realtà riuscita non lascia la preview appesa
+            # alla vista struttura.
+            try:
+                from core.latex_project import expected_pdf_path
+                profile_name = self._bm.get_profile_for_file(context.root)
+                profile = (self._bm.get_project_profiles(context.root).get(profile_name, {})
+                           if profile_name else {})
+                if not profile:
+                    profile = self._bm.get_profiles().get(profile_name, {}) if profile_name else {}
+                plain_output_ref = profile.get("output_directory", profile.get("output_dir"))
+                fallback = expected_pdf_path(context.root, plain_output_ref or None)
+                if fallback.exists():
+                    return fallback
+            except Exception:
+                pass
+            return None
         mw = self.window()
         editor = None
         if hasattr(mw, "_tab_manager"):

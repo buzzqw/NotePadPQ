@@ -2897,6 +2897,10 @@ class PreviewPanel(QWidget):
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
+_LAST_GOOD_PDF: dict[str, str] = {}
+_LAST_GOOD_PDF_MAX = 256
+
+
 def _tex_pdf_path(editor):
     """Ritorna il Path del PDF corrispondente al .tex dell'editor, o None."""
     from pathlib import Path as _Path
@@ -2906,6 +2910,7 @@ def _tex_pdf_path(editor):
     p = _Path(str(path))
     if p.suffix.lower() not in (".tex", ".latex", ".ltx"):
         return None
+    key = str(p)
     try:
         from core.latex_project import LatexProjectContext
         context = LatexProjectContext(p, editor.text())
@@ -2929,7 +2934,25 @@ def _tex_pdf_path(editor):
         pdf = context.pdf_path
     except Exception:
         pdf = p.with_suffix(".pdf")
-    return pdf if pdf.exists() else None
+
+    if pdf.exists():
+        if len(_LAST_GOOD_PDF) >= _LAST_GOOD_PDF_MAX:
+            _LAST_GOOD_PDF.clear()
+        _LAST_GOOD_PDF[key] = str(pdf)
+        return pdf
+
+    # Strumenti esterni (backup, sync, antivirus) possono rinominare o
+    # sostituire per un istante il PDF appena scritto da latexmk: non far
+    # ripiegare subito la preview sulla struttura del documento, riusa
+    # l'ultimo PDF noto valido per lo stesso file finché non sparisce
+    # davvero (o non ne esiste uno più recente altrove).
+    last_good = _LAST_GOOD_PDF.get(key)
+    if last_good:
+        last_path = _Path(last_good)
+        if last_path.exists():
+            return last_path
+        del _LAST_GOOD_PDF[key]
+    return None
 
 
 def _detect_mode(editor) -> str:

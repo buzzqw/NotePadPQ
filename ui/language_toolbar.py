@@ -324,18 +324,20 @@ class _LanguageToolbarWidget(QWidget):
             "}"
             "QToolButton {"
             "  padding: 3px 5px;"
-            "  border: none;"
-            "  border-radius: 3px;"
+            "  border: 1px solid rgba(128, 128, 128, 70);"
+            "  border-radius: 4px;"
+            "  background-color: rgba(128, 128, 128, 18);"
             "}"
             "QToolButton:hover {"
-            "  background-color: rgba(128, 128, 128, 50);"
+            "  background-color: rgba(128, 128, 128, 60);"
+            "  border-color: rgba(128, 128, 128, 130);"
             "}"
             "QToolButton:pressed {"
             "  background-color: rgba(0, 0, 0, 70);"
             "}"
             "QToolButton:checked {"
-            "  background-color: rgba(128, 128, 128, 120);"
-            "  border-radius: 3px;"
+            "  background-color: rgba(128, 128, 128, 130);"
+            "  border-color: rgba(128, 128, 128, 150);"
             "  font-weight: bold;"
             "}"
             "QToolButton::menu-button {"
@@ -343,6 +345,19 @@ class _LanguageToolbarWidget(QWidget):
             "  width: 16px;"
             "}"
             "QToolButton::menu-indicator { image: none; }"
+            # Split-button "sezione"/"normalsize": bordo sul contenitore, non
+            # sui due QToolButton interni, per un'unica sagoma coesa invece
+            # di due riquadri separati che si toccano.
+            "QWidget#LatexSplitBtn {"
+            "  border: 1px solid rgba(128, 128, 128, 70);"
+            "  border-radius: 4px;"
+            "  background-color: rgba(128, 128, 128, 18);"
+            "}"
+            "QWidget#LatexSplitBtn QToolButton {"
+            "  border: none;"
+            "  border-radius: 0px;"
+            "  background: transparent;"
+            "}"
         )
 
     # ── setVisible ────────────────────────────────────────────────────────────
@@ -410,24 +425,16 @@ class _LanguageToolbarWidget(QWidget):
     def _add_separator(self) -> None:
         sep = QFrame(self)
         sep.setFrameShape(QFrame.Shape.NoFrame)
-        sep.setFixedWidth(13)
-        self._layout.insertWidget(self._layout.count() - 1, sep)
-        self._update_sep_color(sep)
-
-    def _update_sep_color(self, sep: "QFrame") -> None:
-        from PyQt6.QtGui import QPalette
-        pal = self.palette()
-        bg  = pal.color(QPalette.ColorRole.Window)
-        fg  = pal.color(QPalette.ColorRole.WindowText)
-        # Mix 60% bg + 40% fg → visibile su temi chiari e scuri
-        r = int(bg.red()   * 0.60 + fg.red()   * 0.40)
-        g = int(bg.green() * 0.60 + fg.green() * 0.40)
-        b = int(bg.blue()  * 0.60 + fg.blue()  * 0.40)
+        sep.setFixedWidth(9)
+        # Stessa tonalità tenue del divisore nativo di QToolButton::menu-button,
+        # così tutti i separatori della barra hanno lo stesso peso visivo
+        # invece di mescolare colori pieni calcolati dal tema con quelli nativi.
         sep.setStyleSheet(
-            f"QFrame {{ background: transparent; "
-            f"border-left: 1px solid rgb({r},{g},{b}); "
-            f"margin: 3px 5px; }}"
+            "QFrame { background: transparent; "
+            "border-left: 1px solid rgba(128, 128, 128, 80); "
+            "margin: 3px 4px; }"
         )
+        self._layout.insertWidget(self._layout.count() - 1, sep)
 
     def _add_action_button(self, action: QAction) -> QToolButton:
         """Bottone da QAction esistente — sempre icon-only con tooltip automatico."""
@@ -664,6 +671,8 @@ class _LanguageToolbarWidget(QWidget):
                              tooltip: str, handler) -> QToolButton:
         """Split-button: bottone testo (azione corrente) + freccia separata (apre menu)."""
         container = QWidget(self)
+        container.setObjectName("LatexSplitBtn")
+        container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         container.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         hbox = QHBoxLayout(container)
         hbox.setContentsMargins(0, 0, 0, 0)
@@ -681,10 +690,11 @@ class _LanguageToolbarWidget(QWidget):
 
         # Separatore visibile tra testo e freccia
         sep = QFrame(container)
-        sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setFrameShadow(QFrame.Shadow.Plain)
+        sep.setFrameShape(QFrame.Shape.NoFrame)
         sep.setFixedWidth(1)
-        sep.setStyleSheet("QFrame { background: palette(mid); margin: 3px 0; }")
+        sep.setStyleSheet(
+            "QFrame { background: rgba(128, 128, 128, 80); margin: 3px 0; }"
+        )
 
         # Bottone freccia: apre il menu di selezione
         arrow_btn = QToolButton(container)

@@ -830,19 +830,14 @@ class EditorWidget(QsciScintilla):
     def _setup_connections(self) -> None:
         """Connette i segnali Scintilla ai segnali pubblici del widget."""
         self.modificationChanged.connect(self._on_modification_changed)
-        self.cursorPositionChanged.connect(self._on_cursor_changed)
-        self.cursorPositionChanged.connect(self._apply_typewriter_scroll)
-        self.cursorPositionChanged.connect(self._on_cursor_env_rename)
+        self.cursorPositionChanged.connect(self._on_cursor_position_changed)
         self.selectionChanged.connect(self._on_selection_changed)
         self.SCN_ZOOM.connect(self._on_zoom_changed)
 
         # Aggiorna larghezza margine numeri di riga al cambio testo
         self.linesChanged.connect(self._update_line_number_margin)
 
-        # Smart Highlight: avvia il timer ad ogni movimento cursore
-        self.cursorPositionChanged.connect(
-            lambda *_: self._smart_hl_timer.start()
-        )
+        # Smart Highlight: avvia il timer ad ogni scorrimento verticale
         self.verticalScrollBar().valueChanged.connect(
             lambda *_: self._smart_hl_timer.start() if self._smart_hl_word else None
         )
@@ -863,6 +858,18 @@ class EditorWidget(QsciScintilla):
 
     def _on_modification_changed(self, modified: bool) -> None:
         self.modified_changed.emit(modified)
+
+    def _on_cursor_position_changed(self, line: int, col: int) -> None:
+        """Slot unico per tutti gli handler legati al movimento del cursore.
+
+        Prima erano quattro connessioni separate allo stesso segnale; un solo
+        dispatch Qt riduce l'overhead per ogni spostamento (frecce tenute
+        premute, click ripetuti) e mantiene l'ordine di esecuzione invariato.
+        """
+        self._on_cursor_changed(line, col)
+        self._apply_typewriter_scroll(line, col)
+        self._on_cursor_env_rename(line, col)
+        self._smart_hl_timer.start()
 
     def _on_cursor_changed(self, line: int, col: int) -> None:
         # Scintilla usa 0-based, emettiamo 1-based
@@ -1103,9 +1110,23 @@ class EditorWidget(QsciScintilla):
         self._clear_smart_highlight()
         self._smart_hl_range = (start_line, end_line)
 
+        # Legge il blocco visibile in un'unica chiamata Scintilla (un solo
+        # decode) invece di ~200 SCI_GETLINE/`text(line)` uno per riga.
+        start_pos = self.SendScintilla(self.SCI_POSITIONFROMLINE, start_line)
+        end_pos = self.SendScintilla(self.SCI_POSITIONFROMLINE, end_line)
+        end_pos += self.SendScintilla(self.SCI_LINELENGTH, end_line)
+        if end_pos <= start_pos:
+            return
+        buf = bytearray(end_pos - start_pos + 1)
+        self.SendScintilla(self.SCI_GETTEXTRANGE, start_pos, end_pos, buf)
+        block = bytes(buf[:end_pos - start_pos]).decode("utf-8", "replace")
+
         count = 0
-        for line_no in range(start_line, end_line + 1):
-            for match in re.finditer(pattern, self.text(line_no)):
+        for line_no, raw_line in enumerate(block.split("\n"), start_line):
+            if line_no > end_line:
+                break
+            line = raw_line.rstrip("\r")
+            for match in re.finditer(pattern, line):
                 self.fillIndicatorRange(
                     line_no, match.start(), line_no, match.end(), INDICATOR_SMART_HL
                 )
@@ -1272,6 +1293,22 @@ class EditorWidget(QsciScintilla):
         elif self._line_ending == LineEnding.CR:
             text = text.replace("\n", "\r")
         return text
+
+    def text_prefix(self, max_bytes: int = 262_144) -> str:
+        """Restituisce al più `max_bytes` byte iniziali del documento.
+
+        `self.text()` copia l'intero buffer; operazioni che devono solo
+        guardare l'intestazione (root detection LaTeX, sniff del linguaggio)
+        non hanno bisogno del resto. Lettura diretta UTF-8 via SCI_GETTEXT
+        senza duplicare l'intero documento.
+        """
+        total = self.SendScintilla(self.SCI_GETLENGTH)
+        n = min(total, max_bytes)
+        if n <= 0:
+            return ""
+        buf = bytearray(n + 1)
+        self.SendScintilla(self.SCI_GETTEXT, n + 1, buf)
+        return bytes(buf[:n]).decode("utf-8", "replace")
 
     def mark_saved(self) -> None:
         """Segna il documento come non modificato dopo il salvataggio."""

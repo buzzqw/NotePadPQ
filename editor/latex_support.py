@@ -2263,9 +2263,15 @@ class LaTeXSupport:
 
         Evita ``editor.text()`` (copia del documento completo) per un'azione
         che deve soltanto conoscere gli ambienti aperti prima del cursore.
+        Per documenti molto grandi limita la scansione alle righe appena
+        precedenti il cursore: gli ambienti aperti più in alto compaiono
+        comunque nel popup come fallback alfabetico, nessuna voce va persa.
         """
         stack: list[str] = []
-        for row in range(min(line + 1, editor.lines())):
+        max_lines = 2000
+        upper = min(line + 1, editor.lines())
+        start_row = max(0, upper - max_lines)
+        for row in range(start_row, upper):
             raw_line = editor.text(row)
             code = strip_latex_comments(raw_line[:col] if row == line else raw_line)
             for match in _RE_BEGIN_END.finditer(code):

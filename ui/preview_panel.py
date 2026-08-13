@@ -2971,6 +2971,23 @@ _LAST_GOOD_PDF: dict[str, str] = {}
 _LAST_GOOD_PDF_MAX = 256
 
 
+def _editor_text_prefix(editor) -> str:
+    """Prefisso limitato del buffer dell'editor per la root detection LaTeX.
+
+    `resolve_project_root` usa il contenuto solo per il marker ``%!TEX root``
+    (prime righe) e per ``\\documentclass`` (in testa al file): copiare l'intero
+    documento era superfluo e costoso sui file grandi. Se l'editor non espone
+    ``text_prefix`` si ripiega su ``text()``.
+    """
+    getter = getattr(editor, "text_prefix", None)
+    if getter is not None:
+        try:
+            return getter()
+        except Exception:
+            pass
+    return editor.text()
+
+
 def _tex_pdf_path(editor):
     """Ritorna il Path del PDF corrispondente al .tex dell'editor, o None."""
     from pathlib import Path as _Path
@@ -2981,9 +2998,14 @@ def _tex_pdf_path(editor):
     if p.suffix.lower() not in (".tex", ".latex", ".ltx"):
         return None
     key = str(p)
+    # resolve_project_root usa il contenuto solo per il marker "%!TEX root"
+    # (prime righe) e per "\documentclass" (in testa al file): una copia
+    # dell'intero buffer era superflua e costosa sui documenti grandi. Leggiamo
+    # un prefisso limitato una sola volta e lo riusiamo per entrambe le istanze.
+    text = _editor_text_prefix(editor)
     try:
         from core.latex_project import LatexProjectContext
-        context = LatexProjectContext(p, editor.text())
+        context = LatexProjectContext(p, text)
         try:
             from core.build_manager import BuildManager
             manager = BuildManager.instance()
@@ -2998,7 +3020,7 @@ def _tex_pdf_path(editor):
                 if ramdisk_dir and (ramdisk_dir / f"{context.root.stem}.pdf").exists():
                     output_ref = str(ramdisk_dir)
             if output_ref:
-                context = LatexProjectContext(p, editor.text(), output_ref)
+                context = LatexProjectContext(p, text, output_ref)
         except Exception:
             pass
         pdf = context.pdf_path

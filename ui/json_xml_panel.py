@@ -243,7 +243,16 @@ class JsonXmlPanel(QWidget):
         elif "xml" in lang or "svg" in lang or "xsl" in lang:
             self._lang = "xml"
         else:
-            snippet = (self._editor.text() or "").lstrip()[:50]
+            # Basta un prefisso per lo sniff: `self._editor.text()` copierebbe
+            # l'intero documento solo per guardare i primi caratteri.
+            getter = getattr(self._editor, "text_prefix", None)
+            if getter is not None:
+                try:
+                    snippet = (getter() or "").lstrip()[:50]
+                except Exception:
+                    snippet = ""
+            else:
+                snippet = (self._editor.text() or "").lstrip()[:50]
             if snippet.startswith(("{", "[")):
                 self._lang = "json"
             elif snippet.startswith("<"):

@@ -102,6 +102,7 @@ class PreferencesDialog(QDialog):
 
         self._font_family = QComboBox()
         self._font_family.setEditable(True)
+        self._font_family.setToolTip(tr("tooltip.pref_font_family"))
         mono_fonts = QFontDatabase.families(QFontDatabase.WritingSystem.Latin)
         for f in mono_fonts:
             if QFontDatabase.isFixedPitch(f):
@@ -111,6 +112,7 @@ class PreferencesDialog(QDialog):
         self._font_size = QSpinBox()
         self._font_size.setRange(6, 72)
         self._font_size.setSuffix(" pt")
+        self._font_size.setToolTip(tr("tooltip.pref_font_size"))
         fl.addRow(tr("pref.editor.font_size", default="Dimensione:"), self._font_size)
 
         vl.addWidget(grp_font)
@@ -122,12 +124,15 @@ class PreferencesDialog(QDialog):
 
         self._tab_width = QSpinBox()
         self._tab_width.setRange(1, 16)
+        self._tab_width.setToolTip(tr("tooltip.pref_tab_width"))
         il.addRow(tr("pref.editor.tab_width", default="Larghezza tab:"), self._tab_width)
 
         self._use_tabs = QCheckBox(tr("pref.editor.use_tabs", default="Usa tabulazioni (invece di spazi)"))
+        self._use_tabs.setToolTip(tr("tooltip.pref_use_tabs"))
         il.addRow("", self._use_tabs)
 
         self._auto_indent = QCheckBox(tr("pref.editor.auto_indent", default="Indentazione automatica"))
+        self._auto_indent.setToolTip(tr("tooltip.pref_auto_indent"))
         il.addRow("", self._auto_indent)
 
         vl.addWidget(grp_indent)
@@ -139,6 +144,7 @@ class PreferencesDialog(QDialog):
         self._edge_column.setRange(0, 300)
         self._edge_column.setSpecialValueText(tr("pref.editor.edge_disabled"))
         self._edge_column.setSuffix(tr("pref.editor.edge_col_suffix"))
+        self._edge_column.setToolTip(tr("tooltip.pref_edge_column"))
         el.addRow(tr("pref.editor.edge_col_label"), self._edge_column)
         vl.addWidget(grp_edge)
 
@@ -171,20 +177,24 @@ class PreferencesDialog(QDialog):
         tl = QFormLayout(grp_theme)
 
         self._theme_combo = QComboBox()
+        self._theme_combo.setToolTip(tr("tooltip.pref_active_theme"))
         for t in self._theme_mgr.available_themes():
             self._theme_combo.addItem(t)
         tl.addRow(tr("pref.aspect.active_theme", default="Tema attivo:"), self._theme_combo)
         self._theme_combo.currentTextChanged.connect(self._apply_theme_preview)
 
         btn_theme_editor = QPushButton(tr("pref.aspect.edit_theme", default="Modifica tema…"))
+        btn_theme_editor.setToolTip(tr("tooltip.pref_edit_theme"))
         btn_theme_editor.clicked.connect(self._open_theme_editor)
         tl.addRow("", btn_theme_editor)
 
         btn_import = QPushButton(tr("pref.aspect.import_theme", default="Importa tema JSON…"))
+        btn_import.setToolTip(tr("tooltip.pref_import_theme"))
         btn_import.clicked.connect(self._import_theme)
         tl.addRow("", btn_import)
 
         btn_export = QPushButton(tr("pref.aspect.export_theme", default="Esporta tema JSON…"))
+        btn_export.setToolTip(tr("tooltip.pref_export_theme"))
         btn_export.clicked.connect(self._export_theme)
         tl.addRow("", btn_export)
 
@@ -204,11 +214,13 @@ class PreferencesDialog(QDialog):
         el = QFormLayout(grp_enc)
 
         self._default_encoding = QComboBox()
+        self._default_encoding.setToolTip(tr("tooltip.pref_default_encoding"))
         for enc in ["UTF-8", "UTF-8-BOM", "Latin-1", "CP1252", "GB2312", "UTF-16"]:
             self._default_encoding.addItem(enc)
         el.addRow(tr("pref.file.def_encoding", default="Encoding predefinito:"), self._default_encoding)
 
         self._default_le = QComboBox()
+        self._default_le.setToolTip(tr("tooltip.pref_default_line_ending"))
         for le in ["LF", "CRLF", "CR"]:
             self._default_le.addItem(le)
         el.addRow(tr("pref.file.def_le", default="Line ending predefinito:"), self._default_le)
@@ -243,6 +255,7 @@ class PreferencesDialog(QDialog):
         rl = QFormLayout(grp_recent)
         self._recent_max = QSpinBox()
         self._recent_max.setRange(5, 50)
+        self._recent_max.setToolTip(tr("tooltip.pref_recent_max"))
         rl.addRow(tr("pref.file.recent_max", default="Numero massimo:"), self._recent_max)
         vl.addWidget(grp_recent)
 
@@ -267,7 +280,9 @@ class PreferencesDialog(QDialog):
         self._autobackup_dir = QLineEdit()
         self._autobackup_dir.setPlaceholderText(tr("pref.file.autobackup_dir_placeholder"))
         self._autobackup_dir.setReadOnly(True)
+        self._autobackup_dir.setToolTip(tr("tooltip.pref_autobackup_dir"))
         btn_browse_backup = QPushButton(tr("pref.file.browse"))
+        btn_browse_backup.setToolTip(tr("tooltip.pref_browse_backup_dir"))
         btn_browse_backup.clicked.connect(self._browse_backup_dir)
         backup_dir_row.addWidget(self._autobackup_dir, 1)
         backup_dir_row.addWidget(btn_browse_backup)
@@ -301,6 +316,12 @@ class PreferencesDialog(QDialog):
         self._ac_api      = QCheckBox(tr("pref.ac.api_dict",   default="Dizionari API per linguaggio"))
         self._ac_lsp      = QCheckBox(tr("pref.ac.lsp",        default="LSP (Language Server Protocol, se installato)"))
 
+        self._ac_enabled.setToolTip(tr("tooltip.pref_ac_enabled"))
+        self._ac_cross.setToolTip(tr("tooltip.pref_ac_cross_tab"))
+        self._ac_snippets.setToolTip(tr("tooltip.pref_ac_snippets"))
+        self._ac_api.setToolTip(tr("tooltip.pref_ac_api_dict"))
+        self._ac_lsp.setToolTip(tr("tooltip.pref_ac_lsp"))
+
         for cb in (self._ac_enabled, self._ac_cross, self._ac_snippets,
                    self._ac_api, self._ac_lsp):
             gl.addWidget(cb)
@@ -309,6 +330,7 @@ class PreferencesDialog(QDialog):
         self._ac_threshold = QSpinBox()
         self._ac_threshold.setRange(1, 10)
         self._ac_threshold.setSuffix(tr("pref.ac.chars", default=" caratteri"))
+        self._ac_threshold.setToolTip(tr("tooltip.pref_ac_threshold"))
         fl.addRow(tr("pref.ac.trigger", default="Attiva dopo:"), self._ac_threshold)
         gl.addLayout(fl)
 
@@ -318,7 +340,9 @@ class PreferencesDialog(QDialog):
         cwl_row = QHBoxLayout()
         self._cwl_dirs = QLineEdit()
         self._cwl_dirs.setPlaceholderText("Directory separate da ; (Windows) o : (Unix)")
+        self._cwl_dirs.setToolTip(tr("tooltip.pref_cwl_directories"))
         cwl_browse = QPushButton("Sfoglia…")
+        cwl_browse.setToolTip(tr("tooltip.pref_cwl_browse"))
         cwl_browse.clicked.connect(self._browse_cwl_dir)
         cwl_row.addWidget(self._cwl_dirs, 1)
         cwl_row.addWidget(cwl_browse)
@@ -346,6 +370,7 @@ class PreferencesDialog(QDialog):
 
         self._preview_sync    = QCheckBox(tr("pref.preview.sync",
                                              default="Sincronizzazione cursore ↔ anteprima"))
+        self._preview_sync.setToolTip(tr("tooltip.pref_preview_sync"))
         gl.addWidget(self._preview_sync)
 
         fl = QFormLayout()
@@ -353,6 +378,7 @@ class PreferencesDialog(QDialog):
         self._preview_delay.setRange(100, 5000)
         self._preview_delay.setSingleStep(100)
         self._preview_delay.setSuffix(" ms")
+        self._preview_delay.setToolTip(tr("tooltip.pref_preview_delay"))
         fl.addRow(tr("pref.preview.delay", default="Ritardo aggiornamento:"), self._preview_delay)
         gl.addLayout(fl)
 
@@ -365,9 +391,7 @@ class PreferencesDialog(QDialog):
         self._preview_external_viewer.setPlaceholderText(
             "es. zathura {PDF} oppure SumatraPDF.exe {PDF}"
         )
-        self._preview_external_viewer.setToolTip(
-            "Lascia vuoto per usare il visualizzatore predefinito del sistema."
-        )
+        self._preview_external_viewer.setToolTip(tr("tooltip.pref_external_pdf_viewer"))
         fl.addRow("Visualizzatore PDF esterno:", self._preview_external_viewer)
 
         vl.addWidget(grp)
@@ -386,18 +410,22 @@ class PreferencesDialog(QDialog):
 
         self._build_save_before = QCheckBox(tr("pref.build.save_before",
                                                default="Salva automaticamente prima di compilare"))
+        self._build_save_before.setToolTip(tr("tooltip.pref_build_save_before"))
         gl.addWidget(self._build_save_before)
 
         self._build_panel_always = QCheckBox(tr("pref.build.panel_always",
                                                 default="Tieni sempre visibile il pannello di output"))
+        self._build_panel_always.setToolTip(tr("tooltip.pref_build_panel_always"))
         gl.addWidget(self._build_panel_always)
 
         self._build_trigger_save = QCheckBox(tr("pref.build.trigger_on_save",
                                                 default="Esegui compilazione automatica al salvataggio"))
+        self._build_trigger_save.setToolTip(tr("tooltip.pref_build_trigger_on_save"))
         gl.addWidget(self._build_trigger_save)
 
         self._build_unified_errors = QCheckBox(tr("action.build_unified_errors",
                                                    default="Errori unificati (LSP + Build)"))
+        self._build_unified_errors.setToolTip(tr("tooltip.pref_build_unified_errors"))
         gl.addWidget(self._build_unified_errors)
 
         self._build_output_limit = QSpinBox()
@@ -425,6 +453,7 @@ class PreferencesDialog(QDialog):
         tl = QFormLayout(grp_term)
 
         self._terminal_combo = QComboBox()
+        self._terminal_combo.setToolTip(tr("tooltip.pref_terminal_combo"))
         _terminals = [
             (tr("pref.build.terminal_auto"),        ""),
             ("gnome-terminal",    "gnome-terminal --working-directory={DIR}"),
@@ -479,6 +508,7 @@ class PreferencesDialog(QDialog):
         self._fl_preset_list = QListWidget()
         self._fl_preset_list.setFixedHeight(180)
         self._fl_preset_list.setAlternatingRowColors(True)
+        self._fl_preset_list.setToolTip(tr("tooltip.pref_function_list_presets"))
 
         for data in _JSON_PRESET_DEFS:
             lang = data.get("language", "")
@@ -575,6 +605,7 @@ class PreferencesDialog(QDialog):
             label = f"{icon}  {kind}" if icon else kind
             cb = QCheckBox(label)
             cb.setChecked(kind not in hidden)
+            cb.setToolTip(tr("tooltip.pref_function_list_kinds"))
             self._fl_kinds_layout.addWidget(cb)
             self._fl_kind_checks[kind] = cb
 
@@ -589,6 +620,7 @@ class PreferencesDialog(QDialog):
         fl = QFormLayout(grp)
 
         self._lang_combo = QComboBox()
+        self._lang_combo.setToolTip(tr("tooltip.pref_language"))
         from i18n.i18n import I18n as _I18n
         langs = sorted(_I18n.instance().available_languages().items(),
                        key=lambda x: x[1])   # ordine alfabetico per nome nativo

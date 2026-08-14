@@ -8,7 +8,6 @@ Le macro vengono salvate in JSON nella directory dati utente.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -16,6 +15,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QInputDialog, QFileDialog
 
 from core.platform import get_data_dir
+from core.persistence import atomic_write_json, load_json
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -118,15 +118,9 @@ class MacroManager(QObject):
         safe = "".join(c for c in name if c.isalnum() or c in " _-")
         path = self._macros_dir() / f"{safe}.json"
         try:
-            path.write_text(
-                json.dumps({
-                    "name": name,
-                    "actions": self._actions,
-                }, ensure_ascii=False, indent=2),
-                encoding="utf-8"
-            )
+            atomic_write_json(path, {"name": name, "actions": self._actions})
             return True
-        except Exception:
+        except OSError:
             return False
 
     def load_dialog(self, parent) -> None:
@@ -138,12 +132,19 @@ class MacroManager(QObject):
             self.load(Path(path))
 
     def load(self, path: Path) -> bool:
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            self._actions = data.get("actions", [])
-            return True
-        except Exception:
+        def valid(data: object) -> bool:
+            return (isinstance(data, dict)
+                    and isinstance(data.get("name"), str)
+                    and isinstance(data.get("actions"), list)
+                    and all(isinstance(action, dict) and isinstance(action.get("type"), str)
+                            and (action.get("type") != "insert" or isinstance(action.get("text"), str))
+                            for action in data["actions"]))
+
+        data = load_json(path, validate=valid)
+        if not isinstance(data, dict):
             return False
+        self._actions = data["actions"]
+        return True
 
     def list_saved(self) -> list[str]:
         return [f.stem for f in sorted(self._macros_dir().glob("*.json"))]

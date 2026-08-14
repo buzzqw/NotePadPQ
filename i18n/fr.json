@@ -530,6 +530,7 @@
     "export_done": "Exportation terminée : {path}",
     "export_plain_warning": "Export en texte brut, la mise en forme sera perdue. Continuer ?",
     "file_read_error_status": "Erreur de lecture : {error}",
+    "autobackup_failed": "La sauvegarde automatique a echoue pour {path} : {error}",
     "file_reloaded": "Fichier rechargé depuis le disque.",
     "ftp_sync_error": "Erreur de synchronisation : {error}",
     "language_set": "Langue définie sur {lang}.",
@@ -686,7 +687,7 @@
     "lang": {
       "choose": "Langue de l'interface",
       "label": "Langue :",
-      "restart_note": "Le changement de langue est appliqué immédiatement."
+      "restart_note": "Le changement de langue sera appliqué après le redémarrage de l'application."
     },
     "theme_editor_unavailable": "L'éditeur de thème n'est pas disponible dans cette version.",
     "theme_imported": "Thème importé : {name}",
@@ -1582,6 +1583,10 @@
     "rename_title": "Rename",
     "rename_prompt": "New name:",
     "delete_confirm_title": "Confirm deletion",
+    "delete_file_confirm": "Déplacer le fichier '{name}' dans la corbeille ?",
+    "delete_folder_confirm": "Déplacer le dossier '{name}' et tout son contenu dans la corbeille ?",
+    "delete_to_trash": "Il peut être restauré depuis la corbeille.",
+    "delete_permanently": "La corbeille n'est pas disponible. L'élément sélectionné sera supprimé définitivement.",
     "delete_confirm": "Delete {kind} '{name}'?\nThis operation cannot be undone.",
     "file_exists_error": "File '{name}' already exists.",
     "folder_exists_error": "Folder '{name}' already exists.",
@@ -1659,6 +1664,11 @@
   },
   "command_palette": {
     "placeholder": "Search command…"
+  },
+  "tab_switcher": {
+    "name": "Sélecteur d'onglets",
+    "description": "Basculer entre les onglets ouverts",
+    "open_tabs": "Onglets ouverts"
   },
   "table_grid_picker": {
     "label_latex": "LaTeX tabular",

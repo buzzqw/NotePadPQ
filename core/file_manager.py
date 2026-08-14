@@ -12,17 +12,13 @@ Gestisce lettura e scrittura file con:
 
 from __future__ import annotations
 
-import os
-import shutil
-import stat
-import tempfile
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, QFileSystemWatcher, pyqtSignal
 
 from editor.editor_widget import LineEnding
-from core.platform import get_config_dir
+from core.persistence import atomic_write_bytes
 
 try:
     import chardet as _chardet
@@ -132,34 +128,10 @@ class FileManager:
                 "UTF-32-BE": b"\x00\x00\xfe\xff",
             }.get(enc_clean, b"")
 
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path: Optional[Path] = None
-        try:
-            # Scrittura su file temporaneo nella stessa directory: os.replace è
-            # atomico sullo stesso filesystem e mantiene il file originale
-            # integro se il processo termina durante la scrittura.
-            payload = bom + content.encode(enc_clean)
-            fd, tmp_name = tempfile.mkstemp(
-                prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
-            )
-            tmp_path = Path(tmp_name)
-            with os.fdopen(fd, "wb") as output:
-                output.write(payload)
-                output.flush()
-                os.fsync(output.fileno())
-
-            if path.exists():
-                os.chmod(tmp_path, stat.S_IMODE(path.stat().st_mode))
-            os.replace(tmp_path, path)
-            tmp_path = None
-        except (LookupError, UnicodeEncodeError):
-            raise
-        finally:
-            if tmp_path is not None:
-                try:
-                    tmp_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+        # The shared writer fsyncs a sibling temporary file before replacing
+        # the destination, preserving both file permissions and prior content
+        # if the process is interrupted mid-save.
+        atomic_write_bytes(path, bom + content.encode(enc_clean))
 
     @staticmethod
     def _detect_bom(raw: bytes) -> tuple[Optional[str], int]:
@@ -184,9 +156,9 @@ class FileManager:
 
     @staticmethod
     def _make_backup(path: Path) -> None:
-        """Crea una copia di backup del file."""
+        """Create a byte-for-byte backup without exposing a partial .bak file."""
         backup_path = path.with_suffix(path.suffix + ".bak")
-        shutil.copy2(str(path), str(backup_path))
+        atomic_write_bytes(backup_path, path.read_bytes())
 
 
 # ─── FileWatcher ─────────────────────────────────────────────────────────────

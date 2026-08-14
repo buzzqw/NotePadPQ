@@ -18,12 +18,13 @@ Uso:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
+
+from core.persistence import atomic_write_json, load_json
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -1043,17 +1044,23 @@ class ThemeManager(QObject):
 
     def _load_user_themes(self) -> None:
         """Carica i temi JSON dalla directory utente."""
+        def valid(theme: object) -> bool:
+            return (isinstance(theme, dict)
+                    and isinstance(theme.get("meta"), dict)
+                    and isinstance(theme["meta"].get("name"), str)
+                    and bool(theme["meta"]["name"])
+                    and all(isinstance(theme.get(section, {}), dict)
+                            for section in ("ui", "tokens", "font")))
+
         try:
             from core.platform import get_data_dir
             self._user_themes_dir = get_data_dir() / "themes"
             self._user_themes_dir.mkdir(parents=True, exist_ok=True)
             for f in self._user_themes_dir.glob("*.json"):
-                try:
-                    theme = json.loads(f.read_text(encoding="utf-8"))
-                    name = theme.get("meta", {}).get("name", f.stem)
+                theme = load_json(f, validate=valid)
+                if isinstance(theme, dict):
+                    name = theme["meta"]["name"]
                     self._themes[name] = theme
-                except Exception as e:
-                    print(f"[themes] Errore caricamento {f}: {e}")
         except Exception:
             pass
 
@@ -1568,16 +1575,15 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
 
     def save_user_theme(self, theme: dict) -> bool:
         """Salva un tema personalizzato nella directory utente."""
+        if not self._is_valid_theme(theme):
+            return False
         name = theme.get("meta", {}).get("name", "Custom")
         if not self._user_themes_dir:
             return False
         try:
             safe_name = "".join(c for c in name if c.isalnum() or c in " _-")
             path = self._user_themes_dir / f"{safe_name}.json"
-            path.write_text(
-                json.dumps(theme, ensure_ascii=False, indent=2),
-                encoding="utf-8"
-            )
+            atomic_write_json(path, theme)
             self._themes[name] = theme
             return True
         except Exception as e:
@@ -1604,10 +1610,7 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
         if not theme:
             return False
         try:
-            dest_path.write_text(
-                json.dumps(theme, ensure_ascii=False, indent=2),
-                encoding="utf-8"
-            )
+            atomic_write_json(dest_path, theme)
             return True
         except Exception:
             return False
@@ -1618,14 +1621,24 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
         Restituisce il nome del tema importato o None in caso di errore.
         """
         try:
-            theme = json.loads(path.read_text(encoding="utf-8"))
-            name = theme.get("meta", {}).get("name", path.stem)
-            theme["meta"]["name"] = name
+            theme = load_json(path, validate=self._is_valid_theme)
+            if not isinstance(theme, dict):
+                return None
+            name = theme["meta"]["name"]
             if self.save_user_theme(theme):
                 return name
         except Exception as e:
             print(f"[themes] Errore importazione: {e}")
         return None
+
+    @staticmethod
+    def _is_valid_theme(theme: object) -> bool:
+        return (isinstance(theme, dict)
+                and isinstance(theme.get("meta"), dict)
+                and isinstance(theme["meta"].get("name"), str)
+                and bool(theme["meta"]["name"])
+                and all(isinstance(theme.get(section, {}), dict)
+                        for section in ("ui", "tokens", "font")))
 
     def clone_theme(self, source_name: str, new_name: str) -> Optional[dict]:
         """

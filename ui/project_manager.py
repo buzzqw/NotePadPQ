@@ -88,6 +88,7 @@ class ProjectManager(QWidget):
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._context_menu)
         self._tree.itemDoubleClicked.connect(self._on_double_click)
+        self._tree.itemChanged.connect(self._on_item_changed)
         vl.addWidget(self._tree)
 
     # ── Struttura albero ────────────────────────────────────────────────────────
@@ -96,9 +97,11 @@ class ProjectManager(QWidget):
         self._tree.clear()
         proj = self._project_data()
         self._title_lbl.setText(proj.get("name", "Progetto"))
-        for grp in proj.get("groups", []):
+        for group_index, grp in enumerate(proj.get("groups", [])):
             grp_item = QTreeWidgetItem([grp.get("name", "Gruppo")])
-            grp_item.setData(0, Qt.ItemDataRole.UserRole, {"type": "group", "name": grp["name"]})
+            grp_item.setData(0, Qt.ItemDataRole.UserRole, {
+                "type": "group", "name": grp["name"], "index": group_index,
+            })
             grp_item.setFlags(
                 grp_item.flags() | Qt.ItemFlag.ItemIsEditable
             )
@@ -122,23 +125,14 @@ class ProjectManager(QWidget):
     # ── Azioni toolbar ─────────────────────────────────────────────────────────
 
     def action_new(self) -> None:
-        if self._dirty and self._project_path:
-            r = QMessageBox.question(
-                self, tr("project_manager.save_unsaved_title"),
-                tr("project_manager.save_unsaved_msg"),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No |
-                QMessageBox.StandardButton.Cancel,
-            )
-            if r == QMessageBox.StandardButton.Cancel:
-                return
-            if r == QMessageBox.StandardButton.Yes:
-                self.action_save()
+        if not self._confirm_project_replacement():
+            return
 
         name, ok = QInputDialog.getText(self, tr("project_manager.new_project_title"), tr("project_manager.new_project_prompt"))
         if not ok or not name.strip():
             return
         self._project_path = None
-        self._dirty = False
+        self._dirty = True
         self._data = {"name": name.strip(), "groups": []}
         self._rebuild_tree()
 
@@ -147,6 +141,8 @@ class ProjectManager(QWidget):
             self, "Apri progetto", "", _PROJ_FILTER
         )
         if not path:
+            return
+        if not self._confirm_project_replacement():
             return
         try:
             with open(path, encoding="utf-8") as f:
@@ -238,6 +234,48 @@ class ProjectManager(QWidget):
         self._set_data(data)
 
     # ── Interazione albero ──────────────────────────────────────────────────────
+
+    def _confirm_project_replacement(self) -> bool:
+        """Offer to save every dirty project, including projects not saved yet."""
+        if not self._dirty:
+            return True
+        reply = QMessageBox.question(
+            self, tr("project_manager.save_unsaved_title"),
+            tr("project_manager.save_unsaved_msg"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No |
+            QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Cancel:
+            return False
+        if reply == QMessageBox.StandardButton.Yes:
+            self.action_save()
+            return not self._dirty
+        return True
+
+    def _on_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
+        if column != 0:
+            return
+        item_data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not item_data or item_data.get("type") != "group":
+            return
+        old_name = item_data["name"]
+        new_name = item.text(0).strip()
+        if not new_name or new_name == old_name:
+            return
+        groups = self._project_data().get("groups", [])
+        if any(group["name"] == new_name for group in groups):
+            self._tree.blockSignals(True)
+            item.setText(0, old_name)
+            self._tree.blockSignals(False)
+            return
+        group_index = item_data["index"]
+        if group_index >= len(groups) or groups[group_index]["name"] != old_name:
+            return
+        groups[group_index]["name"] = new_name
+        item_data["name"] = new_name
+        item.setData(0, Qt.ItemDataRole.UserRole, item_data)
+        self._dirty = True
 
     def _selected_group_name(self) -> str:
         items = self._tree.selectedItems()

@@ -79,7 +79,12 @@ tests/*
 !tests/test_cwl.py
 !tests/test_latex_navigation.py
 !tests/test_latex_image_dialog.py
+!tests/test_git_async.py
 !tests/test_lsp_content_sync.py
+!tests/test_non_latex_reliability.py
+!tests/test_non_latex_replace_unicode.py
+!tests/test_non_latex_ui_ux.py
+!tests/test_persistence.py
 !tests/test_preferences_tooltips.py
 !tests/test_snippets.py
 !tests/test_spellcheck_personal_dict.py
@@ -88,6 +93,8 @@ test.sh
 .junie/.venv-build/
 APPUNTI.md
 test_plugin_manager.py
+!test_core_reliability.py
+!test_security_hardening.py
 
 # --- Tool esterni (non parte della build) ---
 .opencode/

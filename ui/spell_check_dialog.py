@@ -393,14 +393,14 @@ class SpellCheckDialog(QDialog):
     # ── Utilità ───────────────────────────────────────────────────────────────
 
     def _abs_to_line_col(self, start: int, end: int) -> tuple[int, int, int, int]:
-        """Converte posizioni assolute (caratteri) in (linea_s, col_s, linea_e, col_e)."""
+        """Convert Python character offsets to QScintilla byte columns."""
         text = self._editor.text()
         lines = text[:start].split("\n")
         ls = len(lines) - 1
-        cs = len(lines[-1])
+        cs = self._editor.char_col_to_byte_col(ls, len(lines[-1]))
         lines_e = text[:end].split("\n")
         le = len(lines_e) - 1
-        ce = len(lines_e[-1])
+        ce = self._editor.char_col_to_byte_col(le, len(lines_e[-1]))
         return ls, cs, le, ce
 
     def _rescan_after_replace(self) -> None:

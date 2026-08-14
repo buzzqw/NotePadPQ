@@ -547,6 +547,7 @@
     "export_done": "Esportazione completata: {path}",
     "export_plain_warning": "Esportazione come testo semplice, la formattazione andrà persa. Continuare?",
     "file_read_error_status": "Errore di lettura: {error}",
+    "autobackup_failed": "Backup automatico non riuscito per {path}: {error}",
     "file_reloaded": "File ricaricato dal disco.",
     "ftp_sync_error": "Errore sincronizzazione: {error}",
     "language_set": "Lingua impostata a {lang}.",
@@ -704,7 +705,7 @@
     "lang": {
       "choose": "Lingua interfaccia",
       "label": "Lingua:",
-      "restart_note": "Il cambio lingua viene applicato immediatamente."
+      "restart_note": "Il cambio lingua sarà applicato al riavvio dell'applicazione."
     },
     "theme_editor_unavailable": "Editor tema non disponibile in questa versione.",
     "theme_imported": "Tema importato: {name}",
@@ -1702,6 +1703,10 @@
     "rename_title": "Rinomina",
     "rename_prompt": "Nuovo nome:",
     "delete_confirm_title": "Conferma eliminazione",
+    "delete_file_confirm": "Spostare il file '{name}' nel cestino?",
+    "delete_folder_confirm": "Spostare la cartella '{name}' e tutto il suo contenuto nel cestino?",
+    "delete_to_trash": "Potrà essere ripristinato dal cestino.",
+    "delete_permanently": "Il cestino non è disponibile. L'elemento selezionato sarà eliminato definitivamente.",
     "delete_confirm": "Eliminare {kind} '{name}'?\nL'operazione non è reversibile.",
     "file_exists_error": "Il file '{name}' esiste già.",
     "folder_exists_error": "La cartella '{name}' esiste già.",
@@ -1779,6 +1784,11 @@
   },
   "command_palette": {
     "placeholder": "Cerca comando…"
+  },
+  "tab_switcher": {
+    "name": "Selettore schede",
+    "description": "Passa tra le schede aperte",
+    "open_tabs": "Schede aperte"
   },
   "table_grid_picker": {
     "label_latex": "LaTeX tabular",

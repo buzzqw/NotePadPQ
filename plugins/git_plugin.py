@@ -21,7 +21,6 @@ Opzionale:
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
@@ -220,40 +219,13 @@ class GitRunner:
 # ─── Token storage ───────────────────────────────────────────────────────────────
 
 def _save_token(service: str, token: str) -> None:
-    try:
-        import keyring
-        keyring.set_password("notepadpq_git", service, token)
-        return
-    except Exception:
-        pass
-    cfg = Path.home() / ".config" / "notepadpq" / "git_tokens.json"
-    cfg.parent.mkdir(parents=True, exist_ok=True)
-    data = {}
-    if cfg.exists():
-        try:
-            data = json.loads(cfg.read_text())
-        except Exception:
-            pass
-    data[service] = token
-    cfg.write_text(json.dumps(data, indent=2))
+    from core.secrets import set_secret
+    set_secret(f"git/{service}_token", token)
 
 
 def _load_token(service: str) -> str:
-    try:
-        import keyring
-        t = keyring.get_password("notepadpq_git", service)
-        if t:
-            return t
-    except Exception:
-        pass
-    cfg = Path.home() / ".config" / "notepadpq" / "git_tokens.json"
-    if cfg.exists():
-        try:
-            data = json.loads(cfg.read_text())
-            return data.get(service, "")
-        except Exception:
-            pass
-    return ""
+    from core.secrets import get_secret
+    return get_secret(f"git/{service}_token")
 
 
 # ─── Dialog credenziali ───────────────────────────────────────────────────────────
@@ -322,7 +294,7 @@ class _CredentialsDialog(QDialog):
             self._email_global.setText(self._git.get_config("user.email", global_=True))
         self._gh_token.setText(_load_token("github"))
         self._gl_token.setText(_load_token("gitlab"))
-        self._gl_url.setText(_load_token("gitlab_url") or "https://gitlab.com")
+        self._gl_url.setText(self._settings().get("git/gitlab_url", "https://gitlab.com"))
 
     def _save(self) -> None:
         if self._git:
@@ -330,11 +302,20 @@ class _CredentialsDialog(QDialog):
             if v := self._email_local.text().strip(): self._git.set_config("user.email", v)
             if v := self._name_global.text().strip():  self._git.set_config("user.name", v, global_=True)
             if v := self._email_global.text().strip(): self._git.set_config("user.email", v, global_=True)
-        if v := self._gh_token.text().strip(): _save_token("github", v)
-        if v := self._gl_token.text().strip(): _save_token("gitlab", v)
-        if v := self._gl_url.text().strip():   _save_token("gitlab_url", v)
+        try:
+            if v := self._gh_token.text().strip(): _save_token("github", v)
+            if v := self._gl_token.text().strip(): _save_token("gitlab", v)
+        except Exception as exc:
+            QMessageBox.warning(self, "Git", str(exc))
+            return
+        if v := self._gl_url.text().strip():   self._settings().set("git/gitlab_url", v)
         QMessageBox.information(self, "Git", "Configurazione salvata.")
         self.accept()
+
+    @staticmethod
+    def _settings():
+        from config.settings import Settings
+        return Settings.instance()
 
 
 # ─── Pannello Git ─────────────────────────────────────────────────────────────
@@ -347,6 +328,16 @@ class _GitPanel(QWidget):
         self._git: Optional[GitRunner] = None
         self._git_fw: Optional[GitFramework] = None
         self._repo_dir: Optional[Path] = None
+        self._status_worker = None
+        self._log_worker = None
+        self._diff_worker = None
+        self._log_detail_worker = None
+        self._decorator_worker = None
+        self._status_generation = 0
+        self._log_generation = 0
+        self._diff_generation = 0
+        self._log_detail_generation = 0
+        self._decorator_generation = 0
         self._build_ui()
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._auto_refresh)
@@ -489,6 +480,7 @@ class _GitPanel(QWidget):
             return
         repo_dir = self._find_repo(editor.file_path)
         if repo_dir and repo_dir != self._repo_dir:
+            self._cancel_query_workers()
             self._repo_dir  = repo_dir
             self._git       = GitRunner(repo_dir)
             self._git_fw    = GitFramework(repo_dir)
@@ -522,8 +514,14 @@ class _GitPanel(QWidget):
 
     def _refresh_status(self) -> None:
         self._status_tree.clear()
-        if not self._git:
+        if not self._git_fw:
             return
+        if self._status_worker:
+            self._status_worker.cancel()
+        git = self._git_fw
+        repo_dir = self._repo_dir
+        self._status_generation += 1
+        generation = self._status_generation
         _ICONS = {
             "M": ("✎", "#f0b429"),
             "A": ("＋", "#56bd5b"),
@@ -531,21 +529,41 @@ class _GitPanel(QWidget):
             "?": ("?", "#888"),
             "R": ("➜", "#61afef"),
         }
-        for xy, filepath in self._git.status():
-            icon, color = _ICONS.get(xy[0], ("·", "#aaa"))
-            item = QTreeWidgetItem([icon, filepath])
-            item.setForeground(0, QColor(color))
-            item.setData(0, Qt.ItemDataRole.UserRole, filepath)
-            self._status_tree.addTopLevelItem(item)
+
+        def _done(status: List[Tuple[str, str]]) -> None:
+            if (self._git_fw is not git or self._repo_dir != repo_dir
+                    or self._status_generation != generation):
+                return
+            for xy, filepath in status:
+                icon, color = _ICONS.get(xy[0], ("·", "#aaa"))
+                item = QTreeWidgetItem([icon, filepath])
+                item.setForeground(0, QColor(color))
+                item.setData(0, Qt.ItemDataRole.UserRole, filepath)
+                self._status_tree.addTopLevelItem(item)
+
+        self._status_worker = git.status_async(_done)
 
     def _refresh_log(self) -> None:
         self._log_list.clear()
-        if not self._git:
+        if not self._git_fw:
             return
-        for c in self._git.log(60):
-            item = QTreeWidgetItem([c["short"], c["date"], c["author"], c["subject"]])
-            item.setData(0, Qt.ItemDataRole.UserRole, c["hash"])
-            self._log_list.addTopLevelItem(item)
+        if self._log_worker:
+            self._log_worker.cancel()
+        git = self._git_fw
+        repo_dir = self._repo_dir
+        self._log_generation += 1
+        generation = self._log_generation
+
+        def _done(commits: List[dict]) -> None:
+            if (self._git_fw is not git or self._repo_dir != repo_dir
+                    or self._log_generation != generation):
+                return
+            for c in commits:
+                item = QTreeWidgetItem([c["short"], c["date"], c["author"], c["subject"]])
+                item.setData(0, Qt.ItemDataRole.UserRole, c["hash"])
+                self._log_list.addTopLevelItem(item)
+
+        self._log_worker = git.log_async(60, _done)
 
     def _refresh_branches(self) -> None:
         self._branch_list.clear()
@@ -620,7 +638,7 @@ class _GitPanel(QWidget):
     # ── Diff ─────────────────────────────────────────────────────────────────
 
     def _show_diff(self) -> None:
-        if not self._git:
+        if not self._git_fw:
             return
         editor = self._mw._tab_manager.current_editor()
         path = None
@@ -629,9 +647,22 @@ class _GitPanel(QWidget):
                 path = str(editor.file_path.relative_to(self._repo_dir))
             except ValueError:
                 pass
-        diff_text = self._git.diff(path, staged=self._diff_staged_cb.isChecked())
-        self._diff_view.setPlainText(diff_text or "(nessuna differenza)")
-        self._colorize_diff()
+        if self._diff_worker:
+            self._diff_worker.cancel()
+        git = self._git_fw
+        repo_dir = self._repo_dir
+        staged = self._diff_staged_cb.isChecked()
+        self._diff_generation += 1
+        generation = self._diff_generation
+
+        def _done(diff_text: str) -> None:
+            if (self._git_fw is not git or self._repo_dir != repo_dir
+                    or self._diff_generation != generation):
+                return
+            self._diff_view.setPlainText(diff_text or "(nessuna differenza)")
+            self._colorize_diff()
+
+        self._diff_worker = git.diff_async(path, staged, _done)
 
     def _colorize_diff(self) -> None:
         """Colora il testo diff: + verde, - rosso, @@ blu."""
@@ -656,9 +687,18 @@ class _GitPanel(QWidget):
 
     def _on_log_click(self, item: QTreeWidgetItem, col: int) -> None:
         sha = item.data(0, Qt.ItemDataRole.UserRole)
-        if sha and self._git:
-            rc, out, _ = self._git.run("show", "--stat", sha)
-            self._log_output.setPlainText(out[:2000])
+        if sha and self._git_fw:
+            if self._log_detail_worker:
+                self._log_detail_worker.cancel()
+            git = self._git_fw
+            self._log_detail_generation += 1
+            generation = self._log_detail_generation
+
+            def _done(out: str) -> None:
+                if self._git_fw is git and self._log_detail_generation == generation:
+                    self._log_output.setPlainText(out[:2000])
+
+            self._log_detail_worker = git.show_async(sha, _done)
 
     # ── Context menu status ───────────────────────────────────────────────────
 
@@ -742,7 +782,30 @@ class _GitPanel(QWidget):
         except ValueError:
             return
 
-        changes = self._git.diff_file_lines(rel)
+        if not self._git_fw:
+            return
+        if self._decorator_worker:
+            self._decorator_worker.cancel()
+        git = self._git_fw
+        repo_dir = self._repo_dir
+        self._decorator_generation += 1
+        generation = self._decorator_generation
+
+        def _done(changes: dict) -> None:
+            if (self._git_fw is not git or self._repo_dir != repo_dir
+                    or self._decorator_generation != generation):
+                return
+            try:
+                self._apply_diff_decorators(editor, changes)
+            except RuntimeError:
+                # The editor may have been closed while the diff was running.
+                return
+
+        self._decorator_worker = git.diff_file_lines_async(rel, _done)
+
+    @staticmethod
+    def _apply_diff_decorators(editor: "EditorWidget", changes: dict) -> None:
+        """Apply already-computed gutter markers on the GUI thread."""
 
         # Usa gli indicatori QScintilla (0=aggiunto, 1=modificato, 2=eliminato)
         _COLORS = {"A": "#56bd5b", "M": "#f0b429", "D": "#e06c75"}
@@ -757,6 +820,22 @@ class _GitPanel(QWidget):
             marker_num = {"A": 0, "M": 1, "D": 2}.get(kind, 0)
             # 0-based in Scintilla
             editor.markerAdd(line_no - 1, marker_num)
+
+    def _cancel_query_workers(self) -> None:
+        for attr in (
+            "_status_worker", "_log_worker", "_diff_worker",
+            "_log_detail_worker", "_decorator_worker",
+        ):
+            worker = getattr(self, attr, None)
+            if worker:
+                worker.cancel()
+            setattr(self, attr, None)
+
+    def shutdown(self) -> None:
+        """Stop callbacks before the panel and its widgets are destroyed."""
+        self._cancel_query_workers()
+        if self._git_fw:
+            self._git_fw.cancel_all()
 
     # ── Configurazione ────────────────────────────────────────────────────────
 
@@ -841,6 +920,8 @@ class GitPlugin(BasePlugin):
                     self._panel.set_editor(editor)
 
     def on_unload(self) -> None:
+        if hasattr(self, "_panel"):
+            self._panel.shutdown()
         if hasattr(self, "_dock"):
             self._dock.setParent(None)
             self._dock.deleteLater()

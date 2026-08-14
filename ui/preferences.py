@@ -46,11 +46,14 @@ class PreferencesDialog(QDialog):
         self._theme_mgr = ThemeManager.instance()
 
         self.setWindowTitle(tr("dialog.preferences", default="Preferenze"))
-        self.setMinimumSize(680, 520)
+        self.setMinimumSize(520, 420)
         self.resize(720, 680)
+        self.setSizeGripEnabled(True)
 
         self._build_ui()
         self._load_values()
+        # Theme selection is previewed live, so Cancel must restore this state.
+        self._theme_preview_baseline = self._theme_combo.currentText()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +63,7 @@ class PreferencesDialog(QDialog):
         layout.setSpacing(6)
 
         self._tabs = QTabWidget()
+        self._tabs.setUsesScrollButtons(True)
         layout.addWidget(self._tabs)
 
         self._tabs.addTab(self._tab_editor(),  tr("pref.tab.editor",  default="Editor"))
@@ -629,7 +633,7 @@ class PreferencesDialog(QDialog):
         fl.addRow(tr("pref.lang.label", default="Lingua:"), self._lang_combo)
 
         note = QLabel(tr("pref.lang.restart_note",
-                         default="Il cambio lingua viene applicato immediatamente."))
+                         default="Language changes take effect after restarting the application."))
         note.setWordWrap(True)
         note.setStyleSheet("color: gray; font-size: 11px;")
         fl.addRow("", note)
@@ -791,11 +795,24 @@ class PreferencesDialog(QDialog):
         s.set("editor/auto_indent",  self._auto_indent.isChecked())
         s.set("editor/edge_column", self._edge_column.value())
 
+        # Indentation changes are expected to take effect without reopening tabs.
+        mw_editors = self.parent()
+        while mw_editors is not None and not hasattr(mw_editors, "_tab_manager"):
+            mw_editors = mw_editors.parent()
+        if mw_editors is not None:
+            for ed in mw_editors._tab_manager.all_editors():
+                ed.apply_indentation_preferences(
+                    self._tab_width.value(),
+                    self._use_tabs.isChecked(),
+                    self._auto_indent.isChecked(),
+                )
+
         # Aspetto — applica tema a caldo e ri-applica a tutti gli editor
         # (include le nuove impostazioni font che apply_to_editor legge da QSettings)
         theme_name = self._theme_combo.currentText()
         s.set("theme/active", theme_name)
         self._theme_mgr.set_active(theme_name)
+        self._theme_preview_baseline = theme_name
         mw_apply = self.parent()
         while mw_apply is not None and not hasattr(mw_apply, "_tab_manager"):
             mw_apply = mw_apply.parent()
@@ -889,16 +906,28 @@ class PreferencesDialog(QDialog):
 
         # Lingua
         lang_code = self._lang_combo.currentData()
-        from i18n.i18n import I18n
-        old_lang  = s.get("i18n/language", I18n.instance().current_language())
         s.set("i18n/language", lang_code)
-        if lang_code != old_lang:
-            from i18n.i18n import I18n
-            I18n.instance().set_language(lang_code)
 
     def _on_ok(self) -> None:
         self._apply()
         self.accept()
+
+    def reject(self) -> None:
+        self._restore_theme_preview()
+        super().reject()
+
+    def _restore_theme_preview(self) -> None:
+        """Restore the persisted theme after cancelling a live preview."""
+        theme_name = self._theme_preview_baseline
+        if not theme_name:
+            return
+        self._theme_mgr.set_active(theme_name)
+        mw = self.parent()
+        while mw is not None and not hasattr(mw, "_tab_manager"):
+            mw = mw.parent()
+        if mw is not None:
+            for editor in mw._tab_manager.all_editors():
+                self._theme_mgr.apply_to_editor(editor, theme_name)
 
     # ── Azioni tema ───────────────────────────────────────────────────────────
 

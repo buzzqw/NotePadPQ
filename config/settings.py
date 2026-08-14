@@ -32,6 +32,12 @@ _DEFAULTS: dict[str, Any] = {
     "file/default_encoding":   "UTF-8",
     "file/default_line_ending":"LF",
     "file/backup_on_save":     False,
+    "file/autobackup_enabled": False,
+    "file/autosave_to_backup": False,
+    "file/autobackup_interval": 5,
+    "file/autobackup_dir":     "",
+    "file/autobackup_max_per_file": 20,
+    "file/autobackup_max_total": 200,
     "file/trim_trailing":      False,
     "file/add_newline_eof":    True,
     "file/restore_session":    True,
@@ -61,7 +67,9 @@ _DEFAULTS: dict[str, Any] = {
     "build/output_max_lines":  10000,
     "build/unified_errors":    True,
     # i18n
-    "i18n/language":           "it",
+    # None means no explicit user choice: select the first-run language from
+    # the system locale in main.py rather than pinning new installs to Italian.
+    "i18n/language":           None,
     # Finestra
     "window/geometry":         None,
     "window/state":            None,

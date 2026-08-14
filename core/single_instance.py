@@ -23,6 +23,8 @@ class SingleInstance(QObject):
     """Gestisce la single-instance tramite QLocalServer/QLocalSocket."""
 
     files_received = pyqtSignal(list)
+    _MAX_PAYLOAD_BYTES = 64 * 1024
+    _ACK_TIMEOUT_MS = 2000
 
     def __init__(self, app_name: str = "NotePadPQ", parent: Optional[QObject] = None):
         super().__init__(parent)
@@ -39,18 +41,31 @@ class SingleInstance(QObject):
         Se riesce, invia i path e restituisce True (siamo la seconda istanza).
         Se fallisce, restituisce False (siamo la prima istanza).
         """
+        if not self._valid_paths(paths):
+            return False
+
         sock = QLocalSocket()
         sock.connectToServer(self._app_name)
 
         # Aumentato a 2 secondi per PC lenti o dischi carichi
         if sock.waitForConnected(2000):
-            payload = (json.dumps(paths) + "\n").encode("utf-8")
-            sock.write(payload)
+            payload = (json.dumps({"paths": paths}, separators=(",", ":")) + "\n").encode("utf-8")
+            if sock.write(payload) != len(payload):
+                sock.disconnectFromServer()
+                sock.deleteLater()
+                return False
             sock.flush()
-            sock.waitForBytesWritten(2000)
+            ack_data = bytes(sock.readAll())
+            while b"\n" not in ack_data and sock.waitForReadyRead(self._ACK_TIMEOUT_MS):
+                ack_data += bytes(sock.readAll())
+            try:
+                ack_line = ack_data.split(b"\n", 1)[0]
+                ack = json.loads(ack_line.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                ack = {}
             sock.disconnectFromServer()
             sock.deleteLater()
-            return True
+            return ack == {"ok": True}
 
         sock.deleteLater()
         return False
@@ -128,22 +143,40 @@ class SingleInstance(QObject):
 
         buf = self._buffers[cid]
         buf += bytes(conn.readAll())
+        if len(buf) > self._MAX_PAYLOAD_BYTES:
+            self._buffers.pop(cid, None)
+            conn.disconnectFromServer()
+            return
 
         while b"\n" in buf:
             line, buf = buf.split(b"\n", 1)
-            try:
-                paths: List[str] = json.loads(line.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                paths = []
-
-            if paths:
+            paths = self._decode_paths(line)
+            if paths is not None:
                 self.files_received.emit(paths)
-
-            QTimer.singleShot(0, self._raise_window)
+                conn.write(b'{"ok":true}\n')
+                conn.flush()
+                QTimer.singleShot(0, self._raise_window)
 
         # Non tocca più conn dopo readAll(): scrive solo nel dict Python
         if cid in self._buffers:
             self._buffers[cid] = buf
+
+    @staticmethod
+    def _valid_paths(paths: object) -> bool:
+        return (isinstance(paths, list)
+                and all(isinstance(path, str) and path and "\x00" not in path
+                        for path in paths))
+
+    @classmethod
+    def _decode_paths(cls, line: bytes) -> Optional[List[str]]:
+        try:
+            payload = json.loads(line.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        paths = payload.get("paths")
+        return paths if cls._valid_paths(paths) else None
 
     def _raise_window(self) -> None:
         """Porta la finestra principale in primo piano e toglie il 'Riduci a icona'."""

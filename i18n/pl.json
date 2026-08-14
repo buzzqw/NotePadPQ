@@ -530,6 +530,7 @@
     "export_done": "Eksport zakończony: {path}",
     "export_plain_warning": "Eksport jako zwykły tekst, formatowanie zostanie utracone. Kontynuować?",
     "file_read_error_status": "Błąd odczytu: {error}",
+    "autobackup_failed": "Automatyczna kopia zapasowa pliku {path} nie powiodła się: {error}",
     "file_reloaded": "Plik przeładowany z dysku.",
     "ftp_sync_error": "Błąd synchronizacji: {error}",
     "language_set": "Język ustawiony na {lang}.",
@@ -686,7 +687,7 @@
     "lang": {
       "choose": "Język interfejsu",
       "label": "Język:",
-      "restart_note": "Zmiana języka jest stosowana natychmiast."
+      "restart_note": "Zmiana języka zostanie zastosowana po ponownym uruchomieniu aplikacji."
     },
     "theme_editor_unavailable": "Edytor motywów niedostępny w tej wersji.",
     "theme_imported": "Motyw zaimportowany: {name}",
@@ -1582,6 +1583,10 @@
     "rename_title": "Zmień nazwę",
     "rename_prompt": "Nowa nazwa:",
     "delete_confirm_title": "Potwierdź usunięcie",
+    "delete_file_confirm": "Przenieść plik '{name}' do kosza?",
+    "delete_folder_confirm": "Przenieść folder '{name}' wraz z całą zawartością do kosza?",
+    "delete_to_trash": "Element można przywrócić z kosza.",
+    "delete_permanently": "Kosz jest niedostępny. Wybrany element zostanie trwale usunięty.",
     "delete_confirm": "Usunąć {kind} '{name}'?\nTej operacji nie można cofnąć.",
     "file_exists_error": "Plik '{name}' już istnieje.",
     "folder_exists_error": "Folder '{name}' już istnieje.",
@@ -1659,6 +1664,11 @@
   },
   "command_palette": {
     "placeholder": "Szukaj polecenia…"
+  },
+  "tab_switcher": {
+    "name": "Przełącznik kart",
+    "description": "Przełączaj między otwartymi kartami",
+    "open_tabs": "Otwarte karty"
   },
   "table_grid_picker": {
     "label_latex": "Tabela LaTeX",

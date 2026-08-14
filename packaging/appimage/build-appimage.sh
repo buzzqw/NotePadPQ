@@ -12,7 +12,8 @@
 # Requisiti di sistema:
 #   - python3 (con python3-venv)
 #   - fuse (o fuse2) per eseguire/testare l'AppImage
-#   appimagetool viene scaricato automaticamente se non trovato nel PATH.
+#   appimagetool viene scaricato automaticamente se non trovato nel PATH;
+#   il download è verificato con il checksum SHA-256 fissato sotto.
 #
 # Note:
 #   Le dipendenze Python vengono installate in un virtualenv isolato (.venv-build/)
@@ -142,7 +143,28 @@ fi
 
 if [[ -z "${APPIMAGETOOL}" ]]; then
     warn "appimagetool non trovato. Scaricamento in corso..."
-    APPIMAGETOOL_URL="https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-${ARCH}.AppImage"
+    case "${ARCH}" in
+        x86_64)
+            APPIMAGETOOL_ARCH="x86_64"
+            APPIMAGETOOL_SHA256="a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0"
+            ;;
+        aarch64)
+            APPIMAGETOOL_ARCH="aarch64"
+            APPIMAGETOOL_SHA256="1b00524ba8c6b678dc15ef88a5c25ec24def36cdfc7e3abb32ddcd068e8007fe"
+            ;;
+        armv7l|armhf)
+            APPIMAGETOOL_ARCH="armhf"
+            APPIMAGETOOL_SHA256="32aeca26db15a7d029b76adb8d5836f98acbf4a37b2a3101758b094f721e4b67"
+            ;;
+        i686|i386)
+            APPIMAGETOOL_ARCH="i686"
+            APPIMAGETOOL_SHA256="ba04b9ecb2869993173bd38516dbafcfbe3064aca942500e94e7a3c3c2ea578d"
+            ;;
+        *)
+            err "Architettura appimagetool non supportata: ${ARCH}. Installa appimagetool nel PATH."
+            ;;
+    esac
+    APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${APPIMAGETOOL_ARCH}.AppImage"
     APPIMAGETOOL_DEST="${ROOT}/packaging/appimage/appimagetool-${ARCH}.AppImage"
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL -o "${APPIMAGETOOL_DEST}" "${APPIMAGETOOL_URL}"
@@ -151,6 +173,8 @@ if [[ -z "${APPIMAGETOOL}" ]]; then
     else
         err "curl e wget non disponibili. Scarica manualmente appimagetool da:\n  ${APPIMAGETOOL_URL}\ne salvalo in packaging/appimage/."
     fi
+    printf '%s  %s\n' "${APPIMAGETOOL_SHA256}" "${APPIMAGETOOL_DEST}" | sha256sum --check --status \
+        || { rm -f "${APPIMAGETOOL_DEST}"; err "Checksum SHA-256 appimagetool non valido."; }
     chmod +x "${APPIMAGETOOL_DEST}"
     APPIMAGETOOL="${APPIMAGETOOL_DEST}"
     ok "appimagetool scaricato in: ${APPIMAGETOOL_DEST}"

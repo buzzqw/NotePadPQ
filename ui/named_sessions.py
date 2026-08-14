@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.platform import get_config_dir
+from core.session import restore_cursor_after_load
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -74,11 +75,10 @@ def load_named_session(name: str, main_window: "MainWindow") -> bool:
         p = Path(tab.get("path", ""))
         if p.exists():
             main_window.open_files([p])
-            editor = main_window._tab_manager.current_editor()
-            if editor:
-                line = tab.get("line", 0)
-                col = tab.get("col", 0)
-                editor.setCursorPosition(line, col)
+            restore_cursor_after_load(
+                main_window, p, tab.get("line", 0), tab.get("col", 0),
+                positions_are_one_based=False,
+            )
 
     idx = data.get("current_index", 0)
     if 0 <= idx < main_window._tab_manager.count():

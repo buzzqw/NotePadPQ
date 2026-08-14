@@ -31,7 +31,7 @@ import re
 from typing import Optional, List, TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QKeySequence, QAction, QShortcut
+from PyQt6.QtGui import QKeySequence, QAction, QShortcut, QPalette
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QLineEdit, QPushButton,
     QLabel, QCheckBox, QSizePolicy, QApplication,
@@ -46,11 +46,6 @@ if TYPE_CHECKING:
 # Indicatore QScintilla per la ricerca incrementale
 _INC_INDICATOR     = 9    # occorrenze non correnti
 _INC_CUR_INDICATOR = 10   # occorrenza corrente
-
-_COLOR_MATCH   = QColor("#3a5a3a")   # sfondo verde scuro per tutte le occorrenze
-_COLOR_CURRENT = QColor("#8a6000")   # sfondo arancione per occorrenza corrente
-_COLOR_ERROR   = "#5a1a1a"           # sfondo campo testo quando nessun risultato
-
 
 class IncrementalSearchBar(QWidget):
     """
@@ -86,9 +81,7 @@ class IncrementalSearchBar(QWidget):
 
     def _build_ui(self) -> None:
         self.setFixedHeight(34)
-        self.setStyleSheet(
-            "QWidget { background: #2a2a2a; border-top: 1px solid #444; }"
-        )
+        self.setAccessibleName(tr("action.incremental_search"))
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 2, 6, 2)
@@ -96,51 +89,45 @@ class IncrementalSearchBar(QWidget):
 
         # Label
         lbl = QLabel("🔍")
-        lbl.setStyleSheet("background: transparent; border: none;")
+        lbl.setAccessibleName(tr("action.incremental_search"))
         layout.addWidget(lbl)
 
         # Campo testo
         self._field = QLineEdit()
         self._field.setPlaceholderText(tr("incremental_search.placeholder", default="Ricerca incrementale…  (F3 succ.  Shift+F3 prec.  Esc chiudi)"))
+        self._field.setAccessibleName(tr("action.incremental_search"))
         self._field.setFixedHeight(24)
         self._field.setMinimumWidth(220)
         self._field.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self._field_base_style = (
-            "QLineEdit { background: #1e1e1e; color: #e0e0e0; "
-            "border: 1px solid #555; border-radius: 3px; padding: 0 4px; }"
-            "QLineEdit:focus { border-color: #888; }"
-        )
-        self._field.setStyleSheet(self._field_base_style)
+        self._field_base_palette = self._field.palette()
         self._field.textChanged.connect(self._on_text_changed)
         self._field.returnPressed.connect(self._find_next)
         layout.addWidget(self._field)
 
         # Contatore occorrenze
         self._count_lbl = QLabel("")
-        self._count_lbl.setStyleSheet(
-            "background: transparent; border: none; color: #888; font-size: 11px;"
-        )
+        self._count_lbl.setAccessibleName(tr("search.no_matches", default="Search results"))
         self._count_lbl.setMinimumWidth(70)
         layout.addWidget(self._count_lbl)
 
         # Opzioni compatte
         self._cb_case  = QCheckBox("Aa")
         self._cb_case.setToolTip(tr("tooltip.search_case"))
-        self._cb_case.setStyleSheet("background: transparent; border: none; color: #ccc;")
+        self._cb_case.setAccessibleName(tr("tooltip.search_case"))
         self._cb_case.stateChanged.connect(self._on_text_changed)
         layout.addWidget(self._cb_case)
 
         self._cb_regex = QCheckBox(".*")
         self._cb_regex.setToolTip(tr("tooltip.search_regex"))
-        self._cb_regex.setStyleSheet("background: transparent; border: none; color: #ccc;")
+        self._cb_regex.setAccessibleName(tr("tooltip.search_regex"))
         self._cb_regex.stateChanged.connect(self._on_text_changed)
         layout.addWidget(self._cb_regex)
 
         self._cb_word  = QCheckBox("\\b")
         self._cb_word.setToolTip(tr("tooltip.search_word"))
-        self._cb_word.setStyleSheet("background: transparent; border: none; color: #ccc;")
+        self._cb_word.setAccessibleName(tr("tooltip.search_word"))
         self._cb_word.stateChanged.connect(self._on_text_changed)
         layout.addWidget(self._cb_word)
 
@@ -154,11 +141,7 @@ class IncrementalSearchBar(QWidget):
             btn = QPushButton(label)
             btn.setFixedSize(26, 24)
             btn.setToolTip(tip)
-            btn.setStyleSheet(
-                "QPushButton{background:#3a3a3a;border:1px solid #555;"
-                "color:#ccc;border-radius:3px;}"
-                "QPushButton:hover{background:#4a4a4a;}"
-            )
+            btn.setAccessibleName(tip)
             btn.clicked.connect(slot)
             layout.addWidget(btn)
 
@@ -166,11 +149,7 @@ class IncrementalSearchBar(QWidget):
         btn_close = QPushButton("✕")
         btn_close.setFixedSize(26, 24)
         btn_close.setToolTip(tr("tooltip.search_close"))
-        btn_close.setStyleSheet(
-            "QPushButton{background:#3a3a3a;border:1px solid #555;"
-            "color:#888;border-radius:3px;}"
-            "QPushButton:hover{background:#c0392b;color:#fff;}"
-        )
+        btn_close.setAccessibleName(tr("tooltip.search_close"))
         btn_close.clicked.connect(self.hide_bar)
         layout.addWidget(btn_close)
 
@@ -232,24 +211,28 @@ class IncrementalSearchBar(QWidget):
 
         if not text:
             self._count_lbl.setText("")
-            self._set_field_color(None)
+            self._set_field_color(False)
             return
 
         # Costruisce il pattern
         try:
             pattern = self._build_pattern(text)
         except re.error:
-            self._set_field_color(_COLOR_ERROR)
+            self._set_field_color(True)
             self._count_lbl.setText("regex ✗")
             return
 
-        # Cerca tutte le occorrenze
+        # Python regex offsets are characters, but lineIndexFromPosition takes
+        # native Scintilla UTF-8 byte positions. Its returned line/index pair is
+        # then safe for QScintilla's line/index drawing and selection methods.
         doc_text = editor.text()
         try:
             self._matches = []
-            for m in re.finditer(pattern, doc_text):
-                ls, cs = editor.lineIndexFromPosition(m.start())
-                le, ce = editor.lineIndexFromPosition(m.end())
+            for m in pattern.finditer(doc_text):
+                start_byte = len(doc_text[:m.start()].encode("utf-8"))
+                end_byte = len(doc_text[:m.end()].encode("utf-8"))
+                ls, cs = editor.lineIndexFromPosition(start_byte)
+                le, ce = editor.lineIndexFromPosition(end_byte)
                 self._matches.append((ls, cs, le, ce))
         except Exception:
             self._matches = []
@@ -257,11 +240,11 @@ class IncrementalSearchBar(QWidget):
         total = len(self._matches)
 
         if total == 0:
-            self._set_field_color(_COLOR_ERROR)
+            self._set_field_color(True)
             self._count_lbl.setText(tr("search.no_matches", default="nessuno"))
             return
 
-        self._set_field_color(None)
+        self._set_field_color(False)
 
         # Evidenzia tutte le occorrenze
         self._setup_indicators(editor)
@@ -270,10 +253,10 @@ class IncrementalSearchBar(QWidget):
 
         # Vai all'occorrenza più vicina al cursore corrente
         cur_line, cur_col = editor.getCursorPosition()
-        cur_pos = editor.positionFromLineIndex(cur_line, cur_col)
-        doc_text_to_cursor = doc_text[:cur_pos]
+        cur_byte = editor.positionFromLineIndex(cur_line, cur_col)
+        cur_pos = len(doc_text.encode("utf-8")[:cur_byte].decode("utf-8", "ignore"))
         nearest = 0
-        for i, m in enumerate(re.finditer(pattern, doc_text)):
+        for i, m in enumerate(pattern.finditer(doc_text)):
             if m.start() >= cur_pos:
                 break
             nearest = i
@@ -281,7 +264,7 @@ class IncrementalSearchBar(QWidget):
 
         self._count_lbl.setText(f"{self._current_idx + 1} / {total}")
 
-    def _build_pattern(self, text: str) -> str:
+    def _build_pattern(self, text: str) -> re.Pattern:
         """Costruisce il pattern regex dalle opzioni selezionate."""
         if not self._cb_regex.isChecked():
             text = re.escape(text)
@@ -289,8 +272,7 @@ class IncrementalSearchBar(QWidget):
             text = r"\b" + text + r"\b"
         flags = 0 if self._cb_case.isChecked() else re.IGNORECASE
         # Valida che sia una regex valida
-        re.compile(text, flags)
-        return text
+        return re.compile(text, flags)
 
     def _find_next(self) -> None:
         if not self._matches:
@@ -338,13 +320,17 @@ class IncrementalSearchBar(QWidget):
         editor.indicatorDefine(
             editor.IndicatorStyle.RoundBoxIndicator, _INC_INDICATOR
         )
-        editor.setIndicatorForegroundColor(_COLOR_MATCH, _INC_INDICATOR)
+        editor.setIndicatorForegroundColor(
+            editor.palette().color(QPalette.ColorRole.AlternateBase), _INC_INDICATOR
+        )
         editor.setIndicatorDrawUnder(True, _INC_INDICATOR)
 
         editor.indicatorDefine(
             editor.IndicatorStyle.FullBoxIndicator, _INC_CUR_INDICATOR
         )
-        editor.setIndicatorForegroundColor(_COLOR_CURRENT, _INC_CUR_INDICATOR)
+        editor.setIndicatorForegroundColor(
+            editor.palette().color(QPalette.ColorRole.Highlight), _INC_CUR_INDICATOR
+        )
         editor.setIndicatorDrawUnder(True, _INC_CUR_INDICATOR)
 
     def _clear_highlights(self) -> None:
@@ -358,14 +344,12 @@ class IncrementalSearchBar(QWidget):
 
     # ── Utility ───────────────────────────────────────────────────────────────
 
-    def _set_field_color(self, bg: Optional[str]) -> None:
-        if bg:
-            self._field.setStyleSheet(
-                f"QLineEdit {{ background: {bg}; color: #ffaaaa; "
-                "border: 1px solid #844; border-radius: 3px; padding: 0 4px; }"
-            )
-        else:
-            self._field.setStyleSheet(self._field_base_style)
+    def _set_field_color(self, has_error: bool) -> None:
+        palette = QPalette(self._field_base_palette)
+        if has_error:
+            palette.setColor(QPalette.ColorRole.Base, palette.color(QPalette.ColorRole.Highlight))
+            palette.setColor(QPalette.ColorRole.Text, palette.color(QPalette.ColorRole.HighlightedText))
+        self._field.setPalette(palette)
 
     def _current_editor(self) -> Optional["EditorWidget"]:
         return self._mw._tab_manager.current_editor()

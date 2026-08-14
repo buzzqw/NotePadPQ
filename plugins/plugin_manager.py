@@ -9,6 +9,7 @@ gestisce enable/disable, e mostra il dialog di gestione.
 from __future__ import annotations
 
 import ast
+import hashlib
 import importlib.util
 import json
 import sys
@@ -39,6 +40,8 @@ class PluginManager:
         self._main_window: Optional["MainWindow"] = None
         self._disabled_path = get_data_dir() / "disabled_plugins.json"
         self._disabled: set[str] = self._load_disabled()
+        self._trusted_path = get_data_dir() / "trusted_plugins.json"
+        self._trusted: dict[str, dict[str, str]] = self._load_trusted()
 
     @classmethod
     def instance(cls) -> "PluginManager":
@@ -61,7 +64,7 @@ class PluginManager:
             files.extend(
                 sorted(
                     path for path in user_dir.glob("*.py")
-                    if not path.name.startswith("_")
+                    if not path.name.startswith("_") and not path.is_symlink()
                 )
             )
         return files
@@ -76,6 +79,20 @@ class PluginManager:
             pass
         return set()
 
+    def _load_trusted(self) -> dict[str, dict[str, str]]:
+        try:
+            if self._trusted_path.exists():
+                data = json.loads(self._trusted_path.read_text(encoding="utf-8"))
+                bindings = data.get("bindings", {}) if isinstance(data, dict) else {}
+                if isinstance(bindings, dict):
+                    return {
+                        name: binding for name, binding in bindings.items()
+                        if isinstance(name, str) and isinstance(binding, dict)
+                    }
+        except Exception:
+            pass
+        return {}
+
     def _save_disabled(self) -> None:
         try:
             self._disabled_path.write_text(
@@ -84,6 +101,38 @@ class PluginManager:
             )
         except Exception:
             pass
+
+    def _save_trusted(self) -> None:
+        try:
+            self._trusted_path.write_text(
+                json.dumps({"bindings": self._trusted}, ensure_ascii=False),
+                encoding="utf-8"
+            )
+        except Exception:
+            pass
+
+    def _is_user_plugin(self, path: Path) -> bool:
+        try:
+            return path.absolute().parent == self._plugins_dir().resolve()
+        except OSError:
+            return False
+
+    @staticmethod
+    def _trust_binding(path: Path) -> dict[str, str] | None:
+        try:
+            if path.is_symlink():
+                return None
+            resolved = path.resolve(strict=True)
+            return {
+                "path": str(resolved),
+                "sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+            }
+        except OSError:
+            return None
+
+    def _is_trusted(self, name: str, path: Path) -> bool:
+        trusted = getattr(self, "_trusted", {})
+        return isinstance(trusted, dict) and trusted.get(name) == self._trust_binding(path)
 
     def load_all(self, main_window: "MainWindow") -> None:
         """Carica tutti i plugin dalla directory plugin utente."""
@@ -116,8 +165,22 @@ class PluginManager:
     def _load_plugin_file(self, path: Path,
                           main_window: "MainWindow") -> bool:
         """Carica un singolo file plugin."""
+        is_user_plugin = self._is_user_plugin(path)
+        if is_user_plugin and path.is_symlink():
+            print(f"[plugins] Plugin utente symlink rifiutato: {path.name}")
+            return False
         meta = self._read_static_metadata(path)
-        if meta is not None and meta["name"] in self._disabled:
+        if meta is not None and meta["name"] in self._plugins:
+            print(f"[plugins] Nome plugin duplicato rifiutato: {meta['name']}")
+            return False
+
+        if is_user_plugin and meta is None:
+            # Importing is code execution: user plugins need literal metadata so
+            # they can be shown and explicitly trusted without importing them.
+            print(f"[plugins] Plugin utente rifiutato senza metadata statici: {path.name}")
+            return False
+        if meta is not None and (meta["name"] in self._disabled or
+                                  (is_user_plugin and not self._is_trusted(meta["name"], path))):
             self._plugins[meta["name"]] = {
                 "instance": None,
                 "enabled": False,
@@ -127,11 +190,16 @@ class PluginManager:
             return True
 
         try:
-            loaded = self._import_plugin(path)
+            binding = self._trust_binding(path) if is_user_plugin else None
+            loaded = self._import_plugin(path, binding)
             if loaded is None:
                 return False
             instance, meta = loaded
             name = meta["name"]
+
+            if name in self._plugins:
+                print(f"[plugins] Nome plugin duplicato rifiutato: {name}")
+                return False
 
             self._plugins[name] = {
                 "instance": instance,
@@ -209,8 +277,10 @@ class PluginManager:
         }
 
     @staticmethod
-    def _import_plugin(path: Path):
+    def _import_plugin(path: Path, binding: dict[str, str] | None = None):
         """Importa e istanzia un plugin, senza attivarne il ciclo di vita."""
+        if binding is not None and PluginManager._trust_binding(path) != binding:
+            return None
         spec = importlib.util.spec_from_file_location(path.stem, str(path))
         if spec is None or spec.loader is None:
             return None
@@ -248,12 +318,23 @@ class PluginManager:
             return False
         try:
             if entry["instance"] is None:
-                loaded = self._import_plugin(entry["path"])
+                is_user_plugin = self._is_user_plugin(entry["path"])
+                if is_user_plugin:
+                    binding = self._trust_binding(entry["path"])
+                    if binding is None:
+                        return False
+                    # Enabling is the explicit trust decision for these exact bytes.
+                    if not isinstance(getattr(self, "_trusted", None), dict):
+                        self._trusted = {}
+                    self._trusted[name] = binding
+                loaded = self._import_plugin(entry["path"], binding if is_user_plugin else None)
                 if loaded is None:
                     return False
                 instance, meta = loaded
                 actual_name = meta["name"]
                 if actual_name != name and actual_name in self._plugins:
+                    raise ValueError(f"Nome plugin duplicato: {actual_name}")
+                if actual_name != name and self._is_trusted(actual_name, entry["path"]):
                     raise ValueError(f"Nome plugin duplicato: {actual_name}")
                 entry["instance"] = instance
                 entry["meta"] = meta
@@ -263,6 +344,14 @@ class PluginManager:
             self._disabled.discard(name)
             actual_name = entry["meta"]["name"]
             self._disabled.discard(actual_name)
+            if self._is_user_plugin(entry["path"]):
+                binding = self._trust_binding(entry["path"])
+                if binding is None:
+                    return False
+                self._trusted[actual_name] = binding
+                if actual_name != name:
+                    self._trusted.pop(name, None)
+                self._save_trusted()
             if actual_name != name:
                 del self._plugins[name]
                 self._plugins[actual_name] = entry

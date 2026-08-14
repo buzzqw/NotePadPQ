@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import os
 import io
+import ssl
+import threading
 from pathlib import Path, PurePosixPath
 from typing import Optional, List, TYPE_CHECKING
 
@@ -35,6 +37,18 @@ from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
 from ui.busy_indicator import BusyIndicator
 
+
+_ORPHANED_FTP_WORKERS: set[QThread] = set()
+_MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
+
+
+class _DownloadTooLarge(RuntimeError):
+    pass
+
+
+class _OperationCancelled(RuntimeError):
+    pass
+
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
@@ -51,20 +65,31 @@ class _FtpOpWorker(QThread):
 
     finished_ok  = pyqtSignal(object)
     finished_err = pyqtSignal(str)
+    finished_cancelled = pyqtSignal(object)
 
     def __init__(self, fn, *args, **kwargs):
         super().__init__(None)
         self._fn     = fn
         self._args   = args
         self._kwargs = kwargs
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
 
     def run(self) -> None:
         try:
             result = self._fn(*self._args, **self._kwargs)
         except Exception as e:
-            self.finished_err.emit(str(e))
+            if self._cancelled.is_set():
+                self.finished_cancelled.emit(None)
+            else:
+                self.finished_err.emit(str(e))
             return
-        self.finished_ok.emit(result)
+        if not self._cancelled.is_set():
+            self.finished_ok.emit(result)
+        else:
+            self.finished_cancelled.emit(result)
 
 
 # ─── Modello connessione ──────────────────────────────────────────────────────
@@ -73,8 +98,8 @@ class FtpProfile:
     """Dati di una connessione FTP/SFTP/SMB."""
 
     def __init__(self, name="", host="", port=21, user="anonymous",
-                 password="", protocol="FTP", remote_dir="/",
-                 domain="", smb_share=""):
+                 password="", protocol="FTPS", remote_dir="/",
+                 domain="", smb_share="", allow_insecure_ftp=False):
         self.name       = name
         self.host       = host
         self.port       = port
@@ -84,15 +109,19 @@ class FtpProfile:
         self.remote_dir = remote_dir
         self.domain     = domain      # per SMB/AD
         self.smb_share  = smb_share   # nome share SMB (es. "documents")
+        self.allow_insecure_ftp = allow_insecure_ftp
 
     def to_dict(self) -> dict:
-        return self.__dict__.copy()
+        data = self.__dict__.copy()
+        data["password"] = ""
+        return data
 
     @classmethod
     def from_dict(cls, d: dict) -> "FtpProfile":
         p = cls()
         for k, v in d.items():
-            setattr(p, k, v)
+            if k != "password":
+                setattr(p, k, v)
         return p
 
 
@@ -119,7 +148,7 @@ class _ProfileDialog(QDialog):
         self._password = QLineEdit(self._profile.password)
         self._password.setEchoMode(QLineEdit.EchoMode.Password)
         self._protocol = QComboBox()
-        self._protocol.addItems(["FTP", "SFTP", "SMB"])
+        self._protocol.addItems(["FTPS", "SFTP", "FTP", "SMB"])
         self._protocol.setCurrentText(self._profile.protocol)
         self._remote   = QLineEdit(self._profile.remote_dir)
 
@@ -127,6 +156,10 @@ class _ProfileDialog(QDialog):
         self._domain.setPlaceholderText(tr("plugin.ftp_browser.domain_placeholder"))
         self._smb_share = QLineEdit(getattr(self._profile, "smb_share", ""))
         self._smb_share.setPlaceholderText(tr("plugin.ftp_browser.smb_share_placeholder"))
+        self._allow_insecure_ftp = QCheckBox(
+            "Allow insecure FTP (credentials and files are unencrypted)")
+        self._allow_insecure_ftp.setChecked(
+            bool(getattr(self._profile, "allow_insecure_ftp", False)))
 
         form.addRow(tr("plugin.ftp_browser.label_profile_name"), self._name)
         form.addRow(tr("plugin.ftp_browser.label_host"), self._host)
@@ -137,6 +170,7 @@ class _ProfileDialog(QDialog):
         form.addRow(tr("plugin.ftp_browser.label_remote_dir"), self._remote)
         self._row_domain    = form.addRow(tr("plugin.ftp_browser.label_domain"), self._domain)
         self._row_smb_share = form.addRow(tr("plugin.ftp_browser.label_smb_share"), self._smb_share)
+        form.addRow("", self._allow_insecure_ftp)
 
         layout.addLayout(form)
 
@@ -154,7 +188,7 @@ class _ProfileDialog(QDialog):
         self._on_protocol_changed(self._protocol.currentText())
 
     def _on_protocol_changed(self, proto: str) -> None:
-        if proto == "FTP":
+        if proto in ("FTP", "FTPS"):
             default_port = 21
         elif proto == "SMB":
             default_port = 445
@@ -163,6 +197,7 @@ class _ProfileDialog(QDialog):
         if self._port.value() in (21, 22, 445):
             self._port.setValue(default_port)
         is_smb = (proto == "SMB")
+        self._allow_insecure_ftp.setVisible(proto == "FTP")
         if hasattr(self, "_remote"):
             self._remote.setEnabled(not is_smb)
         if hasattr(self, "_domain"):
@@ -189,6 +224,7 @@ class _ProfileDialog(QDialog):
         self._profile.remote_dir = self._remote.text() or "/"
         self._profile.domain    = self._domain.text().strip()
         self._profile.smb_share = self._smb_share.text().strip()
+        self._profile.allow_insecure_ftp = self._allow_insecure_ftp.isChecked()
         self.accept()
 
     def result_profile(self) -> FtpProfile:
@@ -276,6 +312,7 @@ class _FtpPanel(QWidget):
         worker = _FtpOpWorker(fn)
         worker.finished_ok.connect(lambda result: self._on_async_ok(worker, on_ok, result))
         worker.finished_err.connect(lambda err: self._on_async_err(worker, on_err, err))
+        worker.finished_cancelled.connect(lambda result: self._on_async_cancelled(worker, result))
         worker.finished.connect(lambda: self._clear_worker(worker))
         self._worker = worker
         worker.start()
@@ -307,6 +344,31 @@ class _FtpPanel(QWidget):
             self._status.setText(tr("plugin.ftp_browser.status_conn_error"))
             QMessageBox.warning(self, "FTP/SFTP/SMB", err)
 
+    @staticmethod
+    def _close_connection(conn) -> None:
+        if not conn:
+            return
+        try:
+            if conn[0] in ("ftp", "ftps"):
+                conn[1].close()
+            elif conn[0] == "sftp":
+                conn[1].close()
+                conn[2].close()
+        except Exception:
+            pass
+
+    def _on_async_cancelled(self, worker, result) -> None:
+        """Always restore the panel, including connections created after cancel."""
+        self._set_busy(False)
+        if result is not self._conn:
+            self._close_connection(result)
+        self._close_connection(self._conn)
+        self._conn = None
+        self._cancel_requested = False
+        self._btn_connect.setText(tr("plugin.ftp_browser.connect_btn"))
+        self._status.setText(
+            tr("plugin.ftp_browser.status_cancelled", default="Operazione annullata."))
+
     def _clear_worker(self, worker) -> None:
         if self._worker is worker:
             self._worker = None
@@ -324,18 +386,8 @@ class _FtpPanel(QWidget):
         if self._worker is None or not self._worker.isRunning():
             return
         self._cancel_requested = True
-        conn = self._conn
-        if conn is None:
-            return
-        try:
-            kind = conn[0]
-            if kind == "ftp":
-                conn[1].close()
-            elif kind == "sftp":
-                conn[1].close()
-                conn[2].close()
-        except Exception:
-            pass
+        self._worker.cancel()
+        self._close_connection(self._conn)
 
     def _notify_busy(self) -> None:
         self._status.setText(
@@ -350,14 +402,23 @@ class _FtpPanel(QWidget):
         worker termina dopo la chiusura del pannello, quella lambda
         chiamerebbe un metodo su un oggetto Qt già cancellato.
         """
+        if self._closed:
+            return
         self._closed = True
-        if self._worker is not None:
+        worker = self._worker
+        if worker is not None:
+            self._abort_current_op()
             try:
-                self._worker.finished_ok.disconnect()
-                self._worker.finished_err.disconnect()
-                self._worker.finished.disconnect()
+                worker.disconnect()
             except (TypeError, RuntimeError):
                 pass
+            if worker.isRunning() and not worker.wait(2000):
+                _ORPHANED_FTP_WORKERS.add(worker)
+                worker.finished.connect(lambda w=worker: _ORPHANED_FTP_WORKERS.discard(w))
+            else:
+                worker.deleteLater()
+        self._worker = None
+        self._disconnect()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -451,61 +512,76 @@ class _FtpPanel(QWidget):
 
     def _load_profiles(self) -> None:
         import json
-        try:
-            import keyring
-            has_keyring = True
-        except ImportError:
-            has_keyring = False
+        from core.secrets import SecretStorageUnavailable, get_secret, set_secret
 
         p = self._profiles_path()
         if p.exists():
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
                 self._profiles = []
+                needs_rewrite = False
                 for d in data:
+                    if not isinstance(d, dict):
+                        continue
                     prof = FtpProfile.from_dict(d)
-                    # Recupera la password dal portachiavi di sistema
-                    if has_keyring and not prof.password:
+                    secret_key = f"ftp/{prof.name}/password"
+                    legacy_password = d.get("password", "")
+                    if isinstance(legacy_password, str) and legacy_password:
                         try:
-                            stored_pw = keyring.get_password("NotePadPQ_FTP", prof.name)
-                            if stored_pw:
-                                prof.password = stored_pw
+                            set_secret(secret_key, legacy_password)
+                        except SecretStorageUnavailable:
+                            # Keep the JSON unchanged: it remains the only copy.
+                            self._profiles = []
+                            return
+                        prof.password = legacy_password
+                        needs_rewrite = True
+                    else:
+                        prof.password = get_secret(secret_key)
+                    if not prof.password:
+                        try:
+                            import keyring
+                            legacy_password = keyring.get_password("NotePadPQ_FTP", prof.name)
+                            if legacy_password:
+                                set_secret(secret_key, legacy_password)
+                                prof.password = legacy_password
+                                try:
+                                    keyring.delete_password("NotePadPQ_FTP", prof.name)
+                                except Exception:
+                                    pass
+                        except SecretStorageUnavailable:
+                            self._profiles = []
+                            return
                         except Exception:
                             pass
                     self._profiles.append(prof)
+                if needs_rewrite:
+                    # Old versions wrote passwords into this JSON file. Redact
+                    # only after every migration above reached the keyring.
+                    self._save_profiles()
             except Exception:
                 self._profiles = []
 
-    def _save_profiles(self) -> None:
+    def _save_profiles(self) -> bool:
         import json
-        try:
-            import keyring
-            has_keyring = True
-        except ImportError:
-            has_keyring = False
+        from core.secrets import SecretStorageUnavailable, set_secret
 
-        save_list = []
-        for p in self._profiles:
-            d = p.to_dict()
-            if has_keyring and p.password:
-                # Salva nel portachiavi di sistema crittografato
-                try:
-                    keyring.set_password("NotePadPQ_FTP", p.name, p.password)
-                    d["password"] = ""  # Svuota la password dal JSON!
-                except Exception as e:
-                    print(f"Errore salvataggio nel portachiavi: {e}")
-            elif not has_keyring:
-                # Se keyring non è installato, non salvare la password per sicurezza
-                d["password"] = ""
-            save_list.append(d)
+        try:
+            for p in self._profiles:
+                if p.password:
+                    set_secret(f"ftp/{p.name}/password", p.password)
+        except SecretStorageUnavailable as exc:
+            print(f"Errore salvataggio nel portachiavi: {exc}")
+            return False
+        save_list = [p.to_dict() for p in self._profiles]
 
         try:
             self._profiles_path().write_text(
                 json.dumps(save_list, ensure_ascii=False, indent=2),
                 encoding="utf-8"
             )
+            return True
         except Exception:
-            pass
+            return False
 
     def _add_profile(self) -> None:
         dlg = _ProfileDialog(parent=self)
@@ -522,16 +598,15 @@ class _FtpPanel(QWidget):
             dlg = _ProfileDialog(self._profiles[idx], parent=self)
             if dlg.exec():
                 new_profile = dlg.result_profile()
-                # Se il nome del profilo è cambiato, elimina la vecchia password dal portachiavi
-                if old_name != new_profile.name:
+                self._profiles[idx] = new_profile
+                saved = self._save_profiles()
+                # Do not remove the old credential until the new key was saved.
+                if saved and old_name != new_profile.name:
+                    from core.secrets import delete_secret
                     try:
-                        import keyring
-                        keyring.delete_password("NotePadPQ_FTP", old_name)
+                        delete_secret(f"ftp/{old_name}/password")
                     except Exception:
                         pass
-                
-                self._profiles[idx] = new_profile
-                self._save_profiles()
                 self._populate_combo()
                 self._profile_combo.setCurrentIndex(idx)
 
@@ -545,9 +620,9 @@ class _FtpPanel(QWidget):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
             )
             if reply == QMessageBox.StandardButton.Yes:
+                from core.secrets import delete_secret
                 try:
-                    import keyring
-                    keyring.delete_password("NotePadPQ_FTP", p_to_delete.name)
+                    delete_secret(f"ftp/{p_to_delete.name}/password")
                 except Exception:
                     pass
                 self._profiles.pop(idx)
@@ -567,6 +642,19 @@ class _FtpPanel(QWidget):
             return
 
         profile = self._profiles[idx]
+        if profile.protocol == "FTP":
+            if not getattr(profile, "allow_insecure_ftp", False):
+                QMessageBox.warning(
+                    self, "FTP/SFTP/SMB",
+                    "Plain FTP is disabled because it exposes credentials and files. "
+                    "Edit this profile and explicitly allow insecure FTP to continue.")
+                return
+            if QMessageBox.warning(
+                    self, "FTP/SFTP/SMB",
+                    "Plain FTP sends credentials and files without encryption. Continue?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Yes:
+                return
         self._current_profile = profile
 
         # ── SMB: mount helper ─────────────────────────────────────────────────
@@ -788,9 +876,16 @@ class _FtpPanel(QWidget):
 
     def _connect_ftp(self, profile: FtpProfile):
         import ftplib
-        ftp = ftplib.FTP()
+        if profile.protocol == "FTPS":
+            # create_default_context validates the certificate chain and hostname.
+            ftp = ftplib.FTP_TLS(context=ssl.create_default_context())
+        else:
+            ftp = ftplib.FTP()
         ftp.connect(profile.host, profile.port, timeout=15)
         ftp.login(profile.user, profile.password)
+        if profile.protocol == "FTPS":
+            ftp.prot_p()
+            return ("ftps", ftp)
         return ("ftp", ftp)
 
     def _connect_sftp(self, profile: FtpProfile):
@@ -815,7 +910,7 @@ class _FtpPanel(QWidget):
         if self._conn:
             try:
                 kind = self._conn[0]
-                if kind == "ftp":
+                if kind in ("ftp", "ftps"):
                     self._conn[1].quit()
                 elif kind == "sftp":
                     self._conn[1].close()
@@ -868,7 +963,7 @@ class _FtpPanel(QWidget):
             return []
         kind = self._conn[0]
 
-        if kind == "ftp":
+        if kind in ("ftp", "ftps"):
             ftp = self._conn[1]
             ftp.cwd(path)
             entries = []
@@ -942,12 +1037,41 @@ class _FtpPanel(QWidget):
         )
 
     def _fetch_file(self, remote_path: str) -> bytes:
+        """Download in bounded chunks so remote content cannot exhaust memory."""
         kind = self._conn[0]
         buf = io.BytesIO()
-        if kind == "ftp":
-            self._conn[1].retrbinary(f"RETR {remote_path}", buf.write)
+        worker = self._worker
+
+        def cancelled() -> bool:
+            return worker is not None and worker._cancelled.is_set()
+
+        def write_chunk(chunk: bytes) -> None:
+            if cancelled():
+                raise _OperationCancelled()
+            if buf.tell() + len(chunk) > _MAX_DOWNLOAD_BYTES:
+                raise _DownloadTooLarge(
+                    f"Download exceeds the {self._fmt_size(_MAX_DOWNLOAD_BYTES)} safety limit")
+            buf.write(chunk)
+
+        if kind in ("ftp", "ftps"):
+            size = self._conn[1].size(remote_path)
+            if size is not None and size > _MAX_DOWNLOAD_BYTES:
+                raise _DownloadTooLarge(
+                    f"Download exceeds the {self._fmt_size(_MAX_DOWNLOAD_BYTES)} safety limit")
+            self._conn[1].retrbinary(f"RETR {remote_path}", write_chunk, blocksize=64 * 1024)
         elif kind == "sftp":
-            self._conn[1].getfo(remote_path, buf)
+            sftp = self._conn[1]
+            if sftp.stat(remote_path).st_size > _MAX_DOWNLOAD_BYTES:
+                raise _DownloadTooLarge(
+                    f"Download exceeds the {self._fmt_size(_MAX_DOWNLOAD_BYTES)} safety limit")
+            with sftp.open(remote_path, "rb") as remote:
+                while True:
+                    if cancelled():
+                        raise _OperationCancelled()
+                    chunk = remote.read(64 * 1024)
+                    if not chunk:
+                        break
+                    write_chunk(chunk)
         return buf.getvalue()
 
     def _open_in_editor(self, remote_path: str, raw: bytes) -> None:
@@ -1038,7 +1162,7 @@ class _FtpPanel(QWidget):
 
         def _do():
             kind = self._conn[0]
-            if kind in ("ftp", "sftp"):
+            if kind in ("ftp", "ftps", "sftp"):
                 self._conn[1].rename(path, new_path)
 
         def _on_err(err):
@@ -1059,7 +1183,7 @@ class _FtpPanel(QWidget):
 
         def _do():
             kind = self._conn[0]
-            if kind == "ftp":
+            if kind in ("ftp", "ftps"):
                 try:
                     self._conn[1].delete(path)
                 except Exception:
@@ -1083,7 +1207,7 @@ class _FtpPanel(QWidget):
 
         def _do():
             kind = self._conn[0]
-            if kind == "ftp":
+            if kind in ("ftp", "ftps"):
                 self._conn[1].mkd(new_path)
             elif kind == "sftp":
                 self._conn[1].mkdir(new_path)
@@ -1108,7 +1232,7 @@ class _FtpPanel(QWidget):
         def _do():
             kind = self._conn[0]
             buf = io.BytesIO(b"")
-            if kind == "ftp":
+            if kind in ("ftp", "ftps"):
                 self._conn[1].storbinary(f"STOR {remote_path}", buf)
             elif kind == "sftp":
                 self._conn[1].putfo(buf, remote_path)
@@ -1145,7 +1269,7 @@ class _FtpPanel(QWidget):
                 conn = self._connect_sftp(p) if p.protocol == "SFTP" else self._connect_ftp(p)
             kind = conn[0]
             buf = io.BytesIO(raw)
-            if kind == "ftp":
+            if kind in ("ftp", "ftps"):
                 conn[1].storbinary(f"STOR {remote_path}", buf)
             elif kind == "sftp":
                 conn[1].putfo(buf, remote_path)

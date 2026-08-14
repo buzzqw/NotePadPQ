@@ -185,6 +185,7 @@ _IMAGE_MAX_BYTES = 5_000_000
 
 # Provider che supportano l'invio di immagini (vision) nei messaggi
 _VISION_PROVIDERS = ("anthropic", "gemini")
+_ORPHANED_AI_WORKERS: set[QThread] = set()
 
 # Prezzo stimato per 1M token (input/output) in USD
 MODEL_COST: dict[str, tuple[float, float]] = {
@@ -394,10 +395,10 @@ class _JetBrainsOAuth(QObject):
                 refresh_token  = token_response.get('refresh_token', '')
                 expires_in     = int(token_response.get('expires_in', 3600))
                 if refresh_token:
+                    from core.secrets import set_secret
                     from config.settings import Settings
-                    s = Settings.instance()
-                    s.set("ai/jetbrains_refresh_token", refresh_token)
-                    s.set("ai/jetbrains_token_expires", int(time.time()) + expires_in - 60)
+                    set_secret("ai/jetbrains_refresh_token", refresh_token)
+                    Settings.instance().set("ai/jetbrains_token_expires", int(time.time()) + expires_in - 60)
                 self._verify_ai_license(access_token)
             else:
                 self.auth_failed.emit("Token di accesso non ricevuto")
@@ -442,8 +443,8 @@ class _JetBrainsOAuth(QObject):
             # Endpoint non raggiungibile: procedi comunque
             pass
 
-        from config.settings import Settings
-        Settings.instance().set("ai/jetbrains_token", access_token)
+        from core.secrets import set_secret
+        set_secret("ai/jetbrains_token", access_token)
         self.auth_completed.emit(access_token)
 
 
@@ -504,16 +505,19 @@ class _AIWorker(QThread):
                 text = self._call_jetbrains()
             else:
                 text = "Provider non supportato."
-            self.result_ready.emit(text)
+            if not self._stop_event.is_set():
+                self.result_ready.emit(text)
         except urllib.error.HTTPError as e:
             body = ""
             try:
                 body = e.read().decode(errors="replace")
             except Exception:
                 pass
-            self.error_occurred.emit(self._friendly_error(e.code, body))
+            if not self._stop_event.is_set():
+                self.error_occurred.emit(self._friendly_error(e.code, body))
         except Exception as e:
-            self.error_occurred.emit(str(e))
+            if not self._stop_event.is_set():
+                self.error_occurred.emit(str(e))
 
     def _friendly_error(self, code: int, body: str) -> str:
         """Converte gli errori HTTP in messaggi comprensibili con suggerimenti."""
@@ -596,6 +600,7 @@ class _AIWorker(QThread):
         in_thinking   = False
 
         with urllib.request.urlopen(req, timeout=120, context=_make_ssl_ctx()) as resp:
+            self._current_resp = resp
             for raw_line in resp:
                 if self._stop_event.is_set():
                     break
@@ -636,7 +641,9 @@ class _AIWorker(QThread):
                     usage = event.get("usage", {})
                     out_tokens = usage.get("output_tokens", 0)
 
-        self.usage_ready.emit(in_tokens, out_tokens)
+        self._current_resp = None
+        if not self._stop_event.is_set():
+            self.usage_ready.emit(in_tokens, out_tokens)
         return full_text
 
     # ── OpenAI ────────────────────────────────────────────────────────────────
@@ -682,7 +689,9 @@ class _AIWorker(QThread):
                         out_tokens = u.get("completion_tokens", 0)
                 except Exception:
                     continue
-        self.usage_ready.emit(in_tokens, out_tokens)
+        self._current_resp = None
+        if not self._stop_event.is_set():
+            self.usage_ready.emit(in_tokens, out_tokens)
         return result
 
     # ── DeepSeek (API compatibile OpenAI) ────────────────────────────────────
@@ -733,7 +742,9 @@ class _AIWorker(QThread):
                         out_tokens = u.get("completion_tokens", 0)
                 except Exception:
                     continue
-        self.usage_ready.emit(in_tokens, out_tokens)
+        self._current_resp = None
+        if not self._stop_event.is_set():
+            self.usage_ready.emit(in_tokens, out_tokens)
         return result
 
     # ── Google Gemini ──────────────────────────────────────────────────────────
@@ -785,7 +796,9 @@ class _AIWorker(QThread):
                     out_tokens = usage.get("candidatesTokenCount", 0)
                 except Exception:
                     continue
-        self.usage_ready.emit(in_tokens, out_tokens)
+        self._current_resp = None
+        if not self._stop_event.is_set():
+            self.usage_ready.emit(in_tokens, out_tokens)
         return result
 
     # ── Ollama ────────────────────────────────────────────────────────────────
@@ -1290,24 +1303,29 @@ class _SettingsDialog(QDialog):
         btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
     def _load(self) -> None:
+        from core.secrets import get_secret
         for pid, edit in self._key_edits.items():
             key = _settings_key(pid)
-            edit.setText(self._s.get(key, ""))
+            edit.setText(get_secret(key))
         self._max_tok.setValue(int(self._s.get("ai/max_tokens", _DEFAULT_MAX_TOKENS)))
         self._update_oauth_status()
 
     def _save(self) -> None:
-        for pid, edit in self._key_edits.items():
-            val = edit.text().strip()
-            key = _settings_key(pid)
-            self._s.set(key, val)
+        from core.secrets import SecretStorageUnavailable, set_secret
+        try:
+            for pid, edit in self._key_edits.items():
+                set_secret(_settings_key(pid), edit.text().strip())
+        except SecretStorageUnavailable as exc:
+            QMessageBox.warning(self, "AI Assistant", str(exc))
+            return
         self._s.set("ai/max_tokens", self._max_tok.value())
         self.accept()
     
     def _update_oauth_status(self) -> None:
         """Aggiorna lo stato di autenticazione OAuth per i provider che lo supportano"""
         for pid, status_lbl in self._oauth_status.items():
-            token = self._s.get(f"ai/{pid}_token", "")
+            from core.secrets import get_secret
+            token = get_secret(f"ai/{pid}_token")
             disc_btn = self._oauth_disconnect.get(pid)
             if token:
                 status_lbl.setText("✅ Autenticato")
@@ -1388,8 +1406,13 @@ class _SettingsDialog(QDialog):
 
     def _disconnect_oauth(self, provider_id: str) -> None:
         """Rimuove il token OAuth salvato per il provider indicato."""
-        self._s.set(f"ai/{provider_id}_token", "")
-        self._s.set(f"ai/{provider_id}_refresh_token", "")
+        from core.secrets import delete_secret
+        try:
+            delete_secret(f"ai/{provider_id}_token")
+            delete_secret(f"ai/{provider_id}_refresh_token")
+        except Exception as exc:
+            QMessageBox.warning(self, "AI Assistant", str(exc))
+            return
         self._s.set(f"ai/{provider_id}_token_expires", "")
         self._update_oauth_status()
 
@@ -1410,6 +1433,7 @@ class _AIPanel(QWidget):
         super().__init__(parent)
         self._mw        = main_window
         self._history:  list[dict] = []
+        self._shutting_down = False
         self._worker:      Optional[_AIWorker] = None
         self._old_workers: list[_AIWorker]     = []
         self._streaming_block = False
@@ -2321,8 +2345,8 @@ class _AIPanel(QWidget):
             self._refresh_llamacpp_models()
 
     def _get_key(self, pid: str) -> str:
-        from config.settings import Settings
-        return Settings.instance().get(f"ai/{pid}_key", "")
+        from core.secrets import get_secret
+        return get_secret(f"ai/{pid}_key")
 
     def _regenerate(self) -> None:
         """Rimuove l'ultima risposta AI e reinvia l'ultimo messaggio utente."""
@@ -2436,10 +2460,11 @@ class _AIPanel(QWidget):
         auth_type = info.get("auth_type", "api_key")
 
         from config.settings import Settings
+        from core.secrets import get_secret
         s = Settings.instance()
 
         if auth_type == "oauth":
-            token = s.get(f"ai/{pid}_token", "")
+            token = get_secret(f"ai/{pid}_token")
             if not token:
                 self._append_msg("system",
                     "⚠ Non autenticato — apri ⚙ e usa 'Accedi con JetBrains'.", "#ffcc00")
@@ -2632,6 +2657,28 @@ class _AIPanel(QWidget):
         self._status.setText("⏹ Generazione interrotta")
         self._streaming_block = False
         self._btn_copy.setEnabled(bool(self._last_assistant_response()))
+
+    def shutdown(self) -> None:
+        """Cancel active generation and retain any slow worker until it exits."""
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        self._elapsed_timer.stop()
+        workers = [w for w in [self._worker, *self._old_workers] if w is not None]
+        self._worker = None
+        self._old_workers = []
+        for worker in workers:
+            worker.stop()
+            try:
+                worker.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+        for worker in workers:
+            if worker.isRunning() and not worker.wait(2000):
+                _ORPHANED_AI_WORKERS.add(worker)
+                worker.finished.connect(lambda w=worker: _ORPHANED_AI_WORKERS.discard(w))
+            else:
+                worker.deleteLater()
 
     def _tick_elapsed(self) -> None:
         elapsed = int(time.time() - self._elapsed_start)
@@ -3087,6 +3134,8 @@ class AIAssistantPlugin(BasePlugin):
         self._panel._context_action(prompt)
 
     def on_unload(self) -> None:
+        if hasattr(self, "_panel"):
+            self._panel.shutdown()
         self._dock.close()
         self._dock.deleteLater()
         super().on_unload()

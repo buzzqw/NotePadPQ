@@ -49,24 +49,7 @@ class GotoAnythingDialog(QDialog):
     def _build_ui(self) -> None:
         self.setMinimumWidth(560)
         self.setMaximumHeight(440)
-        self.setStyleSheet("""
-            QDialog { border: 1px solid #555; border-radius: 4px; }
-            QLineEdit {
-                font-size: 14px; padding: 6px 8px;
-                border: none; border-bottom: 1px solid #444;
-                background: #252526; color: #cccccc;
-            }
-            QListView {
-                background: #1e1e1e; color: #cccccc;
-                border: none; font-size: 13px;
-            }
-            QListView::item:selected { background: #094771; }
-            QListView::item:hover    { background: #2a2d2e; }
-            QLabel {
-                background: #252526; color: #777; font-size: 11px;
-                padding: 2px 8px 4px 8px;
-            }
-        """)
+        self.setAccessibleName(tr("action.goto_anything"))
 
         vl = QVBoxLayout(self)
         vl.setContentsMargins(0, 0, 0, 0)
@@ -74,11 +57,13 @@ class GotoAnythingDialog(QDialog):
 
         self._search = QLineEdit()
         self._search.setPlaceholderText(tr("goto_anything.placeholder"))
+        self._search.setAccessibleName(tr("goto_anything.placeholder"))
         self._search.textChanged.connect(self._on_text_changed)
         self._search.returnPressed.connect(self._execute)
         vl.addWidget(self._search)
 
         self._hint = QLabel("")
+        self._hint.setAccessibleName(tr("action.goto_anything"))
         vl.addWidget(self._hint)
 
         self._model = QStandardItemModel()
@@ -88,6 +73,8 @@ class GotoAnythingDialog(QDialog):
         self._proxy.setFilterKeyColumn(0)
 
         self._list = QListView()
+        self._list.setAccessibleName(tr("action.goto_anything"))
+        self._list.setAccessibleDescription(tr("goto_anything.placeholder"))
         self._list.setModel(self._proxy)
         self._list.setEditTriggers(QListView.EditTrigger.NoEditTriggers)
         self._list.doubleClicked.connect(self._execute)

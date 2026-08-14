@@ -25,6 +25,7 @@ Menu: Plugin → 🌐 REST Client  (Ctrl+Alt+R)
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -34,6 +35,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 import xml.dom.minidom
 from typing import Dict, List, Optional, TYPE_CHECKING
 
@@ -69,6 +71,8 @@ _AUTH_TYPES   = ["Nessuna", "Bearer Token", "Basic (user:pass)", "API Key (heade
 _BODY_TYPES   = ["Nessuno", "JSON", "XML", "Form (x-www-form-urlencoded)", "Multipart (form-data)", "Testo libero"]
 _HISTORY_MAX  = 50
 _DEFAULT_MAX_RESPONSE_BYTES = 50 * 1024 * 1024
+_SENSITIVE_NAME = re.compile(r"(?:authorization|api[-_]?key|token|secret|password|cookie)", re.I)
+_VARIABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 
 _CONTENT_TYPE_MAP = {
     "JSON":                          "application/json",
@@ -77,6 +81,108 @@ _CONTENT_TYPE_MAP = {
     "Multipart (form-data)":         "multipart/form-data",
     "Testo libero":                  "text/plain",
 }
+
+
+def _is_sensitive_name(name: str) -> bool:
+    return bool(_SENSITIVE_NAME.search(name))
+
+
+def _redact_mapping(values: Dict[str, str]) -> dict:
+    return {
+        str(key): "<redacted>" if _is_sensitive_name(str(key)) else value
+        for key, value in values.items()
+    }
+
+
+def _secret_component(value: str) -> str:
+    """Return a keyring-safe stable component without exposing field names."""
+    return hashlib.sha256(value.casefold().encode("utf-8")).hexdigest()
+
+
+def _safe_json(text: str, expected_type):
+    """Return a declarative JSON value, rejecting executable legacy scripts."""
+    if not text.strip():
+        return expected_type()
+    value = json.loads(text)
+    if not isinstance(value, expected_type):
+        raise ValueError("La dichiarazione deve essere JSON valido")
+    return value
+
+
+def _safe_declaration_or_empty(text: str, expected_type) -> str:
+    """Canonicalize safe automation for persistence; discard legacy code."""
+    if not text.strip():
+        return ""
+    try:
+        return json.dumps(_safe_json(text, expected_type), ensure_ascii=False)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return ""
+
+
+def _safe_pre_request_variables(declaration: str, last_response: str) -> dict[str, str]:
+    """Resolve a small JSON declaration without evaluating user supplied code."""
+    values = _safe_json(declaration, dict)
+    try:
+        response_json = json.loads(last_response) if last_response else {}
+    except (TypeError, json.JSONDecodeError):
+        response_json = {}
+    result = {}
+    for name, value in values.items():
+        if not isinstance(name, str) or not _VARIABLE_NAME.fullmatch(name):
+            raise ValueError("Nome variabile non valido")
+        if isinstance(value, dict):
+            if set(value) != {"from"} or not isinstance(value["from"], str):
+                raise ValueError("Usa solo {\"from\": \"response.json.percorso\"}")
+            path = value["from"].removeprefix("response.json.").split(".")
+            if not value["from"].startswith("response.json.") or not all(path):
+                raise ValueError("Origine variabile non valida")
+            item = response_json
+            for part in path:
+                if not isinstance(item, dict) or part not in item:
+                    item = ""
+                    break
+                item = item[part]
+            value = item
+        if isinstance(value, (dict, list)):
+            raise ValueError("I valori variabile devono essere scalari")
+        result[name] = "" if value is None else str(value)
+    return result
+
+
+def _safe_test_results(declaration: str, result: dict) -> list[tuple[str, bool]]:
+    """Evaluate fixed comparison operators from a JSON list, never Python code."""
+    tests = _safe_json(declaration, list)
+    try:
+        response_json = json.loads(result["body"]) if result.get("body") else None
+    except (TypeError, json.JSONDecodeError):
+        response_json = None
+    evaluated = []
+    for test in tests:
+        if not isinstance(test, dict) or not isinstance(test.get("name"), str):
+            raise ValueError("Ogni test richiede un nome")
+        checks = [key for key in ("status", "body_contains", "json_path", "max_elapsed_ms") if key in test]
+        if len(checks) != 1:
+            raise ValueError("Ogni test richiede una sola condizione")
+        check = checks[0]
+        if check == "status":
+            ok = result.get("status") == test[check]
+        elif check == "body_contains":
+            ok = isinstance(test[check], str) and test[check] in result.get("body", "")
+        elif check == "max_elapsed_ms":
+            ok = isinstance(test[check], (int, float)) and result.get("elapsed", 0) * 1000 <= test[check]
+        else:
+            path = test[check]
+            if not isinstance(path, str) or not _VARIABLE_NAME.fullmatch(path.replace(".", "_")):
+                raise ValueError("Percorso JSON non valido")
+            value = response_json
+            for part in path.split("."):
+                if not isinstance(value, dict) or part not in value:
+                    value = object()
+                    break
+                value = value[part]
+            ok = value == test.get("equals")
+        evaluated.append((test["name"], ok))
+    return evaluated
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -422,6 +528,7 @@ class HttpRequest:
     """Dati di una singola richiesta HTTP."""
 
     def __init__(self):
+        self.secret_id: str = uuid.uuid4().hex
         self.name: str = "Nuova richiesta"
         self.method: str = "GET"
         self.url: str = ""
@@ -445,12 +552,13 @@ class HttpRequest:
 
     def to_dict(self) -> dict:
         return {
+            "secret_id":   self.secret_id,
             "name":        self.name,
             "method":      self.method,
             "url":         self.url,
-            "headers":     self.headers,
+            "headers":     _redact_mapping(self.headers),
             "auth_type":   self.auth_type,
-            "auth_value":  self.auth_value,
+            "auth_value":  "<redacted>" if self.auth_value else "",
             "auth_header": self.auth_header,
             "body_type":   self.body_type,
             "body":        self.body,
@@ -460,18 +568,26 @@ class HttpRequest:
             "allow_redirects": self.allow_redirects,
             "multipart_fields": self.multipart_fields,
             "oauth2_client_id": self.oauth2_client_id,
-            "oauth2_client_secret": self.oauth2_client_secret,
+            "oauth2_client_secret": "<redacted>" if self.oauth2_client_secret else "",
             "oauth2_token_url": self.oauth2_token_url,
             "oauth2_scope": self.oauth2_scope,
-            "pre_script": self.pre_script,
-            "post_tests": self.post_tests,
+            "pre_script": _safe_declaration_or_empty(self.pre_script, dict),
+            "post_tests": _safe_declaration_or_empty(self.post_tests, list),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "HttpRequest":
         r = cls()
         for k, v in d.items():
-            if hasattr(r, k):
+            if k in {"auth_value", "oauth2_client_secret"}:
+                continue
+            if k == "headers" and isinstance(v, dict):
+                r.headers = {str(name): str(value) for name, value in v.items()
+                             if not _is_sensitive_name(str(name)) and value != "<redacted>"}
+            elif k in {"pre_script", "post_tests"}:
+                expected = dict if k == "pre_script" else list
+                setattr(r, k, _safe_declaration_or_empty(str(v), expected))
+            elif hasattr(r, k):
                 setattr(r, k, v)
         return r
 
@@ -480,15 +596,15 @@ class HttpRequest:
         lines = [f"# {self.name}", f"{self.method} {self.url}"]
         # auth header
         if self.auth_type == "Bearer Token" and self.auth_value:
-            lines.append(f"Authorization: Bearer {self.auth_value}")
+            lines.append("# Authorization omitted: stored locally only")
         elif self.auth_type == "Basic (user:pass)" and self.auth_value:
             encoded = base64.b64encode(self.auth_value.encode()).decode()
-            lines.append(f"Authorization: Basic {encoded}")
+            lines.append("# Authorization omitted: stored locally only")
         elif self.auth_type == "API Key (header)" and self.auth_value:
-            lines.append(f"{self.auth_header}: {self.auth_value}")
+            lines.append(f"# {self.auth_header}: <redacted>")
         # custom headers
         for k, v in self.headers.items():
-            lines.append(f"{k}: {v}")
+            lines.append(f"{k}: {'<redacted>' if _is_sensitive_name(k) else v}")
         # content-type
         ct = _CONTENT_TYPE_MAP.get(self.body_type)
         if ct:
@@ -504,6 +620,7 @@ class EnvProfile:
     """Profilo variabili d'ambiente per un ambiente (dev/staging/prod)."""
 
     def __init__(self, name: str = "dev", variables: Optional[Dict[str, str]] = None):
+        self.secret_id = uuid.uuid4().hex
         self.name      = name
         self.variables = variables or {}
 
@@ -514,11 +631,24 @@ class EnvProfile:
         return re.sub(r"\{\{(\w+)\}\}", replacer, text)
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "variables": self.variables}
+        return {
+            "secret_id": self.secret_id,
+            "name": self.name,
+            "variables": _redact_mapping(self.variables),
+        }
 
     @classmethod
     def from_dict(cls, d: dict) -> "EnvProfile":
-        return cls(d.get("name", "dev"), d.get("variables", {}))
+        values = d.get("variables", {})
+        if not isinstance(values, dict):
+            values = {}
+        profile = cls(d.get("name", "dev"), {
+            str(key): str(value) for key, value in values.items()
+            if not _is_sensitive_name(str(key)) and value != "<redacted>"
+        })
+        if isinstance(d.get("secret_id"), str) and d["secret_id"]:
+            profile.secret_id = d["secret_id"]
+        return profile
 
 
 # ─── Syntax Highlighter minimalista per JSON / XML ───────────────────────────
@@ -862,9 +992,19 @@ class _RequestWorker(QObject):
         self._req = req
         self._env = resolved_env
         self._cancel_flag = threading.Event()
+        self._active_response = None
+        self._active_session = None
 
     def cancel(self):
         self._cancel_flag.set()
+        # Closing active sockets unblocks streaming reads; timeout remains the
+        # bound for a connection that has not yet produced a response.
+        for resource in (self._active_response, self._active_session):
+            if resource is not None:
+                try:
+                    resource.close()
+                except Exception:
+                    pass
 
     def _resolve_auth(self, headers: dict) -> Optional[str]:
         req = self._req
@@ -942,12 +1082,14 @@ class _RequestWorker(QObject):
                 self._run_urllib(url, headers)
 
         except Exception as exc:
-            self.error.emit(str(exc))
+            if not self._cancel_flag.is_set():
+                self.error.emit(str(exc))
 
     def _run_requests(self, url: str, headers: dict):
         req = self._req
         env = self._env
         session = _requests_lib.Session()
+        self._active_session = session
         session.verify = req.verify_ssl
 
         body_kwargs = self._build_body_requests(env)
@@ -972,19 +1114,21 @@ class _RequestWorker(QObject):
                 stream=True,
                 **body_kwargs,
             )
+            self._active_response = resp
             elapsed = time.perf_counter() - t0
             raw_body = self._read_limited(resp.iter_content(chunk_size=65536), resp.headers)
             encoding = resp.encoding or "utf-8"
             body_str = raw_body.decode(encoding, errors="replace")
             ct = resp.headers.get("Content-Type", "")
 
-            self.finished.emit({
-                "status": resp.status_code,
-                "headers": dict(resp.headers),
-                "body": body_str,
-                "elapsed": elapsed,
-                "content_type": ct,
-            })
+            if not self._cancel_flag.is_set():
+                self.finished.emit({
+                    "status": resp.status_code,
+                    "headers": dict(resp.headers),
+                    "body": body_str,
+                    "elapsed": elapsed,
+                    "content_type": ct,
+                })
         finally:
             if resp is not None:
                 resp.close()
@@ -993,6 +1137,8 @@ class _RequestWorker(QObject):
                 if file_obj is not None:
                     file_obj.close()
             session.close()
+            self._active_response = None
+            self._active_session = None
 
     def _run_urllib(self, url: str, headers: dict):
         req = self._req
@@ -1006,6 +1152,7 @@ class _RequestWorker(QObject):
         opener = _urllib_opener(req.verify_ssl, req.allow_redirects)
         try:
             with opener.open(http_req, timeout=req.timeout) as resp:
+                self._active_response = resp
                 elapsed = time.perf_counter() - t0
                 raw_body = self._read_limited(
                     iter(lambda: resp.read(65536), b""), resp.headers
@@ -1030,13 +1177,15 @@ class _RequestWorker(QObject):
         except Exception:
             body_str = raw_body.decode("utf-8", errors="replace")
 
-        self.finished.emit({
-            "status": status,
-            "headers": resp_headers,
-            "body": body_str,
-            "elapsed": elapsed,
-            "content_type": ct_hdr,
-        })
+        self._active_response = None
+        if not self._cancel_flag.is_set():
+            self.finished.emit({
+                "status": status,
+                "headers": resp_headers,
+                "body": body_str,
+                "elapsed": elapsed,
+                "content_type": ct_hdr,
+            })
 
     @staticmethod
     def _read_limited(chunks, headers) -> bytes:
@@ -1627,16 +1776,14 @@ class _RestPanel(QWidget):
         pre_w = QWidget()
         pre_lay = QVBoxLayout(pre_w)
         pre_lay.setContentsMargins(4, 4, 4, 4)
-        lbl_pre = QLabel("Script eseguito prima dell'invio — usa pm.variables['NOME'] per estrarre valori:")
+        lbl_pre = QLabel("Dichiarazione JSON eseguita prima dell'invio (nessun codice Python):")
         self._lbl_pre = lbl_pre
         pre_lay.addWidget(lbl_pre)
         self._pre_req_edit = QTextEdit()
         self._pre_req_edit.setFont(QFont("Monospace", 10))
         self._pre_req_edit.setPlaceholderText(
-            "# Estrai un token dalla risposta precedente e usalo nella prossima richiesta:\n"
-            "# pm.variables['TOKEN'] = pm.last_response_body.get('access_token', '')\n\n"
-            "# Oppure imposta variabili d'ambiente:\n"
-            "# pm.variables['USER_ID'] = '12345'"
+            '{\n  "TOKEN": {"from": "response.json.access_token"},\n'
+            '  "USER_ID": "12345"\n}'
         )
         pre_lay.addWidget(self._pre_req_edit)
         self._req_tabs.addTab(pre_w, "Pre-request")
@@ -1747,10 +1894,9 @@ class _RestPanel(QWidget):
         self._tests_edit = QTextEdit()
         self._tests_edit.setFont(QFont("Monospace", 10))
         self._tests_edit.setPlaceholderText(
-            "# pm.test('Status is 200', pm.response.status == 200)\n"
-            "# pm.test('Body contains id', 'id' in pm.response.text)\n"
-            "# pm.test('Response time < 1s', pm.response.elapsed < 1)\n"
-            "# pm.test('JSON has key', pm.response.json.get('key') is not None)\n"
+            '[\n  {"name": "Status is 200", "status": 200},\n'
+            '  {"name": "Body contains id", "body_contains": "id"},\n'
+            '  {"name": "JSON has key", "json_path": "id", "equals": 1}\n]'
         )
         tests_lay.addWidget(self._tests_edit)
         self._tests_results = QTextEdit()
@@ -2256,6 +2402,8 @@ class _RestPanel(QWidget):
 
     def _collect_current(self) -> HttpRequest:
         r = HttpRequest()
+        if getattr(self, "_current_req", None) is not None:
+            r.secret_id = self._current_req.secret_id
         r.name       = self._req_name_edit.text().strip() or "Nuova richiesta"
         r.method     = self._method_cb.currentText()
         r.url        = self._url_edit.text().strip()
@@ -2340,25 +2488,18 @@ class _RestPanel(QWidget):
             return
 
         env_name = self._env_cb.currentText()
-        env = next((e for e in self._envs if e.name == env_name), EnvProfile())
+        selected_env = next((e for e in self._envs if e.name == env_name), EnvProfile())
+        env = EnvProfile(selected_env.name, dict(selected_env.variables))
 
-        # Esegui script pre-request
-        pre_script = req.pre_script
-        if pre_script:
+        # Resolve JSON declarations; legacy Python scripts are intentionally rejected.
+        if req.pre_script:
             try:
-                pm = {"variables": {}, "last_response_body": None}
-                if self._last_response_body:
-                    try:
-                        pm["last_response_body"] = json.loads(self._last_response_body)
-                    except Exception:
-                        pm["last_response_body"] = self._last_response_body
-                exec(pre_script, {"pm": pm, "json": json, "re": re})
-                # Merge extracted variables into env for this request
-                for k, v in pm.get("variables", {}).items():
-                    env.variables[k] = str(v)
+                env.variables.update(
+                    _safe_pre_request_variables(req.pre_script, self._last_response_body)
+                )
             except Exception as e:
-                QMessageBox.warning(self, "Script pre-request",
-                                    f"Errore nello script pre-request:\n{e}")
+                QMessageBox.warning(self, "Dichiarazione pre-request",
+                                    f"Dichiarazione non valida:\n{e}")
                 return
 
         self._btn_send.setEnabled(False)
@@ -2369,6 +2510,7 @@ class _RestPanel(QWidget):
 
         # aggiungi a cronologia
         self._history.insert(0, req)
+        self._current_req = req
         if len(self._history) > _HISTORY_MAX:
             self._history = self._history[:_HISTORY_MAX]
         self._hist_list.insertItem(0, f"{req.method} {req.url}")
@@ -2393,6 +2535,21 @@ class _RestPanel(QWidget):
             self._btn_abort.setEnabled(False)
             self._progress.setVisible(False)
             self._status_lbl.setText("\u26a0 Richiesta annullata")
+
+    def shutdown(self) -> None:
+        """Cancel an active request and wait briefly without blocking shutdown."""
+        worker, thread = self._worker, self._thread
+        self._worker = None
+        self._thread = None
+        if worker is not None:
+            worker.cancel()
+            try:
+                worker.finished.disconnect()
+                worker.error.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2)
 
     def _show_code_snippets(self):
         req = self._collect_current()
@@ -2505,44 +2662,18 @@ class _RestPanel(QWidget):
 
     def _run_tests(self, script: str, result: dict):
         html = '<div style="font-family: monospace; font-size: 11px; line-height: 1.6;">'
-        passed = 0
-        failed = 0
-        results_list = []
-
-        def test_fn(name, condition):
-            nonlocal passed, failed
-            ok = bool(condition)
-            if ok:
-                passed += 1
-                status = f'<span style="color:#4caf50;">\u2713 PASS</span>'
-            else:
-                failed += 1
-                status = f'<span style="color:#f44747;">\u2717 FAIL</span>'
-            results_list.append(f"{status}  {name}")
-
-        body = result["body"]
         try:
-            response_json = json.loads(body) if body else {}
-        except Exception:
-            response_json = None
-
-        pm = {
-            "response": {
-                "status": result["status"],
-                "headers": result["headers"],
-                "text": body,
-                "json": response_json,
-                "elapsed": result["elapsed"],
-            },
-            "test": test_fn,
-        }
-
-        try:
-            exec(script, {"pm": pm, "json": json, "re": re})
+            outcomes = _safe_test_results(script, result)
         except Exception as e:
-            failed += 1
+            outcomes = [(f"ERROR: {str(e)[:200]}", False)]
+        passed = sum(1 for _, ok in outcomes if ok)
+        failed = len(outcomes) - passed
+        results_list = []
+        for name, ok in outcomes:
+            color = "#4caf50" if ok else "#f44747"
+            label = "PASS" if ok else "FAIL"
             results_list.append(
-                f'<span style="color:#f44747;">\u2717 ERROR</span>  {str(e)[:200]}'
+                f'<span style="color:{color};">{label}</span>  {name}'
             )
 
         total = passed + failed
@@ -2701,14 +2832,113 @@ class _RestPanel(QWidget):
 
     def _save_data(self):
         try:
+            if not self._store_secrets():
+                return False
             data = {
                 "collection": [r.to_dict() for r in self._collection],
                 "envs":       [e.to_dict() for e in self._envs],
                 "history":    [r.to_dict() for r in self._history[:_HISTORY_MAX]],
             }
             self._data_path().write_text(json.dumps(data, indent=2, ensure_ascii=False))
+            return True
         except Exception:
-            pass
+            return False
+
+    @staticmethod
+    def _request_secret_key(request: HttpRequest, field: str) -> str:
+        return f"rest/request/{request.secret_id}/{field}"
+
+    @staticmethod
+    def _environment_secret_key(environment: EnvProfile, name: str) -> str:
+        return f"rest/environment/{environment.secret_id}/variable/{_secret_component(name)}"
+
+    def _store_request_secrets(self, request: HttpRequest) -> bool:
+        from core.secrets import SecretStorageUnavailable, set_secret
+
+        values = {
+            "auth": request.auth_value,
+            "oauth-client-secret": request.oauth2_client_secret,
+        }
+        values.update(
+            (f"header/{_secret_component(name)}", value)
+            for name, value in request.headers.items() if _is_sensitive_name(name)
+        )
+        try:
+            for field, value in values.items():
+                if value:
+                    set_secret(self._request_secret_key(request, field), value)
+            return True
+        except SecretStorageUnavailable:
+            return False
+
+    def _store_environment_secrets(self, environment: EnvProfile) -> bool:
+        from core.secrets import SecretStorageUnavailable, set_secret
+
+        try:
+            for name, value in environment.variables.items():
+                if _is_sensitive_name(name) and value:
+                    set_secret(self._environment_secret_key(environment, name), value)
+            return True
+        except SecretStorageUnavailable:
+            return False
+
+    def _store_secrets(self) -> bool:
+        requests = [*self._collection, *self._history[:_HISTORY_MAX]]
+        return (all(self._store_request_secrets(request) for request in requests) and
+                all(self._store_environment_secrets(environment) for environment in self._envs))
+
+    def _load_request_secrets(self, request: HttpRequest, raw: dict) -> bool:
+        from core.secrets import SecretStorageUnavailable, get_secret, set_secret
+
+        try:
+            fields = {
+                "auth": ("auth_value", None),
+                "oauth-client-secret": ("oauth2_client_secret", None),
+            }
+            raw_headers = raw.get("headers", {})
+            if isinstance(raw_headers, dict):
+                fields.update(
+                    (f"header/{_secret_component(str(name))}", ("headers", str(name)))
+                    for name in raw_headers if _is_sensitive_name(str(name))
+                )
+            for key, (attribute, header_name) in fields.items():
+                value = raw.get(attribute, "") if header_name is None else raw_headers.get(header_name, "")
+                secret_key = self._request_secret_key(request, key)
+                if isinstance(value, str) and value and value != "<redacted>":
+                    set_secret(secret_key, value)
+                    loaded = value
+                else:
+                    loaded = get_secret(secret_key)
+                if loaded:
+                    if header_name is None:
+                        setattr(request, attribute, loaded)
+                    else:
+                        request.headers[header_name] = loaded
+            return True
+        except SecretStorageUnavailable:
+            return False
+
+    def _load_environment_secrets(self, environment: EnvProfile, raw: dict) -> bool:
+        from core.secrets import SecretStorageUnavailable, get_secret, set_secret
+
+        raw_values = raw.get("variables", {})
+        if not isinstance(raw_values, dict):
+            return True
+        try:
+            for name, value in raw_values.items():
+                if not _is_sensitive_name(str(name)):
+                    continue
+                secret_key = self._environment_secret_key(environment, str(name))
+                if isinstance(value, str) and value and value != "<redacted>":
+                    set_secret(secret_key, value)
+                    loaded = value
+                else:
+                    loaded = get_secret(secret_key)
+                if loaded:
+                    environment.variables[str(name)] = loaded
+            return True
+        except SecretStorageUnavailable:
+            return False
 
     def _load_data(self):
         try:
@@ -2716,16 +2946,30 @@ class _RestPanel(QWidget):
             if not path.exists():
                 return
             data = json.loads(path.read_text(encoding="utf-8"))
-            self._collection = [HttpRequest.from_dict(d) for d in data.get("collection", [])]
+            raw_collection = data.get("collection", [])
+            raw_history = data.get("history", [])
+            raw_envs = data.get("envs", [])
+            self._collection = [HttpRequest.from_dict(d) for d in raw_collection]
             if "envs" in data:
-                self._envs = [EnvProfile.from_dict(d) for d in data["envs"]]
+                self._envs = [EnvProfile.from_dict(d) for d in raw_envs]
                 self._env_cb.clear()
                 for e in self._envs:
                     self._env_cb.addItem(e.name)
-            self._history = [HttpRequest.from_dict(d) for d in data.get("history", [])]
+            self._history = [HttpRequest.from_dict(d) for d in raw_history]
+            migrated = all(
+                self._load_request_secrets(request, raw)
+                for request, raw in [*zip(self._collection, raw_collection), *zip(self._history, raw_history)]
+            ) and all(
+                self._load_environment_secrets(environment, raw)
+                for environment, raw in zip(self._envs, raw_envs)
+            )
             self._refresh_collection_ui()
             for r in self._history:
                 self._hist_list.addItem(f"{r.method} {r.url}")
+            # Never redact a legacy file unless every plaintext secret reached
+            # the keyring. This makes an unavailable keyring non-destructive.
+            if migrated:
+                self._save_data()
         except Exception:
             pass
 
@@ -2859,7 +3103,7 @@ class _CollectionRunnerDialog(QDialog):
             t.start()
             t.join(timeout=60)
 
-            if worker.isRunning():
+            if t.is_alive():
                 worker.cancel()
                 t.join(timeout=2)
 
@@ -2931,6 +3175,8 @@ class RestClientPlugin(BasePlugin):
         self._dock.setVisible(not self._dock.isVisible())
 
     def on_unload(self) -> None:
+        if hasattr(self, "_panel"):
+            self._panel.shutdown()
         if hasattr(self, "_dock"):
             self._dock.setParent(None)
             self._dock.deleteLater()

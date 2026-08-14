@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -6,11 +7,14 @@ from unittest import mock
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import QApplication
 
+from core.session import restore_cursor_after_load
 from editor.autocomplete import AutoCompleteLevel, AutoCompleteManager
 from editor.editor_widget import EditorWidget
-from editor.lsp_client import LSPClient, normalize_completion_item
+from editor.lsp_client import LSPClient, _path_to_uri, normalize_completion_item
+from ui.keybinding import KeyBindingDialog, load_and_apply_shortcuts
 
 
 class _CompletionClient(QObject):
@@ -182,6 +186,25 @@ class LSPCompletionTest(unittest.TestCase):
         })
         self.assertEqual(change["text"], "new")
 
+    def test_workspace_uri_escapes_reserved_path_characters(self):
+        self.assertEqual(
+            _path_to_uri("/tmp/lsp workspace#one"),
+            "file:///tmp/lsp%20workspace%23one",
+        )
+
+    def test_position_requests_use_utf16_columns(self):
+        client = LSPClient("python", "/tmp")
+        client._initialized = True
+        client._worker = mock.Mock()
+        path = Path("/tmp/notepadpq-utf16.py")
+        client.open_file(path, "a😀b", "python")
+
+        client.request_completions(path, 0, 2)
+        params = client._worker.send.call_args.args[0]["params"]
+
+        self.assertEqual(params["position"], {"line": 0, "character": 3})
+        client.stop()
+
     def test_missing_server_and_server_error_are_noops(self):
         with mock.patch("editor.lsp_client.is_server_available", return_value=False):
             self.assertIsNone(LSPClient.get("python", "/tmp"))
@@ -197,6 +220,108 @@ class LSPCompletionTest(unittest.TestCase):
 
         self.assertEqual(received, [(7, "file:///tmp/a.py", [])])
         self.assertEqual(client._pending, {})
+
+
+class SessionCursorRestoreTest(unittest.TestCase):
+    def test_cursor_is_restored_after_lazy_loader_finishes(self):
+        class Signal:
+            def __init__(self):
+                self.slots = []
+
+            def connect(self, slot):
+                self.slots.append(slot)
+
+            def emit(self):
+                for slot in self.slots:
+                    slot()
+
+        class Editor:
+            def __init__(self, path):
+                self.file_path = path
+                self.cursor = None
+                self.visible_line = None
+
+            def setCursorPosition(self, line, col):
+                self.cursor = (line, col)
+
+            def ensureLineVisible(self, line):
+                self.visible_line = line
+
+        path = Path("/tmp/notepadpq-session-cursor.txt")
+        editor = Editor(path)
+        loader = type("Loader", (), {"load_finished": Signal()})()
+        tab_manager = type("TabManager", (), {"all_editors": lambda self: [editor]})()
+        window = type("Window", (), {
+            "_tab_manager": tab_manager,
+            "_lazy_loaders": {editor: loader},
+        })()
+
+        restore_cursor_after_load(window, path, 4, 7)
+
+        self.assertIsNone(editor.cursor)
+        loader.load_finished.emit()
+        self.assertEqual(editor.cursor, (3, 6))
+        self.assertEqual(editor.visible_line, 3)
+
+
+class KeyBindingDefaultsTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.config_dir = Path(self.tempdir.name)
+        self.actions = {
+            "format_document": QAction("Format document"),
+            "lsp_format": QAction("Format with LSP"),
+            "view_lang_toolbar": QAction("Language toolbar"),
+            "toggle_checklist": QAction("Checklist"),
+            "save": QAction("Save"),
+        }
+        for key, shortcut in {
+            "format_document": "Alt+Shift+F",
+            "lsp_format": "Alt+Shift+F",
+            "view_lang_toolbar": "Ctrl+Shift+L",
+            "toggle_checklist": "Ctrl+Shift+L",
+            "save": "Ctrl+S",
+        }.items():
+            self.actions[key].setShortcut(QKeySequence(shortcut))
+        self.config_patch = mock.patch("ui.keybinding.get_config_dir", return_value=self.config_dir)
+        self.config_patch.start()
+
+    def tearDown(self):
+        self.config_patch.stop()
+        self.tempdir.cleanup()
+
+    def test_shipped_collisions_have_distinct_defaults(self):
+        self.actions["distraction_free"] = QAction("Distraction free")
+        self.actions["distraction_free"].setShortcuts([
+            QKeySequence("F11"), QKeySequence("Ctrl+Shift+F11"),
+        ])
+        load_and_apply_shortcuts(self.actions)
+
+        shortcuts = [action.shortcut().toString() for action in self.actions.values()]
+        self.assertEqual(len(shortcuts), len(set(shortcuts)))
+        self.assertEqual(self.actions["lsp_format"].shortcut().toString(), "Ctrl+Alt+Shift+F")
+        self.assertEqual(self.actions["toggle_checklist"].shortcut().toString(), "Ctrl+Alt+L")
+        self.assertEqual(
+            [shortcut.toString() for shortcut in self.actions["distraction_free"].shortcuts()],
+            ["F11", "Ctrl+Shift+F11"],
+        )
+
+    def test_reset_restores_captured_default_after_saved_override(self):
+        (self.config_dir / "shortcuts.json").write_text(
+            '{"save": "Ctrl+K"}', encoding="utf-8",
+        )
+        load_and_apply_shortcuts(self.actions)
+        self.assertEqual(self.actions["save"].shortcut().toString(), "Ctrl+K")
+
+        dialog = KeyBindingDialog(self.actions)
+        dialog._saved.clear()
+        dialog._on_ok()
+
+        self.assertEqual(self.actions["save"].shortcut().toString(), "Ctrl+S")
 
 
 if __name__ == "__main__":

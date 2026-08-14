@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import subprocess
 import re
+import threading
 from pathlib import Path
 from typing import Optional, List, Tuple, Callable
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
 
 class _GitThread(QThread):
@@ -24,32 +25,89 @@ class _GitThread(QThread):
         self._args = args
         self._timeout = timeout
         self._cancelled = False
+        self._process = None
+        self._lock = threading.Lock()
 
-    def cancel(self):
-        self._cancelled = True
+    @property
+    def cancelled(self) -> bool:
+        with self._lock:
+            return self._cancelled
 
-    def run(self):
-        if self._cancelled:
+    def cancel(self) -> None:
+        """Terminate a running command and suppress a result callback."""
+        with self._lock:
+            self._cancelled = True
+            process = self._process
+        if process is not None and process.poll() is None:
+            try:
+                process.terminate()
+            except OSError:
+                pass
+
+    def run(self) -> None:
+        if self.cancelled:
             return
+        process = None
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 ["git"] + self._args,
                 cwd=str(self._repo_dir),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=self._timeout,
             )
-            if self._cancelled:
+            with self._lock:
+                self._process = process
+                cancelled = self._cancelled
+            if cancelled:
+                process.terminate()
+            out, err = process.communicate(timeout=self._timeout)
+            if self.cancelled:
                 return
-            self.result_ready.emit(result.returncode, result.stdout.strip(), result.stderr.strip())
+            self.result_ready.emit(process.returncode, out.strip(), err.strip())
         except FileNotFoundError:
-            self.result_ready.emit(-1, "", "git not found in PATH")
+            if not self.cancelled:
+                self.result_ready.emit(-1, "", "git not found in PATH")
         except subprocess.TimeoutExpired:
-            self.result_ready.emit(-1, "", "Timeout")
+            if process is not None:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+                process.communicate()
+            if not self.cancelled:
+                self.result_ready.emit(-1, "", "Timeout")
         except Exception as e:
-            self.result_ready.emit(-1, "", str(e))
+            if not self.cancelled:
+                self.result_ready.emit(-1, "", str(e))
+        finally:
+            with self._lock:
+                self._process = None
+
+
+class _GitResultHandler(QObject):
+    """Delivers worker results in the thread that owns the GitFramework."""
+
+    def __init__(self, framework, thread: _GitThread,
+                 callback: Callable[[int, str, str], None]):
+        super().__init__()
+        self._framework = framework
+        self._thread = thread
+        self._callback = callback
+
+    @pyqtSlot(int, str, str)
+    def deliver(self, rc: int, out: str, err: str) -> None:
+        if not self._thread.cancelled:
+            self._callback(rc, out, err)
+
+    @pyqtSlot()
+    def cleanup(self) -> None:
+        self._framework._workers.discard(self._thread)
+        self._framework._handlers.pop(self._thread, None)
+        self._thread.deleteLater()
+        self.deleteLater()
 
 
 class GitFramework:
@@ -57,8 +115,8 @@ class GitFramework:
 
     Uso:
         gf = GitFramework(Path("/progetto"))
-        gf.status(callback)       # asincrono
-        ok, msg = gf.status_sync()  # sincrono (per operazioni veloci)
+        gf.status_async(callback)
+        files = gf.status()  # sincrono per chiamanti non-UI
     """
 
     _TIMEOUT_SHORT = 5
@@ -66,13 +124,25 @@ class GitFramework:
 
     def __init__(self, repo_dir: Path):
         self.repo_dir = repo_dir
+        # Keep QThreads and their queued-result receivers alive until finished.
+        self._workers: set[_GitThread] = set()
+        self._handlers: dict[_GitThread, _GitResultHandler] = {}
 
     def _run_async(self, args: list[str], callback: Callable[[int, str, str], None],
-                   timeout: int = 30):
+                   timeout: int = 30) -> _GitThread:
         t = _GitThread(self.repo_dir, args, timeout)
-        t.result_ready.connect(callback)
-        t.finished.connect(t.deleteLater)
+        handler = _GitResultHandler(self, t, callback)
+        self._workers.add(t)
+        self._handlers[t] = handler
+        t.result_ready.connect(handler.deliver)
+        t.finished.connect(handler.cleanup)
         t.start()
+        return t
+
+    def cancel_all(self) -> None:
+        """Cancel outstanding asynchronous commands and suppress their callbacks."""
+        for worker in tuple(self._workers):
+            worker.cancel()
 
     def _run_sync(self, args: list[str], timeout: int = 30) -> Tuple[int, str, str]:
         try:
@@ -93,7 +163,7 @@ class GitFramework:
         except Exception as e:
             return -1, "", str(e)
 
-    # ── Query veloci (sincrone, non bloccano) ─────────────────────────────────
+    # ── Query sincrone (per chiamanti non-UI) ─────────────────────────────────
 
     def is_repo(self) -> bool:
         rc, _, _ = self._run_sync(["rev-parse", "--is-inside-work-tree"], self._TIMEOUT_SHORT)
@@ -105,8 +175,10 @@ class GitFramework:
 
     def status(self) -> List[Tuple[str, str]]:
         rc, out, _ = self._run_sync(["status", "--porcelain"], self._TIMEOUT_SHORT)
-        if rc != 0 or not out:
-            return []
+        return self._parse_status(out) if rc == 0 else []
+
+    @staticmethod
+    def _parse_status(out: str) -> List[Tuple[str, str]]:
         result = []
         for line in out.splitlines():
             if len(line) >= 3:
@@ -115,12 +187,20 @@ class GitFramework:
                 result.append((xy, path))
         return result
 
+    def status_async(self, callback: Callable[[List[Tuple[str, str]]], None]) -> _GitThread:
+        """Fetch repository status without blocking the UI thread."""
+        def _cb(rc, out, _err):
+            callback(self._parse_status(out) if rc == 0 else [])
+        return self._run_async(["status", "--porcelain"], _cb, self._TIMEOUT_SHORT)
+
     def log(self, n: int = 50) -> List[dict]:
         fmt = "%H\x1f%h\x1f%an\x1f%ae\x1f%ai\x1f%s"
         rc, out, _ = self._run_sync(
             ["log", f"-{n}", f"--pretty=format:{fmt}"], self._TIMEOUT_SHORT)
-        if rc != 0 or not out:
-            return []
+        return self._parse_log(out) if rc == 0 else []
+
+    @staticmethod
+    def _parse_log(out: str) -> List[dict]:
         commits = []
         for line in out.splitlines():
             parts = line.split("\x1f")
@@ -131,6 +211,15 @@ class GitFramework:
                     "date": parts[4][:16], "subject": parts[5],
                 })
         return commits
+
+    def log_async(self, n: int, callback: Callable[[List[dict]], None]) -> _GitThread:
+        """Fetch commit history without blocking the UI thread."""
+        fmt = "%H\x1f%h\x1f%an\x1f%ae\x1f%ai\x1f%s"
+
+        def _cb(rc, out, _err):
+            callback(self._parse_log(out) if rc == 0 else [])
+        return self._run_async(
+            ["log", f"-{n}", f"--pretty=format:{fmt}"], _cb, self._TIMEOUT_SHORT)
 
     def branches(self) -> List[str]:
         rc, out, _ = self._run_sync(
@@ -148,20 +237,34 @@ class GitFramework:
         return result
 
     def diff(self, path: Optional[str] = None, staged: bool = False) -> str:
+        args = self._diff_args(path, staged)
+        rc, out, _ = self._run_sync(args, self._TIMEOUT_SHORT)
+        return out if rc == 0 else ""
+
+    @staticmethod
+    def _diff_args(path: Optional[str], staged: bool) -> list[str]:
         args = ["diff"]
         if staged:
             args.append("--cached")
         if path:
             args += ["--", path]
-        rc, out, _ = self._run_sync(args, self._TIMEOUT_SHORT)
-        return out if rc == 0 else ""
+        return args
+
+    def diff_async(self, path: Optional[str], staged: bool,
+                   callback: Callable[[str], None]) -> _GitThread:
+        """Fetch a file or repository diff without blocking the UI thread."""
+        def _cb(rc, out, _err):
+            callback(out if rc == 0 else "")
+        return self._run_async(self._diff_args(path, staged), _cb, self._TIMEOUT_SHORT)
 
     def diff_file_lines(self, file_path: str) -> dict:
-        result = {}
         rc, out, _ = self._run_sync(
             ["diff", "--unified=0", "--", file_path], self._TIMEOUT_SHORT)
-        if rc != 0 or not out:
-            return result
+        return self._parse_diff_file_lines(out) if rc == 0 else {}
+
+    @staticmethod
+    def _parse_diff_file_lines(out: str) -> dict:
+        result = {}
         current_line = 0
         for line in out.splitlines():
             m = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", line)
@@ -176,6 +279,20 @@ class GitFramework:
             else:
                 current_line += 1
         return result
+
+    def diff_file_lines_async(self, file_path: str,
+                              callback: Callable[[dict], None]) -> _GitThread:
+        """Fetch gutter markers without blocking editor interaction."""
+        def _cb(rc, out, _err):
+            callback(self._parse_diff_file_lines(out) if rc == 0 else {})
+        return self._run_async(
+            ["diff", "--unified=0", "--", file_path], _cb, self._TIMEOUT_SHORT)
+
+    def show_async(self, sha: str, callback: Callable[[str], None]) -> _GitThread:
+        """Fetch commit details without blocking the log view."""
+        def _cb(rc, out, _err):
+            callback(out if rc == 0 else "")
+        return self._run_async(["show", "--stat", sha], _cb, self._TIMEOUT_SHORT)
 
     def stash_list(self) -> List[str]:
         rc, out, _ = self._run_sync(

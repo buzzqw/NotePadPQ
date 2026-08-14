@@ -24,11 +24,12 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Callable, Optional, TYPE_CHECKING
 from uuid import uuid4
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
@@ -45,6 +46,49 @@ if TYPE_CHECKING:
 def _log_warn(msg: str) -> None:
     """Log a warning to stderr — silent fallbacks should not hide real issues."""
     print(f"[build_manager] {msg}", file=sys.stderr)
+
+
+BuildCommand = str | list[str]
+
+
+def _popen_process_group_kwargs() -> dict:
+    """Create a separate process group so cancellation reaches child processes."""
+    if IS_WINDOWS:
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def _terminate_process_tree(proc: subprocess.Popen, grace_seconds: float = 1.0) -> None:
+    """Stop ``proc`` and every child it started, escalating after a short grace."""
+    if proc.poll() is not None:
+        return
+    try:
+        if IS_WINDOWS:
+            # terminate() only stops the shell wrapper on Windows; taskkill /T
+            # also reaches compilers and commands it has started.
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            try:
+                proc.wait(timeout=grace_seconds)
+            except subprocess.TimeoutExpired:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        try:
+            proc.terminate()
+        except OSError:
+            pass
+
+
+def _command_needs_shell(command: str) -> bool:
+    """Keep shell execution only for profiles that explicitly use shell syntax."""
+    placeholders = re.sub(r"\$\{[A-Z]+\}|\$\([A-Z]+\)", "__VALUE__", command)
+    return bool(re.search(r"(?:&&|\|\||[|;<>`\n]|\$(?!\{)|[*?\[])", placeholders))
 
 # ─── Profili predefiniti ──────────────────────────────────────────────────────
 
@@ -184,7 +228,7 @@ class BuildWorker(QThread):
     finished_err = pyqtSignal(int)
     stopped      = pyqtSignal()
 
-    def __init__(self, command: str, cwd: str, env: dict, run_id: str = ""):
+    def __init__(self, command: BuildCommand, cwd: str, env: dict, run_id: str = ""):
         super().__init__()
         self._command = command
         self._cwd     = cwd
@@ -192,15 +236,15 @@ class BuildWorker(QThread):
         self._run_id  = run_id
         self._proc: Optional[subprocess.Popen] = None
         self._abort   = False
+        self._outcome: tuple[str, float] | None = None
 
     def run(self) -> None:
-        shell   = get_default_shell()
-        flag    = get_shell_exec_flag()
         start   = time.monotonic()
 
         try:
             self._proc = subprocess.Popen(
-                [shell, flag, self._command],
+                self._command if isinstance(self._command, list)
+                else [get_default_shell(), get_shell_exec_flag(), self._command],
                 cwd=self._cwd,
                 env=self._env,
                 stdout=subprocess.PIPE,
@@ -208,10 +252,17 @@ class BuildWorker(QThread):
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                **_popen_process_group_kwargs(),
             )
+            if self._abort:
+                _terminate_process_tree(self._proc)
+                self._outcome = ("stopped", 0)
+                self.stopped.emit()
+                return
             for line in self._proc.stdout:
                 if self._abort:
-                    self._proc.terminate()
+                    _terminate_process_tree(self._proc)
+                    self._outcome = ("stopped", 0)
                     self.stopped.emit()
                     return
                 self.output_line.emit(line.rstrip())
@@ -220,23 +271,24 @@ class BuildWorker(QThread):
             elapsed = time.monotonic() - start
 
             if self._abort:
+                self._outcome = ("stopped", 0)
                 self.stopped.emit()
             elif self._proc.returncode == 0:
+                self._outcome = ("ok", elapsed)
                 self.finished_ok.emit(elapsed)
             else:
+                self._outcome = ("error", float(self._proc.returncode))
                 self.finished_err.emit(self._proc.returncode)
 
         except Exception as e:
             self.output_line.emit(tr("build.error_prefix", error=str(e)))
+            self._outcome = ("error", -1)
             self.finished_err.emit(-1)
 
     def abort(self) -> None:
         self._abort = True
         if self._proc:
-            try:
-                self._proc.terminate()
-            except Exception:
-                pass
+            _terminate_process_tree(self._proc)
 
 
 class InteractiveBuildWorker(QThread):
@@ -247,7 +299,7 @@ class InteractiveBuildWorker(QThread):
     finished_err = pyqtSignal(int)
     stopped      = pyqtSignal()
 
-    def __init__(self, command: str, cwd: str, env: dict, run_id: str = ""):
+    def __init__(self, command: BuildCommand, cwd: str, env: dict, run_id: str = ""):
         super().__init__()
         self._command = command
         self._cwd     = cwd
@@ -256,6 +308,7 @@ class InteractiveBuildWorker(QThread):
         self._proc: Optional[subprocess.Popen] = None
         self._abort   = False
         self._input_queue: list[str] = []
+        self._outcome: tuple[str, float] | None = None
 
     def send_input(self, text: str) -> None:
         self._input_queue.append(text)
@@ -279,18 +332,23 @@ class InteractiveBuildWorker(QThread):
             master_fd, slave_fd = pty.openpty()
             try:
                 self._proc = subprocess.Popen(
-                    self._command,
+                    self._command if isinstance(self._command, list)
+                    else [get_default_shell(), get_shell_exec_flag(), self._command],
                     cwd=self._cwd,
                     env=self._env,
                     stdin=slave_fd,
                     stdout=slave_fd,
                     stderr=slave_fd,
-                    shell=True,
                     preexec_fn=os.setsid,
                     text=True,
                     encoding="utf-8",
                     errors="replace",
                 )
+                if self._abort:
+                    _terminate_process_tree(self._proc)
+                    self._outcome = ("stopped", 0)
+                    self.stopped.emit()
+                    return
                 os.close(slave_fd)
                 slave_fd = None
 
@@ -305,10 +363,8 @@ class InteractiveBuildWorker(QThread):
                 timeout = 0.05
                 while True:
                     if self._abort:
-                        try:
-                            os.killpg(os.getpgid(self._proc.pid), 15)
-                        except Exception:
-                            self._proc.terminate()
+                        _terminate_process_tree(self._proc)
+                        self._outcome = ("stopped", 0)
                         self.stopped.emit()
                         return
 
@@ -333,10 +389,13 @@ class InteractiveBuildWorker(QThread):
                 self._proc.wait()
                 elapsed = time.monotonic() - start
                 if self._abort:
+                    self._outcome = ("stopped", 0)
                     self.stopped.emit()
                 elif self._proc.returncode == 0:
+                    self._outcome = ("ok", elapsed)
                     self.finished_ok.emit(elapsed)
                 else:
+                    self._outcome = ("error", float(self._proc.returncode))
                     self.finished_err.emit(self._proc.returncode)
 
             finally:
@@ -359,6 +418,7 @@ class InteractiveBuildWorker(QThread):
 
         except Exception as e:
             self.output_line.emit(tr("build.error_prefix", error=str(e)))
+            self._outcome = ("error", -1)
             self.finished_err.emit(-1)
 
     def _run_pipe(self) -> None:
@@ -369,7 +429,8 @@ class InteractiveBuildWorker(QThread):
 
         try:
             self._proc = subprocess.Popen(
-                [shell, flag, self._command],
+                self._command if isinstance(self._command, list)
+                else [shell, flag, self._command],
                 cwd=self._cwd,
                 env=self._env,
                 stdin=subprocess.PIPE,
@@ -378,7 +439,13 @@ class InteractiveBuildWorker(QThread):
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                **_popen_process_group_kwargs(),
             )
+            if self._abort:
+                _terminate_process_tree(self._proc)
+                self._outcome = ("stopped", 0)
+                self.stopped.emit()
+                return
             import threading
 
             def _feed_input():
@@ -396,7 +463,8 @@ class InteractiveBuildWorker(QThread):
 
             for line in self._proc.stdout:
                 if self._abort:
-                    self._proc.terminate()
+                    _terminate_process_tree(self._proc)
+                    self._outcome = ("stopped", 0)
                     self.stopped.emit()
                     return
                 self.output_line.emit(line.rstrip())
@@ -404,23 +472,24 @@ class InteractiveBuildWorker(QThread):
             self._proc.wait()
             elapsed = time.monotonic() - start
             if self._abort:
+                self._outcome = ("stopped", 0)
                 self.stopped.emit()
             elif self._proc.returncode == 0:
+                self._outcome = ("ok", elapsed)
                 self.finished_ok.emit(elapsed)
             else:
+                self._outcome = ("error", float(self._proc.returncode))
                 self.finished_err.emit(self._proc.returncode)
 
         except Exception as e:
             self.output_line.emit(tr("build.error_prefix", error=str(e)))
+            self._outcome = ("error", -1)
             self.finished_err.emit(-1)
 
     def abort(self) -> None:
         self._abort = True
         if self._proc:
-            try:
-                self._proc.terminate()
-            except Exception:
-                pass
+            _terminate_process_tree(self._proc)
 
 
 # ─── Pulizia file ausiliari LaTeX ─────────────────────────────────────────────
@@ -477,6 +546,7 @@ class BuildManager(QObject):
         super().__init__()
         self._profiles: dict[str, dict] = dict(DEFAULT_PROFILES)
         self._workers: dict[str, BuildWorker | InteractiveBuildWorker] = {}
+        self._retired_workers: set[BuildWorker | InteractiveBuildWorker] = set()
         self._active_profile: str = ""
         self._profile_overrides: dict[str, str] = {}
         self._project_configs: dict[Path, tuple[int, dict]] = {}
@@ -749,11 +819,6 @@ class BuildManager(QObject):
             self.release_build_context(run_id)
             return False
 
-        command = self._expand_vars(
-            command, file_path, editor,
-            output_dir=latex_context.output_directory if latex_context else None,
-            root_file=latex_context.root if latex_context else None,
-        )
         command = self._configure_bibliography_command(
             command, profile, latex_context, editor.get_content())
 
@@ -813,6 +878,12 @@ class BuildManager(QObject):
         if ramdisk_copy_cmd:
             post_hook = f"{ramdisk_copy_cmd} && {post_hook}" if post_hook else ramdisk_copy_cmd
 
+        command = self._expand_profile_command(
+            command, file_path, editor,
+            output_dir=latex_context.output_directory if latex_context else None,
+            root_file=latex_context.root if latex_context else None,
+        )
+
         started = self._do_run(
             run_id, command, str(file_path.parent), env,
             profile, file_path, editor, interactive,
@@ -834,7 +905,7 @@ class BuildManager(QObject):
         self.build_started.emit(run_id, "task")
         self.build_output.emit(run_id, tr("msg.build_started", command=cmd))
 
-        self._spawn_worker(run_id, cmd, str(cwd), env, interactive)
+        self._spawn_worker(run_id, self._expand_command(cmd, None, None), str(cwd), env, interactive)
         return True
 
     @staticmethod
@@ -891,7 +962,7 @@ class BuildManager(QObject):
     def _run_pipeline(self, run_id: str, pipeline: list, file_path: Path,
                       editor, profile: dict, interactive: bool,
                       output_dir: Path | None = None) -> bool:
-        command = self._expand_vars(
+        command = self._expand_profile_command(
             pipeline[0].get("cmd", ""), file_path, editor, output_dir=output_dir)
         env = self._build_env(file_path, profile, output_dir=output_dir)
 
@@ -902,8 +973,7 @@ class BuildManager(QObject):
                                           total=len(pipeline),
                                           default="Pipeline [{step}/{total}] started"))
 
-        worker = self._spawn_worker(run_id, command, str(file_path.parent), env, interactive)
-        if worker:
+        def configure_worker(worker: BuildWorker | InteractiveBuildWorker) -> None:
             worker._pipeline_index = 0
             worker._pipeline = pipeline
             worker._pipeline_file_path = file_path
@@ -912,11 +982,15 @@ class BuildManager(QObject):
             worker._pipeline_interactive = interactive
             worker._pipeline_env = env
             worker._pipeline_output_dir = output_dir
+
+        self._spawn_worker(run_id, command, str(file_path.parent), env, interactive,
+                           setup=configure_worker)
         return True
 
-    def _continue_pipeline(self, run_id: str, success: bool) -> None:
-        worker = self._workers.get(run_id)
-        if not worker or not hasattr(worker, "_pipeline_index"):
+    def _continue_pipeline(self, run_id: str,
+                           worker: BuildWorker | InteractiveBuildWorker,
+                           success: bool) -> None:
+        if not hasattr(worker, "_pipeline_index"):
             return
 
         idx = getattr(worker, "_pipeline_index", 0)
@@ -929,7 +1003,6 @@ class BuildManager(QObject):
                    default="Pipeline step failed: {name}"))
             self.build_done.emit(run_id, False, tr("build.pipeline_failed",
                 default="Pipeline stopped due to error"))
-            self._workers.pop(run_id, None)
             self.release_build_context(run_id)
             return
 
@@ -939,7 +1012,6 @@ class BuildManager(QObject):
                 default="Pipeline completed successfully"))
             self.build_done.emit(run_id, True, tr("build.pipeline_success",
                 default="All pipeline steps passed"))
-            self._workers.pop(run_id, None)
             self.release_build_context(run_id)
             return
 
@@ -950,7 +1022,7 @@ class BuildManager(QObject):
         env = getattr(worker, "_pipeline_env", None)
         output_dir = getattr(worker, "_pipeline_output_dir", None)
 
-        cmd = self._expand_vars(
+        cmd = self._expand_profile_command(
             next_step.get("cmd", ""), file_path, editor, output_dir=output_dir)
         self.pipeline_step.emit(run_id, idx + 1, len(pipeline),
                                 next_step.get("name", f"Step {idx+1}"))
@@ -959,10 +1031,7 @@ class BuildManager(QObject):
                                           default="[{num}] {name}"))
 
         interactive = getattr(worker, "_pipeline_interactive", False)
-        next_worker = self._spawn_worker(
-            run_id, cmd, str(file_path.parent) if file_path else ".",
-            env, interactive)
-        if next_worker:
+        def configure_next(next_worker: BuildWorker | InteractiveBuildWorker) -> None:
             next_worker._pipeline_index = idx
             next_worker._pipeline = pipeline
             next_worker._pipeline_file_path = file_path
@@ -972,6 +1041,9 @@ class BuildManager(QObject):
             next_worker._pipeline_env = env
             next_worker._pipeline_output_dir = output_dir
 
+        self._spawn_worker(run_id, cmd, str(file_path.parent) if file_path else ".",
+                           env, interactive, setup=configure_next)
+
     def _build_env(self, file_path: Path, profile: dict,
                    output_dir: Path | None = None,
                    root_file: Path | None = None) -> dict:
@@ -980,6 +1052,9 @@ class BuildManager(QObject):
         env["NOTEPADPQ_FILE"]     = str(file_path)
         env["NOTEPADPQ_DIR"]      = str(file_path.parent)
         env["NOTEPADPQ_BASENAME"] = file_path.stem
+        env["NOTEPADPQ_BASEFILE"] = str(file_path.parent / file_path.stem)
+        env["NOTEPADPQ_EXT"]      = file_path.suffix
+        env["NOTEPADPQ_FILENAME"] = file_path.name
         env["NOTEPADPQ_ROOT"]     = str(root_file or file_path)
         env["NOTEPADPQ_OUTDIR"]   = str(output_dir or file_path.parent)
 
@@ -993,17 +1068,30 @@ class BuildManager(QObject):
                     k, v = line.split("=", 1)
                     env[k.strip()] = v.strip()
 
+        if file_path.suffix.lower() not in {".tex", ".ltx", ".latex"}:
+            # Profile variables may add tool-specific settings, but non-LaTeX
+            # shell placeholders must always refer to this selected file.
+            env["NOTEPADPQ_FILE"]     = str(file_path)
+            env["NOTEPADPQ_DIR"]      = str(file_path.parent)
+            env["NOTEPADPQ_BASENAME"] = file_path.stem
+            env["NOTEPADPQ_BASEFILE"] = str(file_path.parent / file_path.stem)
+            env["NOTEPADPQ_EXT"]      = file_path.suffix
+            env["NOTEPADPQ_FILENAME"] = file_path.name
+            env["NOTEPADPQ_ROOT"]     = str(root_file or file_path)
+            env["NOTEPADPQ_OUTDIR"]   = str(output_dir or file_path.parent)
+
         return env
 
-    def _do_run(self, run_id: str, command: str, cwd: str, env: dict,
+    def _do_run(self, run_id: str, command: BuildCommand, cwd: str, env: dict,
                 profile: dict, file_path: Path, editor,
                 interactive: bool, pre_hook: str = "", post_hook: str = "",
                 output_dir: Path | None = None) -> bool:
 
         from config.settings import Settings
 
-        def _exec_command(cmd: str) -> BuildWorker:
-            if file_path.suffix.lower() in {".tex", ".ltx", ".latex"} and Settings.instance().get("build/draft_mode", False):
+        def _exec_command(cmd: BuildCommand) -> BuildWorker:
+            if (isinstance(cmd, str) and file_path.suffix.lower() in {".tex", ".ltx", ".latex"}
+                    and Settings.instance().get("build/draft_mode", False)):
                 cmd = self._add_draftmode_flag(cmd)
 
             self.build_started.emit(run_id, "build")
@@ -1032,89 +1120,91 @@ class BuildManager(QObject):
                     self.build_output.emit(run_id,
                         tr("build_panel.aux_cleaned", n=len(removed), files=", ".join(removed)))
 
-            return self._spawn_worker(run_id, cmd, cwd, env, interactive)
+            def configure_main(worker: BuildWorker | InteractiveBuildWorker) -> None:
+                if post_hook:
+                    worker._post_hook = post_hook
+                    worker._post_hook_file_path = file_path
+                    worker._post_hook_editor = editor
+                    worker._output_dir = output_dir
+
+            return self._spawn_worker(run_id, cmd, cwd, env, interactive,
+                                      setup=configure_main)
 
         if pre_hook and pre_hook.strip():
-            hook_cmd = self._expand_vars(
+            hook_cmd = self._expand_profile_command(
                 pre_hook.strip(), file_path, editor, output_dir=output_dir)
             self.build_output.emit(run_id, tr("build.pre_hook", cmd=hook_cmd,
                 default="Pre-hook: {cmd}"))
-            hook_worker = self._spawn_worker(run_id + "_pre", hook_cmd, cwd, env, interactive)
-            if hook_worker:
-                hook_worker._is_hook = "pre"
-                hook_worker._main_command = command
-                hook_worker._main_cwd = cwd
-                hook_worker._main_env = env
-                hook_worker._main_profile = profile
-                hook_worker._main_file_path = file_path
-                hook_worker._main_editor = editor
-                hook_worker._main_interactive = interactive
-                hook_worker._main_output_dir = output_dir
-                hook_worker._post_hook = post_hook
-                hook_worker._output_dir = output_dir
+            def configure_hook(worker: BuildWorker | InteractiveBuildWorker) -> None:
+                worker._is_hook = "pre"
+                worker._main_command = command
+                worker._main_cwd = cwd
+                worker._main_env = env
+                worker._main_profile = profile
+                worker._main_file_path = file_path
+                worker._main_editor = editor
+                worker._main_interactive = interactive
+                worker._main_output_dir = output_dir
+                worker._post_hook = post_hook
+                worker._output_dir = output_dir
+
+            self._spawn_worker(run_id + "_pre", hook_cmd, cwd, env, interactive,
+                               setup=configure_hook)
             return True
 
-        worker = _exec_command(command)
-        if worker and post_hook:
-            worker._post_hook = post_hook
-            worker._post_hook_file_path = file_path
-            worker._post_hook_editor = editor
-            worker._output_dir = output_dir
-        return worker is not None
+        return _exec_command(command) is not None
 
-    def _spawn_worker(self, run_id: str, command: str, cwd: str, env: dict,
-                      interactive: bool = False) -> BuildWorker | InteractiveBuildWorker:
+    def _spawn_worker(self, run_id: str, command: BuildCommand, cwd: str, env: dict,
+                      interactive: bool = False,
+                      setup: Callable[[BuildWorker | InteractiveBuildWorker], None] | None = None
+                      ) -> BuildWorker | InteractiveBuildWorker:
         old = self._workers.pop(run_id, None)
-        if old and old.isRunning():
-            old.output_line.disconnect()
-            try:
-                old.finished_ok.disconnect()
-            except Exception:
-                pass
-            try:
-                old.finished_err.disconnect()
-            except Exception:
-                pass
-            try:
-                old.stopped.disconnect()
-            except Exception:
-                pass
+        if old:
             old.abort()
-            old.wait(2000)
-            if old.isRunning():
-                old.terminate()
+            self._retire_worker(old)
 
         cls = InteractiveBuildWorker if interactive else BuildWorker
         worker = cls(command, cwd, env, run_id)
         worker.output_line.connect(lambda line, rid=run_id: self.build_output.emit(rid, line))
         self._workers[run_id] = worker
-
-        if isinstance(worker, BuildWorker):
-            worker.finished_ok.connect(
-                lambda secs, rid=run_id: self._on_worker_done(rid, True, secs)
-            )
-            worker.finished_err.connect(
-                lambda code, rid=run_id: self._on_worker_done(rid, False, 0)
-            )
-            worker.stopped.connect(
-                lambda rid=run_id: self.build_done.emit(rid, False, tr("build.interrupted"))
-            )
-        else:
-            worker.finished_ok.connect(
-                lambda secs, rid=run_id: self._on_worker_done(rid, True, secs)
-            )
-            worker.finished_err.connect(
-                lambda code, rid=run_id: self._on_worker_done(rid, False, 0)
-            )
-            worker.stopped.connect(
-                lambda rid=run_id: self.build_done.emit(rid, False, tr("build.interrupted"))
-            )
+        worker.finished.connect(
+            lambda rid=run_id, w=worker: self._finalize_worker(rid, w)
+        )
+        if setup:
+            setup(worker)
 
         worker.start()
         return worker
 
-    def _on_worker_done(self, run_id: str, ok: bool, secs: float) -> None:
-        worker = self._workers.get(run_id)
+    def _retire_worker(self, worker: BuildWorker | InteractiveBuildWorker) -> None:
+        """Retain a running QThread until Qt confirms it has stopped."""
+        self._retired_workers.add(worker)
+        if not worker.isRunning():
+            self._delete_worker(worker)
+
+    def _delete_worker(self, worker: BuildWorker | InteractiveBuildWorker) -> None:
+        self._retired_workers.discard(worker)
+        if not worker.isRunning():
+            worker.deleteLater()
+
+    def _finalize_worker(self, run_id: str,
+                         worker: BuildWorker | InteractiveBuildWorker) -> None:
+        if self._workers.get(run_id) is not worker:
+            self._delete_worker(worker)
+            return
+        self._workers.pop(run_id, None)
+        outcome = worker._outcome or ("error", -1)
+        if outcome[0] == "stopped":
+            target_run_id = run_id.replace("_pre", "") if hasattr(worker, "_is_hook") else run_id
+            self.build_done.emit(target_run_id, False, tr("build.interrupted"))
+            self.release_build_context(target_run_id)
+            self._delete_worker(worker)
+            return
+        self._on_worker_done(run_id, worker, outcome[0] == "ok", outcome[1])
+        self._delete_worker(worker)
+
+    def _on_worker_done(self, run_id: str, worker: BuildWorker | InteractiveBuildWorker,
+                        ok: bool, secs: float) -> None:
 
         if hasattr(worker, "_is_hook") and worker._is_hook == "pre":
             if ok:
@@ -1136,11 +1226,11 @@ class BuildManager(QObject):
                 self.build_done.emit(run_id.replace("_pre", ""),
                                      False, tr("build.pre_hook_failed",
                 default="Pre-hook failed"))
-            self._workers.pop(run_id, None)
+            if not ok:
+                self.release_build_context(run_id.replace("_pre", ""))
             return
 
         if hasattr(worker, "_main_command"):
-            self._workers.pop(run_id, None)
             cmd = worker._main_command
             cwd = worker._main_cwd
             env = worker._main_env
@@ -1156,15 +1246,17 @@ class BuildManager(QObject):
             return
 
         if hasattr(worker, "_pipeline"):
-            self._continue_pipeline(run_id, ok)
+            self._continue_pipeline(run_id, worker, ok)
             return
 
         msg = tr("msg.build_finished_ok", seconds=f"{secs:.1f}") if ok else \
               tr("msg.build_finished_error", code=-1)
         self.build_done.emit(run_id, ok, msg)
 
+        self.release_build_context(run_id)
+
         if ok and hasattr(worker, "_post_hook") and worker._post_hook:
-            hook_cmd = self._expand_vars(
+            hook_cmd = self._expand_profile_command(
                 worker._post_hook.strip(),
                 getattr(worker, "_post_hook_file_path", None),
                 getattr(worker, "_post_hook_editor", None),
@@ -1204,7 +1296,62 @@ class BuildManager(QObject):
 
     # ── Espansione variabili ──────────────────────────────────────────────────
 
-    def _expand_vars(self, command: str, path: Path,
+    def _expand_profile_command(self, command: str, path: Path | None,
+                                editor: Optional["EditorWidget"],
+                                output_dir: Path | None = None,
+                                root_file: Path | None = None) -> BuildCommand:
+        # LaTeX profiles retain their established shell behavior. The argv
+        # conversion below is deliberately limited to non-LaTeX builds.
+        if path and path.suffix.lower() in {".tex", ".ltx", ".latex"}:
+            return self._expand_vars(command, path, editor, output_dir, root_file)
+        return self._expand_command(command, path, editor, output_dir, root_file)
+
+    def _expand_command(self, command: str, path: Path | None,
+                        editor: Optional["EditorWidget"],
+                        output_dir: Path | None = None,
+                        root_file: Path | None = None) -> BuildCommand:
+        """Expand a profile into argv unless it deliberately needs a shell.
+
+        Tokens are split before substitutions, which keeps a substituted path
+        with spaces as one argument and prevents filename characters from
+        becoming shell syntax.
+        """
+        if _command_needs_shell(command):
+            return self._expand_shell_vars(command, path, editor, output_dir, root_file)
+        try:
+            tokens = shlex.split(command, posix=True)
+        except ValueError:
+            # A malformed profile used to be executed by the shell; preserve
+            # that useful error output instead of failing in the UI thread.
+            return self._expand_shell_vars(command, path, editor, output_dir, root_file)
+        return [
+            self._expand_vars(token, path, editor, output_dir, root_file)
+            for token in tokens
+        ]
+
+    def _expand_shell_vars(self, command: str, path: Path | None,
+                           editor: Optional["EditorWidget"],
+                           output_dir: Path | None = None,
+                           root_file: Path | None = None) -> str:
+        """Use environment expansion for shell profiles so values are not reparsed."""
+        env_names = {
+            "FILE": "NOTEPADPQ_FILE",
+            "DIR": "NOTEPADPQ_DIR",
+            "BASENAME": "NOTEPADPQ_BASENAME",
+            "BASEFILE": "NOTEPADPQ_BASEFILE",
+            "EXT": "NOTEPADPQ_EXT",
+            "FILENAME": "NOTEPADPQ_FILENAME",
+            "OUTDIR": "NOTEPADPQ_OUTDIR",
+            "ROOT": "NOTEPADPQ_ROOT",
+        }
+        for name, env_name in env_names.items():
+            value_ref = f'"%{env_name}%"' if IS_WINDOWS else f'"${{{env_name}}}"'
+            command = command.replace(f"${{{name}}}", value_ref)
+            command = command.replace(f"$({name})", value_ref)
+        # Cursor positions are numeric and are not derived from a path.
+        return self._expand_vars(command, path, editor, output_dir, root_file)
+
+    def _expand_vars(self, command: str, path: Path | None,
                      editor: Optional["EditorWidget"],
                      output_dir: Path | None = None,
                      root_file: Path | None = None) -> str:

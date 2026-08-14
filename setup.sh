@@ -10,28 +10,19 @@ VENV_DIR="${PROJECT_DIR}/.venv"
 
 # ─── Configurazione pacchetti ─────────────────────────────────────────────────
 
-# Pacchetti Python fondamentali (sempre richiesti)
-CORE_PY="\
-PyQt6 \
-PyQt6-QScintilla \
-PyQt6-WebEngine \
-chardet \
-pygments \
-psutil \
-markdown \
-docutils \
-pyspellchecker \
-PyGithub \
-python-gitlab \
-keyring \
-cryptography \
-requests"
+# pyproject.toml is the authoritative source for dependencies and extras.
+CORE_PY="${PROJECT_DIR}"
 
 # Componenti opzionali
 OPT_LATEX="pymupdf matplotlib sympy"
 OPT_SPREAD="openpyxl xlrd odfpy"
 OPT_RICHTEXT="mammoth htmldocx pypandoc"
 OPT_FORMATTERS="black ruff"
+OPT_DATABASE="psycopg2-binary mysql-connector-python oracledb"
+OPT_FTP="paramiko"
+OPT_ENCRYPT="cryptography"
+OPT_GIT="PyGithub python-gitlab keyring"
+OPT_RESTCLIENT="requests"
 
 # ─── Helper: presenza uv ──────────────────────────────────────────────────────
 
@@ -41,14 +32,7 @@ _ensure_uv() {
         echo "   uv $(uv --version 2>/dev/null || echo 'non specificata') — già presente"
         return 0
     fi
-    echo "   Installazione uv (gestore pacchetti Python veloce)..."
-    if curl -LsSf https://astral.sh/uv/install.sh | sh 2>/dev/null; then
-        export PATH="$HOME/.local/bin:$PATH"
-        echo "   uv installato: $(uv --version 2>/dev/null)"
-        return 0
-    fi
-    echo "   ERRORE: impossibile installare uv."
-    return 1
+    echo "   uv non trovato: uso venv e pip senza scaricare script remoti."
 }
 
 # ─── Helper: crea .venv e installa pacchetti Python via uv ────────────────────
@@ -60,26 +44,29 @@ _uv_venv_install() {
 
     if [[ ! -d "$VENV_DIR" ]]; then
         echo "   Creazione virtualenv con uv in ${VENV_DIR}..."
-        uv venv $venv_opts "$VENV_DIR" 2>/dev/null || {
-            # fallback: python -m venv
+        if command -v uv &>/dev/null; then
+            uv venv $venv_opts "$VENV_DIR" 2>/dev/null || true
+        fi
+        if [[ ! -x "${VENV_DIR}/bin/python" ]]; then
             if [[ -n "$venv_opts" ]]; then
                 $PYTHON -m venv $venv_opts "$VENV_DIR"
             else
                 $PYTHON -m venv "$VENV_DIR"
             fi
-        }
+        fi
     else
         echo "   Virtualenv esistente: ${VENV_DIR}"
     fi
 
     echo "   Installazione ${label} nel venv..."
-    uv pip install --python "${VENV_DIR}/bin/python" $pkgs || {
-        echo "   uv fallito, provo con pip nel venv..."
-        "${VENV_DIR}/bin/pip" install --quiet $pkgs || {
-            echo "   ERRORE: installazione ${label} fallita."
-            return 1
+    if command -v uv &>/dev/null; then
+        uv pip install --python "${VENV_DIR}/bin/python" "$pkgs" || {
+            echo "   uv fallito, provo con pip nel venv..."
+            "${VENV_DIR}/bin/pip" install --quiet "$pkgs"
         }
-    }
+    else
+        "${VENV_DIR}/bin/pip" install --quiet "$pkgs"
+    fi
     return 0
 }
 
@@ -148,6 +135,7 @@ _choose_optional() {
             case "$pkg" in
                 pymupdf)     imp="fitz" ;;  odfpy)       imp="odf" ;;
                 PyGithub)    imp="github" ;; python-gitlab) imp="gitlab" ;;
+                mysql-connector-python) imp="mysql.connector" ;;
                 PyQt6-QScintilla) imp="PyQt6.Qsci" ;;
                 *)           imp=$(echo "$pkg" | tr '-' '_') ;;
             esac
@@ -163,6 +151,11 @@ _choose_optional() {
     local st_spread;      st_spread=$(_check_group "$OPT_SPREAD")
     local st_richtext;    st_richtext=$(_check_group "$OPT_RICHTEXT")
     local st_formatters;  st_formatters=$(_check_group "$OPT_FORMATTERS")
+    local st_database;    st_database=$(_check_group "$OPT_DATABASE")
+    local st_ftp;         st_ftp=$(_check_group "$OPT_FTP")
+    local st_encrypt;     st_encrypt=$(_check_group "$OPT_ENCRYPT")
+    local st_git;         st_git=$(_check_group "$OPT_GIT")
+    local st_restclient;  st_restclient=$(_check_group "$OPT_RESTCLIENT")
 
     _label() {
         case "$1" in all) echo "✓ già installato";; partial) echo "~ parziale";; *) echo "✗ mancante";; esac
@@ -176,21 +169,31 @@ _choose_optional() {
     printf "║  [2] Foglio di calcolo (openpyxl, xlrd, odfpy)        %s║\n" "$(_label "$st_spread")"
     printf "║  [3] Rich Text WYSIWYG (mammoth, htmldocx, pypandoc)  %s║\n" "$(_label "$st_richtext")"
     printf "║  [4] Code Formatter (black, ruff)                      %s║\n" "$(_label "$st_formatters")"
+    printf "║  [5] Database (PostgreSQL, MySQL, Oracle)               %s║\n" "$(_label "$st_database")"
+    printf "║  [6] FTP/SFTP (paramiko)                                %s║\n" "$(_label "$st_ftp")"
+    printf "║  [7] Crittografia (cryptography)                        %s║\n" "$(_label "$st_encrypt")"
+    printf "║  [8] GitHub/GitLab e keyring                            %s║\n" "$(_label "$st_git")"
+    printf "║  [9] REST client (requests)                             %s║\n" "$(_label "$st_restclient")"
     echo "║  [a] Tutti                                                ║"
     echo "║  [n] Nessuno (solo dipendenze base)                       ║"
     echo "╚══════════════════════════════════════════════════════════════════╝"
     echo -n "Scelta (es. 1 2 3 4, a, n): "
     read -r CHOICE
 
-    IL=false; IS=false; IR=false; IF=false
+    IL=false; IS=false; IR=false; IF=false; IDB=false; IFTP=false; IENC=false; IGIT=false; IREST=false
     case "$CHOICE" in
-        a|A) IL=true; IS=true; IR=true; IF=true ;;
+        a|A) IL=true; IS=true; IR=true; IF=true; IDB=true; IFTP=true; IENC=true; IGIT=true; IREST=true ;;
         n|N|'') ;;
         *)
             [[ "$CHOICE" == *1* ]] && IL=true
             [[ "$CHOICE" == *2* ]] && IS=true
             [[ "$CHOICE" == *3* ]] && IR=true
             [[ "$CHOICE" == *4* ]] && IF=true
+            [[ "$CHOICE" == *5* ]] && IDB=true
+            [[ "$CHOICE" == *6* ]] && IFTP=true
+            [[ "$CHOICE" == *7* ]] && IENC=true
+            [[ "$CHOICE" == *8* ]] && IGIT=true
+            [[ "$CHOICE" == *9* ]] && IREST=true
             ;;
     esac
     # Nota: anche se i pacchetti risultano già installati nel sistema,
@@ -211,11 +214,18 @@ echo
 echo "=== Installazione dipendenze ==="
 
 # ─── Raccogliamo la lista completa dei pacchetti Python da installare ─────────
-ALL_PY="$CORE_PY"
-$IL && ALL_PY="$ALL_PY $OPT_LATEX"
-$IS && ALL_PY="$ALL_PY $OPT_SPREAD"
-$IR && ALL_PY="$ALL_PY $OPT_RICHTEXT"
-$IF && ALL_PY="$ALL_PY $OPT_FORMATTERS"
+SELECTED_EXTRAS=""
+$IL && SELECTED_EXTRAS="${SELECTED_EXTRAS},latex"
+$IS && SELECTED_EXTRAS="${SELECTED_EXTRAS},spreadsheet"
+$IR && SELECTED_EXTRAS="${SELECTED_EXTRAS},richtext"
+$IF && SELECTED_EXTRAS="${SELECTED_EXTRAS},formatter"
+$IDB && SELECTED_EXTRAS="${SELECTED_EXTRAS},database"
+$IFTP && SELECTED_EXTRAS="${SELECTED_EXTRAS},ftp"
+$IENC && SELECTED_EXTRAS="${SELECTED_EXTRAS},encrypt"
+$IGIT && SELECTED_EXTRAS="${SELECTED_EXTRAS},git"
+$IREST && SELECTED_EXTRAS="${SELECTED_EXTRAS},restclient"
+INSTALL_TARGET="$CORE_PY"
+[[ -n "$SELECTED_EXTRAS" ]] && INSTALL_TARGET="${PROJECT_DIR}[${SELECTED_EXTRAS#,}]"
 
 # ─── Funzione di installazione per-distro ─────────────────────────────────────
 
@@ -229,13 +239,13 @@ Darwin)
         exit 1
     fi
     brew install pandoc clang-format 2>/dev/null || true
-    _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python"
+    _ensure_uv && _uv_venv_install "$INSTALL_TARGET" "dipendenze Python"
     ;;
 
 # ── Windows (MINGW/CYGWIN/MSYS) ───────────────────────────────────────────────
 MINGW*|CYGWIN*|MSYS*)
     echo "==> Windows: installazione via pip"
-    $PYTHON -m pip install --quiet $ALL_PY || {
+    $PYTHON -m pip install --quiet "$INSTALL_TARGET" || {
         echo "   ERRORE: pip fallito. Installa uv (pip install uv) e riprova."
         exit 1
     }
@@ -252,15 +262,9 @@ FreeBSD)
         "py${PY_VER}-markdown" \
         "py${PY_VER}-docutils" \
         "py${PY_VER}-pygments" \
-        "py${PY_VER}-psutil" \
-        "py${PY_VER}-requests" \
-        "py${PY_VER}-cryptography" \
-        "py${PY_VER}-keyring" \
-        "py${PY_VER}-python-gitlab" \
-        "py${PY_VER}-odfpy" \
-        pandoc 2>/dev/null || true
+        "py${PY_VER}-psutil" 2>/dev/null || true
     # Pacchetti non disponibili nei port → uv
-    _ensure_uv && _uv_venv_install "PyQt6 PyQt6-WebEngine PyQt6-QScintilla pyspellchecker PyGithub $ALL_PY" "dipendenze rimanenti"
+    _ensure_uv && _uv_venv_install "$INSTALL_TARGET" "dipendenze rimanenti"
     ;;
 
 # ── Linux ─────────────────────────────────────────────────────────────────────
@@ -271,10 +275,7 @@ Linux)
 
         APKGS="python-pyqt6 python-pyqt6-webengine python-qscintilla-qt6"
         APKGS="$APKGS python-chardet python-markdown python-docutils"
-        APKGS="$APKGS python-pygments python-psutil python-requests"
-        APKGS="$APKGS python-pyspellchecker python-pygithub python-gitlab"
-        APKGS="$APKGS python-keyring python-cryptography"
-        APKGS="$APKGS pandoc"
+        APKGS="$APKGS python-pygments python-psutil python-pyspellchecker"
 
         $IL && APKGS="$APKGS python-pymupdf python-matplotlib python-sympy"
         $IS && APKGS="$APKGS python-openpyxl python-xlrd python-odfpy"
@@ -285,7 +286,7 @@ Linux)
 
         # Il venv eredita i pacchetti pacman e riceve i mancanti via uv
         echo "   Installazione pacchetti rimanenti via uv..."
-        _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python" "--system-site-packages"
+        _ensure_uv && _uv_venv_install "$INSTALL_TARGET" "dipendenze Python" "--system-site-packages"
 
     elif command -v apt-get &>/dev/null; then
         # ─── Debian / Ubuntu ──────────────────────────────────────────────────
@@ -296,8 +297,7 @@ Linux)
         # Pacchetti disponibili via apt
         APT="python3-pyqt6 python3-pyqt6.qscintilla python3-pyqt6.qtwebengine"
         APT="$APT python3-chardet python3-markdown python3-docutils"
-        APT="$APT python3-pygments python3-psutil python3-requests"
-        APT="$APT python3-cryptography python3-keyring python3-pip python3-venv"
+        APT="$APT python3-pygments python3-psutil python3-pip python3-venv"
 
         $IL && APT="$APT python3-matplotlib python3-sympy"
         $IS && APT="$APT python3-openpyxl python3-xlrd python3-odf"
@@ -307,7 +307,7 @@ Linux)
 
         # Pacchetti NON disponibili via apt → uv (venv eredita i pacchetti apt)
         echo "   Installazione pacchetti rimanenti via uv..."
-        _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python" "--system-site-packages"
+        _ensure_uv && _uv_venv_install "$INSTALL_TARGET" "dipendenze Python" "--system-site-packages"
 
     elif command -v dnf &>/dev/null; then
         # ─── Fedora ───────────────────────────────────────────────────────────
@@ -315,8 +315,7 @@ Linux)
 
         DNF="python3-qt6 python3-qscintilla-qt6 python3-qt6-webengine"
         DNF="$DNF python3-chardet python3-markdown python3-docutils"
-        DNF="$DNF python3-pygments python3-psutil python3-requests"
-        DNF="$DNF python3-cryptography python3-keyring python3-pip"
+        DNF="$DNF python3-pygments python3-psutil python3-pip"
 
         $IL && DNF="$DNF python3-matplotlib python3-sympy"
         $IS && DNF="$DNF python3-openpyxl python3-xlrd python3-odfpy"
@@ -326,19 +325,19 @@ Linux)
 
         # Pacchetti NON disponibili via dnf → uv (venv eredita i pacchetti dnf)
         echo "   Installazione pacchetti rimanenti via uv..."
-        _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python" "--system-site-packages"
+        _ensure_uv && _uv_venv_install "$INSTALL_TARGET" "dipendenze Python" "--system-site-packages"
 
     else
         # ─── Altra distro Linux (fallback totale su uv) ───────────────────────
         echo "==> Distro Linux sconosciuta: installazione tutto via uv"
-        _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python"
+        _ensure_uv && _uv_venv_install "$INSTALL_TARGET" "dipendenze Python"
     fi
     ;;
 
 # ── Fallback ──────────────────────────────────────────────────────────────────
 *)
     echo "==> OS sconosciuto: installazione via uv"
-    _ensure_uv && _uv_venv_install "$ALL_PY" "dipendenze Python"
+    _ensure_uv && _uv_venv_install "$INSTALL_TARGET" "dipendenze Python"
     ;;
 esac
 
@@ -361,11 +360,20 @@ _verify_module "$VERIFY_PY" "psutil"              "psutil"             "pip inst
 _verify_module "$VERIFY_PY" "markdown"            "markdown"           "pip install markdown"
 _verify_module "$VERIFY_PY" "docutils"            "docutils"           "pip install docutils"
 _verify_module "$VERIFY_PY" "spellchecker"        "spellchecker"       "pip install pyspellchecker"
-_verify_module "$VERIFY_PY" "github"              "PyGithub"           "pip install PyGithub"
-_verify_module "$VERIFY_PY" "gitlab"              "python-gitlab"      "pip install python-gitlab"
-_verify_module "$VERIFY_PY" "keyring"             "keyring"            "pip install keyring"
-_verify_module "$VERIFY_PY" "cryptography"        "cryptography"       "pip install cryptography"
-_verify_module "$VERIFY_PY" "requests"            "requests"           "pip install requests"
+echo
+echo "--- Database, FTP e servizi (opzionale) ---"
+_verify_module "$VERIFY_PY" "psycopg2"            "PostgreSQL"         "pip install '.[database]'"
+_verify_module "$VERIFY_PY" "mysql.connector"     "MySQL"              "pip install '.[database]'"
+_verify_module "$VERIFY_PY" "oracledb"            "Oracle"             "pip install '.[database]'"
+_verify_module "$VERIFY_PY" "paramiko"            "SFTP"               "pip install '.[ftp]'"
+_verify_module "$VERIFY_PY" "requests"            "REST client"        "pip install '.[restclient]'"
+
+echo
+echo "--- Git e sicurezza (opzionale) ---"
+_verify_module "$VERIFY_PY" "github"              "PyGithub"           "pip install '.[git]'"
+_verify_module "$VERIFY_PY" "gitlab"              "python-gitlab"      "pip install '.[git]'"
+_verify_module "$VERIFY_PY" "keyring"             "keyring"            "pip install '.[git]'"
+_verify_module "$VERIFY_PY" "cryptography"        "cryptography"       "pip install '.[encrypt]'"
 
 echo
 echo "--- Foglio di calcolo (opzionale) ---"

@@ -14,12 +14,11 @@ finish-args:
   - --share=ipc
   # GPU access (Qt rendering)
   - --device=dri
-  # Full filesystem access — needed to open arbitrary files
-  - --filesystem=host
+  # User-selected documents in the home directory; do not expose host mounts.
+  - --filesystem=home
   # Network access — for AI plugin, LSP servers, FTP plugin
   - --share=network
-  # D-Bus — for single-instance guard, keyring
-  - --socket=session-bus
+  # Keyring access is limited to the Secret Service name.
   - --talk-name=org.freedesktop.secrets
 
 build-options:
@@ -29,44 +28,14 @@ build-options:
     PIP_DISABLE_PIP_VERSION_CHECK: '1'
 
 modules:
-  # ── Python pip dependencies ───────────────────────────────────────────────
-  # Generate with: flatpak-pip-generator --runtime org.kde.Platform//6.7 \
-  #   PyQt6-QScintilla chardet markdown docutils pyspellchecker \
-  #   keyring cryptography PyGithub python-gitlab pygments psutil \
-  #   mammoth htmldocx openpyxl xlrd odfpy pymupdf matplotlib sympy
-  # Then include the generated python3-modules.json here.
-  #
-  # Until then, install via pip at build time (not suitable for Flathub
-  # which requires offline builds — use flatpak-pip-generator output):
-  - name: python-deps
-    buildsystem: simple
-    build-commands:
-      - pip3 install --prefix=/app --no-build-isolation
-          PyQt6-QScintilla
-          chardet
-          markdown
-          docutils
-          pyspellchecker
-          keyring
-          cryptography
-          PyGithub
-          python-gitlab
-          pygments
-          psutil
-          mammoth
-          htmldocx
-          openpyxl
-          xlrd
-          odfpy
-    sources:
-      - type: shell
-        commands:
-          - echo "pip deps installed at build time — replace with pip-generator output for Flathub"
-
   # ── Application ───────────────────────────────────────────────────────────
   - name: notepadpq
     buildsystem: simple
     build-commands:
+      # Development builds resolve all extras from pyproject.toml. Replace this
+      # with a flatpak-pip-generator source manifest for offline Flathub builds.
+      - pip3 install --prefix=/app --no-build-isolation ".[all]"
+
       # Install application files
       - install -d /app/lib/notepadpq
       - cp -r . /app/lib/notepadpq/
@@ -109,5 +78,5 @@ modules:
     sources:
       - type: git
         url: https://github.com/buzzqw/NotePadPQ.git
-        tag: '1.1.7'
-        # commit: fill in after tagging the release
+        tag: 'v1.9.2'
+        commit: e8a705e015d7082c7e0d9783bf5c9a3439d51de7

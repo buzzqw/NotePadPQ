@@ -46,6 +46,11 @@ LANG_ID_MAP: dict[str, str] = {
 }
 
 
+def _path_to_uri(path: str | Path) -> str:
+    """Return an absolute, percent-encoded file URI for an LSP path."""
+    return Path(path).expanduser().resolve().as_uri()
+
+
 def is_server_available(language: str) -> bool:
     import shutil
     entry = LSP_SERVERS.get(language.lower())
@@ -184,7 +189,7 @@ class LSPWorker(QThread):
 
             self._send(self._proto.request("initialize", {
                 "processId": None,
-                "rootUri": f"file://{self._workspace}",
+                "rootUri": _path_to_uri(self._workspace),
                 "capabilities": {
                     "textDocument": {
                         "completion": {
@@ -476,7 +481,7 @@ class LSPClient(QObject):
     def open_file(self, path: Path, content: str, language_id: str) -> None:
         if self._stopped:
             return
-        uri = path.as_uri()
+        uri = _path_to_uri(path)
         self._document_versions.setdefault(uri, 1)
         if uri in self._open_files:
             self._open_files[uri][0] += 1
@@ -493,7 +498,7 @@ class LSPClient(QObject):
         }))
 
     def update_file(self, path: Path, content: str, version: int) -> None:
-        uri = path.as_uri()
+        uri = _path_to_uri(path)
         opened = self._open_files.get(uri)
         if not self._initialized or not self._worker:
             if opened is not None:
@@ -544,8 +549,20 @@ class LSPClient(QObject):
     def uses_incremental_sync(self) -> bool:
         return self._incremental_sync
 
+    def _lsp_position(self, path: Path, line: int, col: int) -> dict[str, int]:
+        """Convert QScintilla's Python-character column to LSP UTF-16 units."""
+        uri = _path_to_uri(path)
+        opened = self._open_files.get(uri)
+        content = opened[1] if opened is not None else None
+        character = max(0, col)
+        if isinstance(content, str):
+            lines = content.split("\n")
+            if 0 <= line < len(lines):
+                character = len(lines[line][:character].encode("utf-16-le")) // 2
+        return {"line": line, "character": character}
+
     def close_file(self, path: Path) -> None:
-        uri = path.as_uri()
+        uri = _path_to_uri(path)
         opened = self._open_files.get(uri)
         if opened is None:
             return
@@ -562,7 +579,7 @@ class LSPClient(QObject):
 
     def next_document_version(self, path: Path) -> int:
         """Genera una versione monotona condivisa tra i tab dello stesso file."""
-        uri = path.as_uri()
+        uri = _path_to_uri(path)
         version = self._document_versions.get(uri, 1) + 1
         self._document_versions[uri] = version
         return version
@@ -572,10 +589,11 @@ class LSPClient(QObject):
             return None
         req_id = self._proto.next_id()
         self._pending[req_id] = "completion"
-        self._completion_uris[req_id] = path.as_uri()
+        uri = _path_to_uri(path)
+        self._completion_uris[req_id] = uri
         self._worker.send(self._proto.request("textDocument/completion", {
-            "textDocument": {"uri": path.as_uri()},
-            "position":     {"line": line, "character": col},
+            "textDocument": {"uri": uri},
+            "position":     self._lsp_position(path, line, col),
         }, req_id=req_id))
         return req_id
 
@@ -585,8 +603,8 @@ class LSPClient(QObject):
         req_id = self._proto.next_id()
         self._pending[req_id] = "hover"
         self._worker.send(self._proto.request("textDocument/hover", {
-            "textDocument": {"uri": path.as_uri()},
-            "position":     {"line": line, "character": col},
+            "textDocument": {"uri": _path_to_uri(path)},
+            "position":     self._lsp_position(path, line, col),
         }, req_id=req_id))
 
     def request_definition(self, path: Path, line: int, col: int) -> None:
@@ -595,8 +613,8 @@ class LSPClient(QObject):
         req_id = self._proto.next_id()
         self._pending[req_id] = "definition"
         self._worker.send(self._proto.request("textDocument/definition", {
-            "textDocument": {"uri": path.as_uri()},
-            "position":     {"line": line, "character": col},
+            "textDocument": {"uri": _path_to_uri(path)},
+            "position":     self._lsp_position(path, line, col),
         }, req_id=req_id))
 
     def request_references(self, path: Path, line: int, col: int) -> None:
@@ -605,8 +623,8 @@ class LSPClient(QObject):
         req_id = self._proto.next_id()
         self._pending[req_id] = "references"
         self._worker.send(self._proto.request("textDocument/references", {
-            "textDocument": {"uri": path.as_uri()},
-            "position":     {"line": line, "character": col},
+            "textDocument": {"uri": _path_to_uri(path)},
+            "position":     self._lsp_position(path, line, col),
             "context":      {"includeDeclaration": True},
         }, req_id=req_id))
 
@@ -616,7 +634,7 @@ class LSPClient(QObject):
         req_id = self._proto.next_id()
         self._pending[req_id] = "formatting"
         self._worker.send(self._proto.request("textDocument/formatting", {
-            "textDocument": {"uri": path.as_uri()},
+            "textDocument": {"uri": _path_to_uri(path)},
             "options":      {"tabSize": tab_size, "insertSpaces": insert_spaces},
         }, req_id=req_id))
 
@@ -626,8 +644,8 @@ class LSPClient(QObject):
         req_id = self._proto.next_id()
         self._pending[req_id] = "rename"
         self._worker.send(self._proto.request("textDocument/rename", {
-            "textDocument": {"uri": path.as_uri()},
-            "position":     {"line": line, "character": col},
+            "textDocument": {"uri": _path_to_uri(path)},
+            "position":     self._lsp_position(path, line, col),
             "newName":      new_name,
         }, req_id=req_id))
 
@@ -637,8 +655,8 @@ class LSPClient(QObject):
         req_id = self._proto.next_id()
         self._pending[req_id] = "signature"
         self._worker.send(self._proto.request("textDocument/signatureHelp", {
-            "textDocument": {"uri": path.as_uri()},
-            "position":     {"line": line, "character": col},
+            "textDocument": {"uri": _path_to_uri(path)},
+            "position":     self._lsp_position(path, line, col),
         }, req_id=req_id))
 
     def stop(self) -> None:

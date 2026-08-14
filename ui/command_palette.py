@@ -41,20 +41,7 @@ class CommandPaletteDialog(QDialog):
     def _build_ui(self) -> None:
         self.setMinimumWidth(520)
         self.setMaximumHeight(420)
-        self.setStyleSheet("""
-            QDialog { border: 1px solid #555; border-radius: 4px; }
-            QLineEdit {
-                font-size: 14px; padding: 6px 8px;
-                border: none; border-bottom: 1px solid #444;
-                background: #252526; color: #cccccc;
-            }
-            QListView {
-                background: #1e1e1e; color: #cccccc;
-                border: none; font-size: 13px;
-            }
-            QListView::item:selected { background: #094771; }
-            QListView::item:hover    { background: #2a2d2e; }
-        """)
+        self.setAccessibleName(tr("action.command_palette"))
 
         vl = QVBoxLayout(self)
         vl.setContentsMargins(0, 0, 0, 0)
@@ -62,6 +49,7 @@ class CommandPaletteDialog(QDialog):
 
         self._search = QLineEdit()
         self._search.setPlaceholderText(tr("command_palette.placeholder"))
+        self._search.setAccessibleName(tr("command_palette.placeholder"))
         self._search.textChanged.connect(self._filter)
         vl.addWidget(self._search)
 
@@ -72,6 +60,8 @@ class CommandPaletteDialog(QDialog):
         self._proxy.setFilterKeyColumn(0)
 
         self._list = QListView()
+        self._list.setAccessibleName(tr("action.command_palette"))
+        self._list.setAccessibleDescription(tr("command_palette.placeholder"))
         self._list.setModel(self._proxy)
         self._list.setEditTriggers(QListView.EditTrigger.NoEditTriggers)
         self._list.doubleClicked.connect(self._execute)

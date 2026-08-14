@@ -519,7 +519,13 @@ class EditorWidget(QsciScintilla):
         super().__init__(parent)
 
         # Stato documento
-        self._encoding: str    = "UTF-8"
+        from config.settings import Settings
+        settings = Settings.instance()
+        default_encoding = settings.get("file/default_encoding", "UTF-8")
+        # FileManager uses the display form below for a UTF-8 BOM encoding.
+        self._encoding: str = (
+            "UTF-8 BOM" if default_encoding == "UTF-8-BOM" else default_encoding
+        )
         self._line_ending: LineEnding = LineEnding.LF
         self._file_path: Optional[Path] = None
         self._read_only_forced: bool = False
@@ -527,7 +533,6 @@ class EditorWidget(QsciScintilla):
         self._overwrite: bool  = False
         self._show_line_numbers: bool = True
         self._paged_line_offset: Optional[int] = None
-        from config.settings import Settings
         self._smart_highlight_enabled: bool = Settings.instance().get(
             "editor/smart_highlight_enabled", True
         )
@@ -605,6 +610,16 @@ class EditorWidget(QsciScintilla):
         self._setup_caret()
         self._setup_selection()
         self._setup_connections()
+
+        self.apply_indentation_preferences(
+            settings.get("editor/tab_width", 4),
+            settings.get("editor/use_tabs", False),
+            settings.get("editor/auto_indent", True),
+        )
+        try:
+            self.set_line_ending(LineEnding[settings.get("file/default_line_ending", "LF")])
+        except KeyError:
+            self.set_line_ending(LineEnding.LF)
 
         # Font default da piattaforma
         self.set_font_family(get_preferred_monospace_font(), 11)
@@ -1314,6 +1329,25 @@ class EditorWidget(QsciScintilla):
         """Segna il documento come non modificato dopo il salvataggio."""
         self.setModified(False)
 
+    def apply_save_formatting(self, trim_trailing: bool,
+                              add_final_newline: bool) -> None:
+        """Apply configured whitespace rules before persisting the document."""
+        text = self.text()
+        formatted = text
+        if trim_trailing:
+            formatted = "\n".join(line.rstrip(" \t") for line in formatted.split("\n"))
+        if add_final_newline and formatted and not formatted.endswith("\n"):
+            formatted += "\n"
+        if formatted == text:
+            return
+
+        line, column = self.getCursorPosition()
+        scroll_value = self.verticalScrollBar().value()
+        self.setText(formatted)
+        line = min(line, self.lines() - 1)
+        self.setCursorPosition(line, min(column, len(self.text(line))))
+        self.verticalScrollBar().setValue(scroll_value)
+
     # ── Font ──────────────────────────────────────────────────────────────────
 
     def set_font_family(self, family: str, size: int = 11) -> None:
@@ -1421,6 +1455,13 @@ class EditorWidget(QsciScintilla):
 
     def set_use_tabs(self, use_tabs: bool) -> None:
         self.setIndentationsUseTabs(use_tabs)
+
+    def apply_indentation_preferences(self, tab_width: int, use_tabs: bool,
+                                      auto_indent: bool) -> None:
+        """Apply indentation settings shared by newly created and open editors."""
+        self.set_tab_width(tab_width)
+        self.set_use_tabs(use_tabs)
+        self.setAutoIndent(auto_indent)
 
     # ── Line ending ───────────────────────────────────────────────────────────
 
@@ -2208,7 +2249,10 @@ class EditorWidget(QsciScintilla):
             self.clearIndicatorRange(start, 0, end, 0, INDICATOR_SPELL)
             self._spell_marked_range = self._spell_check_range
         for line_s, col_s, line_e, col_e in positions:
-            self.fillIndicatorRange(line_s, col_s, line_e, col_e, INDICATOR_SPELL)
+            start = self.positionFromLineIndex(line_s, col_s)
+            end = self.positionFromLineIndex(line_e, col_e)
+            self.SendScintilla(QsciScintilla.SCI_SETINDICATORCURRENT, INDICATOR_SPELL)
+            self.SendScintilla(QsciScintilla.SCI_INDICATORFILLRANGE, start, end - start)
 
     def contextMenuEvent(self, event) -> None:
         """Menu contestuale: suggerimenti ortografici in cima, poi azioni standard."""
@@ -2589,11 +2633,18 @@ class EditorWidget(QsciScintilla):
         _, col = self.lineIndexFromPosition(scin_pos)
         for m in _RE_SPELL.finditer(line_text):
             if m.start() <= col <= m.end():
-                return m.group(0), line, m.start(), line, m.end()
+                return (
+                    m.group(0), line,
+                    self.char_col_to_byte_col(line, m.start()), line,
+                    self.char_col_to_byte_col(line, m.end()),
+                )
         return None
 
     def _spell_replace(self, ls: int, cs: int, le: int, ce: int, replacement: str) -> None:
-        self.setSelection(ls, cs, le, ce)
+        """Replace a spell-check range using QScintilla byte columns."""
+        start = self.SendScintilla(QsciScintilla.SCI_POSITIONFROMLINE, ls) + cs
+        end = self.SendScintilla(QsciScintilla.SCI_POSITIONFROMLINE, le) + ce
+        self.SendScintilla(QsciScintilla.SCI_SETSEL, start, end)
         self.replaceSelectedText(replacement)
 
     def _spell_add_to_personal(self, word: str) -> None:

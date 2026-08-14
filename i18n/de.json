@@ -530,6 +530,7 @@
     "export_done": "Export abgeschlossen: {path}",
     "export_plain_warning": "Als reinen Text exportieren, Formatierung geht verloren. Fortfahren?",
     "file_read_error_status": "Lesefehler: {error}",
+    "autobackup_failed": "Automatisches Backup fuer {path} fehlgeschlagen: {error}",
     "file_reloaded": "Datei von Festplatte neu geladen.",
     "ftp_sync_error": "Sync-Fehler: {error}",
     "language_set": "Sprache auf {lang} gesetzt.",
@@ -686,7 +687,7 @@
     "lang": {
       "choose": "Schnittstellensprache",
       "label": "Sprache:",
-      "restart_note": "Die Sprachänderung wird sofort übernommen."
+      "restart_note": "Die Sprachänderung wird nach einem Neustart der Anwendung übernommen."
     },
     "theme_editor_unavailable": "Der Design-Editor ist in dieser Version nicht verfügbar.",
     "theme_imported": "Design importiert: {name}",
@@ -1582,6 +1583,10 @@
     "rename_title": "Rename",
     "rename_prompt": "New name:",
     "delete_confirm_title": "Confirm deletion",
+    "delete_file_confirm": "Datei '{name}' in den Papierkorb verschieben?",
+    "delete_folder_confirm": "Ordner '{name}' mit seinem gesamten Inhalt in den Papierkorb verschieben?",
+    "delete_to_trash": "Er kann aus dem Papierkorb wiederhergestellt werden.",
+    "delete_permanently": "Der Papierkorb ist nicht verfügbar. Das ausgewählte Element wird dauerhaft gelöscht.",
     "delete_confirm": "Delete {kind} '{name}'?\nThis operation cannot be undone.",
     "file_exists_error": "File '{name}' already exists.",
     "folder_exists_error": "Folder '{name}' already exists.",
@@ -1659,6 +1664,11 @@
   },
   "command_palette": {
     "placeholder": "Befehl suchen…"
+  },
+  "tab_switcher": {
+    "name": "Tab-Wechsler",
+    "description": "Zwischen offenen Tabs wechseln",
+    "open_tabs": "Offene Tabs"
   },
   "table_grid_picker": {
     "label_latex": "LaTeX tabular",

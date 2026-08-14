@@ -23,6 +23,83 @@ from PyQt6.QtWidgets import (
 from i18n.i18n import tr
 from core.platform import get_config_dir
 
+# These actions used the same shipped defaults. Keep the commonly used general
+# actions unchanged and give the specialized actions deterministic alternatives.
+_SHIPPED_DEFAULT_OVERRIDES = {
+    "lsp_format": "Ctrl+Alt+Shift+F",
+    "toggle_checklist": "Ctrl+Alt+L",
+}
+_DEFAULT_SHORTCUT_PROPERTY = "notepadpq_default_shortcut"
+_DEFAULT_SHORTCUTS_PROPERTY = "notepadpq_default_shortcuts"
+
+
+def _default_shortcut(key: str, action: QAction) -> str:
+    """Return the action's immutable shipped default, not its current binding."""
+    stored = action.property(_DEFAULT_SHORTCUT_PROPERTY)
+    if stored is not None:
+        return str(stored)
+    sequences = _default_shortcuts(key, action)
+    default = sequences[0] if sequences else ""
+    action.setProperty(_DEFAULT_SHORTCUT_PROPERTY, default)
+    return default
+
+
+def _default_shortcuts(key: str, action: QAction) -> list[str]:
+    """Return every immutable default sequence, including secondary bindings."""
+    stored = action.property(_DEFAULT_SHORTCUTS_PROPERTY)
+    if stored is not None:
+        return [str(shortcut) for shortcut in stored]
+    override = _SHIPPED_DEFAULT_OVERRIDES.get(key)
+    sequences = [override] if override else [
+        shortcut.toString() for shortcut in action.shortcuts() if not shortcut.isEmpty()
+    ]
+    action.setProperty(_DEFAULT_SHORTCUTS_PROPERTY, sequences)
+    return sequences
+
+
+def _apply_default_shortcuts(key: str, action: QAction) -> None:
+    action.setShortcuts([QKeySequence(shortcut) for shortcut in _default_shortcuts(key, action)])
+
+
+def _capture_default_shortcuts(actions: dict[str, QAction]) -> dict[str, str]:
+    """Capture defaults once and clear any remaining duplicate shipped shortcut."""
+    defaults: dict[str, str] = {}
+    owners: dict[str, str] = {}
+    for key, action in actions.items():
+        default = _default_shortcut(key, action)
+        if default and default in owners:
+            # Do not leave an ambiguous default even if a future action adds a
+            # duplicate without updating _SHIPPED_DEFAULT_OVERRIDES.
+            print(f"[keybinding] duplicate default {default}: {owners[default]}, {key}")
+            default = ""
+            action.setProperty(_DEFAULT_SHORTCUT_PROPERTY, default)
+            action.setProperty(_DEFAULT_SHORTCUTS_PROPERTY, [])
+        elif default:
+            owners[default] = key
+        defaults[key] = default
+    return defaults
+
+
+def _valid_saved_shortcuts(actions: dict[str, QAction], defaults: dict[str, str],
+                           saved: dict[str, str]) -> dict[str, str]:
+    """Discard stale overrides that would collide with defaults or each other."""
+    candidates = {
+        key: shortcut for key, shortcut in saved.items()
+        if key in actions and isinstance(shortcut, str) and shortcut != defaults[key]
+    }
+    assigned = {
+        shortcut for key, shortcut in defaults.items()
+        if shortcut and key not in candidates
+    }
+    valid: dict[str, str] = {}
+    for key, shortcut in candidates.items():
+        if shortcut and shortcut in assigned:
+            continue
+        valid[key] = shortcut
+        if shortcut:
+            assigned.add(shortcut)
+    return valid
+
 
 class KeySequenceEdit(QLineEdit):
     """Campo di testo che cattura una combinazione di tasti."""
@@ -64,7 +141,8 @@ class KeyBindingDialog(QDialog):
         super().__init__(parent)
         self._actions = actions
         self._modified: dict[str, str] = {}   # action_key → new shortcut string
-        self._saved = self._load_saved()
+        self._defaults = _capture_default_shortcuts(actions)
+        self._saved = _valid_saved_shortcuts(actions, self._defaults, self._load_saved())
 
         self.setWindowTitle(tr("action.keybinding_editor"))
         self.resize(720, 500)
@@ -169,9 +247,8 @@ class KeyBindingDialog(QDialog):
             if not action_text:
                 continue
 
-            # Scorciatoia corrente (da saved o dall'azione)
-            current = self._saved.get(key, action.shortcut().toString())
-            default = action.shortcut().toString()
+            default = self._defaults[key]
+            current = self._modified.get(key, self._saved.get(key, default))
 
             row = self._table.rowCount()
             self._table.insertRow(row)
@@ -273,7 +350,7 @@ class KeyBindingDialog(QDialog):
 
         action = self._actions.get(key)
         if action:
-            default = action.shortcut().toString()
+            default = self._defaults[key]
             self._modified.pop(key, None)
             self._saved.pop(key, None)
             item_curr = self._table.item(row, 1)
@@ -297,10 +374,10 @@ class KeyBindingDialog(QDialog):
         """Trova un'azione che usa già questa scorciatoia."""
         if not seq_str:
             return None
-        for key, action in self._actions.items():
+        for key, _action in self._actions.items():
             if key == exclude_key:
                 continue
-            current = self._modified.get(key, self._saved.get(key, action.shortcut().toString()))
+            current = self._modified.get(key, self._saved.get(key, self._defaults[key]))
             if current == seq_str:
                 return key
         return None
@@ -322,6 +399,10 @@ class KeyBindingDialog(QDialog):
     def _save(self) -> None:
         all_saved = dict(self._saved)
         all_saved.update(self._modified)
+        all_saved = {
+            key: shortcut for key, shortcut in all_saved.items()
+            if key in self._defaults and shortcut != self._defaults[key]
+        }
         try:
             self._shortcuts_path().write_text(
                 json.dumps(all_saved, ensure_ascii=False, indent=2),
@@ -331,7 +412,9 @@ class KeyBindingDialog(QDialog):
             pass
 
     def _on_ok(self) -> None:
-        # Applica le modifiche alle azioni Qt
+        # Reset first so removed overrides restore the immutable shipped value.
+        for key, action in self._actions.items():
+            _apply_default_shortcuts(key, action)
         all_changes = dict(self._saved)
         all_changes.update(self._modified)
         for key, seq_str in all_changes.items():
@@ -347,13 +430,17 @@ def load_and_apply_shortcuts(actions: dict[str, QAction]) -> None:
     Carica e applica le scorciatoie salvate all'avvio dell'applicazione.
     Chiamato da MainWindow dopo aver costruito i menu.
     """
+    defaults = _capture_default_shortcuts(actions)
+    for key, action in actions.items():
+        _apply_default_shortcuts(key, action)
+
     p = get_config_dir() / "shortcuts.json"
     if not p.exists():
         return
     try:
         saved = json.loads(p.read_text(encoding="utf-8"))
-        for key, seq_str in saved.items():
-            action = actions.get(key)
+        for key, seq_str in _valid_saved_shortcuts(actions, defaults, saved).items():
+            action = actions[key]
             if action:
                 action.setShortcut(QKeySequence(seq_str))
     except Exception:

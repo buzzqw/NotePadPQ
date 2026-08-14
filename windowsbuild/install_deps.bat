@@ -47,36 +47,14 @@ if errorlevel 1 goto :error
 REM ── Dipendenze CORE (sempre installate) ──────────────────────
 echo.
 echo [3/4] Installo dipendenze CORE...
-python -m pip install ^
-    "PyQt6>=6.0.0" ^
-    "PyQt6-QScintilla>=2.13.0" ^
-    "PyQt6-WebEngine>=6.0.0" ^
-    "chardet>=4.0.0" ^
-    "pygments>=2.10.0" ^
-    "psutil>=5.9.0"
+python -m pip install ".."
 if errorlevel 1 goto :error
 
 REM ── Dipendenze OPZIONALI (solo versione full) ─────────────────
 if /i "%MODE%"=="full" (
     echo.
     echo [4/4] Installo dipendenze OPZIONALI ^(versione Full^)...
-    python -m pip install ^
-        "pymupdf>=1.20.0" ^
-        "markdown>=3.3.0" ^
-        "docutils>=0.18" ^
-        "matplotlib>=3.5.0" ^
-        "sympy>=1.10" ^
-        "mammoth>=0.11.0" ^
-        "htmldocx>=0.0.6" ^
-        "pypandoc>=1.8.0" ^
-        "pyspellchecker>=0.7.0" ^
-        "openpyxl>=3.1.0" ^
-        "xlrd>=2.0.1" ^
-        "odfpy>=1.4.1" ^
-        "PyGithub>=1.55" ^
-        "python-gitlab>=3.0.0" ^
-        "keyring>=23.5.0" ^
-        "cryptography>=41.0.0"
+    python -m pip install "..[all]"
     if errorlevel 1 goto :error
 ) else (
     echo.

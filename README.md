@@ -246,7 +246,7 @@ python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
-python main.py
+notepadpq
 ```
 
 On Windows, use `py -m venv .venv` and `.venv\\Scripts\\activate`. On Linux,
@@ -266,13 +266,18 @@ python -m pip install -e ".[latex,spreadsheet,richtext,database,ftp,encrypt,form
 |---|---|---|
 | `latex` | PDF hover, equation rendering and advanced LaTeX preview | `pymupdf`, `matplotlib`, `sympy` |
 | `spreadsheet` | XLSX/XLS/ODS workflows | `openpyxl`, `xlrd`, `odfpy` |
-| `richtext` | WYSIWYG and document conversion | `mammoth`, `htmldocx` |
+| `richtext` | WYSIWYG and document conversion | `mammoth`, `htmldocx`, `pypandoc` |
 | `database` | PostgreSQL, MySQL/MariaDB and Oracle connectors | `psycopg2-binary`, `mysql-connector-python`, `oracledb` |
 | `ftp` | SFTP support | `paramiko` |
 | `encrypt` | Strong encryption algorithms | `cryptography` |
 | `formatter` | Python formatters | `black`, `ruff` |
 | `restclient` | Advanced HTTP features | `requests` |
+| `git` | GitHub/GitLab workflows and token storage | `PyGithub`, `python-gitlab`, `keyring` |
 | `dev` | Test tooling | `pytest`, `pytest-qt` |
+
+`requirements.txt` is a compatibility entry point for builds that need every
+application feature (`.[all]`); dependency versions and extras are defined only
+in `pyproject.toml`.
 
 Some plugins also use system tools. Pandoc and LibreOffice are needed for
 selected document conversions; Prettier, `clang-format`, `rustfmt` and `gofmt`

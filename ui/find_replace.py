@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import bisect
 import html
+import hashlib
 import os
 import fnmatch
 import re
@@ -27,7 +28,7 @@ from PyQt6.QtWidgets import (
     QGridLayout, QLabel, QLineEdit, QCheckBox, QPushButton,
     QPlainTextEdit, QTreeWidget, QTreeWidgetItem, QComboBox,
     QGroupBox, QSplitter, QFileDialog, QApplication,
-    QRadioButton, QButtonGroup, QSpinBox, QSlider, QHeaderView,
+    QRadioButton, QButtonGroup, QSpinBox, QSlider, QHeaderView, QMessageBox,
 )
 from PyQt6.Qsci import QsciScintilla
 
@@ -35,6 +36,7 @@ from i18n.i18n import tr
 from editor.editor_widget import (
     EditorWidget, INDICATOR_FIND, INDICATOR_MARK1, INDICATOR_FIND_LINE,
 )
+from core.file_manager import FileManager
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -44,6 +46,25 @@ _last_find_text   = ""
 _last_replace_text= ""
 _last_flags: dict = {}
 _instance: Optional["FindReplaceDialog"] = None
+
+_MAX_REPLACE_FILES = 1_000
+_MAX_REPLACE_FILE_BYTES = 50 * 1024 * 1024
+
+
+def _source_file_for_replace(path: Path) -> tuple[str, str, bool, bytes]:
+    """Read source text without normalizing its encoding or line endings."""
+    raw = path.read_bytes()
+    text, encoding, _line_ending = FileManager.read(path)
+    has_bom = raw.startswith((
+        b"\xef\xbb\xbf", b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff",
+        b"\xff\xfe", b"\xfe\xff",
+    ))
+    return text, encoding, has_bom, hashlib.sha256(raw).digest()
+
+
+def _write_replaced_source(path: Path, text: str, encoding: str, has_bom: bool) -> None:
+    """Atomically replace a source file and retain a recoverable pre-image."""
+    FileManager.write(path, text, encoding, write_bom=has_bom, backup=True)
 
 def _results_colors() -> dict:
     """Colori della lista risultati derivati dal tema attivo, così l'elenco
@@ -163,7 +184,7 @@ class _FindInFilesWorker(QObject):
                     continue
                 fpath = Path(root) / fname
                 try:
-                    text = fpath.read_text(encoding="utf-8", errors="replace")
+                    text, _encoding, _has_bom, _source_digest = _source_file_for_replace(fpath)
                 except Exception:
                     continue
                 lines = text.split("\n")
@@ -213,6 +234,7 @@ class _ReplaceInFilesWorker(QObject):
             else [(self._base_dir, [], os.listdir(self._base_dir))]
 
         files_to_modify = []
+        scanned_files = 0
         for root, _, files in walker:
             if self._cancelled.is_set():
                 return
@@ -222,15 +244,26 @@ class _ReplaceInFilesWorker(QObject):
                 if self._filters and not any(fnmatch.fnmatch(fname, f) for f in self._filters):
                     continue
                 fpath = Path(root) / fname
+                scanned_files += 1
+                if scanned_files > _MAX_REPLACE_FILES:
+                    self.error.emit(
+                        f"Replace in Files stopped after {_MAX_REPLACE_FILES} files; narrow the filter."
+                    )
+                    return
                 try:
-                    text = fpath.read_text(encoding="utf-8", errors="replace")
+                    if not fpath.is_file() or fpath.stat().st_size > _MAX_REPLACE_FILE_BYTES:
+                        continue
+                    text, encoding, has_bom, source_digest = _source_file_for_replace(fpath)
                 except Exception:
                     continue
                 new_text, count = self._pattern.subn(self._replace_text, text)
                 if count > 0:
-                    files_to_modify.append((str(fpath), new_text, count))
+                    # Keep the source text to refuse a stale overwrite after confirmation.
+                    files_to_modify.append(
+                        (str(fpath), new_text, count, encoding, has_bom, source_digest)
+                    )
 
-        total_matches = sum(c for _, _, c in files_to_modify)
+        total_matches = sum(item[2] for item in files_to_modify)
         total_files   = len(files_to_modify)
         self.finished.emit(files_to_modify, total_matches, total_files)
 
@@ -249,17 +282,24 @@ class _ReplaceWriterWorker(QObject):
 
     def write_all(self) -> None:
         errors = []
-        total_matches = sum(c for _, _, c in self._files_list)
-        total_files   = len(self._files_list)
-        for fpath, new_text, _ in self._files_list:
+        written_matches = 0
+        written_files = 0
+        for fpath, new_text, count, encoding, has_bom, source_digest in self._files_list:
             if self._cancelled.is_set():
                 return
             try:
-                Path(fpath).write_text(new_text, encoding="utf-8")
+                path = Path(fpath)
+                _current_text, _current_encoding, _current_bom, current_digest = _source_file_for_replace(path)
+                if current_digest != source_digest:
+                    errors.append(f"{fpath}: file changed since the replacement was reviewed")
+                    continue
+                _write_replaced_source(path, new_text, encoding, has_bom)
                 self.file_written.emit(fpath, new_text)
+                written_matches += count
+                written_files += 1
             except Exception as exc:
-                errors.append(str(exc))
-        self.finished.emit(total_matches, total_files, errors)
+                errors.append(f"{fpath}: {exc}")
+        self.finished.emit(written_matches, written_files, errors)
 
 
 class _ElasticTreeWidget(QTreeWidget):
@@ -664,7 +704,10 @@ ESEMPI
         self._btn_replace.clicked.connect(self._do_replace)
         self._btn_replace_all.clicked.connect(self._do_replace_all)
         self._btn_find_next2.clicked.connect(
-            lambda: self._do_find(self._find_edit2, forward=True)
+            lambda: self._do_find(
+                self._find_edit2, forward=True, flags=self._get_flags_replace(),
+                status_label=self._lbl_replace_status,
+            )
         )
 
         return w
@@ -862,7 +905,8 @@ ESEMPI
         self._do_find(self._find_edit, forward=False)
 
     def _do_find(self, edit_widget, forward: bool = True,
-                 highlight_all: bool = True) -> bool:
+                 highlight_all: bool = True, flags: Optional[dict] = None,
+                 status_label: Optional[QLabel] = None) -> bool:
         editor = self._current_editor()
         if not editor:
             return False
@@ -870,7 +914,8 @@ ESEMPI
         if not text:
             return False
 
-        flags = self._get_flags()
+        flags = flags or self._get_flags()
+        status_label = status_label or self._lbl_status
         # Se in_selection è attivo e c'è testo selezionato, limita la ricerca
         # alla selezione usando setTargetRange di QScintilla
         if flags.get("in_selection") and editor.hasSelectedText():
@@ -892,7 +937,7 @@ ESEMPI
             forward,
         )
         if found:
-            self._lbl_status.setText("")
+            status_label.setText("")
             # findFirst seleziona il match, ma QScintilla disegna la selezione
             # attenuata quando l'editor non ha il focus (dopo Ctrl+F il focus
             # resta sul dialog) e non centra la riga. Rinforziamo con
@@ -900,7 +945,7 @@ ESEMPI
             # centrata, sempre visibili.
             self._emphasize_find_selection(editor)
         else:
-            self._lbl_status.setText(tr("msg.no_results", query=text))
+            status_label.setText(tr("msg.no_results", query=text))
         return found
 
     def _emphasize_find_selection(self, editor) -> None:
@@ -1254,7 +1299,7 @@ ESEMPI
             "case_sensitive": self._chk_case2.isChecked(),
             "whole_word": self._chk_word2.isChecked(),
             "regex": self._chk_regex2.isChecked(),
-            "wrap_around": self._chk_wrap2.isChecked(),
+            "wrap": self._chk_wrap2.isChecked(),
         }
 
     def _populate_replace_occurrences(self, editor, pattern_text: str, flags: dict) -> None:
@@ -1429,9 +1474,31 @@ ESEMPI
             return
         find_text    = self._find_edit2.currentText()
         replace_text = self._replace_edit.currentText()
+        flags = self._get_flags_replace()
+        compiled = self._build_pattern(find_text, flags)
+        if compiled is None:
+            if self._last_pattern_error:
+                self._lbl_replace_status.setText(
+                    tr("msg.regex_invalid", error=self._last_pattern_error))
+            return
+
         if editor.hasSelectedText():
-            editor.replaceSelectedText(replace_text)
-        self._do_find(self._find_edit2, forward=True)
+            selected = editor.selectedText()
+            match = compiled.fullmatch(selected)
+            if match is None:
+                self._lbl_replace_status.setText(tr("msg.no_results", query=find_text))
+                return
+            try:
+                replacement = match.expand(replace_text) if flags["regex"] else replace_text
+            except (IndexError, re.error) as exc:
+                self._lbl_replace_status.setText(tr("msg.regex_invalid", error=str(exc)))
+                return
+            editor.replaceSelectedText(replacement)
+
+        self._do_find(
+            self._find_edit2, forward=True, flags=flags,
+            status_label=self._lbl_replace_status,
+        )
 
     def _do_replace_all(self) -> None:
         editor = self._current_editor()
@@ -1456,6 +1523,18 @@ ESEMPI
         except re.error:
             return
         if count > 0:
+            reply = QMessageBox.question(
+                self,
+                tr("action.replace"),
+                tr(
+                    "msg.confirm_replace_current",
+                    count=count,
+                    default=f"Replace {count} matches in the current document?",
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
             cursor = editor.getCursorPosition()
             editor.beginUndoAction()
             editor.selectAll()
@@ -1593,7 +1672,6 @@ ESEMPI
                 editor.setFocus()
 
     def _do_replace_in_files(self) -> None:
-        from PyQt6.QtWidgets import QMessageBox
         query        = self._fif_find.text().strip()
         replace_text = self._fif_replace.text()
         base_dir     = self._fif_dir.text().strip()
@@ -1637,14 +1715,7 @@ ESEMPI
             self._fif_status.setText(tr("msg.replace_no_matches"))
             return
 
-        from PyQt6.QtWidgets import QMessageBox
-        reply = QMessageBox.question(
-            self,
-            tr("action.replace_in_files"),
-            tr("msg.confirm_replace_files", count=total_matches, files=total_files),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
+        if not self._confirm_file_replacement(total_matches, total_files):
             return
 
         self._fif_status.setText(tr("msg.replacing"))
@@ -1669,7 +1740,6 @@ ESEMPI
                 editor.mark_saved()
 
     def _on_rif_write_done(self, total_matches: int, total_files: int, errors: list) -> None:
-        from PyQt6.QtWidgets import QMessageBox
         if errors:
             QMessageBox.warning(self, tr("action.replace_in_files"), "\n".join(errors))
 
@@ -1695,9 +1765,15 @@ ESEMPI
         except re.error:
             return
         try:
-            content = fpath.read_text(encoding="utf-8", errors="replace")
+            content, encoding, has_bom, source_digest = _source_file_for_replace(fpath)
             new_content, count = pattern.subn(replace_text, content)
-            fpath.write_text(new_content, encoding="utf-8")
+            if count == 0:
+                return
+            if not self._confirm_file_replacement(count, 1):
+                return
+            if _source_file_for_replace(fpath)[3] != source_digest:
+                raise RuntimeError("file changed since the replacement was reviewed")
+            _write_replaced_source(fpath, new_content, encoding, has_bom)
             self._update_open_editor(fpath, new_content)
         except Exception as exc:
             self._fif_status.setText(tr("msg.replace_file_error", path=str(fpath), error=str(exc)))
@@ -1717,32 +1793,50 @@ ESEMPI
         col_end   = data["col_end"]
 
         try:
-            content = fpath.read_text(encoding="utf-8", errors="replace")
+            content, encoding, has_bom, source_digest = _source_file_for_replace(fpath)
         except Exception as exc:
             self._fif_status.setText(tr("msg.replace_file_error", path=str(fpath), error=str(exc)))
             return
 
-        lines = content.split("\n")
+        lines = content.splitlines(keepends=True)
         if line_num - 1 >= len(lines):
             return
-        line = lines[line_num - 1]
+        line_with_ending = lines[line_num - 1]
+        line = line_with_ending.rstrip("\r\n")
 
-        if self._fif_regex.isChecked():
-            query    = self._fif_find.text().strip()
-            re_flags = 0 if self._fif_case.isChecked() else re.IGNORECASE
-            try:
-                m = re.compile(query, re_flags).search(line, col_start)
-                repl = m.expand(replace_text) if (m and m.start() == col_start) else replace_text
-            except re.error:
-                repl = replace_text
-        else:
-            repl = replace_text
+        query = self._fif_find.text().strip()
+        re_flags = 0 if self._fif_case.isChecked() else re.IGNORECASE
+        try:
+            pattern = re.compile(query if self._fif_regex.isChecked() else re.escape(query), re_flags)
+        except re.error as exc:
+            self._fif_status.setText(tr("msg.regex_error", error=str(exc)))
+            return
+        match = pattern.search(line, col_start)
+        if match is None or match.start() != col_start or match.end() != col_end:
+            self._fif_status.setText(tr("msg.replace_file_error", path=str(fpath),
+                                        error="match is no longer current"))
+            return
+        try:
+            repl = match.expand(replace_text) if self._fif_regex.isChecked() else replace_text
+        except (IndexError, re.error) as exc:
+            self._fif_status.setText(tr("msg.regex_error", error=str(exc)))
+            return
 
-        lines[line_num - 1] = line[:col_start] + repl + line[col_end:]
-        new_content = "\n".join(lines)
+        # Result coordinates are from the reviewed search result; do not replace
+        # a different match if the source changed before this click.
+        if col_start < 0 or col_end < col_start:
+            self._fif_status.setText(tr("msg.replace_file_error", path=str(fpath),
+                                        error="match is no longer current"))
+            return
+        if not self._confirm_file_replacement(1, 1):
+            return
+        lines[line_num - 1] = line[:col_start] + repl + line[col_end:] + line_with_ending[len(line):]
+        new_content = "".join(lines)
 
         try:
-            fpath.write_text(new_content, encoding="utf-8")
+            if _source_file_for_replace(fpath)[3] != source_digest:
+                raise RuntimeError("file changed since the replacement was reviewed")
+            _write_replaced_source(fpath, new_content, encoding, has_bom)
             self._update_open_editor(fpath, new_content)
         except Exception as exc:
             self._fif_status.setText(tr("msg.replace_file_error", path=str(fpath), error=str(exc)))
@@ -1779,6 +1873,16 @@ ESEMPI
                 line = min(cursor[0], max(0, editor.lines() - 1))
                 editor.setCursorPosition(line, 0)
                 editor.mark_saved()
+
+    def _confirm_file_replacement(self, count: int, files: int) -> bool:
+        """Require a deliberate confirmation before changing source files."""
+        reply = QMessageBox.question(
+            self,
+            tr("action.replace_in_files"),
+            tr("msg.confirm_replace_files", count=count, files=files),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
 
     # ── Find in All Docs ──────────────────────────────────────────────────────
 
@@ -1863,7 +1967,7 @@ ESEMPI
         if compiled is None:
             return
 
-        total = 0
+        replacements = []
         skipped_paged = 0
         for editor in self._mw._tab_manager.all_editors():
             if getattr(editor, "_paged_doc", None) is not None:
@@ -1875,6 +1979,22 @@ ESEMPI
             text = editor.text()
             new_text, count = compiled.subn(replace_text, text)
             if count > 0:
+                replacements.append((editor, text, new_text, count))
+
+        if replacements:
+            total = sum(count for _editor, _text, _new_text, count in replacements)
+            reply = QMessageBox.question(
+                self,
+                tr("action.replace_in_all_docs"),
+                tr("msg.confirm_replace_files", count=total, files=len(replacements)),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            for editor, text, new_text, _count in replacements:
+                # Do not apply a transform calculated from stale editor text.
+                if editor.text() != text:
+                    continue
                 cursor = editor.getCursorPosition()
                 editor.beginUndoAction()
                 editor.selectAll()
@@ -1882,7 +2002,6 @@ ESEMPI
                 editor.endUndoAction()
                 line = min(cursor[0], max(0, editor.lines() - 1))
                 editor.setCursorPosition(line, cursor[1])
-                total += count
 
         if skipped_paged:
             self._all_status.setText(tr(

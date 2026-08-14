@@ -176,6 +176,11 @@ class TabManager(QTabWidget):
             from config.settings import Settings
             from editor.editor_widget import MARGIN_FOLD
             s = Settings.instance()
+            editor.apply_indentation_preferences(
+                s.get("editor/tab_width", 4),
+                s.get("editor/use_tabs", False),
+                s.get("editor/auto_indent", True),
+            )
             editor.set_show_line_numbers(s.get("editor/show_line_numbers", True))
             editor.setMarginWidth(MARGIN_FOLD, 14 if s.get("editor/show_fold_margin", True) else 0)
             editor.set_show_whitespace(s.get("editor/show_whitespace", False))
@@ -391,7 +396,10 @@ class TabManager(QTabWidget):
             except (TypeError, RuntimeError):
                 pass
 
-    def _on_close_requested(self, index: int) -> None:
+    def _on_close_requested(self, index: int) -> bool:
+        """Request a tab close, returning False only when it was cancelled."""
+        if index < 0 or index >= self.count():
+            return False
         editor = self.editor_at(index)
         if editor and editor.is_modified():
             name = (editor.file_path.name if editor.file_path
@@ -404,20 +412,20 @@ class TabManager(QTabWidget):
                 QMessageBox.StandardButton.Cancel
             )
             if reply == QMessageBox.StandardButton.Cancel:
-                return
+                return False
             elif reply == QMessageBox.StandardButton.Save:
                 win = self.window()
                 if hasattr(win, "action_save"):
                     self.set_current_editor(editor)
                     if not win.action_save():
-                        return
+                        return False
         elif editor is None:
             # Potrebbe essere un tab custom (spreadsheet) con modifiche non salvate
             widget = self.widget(index)
             saving = getattr(widget, "is_save_in_progress", None)
             if widget in self._custom_tabs and callable(saving) and saving():
                 self._defer_custom_close(widget)
-                return
+                return True
             if widget in self._custom_tabs and hasattr(widget, "is_modified") and widget.is_modified():
                 path = self._custom_tabs.get(widget)
                 name = path.name if path else "foglio di calcolo"
@@ -429,18 +437,19 @@ class TabManager(QTabWidget):
                     QMessageBox.StandardButton.Cancel
                 )
                 if reply == QMessageBox.StandardButton.Cancel:
-                    return
+                    return False
                 elif reply == QMessageBox.StandardButton.Save:
                     if hasattr(widget, "save"):
                         deferred = self._defer_custom_close(widget)
                         if not widget.save():
                             if deferred:
                                 self._cancel_deferred_custom_close(widget)
-                            return
+                            return False
                         if deferred:
-                            return
+                            return True
 
         self._close_tab_at(index)
+        return True
 
     def _close_tab_at(self, index: int) -> None:
         container = self.widget(index)
@@ -479,22 +488,32 @@ class TabManager(QTabWidget):
     def close_current_tab(self) -> None:
         self._on_close_requested(self.currentIndex())
 
-    def close_other_tabs(self) -> None:
-        current = self.currentIndex()
-        for i in range(self.count() - 1, -1, -1):
-            if i != current:
-                self._close_tab_at(i)
+    def close_other_tabs(self) -> bool:
+        """Close every non-current tab through the normal save/discard flow."""
+        current = self.currentWidget()
+        targets = [self.widget(i) for i in range(self.count())]
+        for widget in reversed(targets):
+            if widget is current:
+                continue
+            index = self.indexOf(widget)
+            if index >= 0:
+                self.setCurrentIndex(index)
+                if not self._on_close_requested(index):
+                    if current is not None and self.indexOf(current) >= 0:
+                        self.setCurrentIndex(self.indexOf(current))
+                    return False
+        if current is not None and self.indexOf(current) >= 0:
+            self.setCurrentIndex(self.indexOf(current))
+        return True
 
     def close_all_tabs(self) -> bool:
         """Chiude tutti i tab. Restituisce False se l'utente annulla."""
-        for i in range(self.count() - 1, -1, -1):
-            editor = self.editor_at(i)
-            if editor and editor.is_modified():
-                self.setCurrentIndex(i)
-                self._on_close_requested(i)
-                if self.count() > 0 and self.editor_at(
-                    min(i, self.count()-1)
-                ) == editor:
+        targets = [self.widget(i) for i in range(self.count())]
+        for widget in reversed(targets):
+            index = self.indexOf(widget)
+            if index >= 0:
+                self.setCurrentIndex(index)
+                if not self._on_close_requested(index):
                     return False
         return True
 

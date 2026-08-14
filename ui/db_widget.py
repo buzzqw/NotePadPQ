@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -77,6 +78,9 @@ _DRIVERS: dict[str, dict] = {
         "needs_host": True,
     },
 }
+
+_DB_CONNECT_TIMEOUT_SECONDS = 15
+_ORPHANED_DB_WORKERS: set[QThread] = set()
 
 
 def _driver_available(db_type: str) -> bool:
@@ -463,14 +467,32 @@ class DBConnectDialog(QDialog):
             dlg = DBDriverInstallerDialog(info["type"], self)
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
-        try:
-            conn = _open_connection(info)
-            conn.close()
+        if getattr(self, "_test_worker", None) is not None:
+            return
+        self._test_lbl.setText(tr("db_widget.executing", default="Esecuzione…"))
+        worker = _ConnectionWorker(info)
+        worker.completed.connect(self._on_test_completed)
+        worker.finished.connect(worker.deleteLater)
+        self._test_worker = worker
+        worker.start()
+
+    def _on_test_completed(self, error: str, cancelled: bool) -> None:
+        self._test_worker = None
+        if cancelled:
+            self._test_lbl.setText(tr("db_widget.cancelled", default="Annullato"))
+            return
+        if not error:
             self._test_lbl.setText(tr("db.connection_success"))
             self._test_lbl.setStyleSheet("color: green; font-size: 11px;")
-        except Exception as exc:
-            self._test_lbl.setText(tr("db.connection_test_failed", error=str(exc)))
-            self._test_lbl.setStyleSheet("color: red; font-size: 11px;")
+            return
+        self._test_lbl.setText(tr("db.connection_test_failed", error=error))
+        self._test_lbl.setStyleSheet("color: red; font-size: 11px;")
+
+    def reject(self) -> None:
+        worker = getattr(self, "_test_worker", None)
+        if worker is not None:
+            worker.cancel()
+        super().reject()
 
     def _accept(self) -> None:
         if not self._name.text().strip():
@@ -725,25 +747,107 @@ def _open_connection(info: dict):
     db_type = info["type"]
     if db_type == "sqlite":
         import sqlite3
-        return sqlite3.connect(info.get("sqlite_path") or ":memory:")
+        return sqlite3.connect(info.get("sqlite_path") or ":memory:",
+                               timeout=_DB_CONNECT_TIMEOUT_SECONDS)
     if db_type == "postgresql":
         import psycopg2
         return psycopg2.connect(
             host=info["host"], port=info["port"],
             dbname=info["database"],
-            user=info["username"], password=info["password"])
+            user=info["username"], password=info["password"],
+            connect_timeout=_DB_CONNECT_TIMEOUT_SECONDS)
     if db_type == "mysql":
         import mysql.connector
         return mysql.connector.connect(
             host=info["host"], port=info["port"],
             database=info["database"],
-            user=info["username"], password=info["password"])
+            user=info["username"], password=info["password"],
+            connection_timeout=_DB_CONNECT_TIMEOUT_SECONDS)
     if db_type == "oracle":
         import oracledb
         return oracledb.connect(
             user=info["username"], password=info["password"],
-            dsn=f"{info['host']}:{info['port']}/{info['database']}")
+            dsn=f"{info['host']}:{info['port']}/{info['database']}",
+            tcp_connect_timeout=_DB_CONNECT_TIMEOUT_SECONDS)
     raise ValueError(tr("db.unsupported_type", db_type=db_type))
+
+
+class _ConnectionWorker(QThread):
+    """Tests a connection in a worker and never transfers it across threads."""
+
+    completed = pyqtSignal(str, bool)  # error, cancelled
+
+    def __init__(self, conn_info: dict):
+        super().__init__(None)
+        self._conn_info = dict(conn_info)
+        self._connection = None
+        self._connection_lock = threading.Lock()
+
+    def cancel(self) -> None:
+        self.requestInterruption()
+        self._cancel_connection()
+
+    def _cancel_connection(self) -> None:
+        with self._connection_lock:
+            conn = self._connection
+        for method in ("cancel", "interrupt"):
+            try:
+                callback = getattr(conn, method, None)
+                if callback:
+                    callback()
+                    return
+            except Exception:
+                pass
+
+    def run(self) -> None:
+        conn = None
+        error = ""
+        try:
+            conn = _open_connection(self._conn_info)
+            with self._connection_lock:
+                self._connection = conn
+        except Exception as exc:
+            error = str(exc)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            with self._connection_lock:
+                self._connection = None
+        self.completed.emit(error, self.isInterruptionRequested())
+
+
+class _SchemaWorker(_ConnectionWorker):
+    """Loads a complete schema using a connection owned by this worker."""
+
+    schema_ready = pyqtSignal(list, str, bool)  # [(name, kind, columns)], error, cancelled
+
+    def run(self) -> None:
+        conn = None
+        schema = []
+        error = ""
+        try:
+            conn = _open_connection(self._conn_info)
+            with self._connection_lock:
+                self._connection = conn
+            db_type = self._conn_info.get("type", "")
+            for name, kind in _get_tables(conn, db_type):
+                if self.isInterruptionRequested():
+                    break
+                schema.append((name, kind, _get_columns(conn, db_type, name)))
+        except Exception as exc:
+            error = str(exc)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            with self._connection_lock:
+                self._connection = None
+        self.schema_ready.emit(schema, error, self.isInterruptionRequested())
 
 
 def _get_tables(conn, db_type: str) -> list[tuple[str, str]]:
@@ -843,6 +947,21 @@ class _QueryWorker(QThread):
         self._sql       = sql
         self._page_size = page_size   # 0 = no pagination (fetch all)
         self._offset    = offset
+        self._connection = None
+        self._connection_lock = threading.Lock()
+
+    def cancel(self) -> None:
+        self.requestInterruption()
+        with self._connection_lock:
+            conn = self._connection
+        for method in ("cancel", "interrupt"):
+            try:
+                callback = getattr(conn, method, None)
+                if callback:
+                    callback()
+                    return
+            except Exception:
+                pass
 
     def run(self) -> None:
         t0 = time.perf_counter()
@@ -850,6 +969,8 @@ class _QueryWorker(QThread):
         cur = None
         try:
             conn = _open_connection(self._conn_info)
+            with self._connection_lock:
+                self._connection = conn
             cur = conn.cursor()
             db_type  = self._conn_info.get("type", "")
             paginate = self._page_size > 0 and _is_select(self._sql)
@@ -898,6 +1019,8 @@ class _QueryWorker(QThread):
                     conn.close()
                 except Exception:
                     pass
+            with self._connection_lock:
+                self._connection = None
 
 
 class _ExportWorker(QThread):
@@ -918,6 +1041,21 @@ class _ExportWorker(QThread):
         self._headers = list(headers or [])
         self._rows = [tuple(row) for row in rows] if rows is not None else None
         self._active_temporary_path: Optional[Path] = None
+        self._connection = None
+        self._connection_lock = threading.Lock()
+
+    def cancel(self) -> None:
+        self.requestInterruption()
+        with self._connection_lock:
+            conn = self._connection
+        for method in ("cancel", "interrupt"):
+            try:
+                callback = getattr(conn, method, None)
+                if callback:
+                    callback()
+                    return
+            except Exception:
+                pass
 
     def _temporary_path(self) -> Path:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -1031,6 +1169,8 @@ class _ExportWorker(QThread):
             if self._rows is None:
                 # La connessione nasce e muore nel thread che la usa.
                 conn = _open_connection(self._conn_info)
+                with self._connection_lock:
+                    self._connection = conn
                 cursor = conn.cursor()
                 sql = _wrap_export_limit(
                     self._sql, int(self._opts.get("limit", 0)),
@@ -1049,7 +1189,7 @@ class _ExportWorker(QThread):
                 self._active_temporary_path = None
             self.completed.emit("", count, cancelled)
         except Exception as exc:
-            self.completed.emit(str(exc), 0, False)
+            self.completed.emit(str(exc), 0, self.isInterruptionRequested())
         finally:
             if temporary_path is not None:
                 self.cleanup_temporary()
@@ -1063,6 +1203,57 @@ class _ExportWorker(QThread):
                     conn.close()
                 except Exception:
                     pass
+            with self._connection_lock:
+                self._connection = None
+
+
+class _UpdateWorker(_ConnectionWorker):
+    """Applies an editable-grid update without opening a connection on the UI thread."""
+
+    update_done = pyqtSignal(bool, str, bool)  # ok, message, cancelled
+
+    def __init__(self, conn_info: dict, sql: str, params: list):
+        super().__init__(conn_info)
+        self._sql = sql
+        self._params = list(params)
+
+    def run(self) -> None:
+        conn = None
+        ok = False
+        message = ""
+        try:
+            conn = _open_connection(self._conn_info)
+            with self._connection_lock:
+                self._connection = conn
+            if self.isInterruptionRequested():
+                return
+            cur = conn.cursor()
+            cur.execute(self._sql, self._params)
+            if cur.rowcount != 1:
+                conn.rollback()
+                message = tr(
+                    "db_widget.update_ambiguous",
+                    default="L'UPDATE avrebbe modificato {n} righe (atteso 1); annullato.",
+                    n=cur.rowcount)
+            else:
+                conn.commit()
+                ok = True
+        except Exception as exc:
+            try:
+                if conn is not None:
+                    conn.rollback()
+            except Exception:
+                pass
+            message = str(exc)
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            with self._connection_lock:
+                self._connection = None
+        self.update_done.emit(ok, message, self.isInterruptionRequested())
 
 
 # ── SQL editor con autocompletamento ───────────────────────────────────────────
@@ -1173,6 +1364,7 @@ class _QueryTab(QWidget):
         self._tab_index    = tab_index
         self._worker: Optional[_QueryWorker] = None
         self._export_worker: Optional[_ExportWorker] = None
+        self._update_worker: Optional[_UpdateWorker] = None
         self._closing = False
         self._result_widget: Optional[QWidget] = None
         self._raw_sql:   str  = ""
@@ -1469,16 +1661,13 @@ class _QueryTab(QWidget):
 
     def _cancel(self) -> None:
         if self._export_worker and self._export_worker.isRunning():
-            self._export_worker.requestInterruption()
+            self._export_worker.cancel()
             self._btn_cancel.setEnabled(False)
             self._status_lbl.setText(
                 tr("db_widget.cancelling", default="Annullamento export..."))
             return
         if self._worker and self._worker.isRunning():
-            self._worker.requestInterruption()
-            if not self._worker.wait(2000):
-                self._worker.terminate()
-                self._worker.wait()
+            self._worker.cancel()
         self._btn_run.setEnabled(True)
         self._btn_cancel.setEnabled(False)
         self._status_lbl.setText(tr("db_widget.cancelled"))
@@ -1645,10 +1834,15 @@ class _QueryTab(QWidget):
         if worker is None:
             return
         if worker.isRunning():
-            worker.requestInterruption()
+            cancel = getattr(worker, "cancel", worker.requestInterruption)
+            cancel()
+            # Cooperative workers usually exit immediately.  Never terminate a
+            # thread that may own a database connection; keep it alive until its
+            # driver-level timeout/cancellation completes instead.
             if not worker.wait(2000):
-                worker.terminate()
-                worker.wait()
+                _ORPHANED_DB_WORKERS.add(worker)
+                worker.finished.connect(
+                    lambda w=worker: _ORPHANED_DB_WORKERS.discard(w))
         cleanup = getattr(worker, "cleanup_temporary", None)
         if callable(cleanup):
             cleanup()
@@ -1659,6 +1853,7 @@ class _QueryTab(QWidget):
         self._closing = True
         query_worker = self._worker
         export_worker = self._export_worker
+        update_worker = self._update_worker
         if query_worker is not None:
             try:
                 query_worker.finished.disconnect(self._on_done)
@@ -1676,8 +1871,10 @@ class _QueryTab(QWidget):
                     pass
         self._stop_worker(query_worker)
         self._stop_worker(export_worker)
+        self._stop_worker(update_worker)
         self._worker = None
         self._export_worker = None
+        self._update_worker = None
 
     def closeEvent(self, event) -> None:
         self.shutdown()
@@ -2006,59 +2203,47 @@ class _QueryTab(QWidget):
         sql = (f"UPDATE {qtable} SET {set_col} = {ph} "
                f"WHERE " + " AND ".join(where_parts))
         params = [new_val] + where_vals
+        if self._update_worker is not None and self._update_worker.isRunning():
+            self._revert_edited_cell(model, top_left, row, col, old_val)
+            self._status_lbl.setText(tr("db_widget.executing", default="Esecuzione…"))
+            return
+        worker = _UpdateWorker(self._conn_info, sql, params)
+        worker.update_done.connect(
+            lambda ok, msg, cancelled, w=worker: self._on_update_done(
+                w, model, top_left, row, col, old_val, new_val, ok, msg, cancelled))
+        worker.finished.connect(worker.deleteLater)
+        self._update_worker = worker
+        self._status_lbl.setStyleSheet("color: gray; font-size: 11px;")
+        self._status_lbl.setText(tr("db_widget.executing", default="Esecuzione…"))
+        worker.start()
 
-        ok, msg = self._apply_update(sql, params)
-        if ok:
-            # Aggiorna il valore di riferimento per le modifiche successive.
-            if col < len(orig_row):
-                orig_row[col] = new_val
-            self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
-            self._status_lbl.setText(
-                "✓ " + tr("db_widget.row_updated", default="Riga aggiornata"))
-        else:
-            # Ripristina il valore precedente nella griglia.
-            self._applying_edit = True
-            try:
-                model._data[row][col] = old_val
-                model.dataChanged.emit(top_left, top_left, [])
-            finally:
-                self._applying_edit = False
-            QMessageBox.warning(
-                self, "NotePadPQ",
-                tr("db_widget.update_failed",
-                   default="Modifica non applicata:\n{error}", error=msg))
-
-    def _apply_update(self, sql: str, params: list) -> tuple[bool, str]:
-        """Esegue un UPDATE sincrono in una connessione dedicata. Ritorna
-        (ok, messaggio). Fa rollback se le righe interessate non sono esattamente 1.
-        """
-        conn = None
+    def _revert_edited_cell(self, model, index, row: int, col: int, old_val) -> None:
+        self._applying_edit = True
         try:
-            conn = _open_connection(self._conn_info)
-            cur  = conn.cursor()
-            cur.execute(sql, params)
-            affected = cur.rowcount
-            if affected != 1:
-                conn.rollback()
-                return False, tr(
-                    "db_widget.update_ambiguous",
-                    default="L'UPDATE avrebbe modificato {n} righe (atteso 1); "
-                            "annullato.", n=affected)
-            conn.commit()
-            return True, ""
-        except Exception as exc:
-            try:
-                if conn is not None:
-                    conn.rollback()
-            except Exception:
-                pass
-            return False, str(exc)
+            model._data[row][col] = old_val
+            model.dataChanged.emit(index, index, [])
         finally:
-            if conn is not None:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+            self._applying_edit = False
+
+    def _on_update_done(self, worker, model, index, row: int, col: int, old_val,
+                        new_val, ok: bool, msg: str, cancelled: bool) -> None:
+        if worker is not self._update_worker:
+            return
+        self._update_worker = None
+        if cancelled or self._closing:
+            if not self._closing:
+                self._revert_edited_cell(model, index, row, col, old_val)
+            return
+        if ok:
+            if row < len(self._edit_orig_rows) and col < len(self._edit_orig_rows[row]):
+                self._edit_orig_rows[row][col] = new_val
+            self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
+            self._status_lbl.setText("✓ " + tr("db_widget.row_updated", default="Riga aggiornata"))
+            return
+        self._revert_edited_cell(model, index, row, col, old_val)
+        QMessageBox.warning(
+            self, "NotePadPQ",
+            tr("db_widget.update_failed", default="Modifica non applicata:\n{error}", error=msg))
 
 
 # ── DB Browser widget ─────────────────────────────────────────────────────────
@@ -2090,7 +2275,7 @@ class DBBrowserWidget(QWidget):
         self.file_path: Optional[Path] = None
         self._conn_info  = conn_info
         self._mw         = main_window
-        self._conn       = None
+        self._schema_worker: Optional[_SchemaWorker] = None
         self._query_count = 0
         # Cache schema: {table: [col_name, ...]} — alimenta autocomplete e
         # context menu (generazione INSERT, ecc.). Popolata in _load_schema
@@ -2221,19 +2406,7 @@ class DBBrowserWidget(QWidget):
                 self._status_lbl.setText(tr("db.driver_unavailable"))
                 return
 
-        try:
-            self._conn = _open_connection(self._conn_info)
-            self._status_lbl.setText(tr("db.connected"))
-            self._status_lbl.setStyleSheet("color: green; font-size: 11px;")
-            self._load_schema()
-        except Exception as exc:
-            self._status_lbl.setText(tr("db.connection_error_status", error=str(exc)[:60]))
-            self._status_lbl.setStyleSheet("color: red; font-size: 11px;")
-            QMessageBox.critical(
-                self, "NotePadPQ",
-                tr("db.connect_error", default="Errore di connessione:\n{error}",
-                   error=str(exc))
-            )
+        self._load_schema()
 
     # ── Schema tree ───────────────────────────────────────────────────────────
 
@@ -2494,17 +2667,9 @@ class DBBrowserWidget(QWidget):
     def _build_schema_context(self) -> str:
         """Costruisce una stringa testuale con lo schema per il prompt AI."""
         lines = [f"Database: {self._conn_info.get('name','')} ({self._conn_info.get('type','')})"]
-        db_type = self._conn_info.get("type", "")
-        if self._conn is None:
-            return "\n".join(lines)
-        try:
-            tables = _get_tables(self._conn, db_type)
-            for name, kind in tables[:50]:   # limit context size
-                cols = _get_columns(self._conn, db_type, name)
-                col_str = ", ".join(f"{c}({t})" for c, t in cols[:30])
-                lines.append(f"{'TABLE' if kind == 'table' else 'VIEW'} {name}: {col_str}")
-        except Exception:
-            pass
+        for name, columns in list(self._schema_cache.items())[:50]:
+            col_str = ", ".join(f"{column}({kind})" for column, kind in columns[:30])
+            lines.append(f"TABLE {name}: {col_str}")
         return "\n".join(lines)
 
     def _ai_generate_sql(self) -> None:
@@ -2578,15 +2743,31 @@ class DBBrowserWidget(QWidget):
                              tr("db.ai_error_detail", error=error))
 
     def _load_schema(self) -> None:
-        if self._conn is None:
+        if self._schema_worker is not None and self._schema_worker.isRunning():
             return
         self._schema_tree.clear()
-        db_type = self._conn_info.get("type", "")
+        self._status_lbl.setText(tr("db_widget.executing", default="Esecuzione…"))
+        self._status_lbl.setStyleSheet("color: gray; font-size: 11px;")
+        worker = _SchemaWorker(self._conn_info)
+        worker.schema_ready.connect(self._on_schema_ready)
+        worker.finished.connect(worker.deleteLater)
+        self._schema_worker = worker
+        worker.start()
 
-        try:
-            tables = _get_tables(self._conn, db_type)
-        except Exception as exc:
-            self._status_lbl.setText(tr("db.schema_error", error=str(exc)))
+    def _on_schema_ready(self, schema: list, error: str, cancelled: bool) -> None:
+        worker = self.sender()
+        if worker is not self._schema_worker:
+            return
+        self._schema_worker = None
+        if cancelled:
+            self._status_lbl.setText(tr("db_widget.cancelled", default="Annullato"))
+            return
+        if error:
+            self._status_lbl.setText(tr("db.schema_error", error=error))
+            self._status_lbl.setStyleSheet("color: red; font-size: 11px;")
+            QMessageBox.critical(
+                self, "NotePadPQ",
+                tr("db.connect_error", default="Errore di connessione:\n{error}", error=error))
             return
 
         table_root = QTreeWidgetItem(["📋  Tabelle"])
@@ -2594,16 +2775,19 @@ class DBBrowserWidget(QWidget):
         table_root.setExpanded(True)
 
         self._schema_cache.clear()
-        for name, kind in tables:
+        for name, kind, columns in schema:
             icon = "  📄  " if kind == "table" else "  👁  "
             parent = table_root if kind == "table" else view_root
             item = QTreeWidgetItem([icon + name])
             item.setData(0, Qt.ItemDataRole.UserRole, {"table": name, "loaded": False})
-            # Placeholder child so expand arrow appears
-            item.addChild(QTreeWidgetItem(["  ⌛ caricamento…"]))
+            for col_name, col_type in columns:
+                child = QTreeWidgetItem([f"    🔹 {col_name}  ({col_type})"])
+                child.setForeground(0, Qt.GlobalColor.gray)
+                item.addChild(child)
+            data = {"table": name, "loaded": True}
+            item.setData(0, Qt.ItemDataRole.UserRole, data)
             parent.addChild(item)
-            # Registra la tabella nella cache (colonne caricate lazy all'espansione).
-            self._schema_cache.setdefault(name, [])
+            self._schema_cache[name] = list(columns)
         self._refresh_autocomplete()
 
         self._schema_tree.addTopLevelItem(table_root)
@@ -2618,22 +2802,6 @@ class DBBrowserWidget(QWidget):
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if not data or data.get("loaded"):
             return
-        table = data["table"]
-        db_type = self._conn_info.get("type", "")
-        item.takeChildren()  # remove placeholder
-        try:
-            cols = _get_columns(self._conn, db_type, table)
-            for col_name, col_type in cols:
-                child = QTreeWidgetItem([f"    🔹 {col_name}  ({col_type})"])
-                child.setForeground(0, Qt.GlobalColor.gray)
-                item.addChild(child)
-            # Aggiorna la cache colonne per autocomplete e generazione SQL.
-            self._schema_cache[table] = [c[0] for c in cols]
-            self._refresh_autocomplete()
-        except Exception as exc:
-            item.addChild(QTreeWidgetItem([f"  ✗ {exc}"]))
-        data["loaded"] = True
-        item.setData(0, Qt.ItemDataRole.UserRole, data)
 
     # Keyword SQL comuni offerte dall'autocompletamento.
     _SQL_KEYWORDS = (
@@ -2651,7 +2819,7 @@ class DBBrowserWidget(QWidget):
         words: list[str] = list(self._SQL_KEYWORDS)
         for table, cols in self._schema_cache.items():
             words.append(table)
-            words.extend(cols)
+            words.extend(column[0] for column in cols)
         tabs = getattr(self, "_query_tabs", None)
         if tabs is None:
             return
@@ -2738,14 +2906,8 @@ class DBBrowserWidget(QWidget):
         """Restituisce le colonne della tabella, caricandole se non in cache."""
         cols = self._schema_cache.get(table)
         if cols:
-            return cols
-        try:
-            fetched = _get_columns(self._conn, self._db_type(), table)
-            cols = [c[0] for c in fetched]
-            self._schema_cache[table] = cols
-            return cols
-        except Exception:
-            return []
+            return [column[0] for column in cols]
+        return []
 
     def _gen_insert(self, table: str) -> None:
         db = self._db_type()
@@ -2785,24 +2947,20 @@ class DBBrowserWidget(QWidget):
                            "per salvarla su file."))
 
     def _show_structure(self, table: str) -> None:
-        db_type = self._conn_info.get("type", "")
-        try:
-            cols = _get_columns(self._conn, db_type, table)
-            sql = f"-- Struttura di {table}\n"
-            for col, typ in cols:
-                sql += f"--   {col}  {typ}\n"
-            tab = self._current_query_tab()
-            if tab:
-                tab.set_sql(sql)
-        except Exception as exc:
-            QMessageBox.critical(self, "NotePadPQ", str(exc))
+        cols = self._schema_cache.get(table, [])
+        sql = f"-- Struttura di {table}\n"
+        for col, typ in cols:
+            sql += f"--   {col}  {typ}\n"
+        tab = self._current_query_tab()
+        if tab:
+            tab.set_sql(sql)
 
     # ── Query tabs ────────────────────────────────────────────────────────────
 
     def _add_query_tab(self) -> _QueryTab:
         self._query_count += 1
         tab = _QueryTab(
-            self._conn, self._conn_info, self._mw,
+            None, self._conn_info, self._mw,
             self._query_count, self
         )
         label = tr("db.query_tab_label", query_count=self._query_count)
@@ -2842,9 +3000,11 @@ class DBBrowserWidget(QWidget):
             tab = self._query_tabs.widget(index)
             if isinstance(tab, _QueryTab):
                 tab.shutdown()
-        if self._conn:
-            try:
-                self._conn.close()
-            except Exception:
-                pass
+        if self._schema_worker is not None:
+            self._schema_worker.cancel()
+            if self._schema_worker.isRunning():
+                _ORPHANED_DB_WORKERS.add(self._schema_worker)
+                self._schema_worker.finished.connect(
+                    lambda w=self._schema_worker: _ORPHANED_DB_WORKERS.discard(w))
+            self._schema_worker = None
         super().closeEvent(event)

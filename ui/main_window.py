@@ -16,8 +16,11 @@ NON gestisce: logica I/O file (→ core/file_manager.py),
 
 import sys
 import threading
+import hashlib
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Callable
+from uuid import uuid4
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QObject, QEvent, QThread, pyqtSignal
 from PyQt6.QtGui import (
@@ -390,6 +393,9 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._file_browser_dock)
         self._file_browser_dock.hide()
+        self._file_browser_dock.visibilityChanged.connect(
+            lambda visible: self._on_dock_visibility_changed("view_file_browser", visible)
+        )
 
         # ── Dock sinistro: Gestione Progetti ─────────────────────────────────
         from ui.project_manager import ProjectManager
@@ -409,12 +415,18 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._project_dock)
         self._project_dock.hide()
+        self._project_dock.visibilityChanged.connect(
+            lambda visible: self._on_dock_visibility_changed("view_project_manager", visible)
+        )
 
         # ── Dock destro: Pannello caratteri ──────────────────────────────────
         from ui.character_panel import CharacterPanel
         self._character_panel_dock = CharacterPanel(self)
         self._character_panel_dock.hide()
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._character_panel_dock)
+        self._character_panel_dock.visibilityChanged.connect(
+            lambda visible: self._on_dock_visibility_changed("view_character_panel", visible)
+        )
 
         # ── Dock anteprima (spostabile, alternativa allo split inline) ────────
         from ui.preview_panel import PreviewPanel
@@ -558,8 +570,94 @@ class MainWindow(QMainWindow):
         backup_dir_str = s.get("file/autobackup_dir", "")
         return Path(backup_dir_str) if backup_dir_str else get_data_dir() / "autobackup"
 
+    @staticmethod
+    def _autobackup_source_id(path: Path) -> str:
+        """Use the full source path so equal basenames never share a backup."""
+        return hashlib.sha256(str(path.resolve()).encode("utf-8")).hexdigest()[:12]
+
+    @staticmethod
+    def _autobackup_bytes(editor) -> bytes:
+        """Encode current content exactly as the source document is configured."""
+        path = editor.file_path
+        content = editor.get_content()  # Restores the editor's original line ending.
+        encoding = editor.encoding.upper().replace(" BOM", "-SIG").replace(" ", "-")
+        source_bom = b""
+        try:
+            source = path.read_bytes()
+            for bom in (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff", b"\xff\xfe", b"\xfe\xff", b"\xef\xbb\xbf"):
+                if source.startswith(bom):
+                    source_bom = bom
+                    break
+        except OSError:
+            # The in-memory encoding remains authoritative if the source was
+            # moved or made temporarily unreadable after it was opened.
+            pass
+
+        if encoding == "UTF-8-SIG":
+            return content.encode("utf-8-sig")
+
+        expected_bom = {
+            "UTF-16-LE": b"\xff\xfe",
+            "UTF-16-BE": b"\xfe\xff",
+            "UTF-32-LE": b"\xff\xfe\x00\x00",
+            "UTF-32-BE": b"\x00\x00\xfe\xff",
+        }.get(encoding, b"")
+        if source_bom != expected_bom:
+            source_bom = expected_bom if getattr(editor, "_write_bom", False) else b""
+        return source_bom + content.encode(encoding)
+
+    def _report_autobackup_failure(self, path: Path, error: Exception) -> None:
+        message = tr(
+            "msg.autobackup_failed", path=str(path), error=str(error),
+            default=f"Automatic backup failed for {path}: {error}",
+        )
+        print(f"[autobackup] {message}", file=sys.stderr)
+        try:
+            self.statusBar().showMessage(message, 5000)
+        except (AttributeError, RuntimeError):
+            pass
+
+    def _prune_autobackups(self, backup_dir: Path, source_id: str) -> None:
+        from config.settings import Settings
+
+        settings = Settings.instance()
+        try:
+            per_file_limit = max(1, int(settings.get("file/autobackup_max_per_file", 20)))
+            total_limit = max(per_file_limit, int(settings.get("file/autobackup_max_total", 200)))
+        except (TypeError, ValueError):
+            per_file_limit, total_limit = 20, 200
+
+        def newest_first(paths):
+            return sorted(paths, key=lambda item: item.stat().st_mtime_ns, reverse=True)
+
+        snapshots = newest_first(backup_dir.glob(f"*.{source_id}.*.autobackup*.bak"))
+        for stale in snapshots[per_file_limit:]:
+            stale.unlink()
+        snapshots = newest_first(backup_dir.glob("*.autobackup*.bak"))
+        for stale in snapshots[total_limit:]:
+            stale.unlink()
+
+    def _write_autobackup(self, editor, *, snapshot: bool) -> Path:
+        """Atomically write one recoverable copy and retain a bounded history."""
+        from core.persistence import atomic_write_bytes
+
+        source = editor.file_path
+        backup_dir = self._get_backup_dir()
+        source_id = self._autobackup_source_id(source)
+        suffix = source.suffix
+        if snapshot:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            name = f"{source.stem}.{source_id}.{stamp}.{uuid4().hex}.autobackup{suffix}.bak"
+        else:
+            name = f"{source.stem}.{source_id}.autosave{suffix}.bak"
+        destination = backup_dir / name
+        atomic_write_bytes(destination, self._autobackup_bytes(editor))
+        if snapshot:
+            self._prune_autobackups(backup_dir, source_id)
+        return destination
+
     def _autosave_file_to_backup(self, editor) -> None:
-        """Salva una copia corrente (senza timestamp) nella cartella backup.
+        """Salva una copia corrente per sorgente (senza timestamp) nella cartella backup.
         Usato da open_files, _save_editor e dal timer autobackup."""
         from config.settings import Settings
         s = Settings.instance()
@@ -574,27 +672,15 @@ class MainWindow(QMainWindow):
             # caso di ripristino da crash — meglio nessun backup automatico
             # che uno silenziosamente incompleto.
             return
-        backup_dir = self._get_backup_dir()
         try:
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            content = editor.get_content()
-            (backup_dir / editor.file_path.name).write_text(
-                content, encoding="utf-8", errors="replace"
-            )
-        except Exception:
-            pass
+            self._write_autobackup(editor, snapshot=False)
+        except (LookupError, OSError, UnicodeError) as error:
+            self._report_autobackup_failure(editor.file_path, error)
 
     def _do_autobackup(self) -> None:
         """Salva una copia di backup di tutti i file aperti modificati."""
         from config.settings import Settings
-        import datetime
         s = Settings.instance()
-        backup_dir = self._get_backup_dir()
-        try:
-            backup_dir.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            return
-        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         autosave_to_backup = s.get("file/autosave_to_backup", False)
         for editor in self._tab_manager.all_editors():
             if not editor.file_path:
@@ -607,16 +693,12 @@ class MainWindow(QMainWindow):
                 # quella pagina spacciandola per l'intero file.
                 continue
             try:
-                content = editor.get_content()
                 if s.get("file/autobackup_enabled", False):
-                    name = f"{editor.file_path.stem}_{ts}{editor.file_path.suffix}.bak"
-                    (backup_dir / name).write_text(content, encoding="utf-8", errors="replace")
+                    self._write_autobackup(editor, snapshot=True)
                 if autosave_to_backup:
-                    (backup_dir / editor.file_path.name).write_text(
-                        content, encoding="utf-8", errors="replace"
-                    )
-            except Exception:
-                pass
+                    self._write_autobackup(editor, snapshot=False)
+            except (LookupError, OSError, UnicodeError) as error:
+                self._report_autobackup_failure(editor.file_path, error)
 
     # ── Auto-save ─────────────────────────────────────────────────────────────
 
@@ -1423,10 +1505,10 @@ class MainWindow(QMainWindow):
         # Pannelli
         m.addAction(self._act("view_minimap",         "", self._toggle_minimap,         checkable=True, checked=s.get("editor/show_minimap", False)))
         m.addAction(self._act("view_minimap_hover",   "", self._toggle_minimap_hover,   checkable=True, checked=s.get("editor/minimap_hover_preview", False)))
-        m.addAction(self._act("view_build_panel",     "Ctrl+`",       self._toggle_build_panel,     checkable=True, checked=False))
-        m.addAction(self._act("view_file_browser",    "Ctrl+Shift+E", self._toggle_file_browser,    checkable=True, checked=False))
-        m.addAction(self._act("view_project_manager", "",             self._toggle_project_manager, checkable=True, checked=False))
-        m.addAction(self._act("view_character_panel", "",             self._toggle_character_panel, checkable=True, checked=False))
+        m.addAction(self._act("view_build_panel",     "Ctrl+`",       self._toggle_build_panel,     checkable=True, checked=getattr(self, "_build_dock", None) is not None and self._build_dock.isVisible()))
+        m.addAction(self._act("view_file_browser",    "Ctrl+Shift+E", self._toggle_file_browser,    checkable=True, checked=getattr(self, "_file_browser_dock", None) is not None and self._file_browser_dock.isVisible()))
+        m.addAction(self._act("view_project_manager", "",             self._toggle_project_manager, checkable=True, checked=getattr(self, "_project_dock", None) is not None and self._project_dock.isVisible()))
+        m.addAction(self._act("view_character_panel", "",             self._toggle_character_panel, checkable=True, checked=getattr(self, "_character_panel_dock", None) is not None and self._character_panel_dock.isVisible()))
         self._latex_references_action = QAction(
             tr("view.latex_references", default="Riferimenti LaTeX globali"), self,
         )
@@ -2004,6 +2086,9 @@ class MainWindow(QMainWindow):
                 btn = tb.widgetForAction(action)
                 if isinstance(btn, QToolButton) and not action.icon().isNull():
                     btn.setIcon(action.icon())
+                    label = action.text().replace("&", "").strip()
+                    btn.setAccessibleName(label)
+                    btn.setAccessibleDescription(label)
         tb.update()
 
         # Applica icone ai submenu che non sono QAction in _actions
@@ -2673,6 +2758,10 @@ class MainWindow(QMainWindow):
             # 3. Esegui il salvataggio sul disco
             from config.settings import Settings
             settings = Settings.instance()
+            editor.apply_save_formatting(
+                settings.get("file/trim_trailing", False),
+                settings.get("file/add_newline_eof", True),
+            )
             FileManager.write(
                 path,
                 editor.get_content(),
@@ -2797,7 +2886,68 @@ class MainWindow(QMainWindow):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
-        self.open_files([editor.file_path])
+        self._reload_editor(editor)
+
+    def _reload_editor(self, editor: EditorWidget) -> bool:
+        """Reload an already-open file with the same size-aware loader as open."""
+        if not editor.file_path:
+            return False
+
+        from core.lazy_loader import LazyLoader
+
+        previous_loader = self._lazy_loaders.pop(editor, None)
+        if previous_loader is not None:
+            previous_loader.cancel()
+        pager = getattr(editor, "_pager_widget", None)
+        previous_paged_doc = getattr(editor, "_paged_doc", None)
+        previous_navigate = getattr(editor, "_paged_navigate", None)
+        if pager is not None:
+            try:
+                self.statusBar().removeWidget(pager)
+            except RuntimeError:
+                pass
+        editor._pager_widget = None
+        editor._paged_doc = None
+        editor._paged_navigate = None
+
+        path = editor.file_path
+        loader = LazyLoader(path, editor, self)
+        self._lazy_loaders[editor] = loader
+
+        def _on_finished() -> None:
+            if self._lazy_loaders.get(editor) is loader:
+                self._lazy_loaders.pop(editor, None)
+            if pager is not None:
+                pager.deleteLater()
+            if hasattr(self, "_statusbar"):
+                self._statusbar._update_lang(editor)
+            self._lsp_connect_editor(editor, sync_content=True)
+            self.statusBar().showMessage(
+                tr("msg.file_reloaded", name=path.name), 3000
+            )
+
+        def _on_error(message: str) -> None:
+            if self._lazy_loaders.get(editor) is loader:
+                self._lazy_loaders.pop(editor, None)
+            # A failed reload must leave an existing paged document usable.
+            if previous_paged_doc is not None:
+                editor._paged_doc = previous_paged_doc
+                editor._paged_navigate = previous_navigate
+                editor._pager_widget = pager
+                if pager is not None:
+                    try:
+                        self.statusBar().addPermanentWidget(pager)
+                    except RuntimeError:
+                        pass
+            QMessageBox.critical(
+                self, self.APP_NAME,
+                tr("msg.cannot_reload", error=message),
+            )
+
+        loader.load_finished.connect(_on_finished)
+        loader.load_error.connect(_on_error)
+        loader.start()
+        return True
 
     def action_file_properties(self) -> None:
         from ui.file_properties import FilePropertiesDialog
@@ -3670,10 +3820,15 @@ class MainWindow(QMainWindow):
 
     def _on_build_dock_visibility_changed(self, visible: bool) -> None:
         """Sincronizza lo stato dell'azione nel menu con la visibilità del dock."""
-        if "view_build_panel" in self._actions:
-            self._actions["view_build_panel"].blockSignals(True)
-            self._actions["view_build_panel"].setChecked(visible)
-            self._actions["view_build_panel"].blockSignals(False)
+        self._on_dock_visibility_changed("view_build_panel", visible)
+
+    def _on_dock_visibility_changed(self, action_key: str, visible: bool) -> None:
+        """Keep a dock's View-menu action accurate when its title-bar X is used."""
+        action = self._actions.get(action_key)
+        if action is not None:
+            action.blockSignals(True)
+            action.setChecked(visible)
+            action.blockSignals(False)
 
 
 
@@ -5093,7 +5248,7 @@ class MainWindow(QMainWindow):
 
         # Modalità "segui il file" (tail -f): ricarica sempre in silenzio,
         # senza dialoghi, e salta in fondo — ha priorità su tutto il resto.
-        if getattr(editor, "_tail_mode", False):
+        if getattr(editor, "_tail_mode", False) and not editor.is_modified():
             if editor.file_path.exists():
                 try:
                     from core.file_manager import FileManager
@@ -5109,7 +5264,8 @@ class MainWindow(QMainWindow):
 
         # Auto-reload silenzioso: non serve popup, ricarica subito.
         from config.settings import Settings
-        if Settings.instance().get("file/autoreload_on_change", False):
+        if (Settings.instance().get("file/autoreload_on_change", False)
+                and not editor.is_modified()):
             try:
                 from core.file_manager import FileManager
                 content, enc, le = FileManager.read(editor.file_path)
@@ -5163,14 +5319,15 @@ class MainWindow(QMainWindow):
                 if tm:
                     container = tm._containers.get(editor)
                     if container:
-                        tm._close_tab_at(tm.indexOf(container))
+                        tm._on_close_requested(tm.indexOf(container))
             else:
                 editor._watcher.blockSignals(False)
             return
 
         # Caso: file modificato da un programma esterno
         from config.settings import Settings
-        if Settings.instance().get("file/autoreload_on_change", False):
+        if (Settings.instance().get("file/autoreload_on_change", False)
+                and not editor.is_modified()):
             try:
                 from core.file_manager import FileManager
                 content, enc, le = FileManager.read(editor.file_path)
@@ -5199,14 +5356,7 @@ class MainWindow(QMainWindow):
         clicked = msg_box.clickedButton()
 
         if clicked == btn_reload:
-            from core.file_manager import FileManager
-            try:
-                content, enc, le = FileManager.read(editor.file_path)
-                editor.load_content(content, enc, le)
-                editor.setModified(False)
-                self.statusBar().showMessage(tr("msg.file_reloaded", name=editor.file_path.name), 3000)
-            except Exception as e:
-                QMessageBox.critical(self, tr("msg.error"), tr("msg.cannot_reload", error=str(e)))
+            self._reload_editor(editor)
 
         elif clicked == btn_compare:
             import tempfile

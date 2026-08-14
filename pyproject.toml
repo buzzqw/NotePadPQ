@@ -24,28 +24,52 @@ classifiers = [
 
 dependencies = [
     "PyQt6>=6.5",
-    "PyQt6-QScintilla",
-    "PyQt6-WebEngine",
-    "chardet",
-    "markdown",
-    "docutils",
-    "pygments",
-    "pyspellchecker",
-    "PyGithub",
-    "python-gitlab",
-    "keyring",
+    "PyQt6-QScintilla>=2.13",
+    "PyQt6-WebEngine>=6.5",
+    "chardet>=4.0",
+    "markdown>=3.3",
+    "docutils>=0.18",
+    "pygments>=2.10",
+    "pyspellchecker>=0.7",
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
-latex = ["pymupdf", "matplotlib", "sympy"]
-spreadsheet = ["openpyxl", "xlrd", "odfpy"]
-richtext = ["mammoth", "htmldocx"]
-database = ["psycopg2-binary", "mysql-connector-python", "oracledb"]
-ftp = ["paramiko"]
-encrypt = ["cryptography"]
-formatter = ["black", "ruff"]
+latex = ["pymupdf>=1.20", "matplotlib>=3.5", "sympy>=1.10"]
+spreadsheet = ["openpyxl>=3.1", "xlrd>=2.0.1", "odfpy>=1.4.1"]
+richtext = ["mammoth>=0.11", "htmldocx>=0.0.6", "pypandoc>=1.8"]
+database = ["psycopg2-binary>=2.9", "mysql-connector-python>=8.0", "oracledb>=1.0"]
+ftp = ["paramiko>=3.0"]
+encrypt = ["cryptography>=41.0"]
+formatter = ["black>=23.0", "ruff>=0.1"]
 restclient = ["requests>=2.28"]
+git = ["PyGithub>=1.55", "python-gitlab>=3.0", "keyring>=23.5"]
 dev = ["pytest>=7", "pytest-qt>=4"]
+all = [
+    "pymupdf>=1.20", "matplotlib>=3.5", "sympy>=1.10",
+    "openpyxl>=3.1", "xlrd>=2.0.1", "odfpy>=1.4.1",
+    "mammoth>=0.11", "htmldocx>=0.0.6", "pypandoc>=1.8",
+    "psycopg2-binary>=2.9", "mysql-connector-python>=8.0", "oracledb>=1.0",
+    "paramiko>=3.0", "cryptography>=41.0", "black>=23.0", "ruff>=0.1", "requests>=2.28",
+    "PyGithub>=1.55", "python-gitlab>=3.0", "keyring>=23.5",
+]
+
+[project.scripts]
+notepadpq = "main:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["config*", "core*", "editor*", "i18n*", "plugins*", "ui*"]
+
+[tool.setuptools.package-data]
+i18n = ["*.json"]
+ui = ["assets/**/*"]
 
 [project.urls]
 Homepage = "https://github.com/buzzqw/NotePadPQ"

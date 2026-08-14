@@ -547,6 +547,7 @@
     "export_done": "Export completed: {path}",
     "export_plain_warning": "Export as plain text, formatting will be lost. Continue?",
     "file_read_error_status": "Read error: {error}",
+    "autobackup_failed": "Automatic backup failed for {path}: {error}",
     "file_reloaded": "File reloaded from disk.",
     "ftp_sync_error": "Sync error: {error}",
     "language_set": "Language set to {lang}.",
@@ -704,7 +705,7 @@
     "lang": {
       "choose": "Interface language",
       "label": "Language:",
-      "restart_note": "Language change is applied immediately."
+      "restart_note": "Language changes take effect after restarting the application."
     },
     "theme_editor_unavailable": "Theme editor not available in this version.",
     "theme_imported": "Theme imported: {name}",
@@ -1689,6 +1690,25 @@
     "export_delim_pipe": "Pipe  |"
   },
   "file_browser": {
+    "act_open": "Open",
+    "act_new_file": "New file...",
+    "act_new_folder": "New folder...",
+    "act_rename": "Rename...",
+    "act_delete": "Delete",
+    "act_set_root": "Set as root folder",
+    "new_file_title": "New file",
+    "new_file_prompt": "File name:",
+    "new_folder_title": "New folder",
+    "new_folder_prompt": "Folder name:",
+    "rename_title": "Rename",
+    "rename_prompt": "New name:",
+    "delete_confirm_title": "Confirm deletion",
+    "delete_file_confirm": "Move file '{name}' to the trash?",
+    "delete_folder_confirm": "Move folder '{name}' and all of its contents to the trash?",
+    "delete_to_trash": "It can be restored from the trash.",
+    "delete_permanently": "Trash is unavailable. This permanently deletes the selected item.",
+    "file_exists_error": "File '{name}' already exists.",
+    "folder_exists_error": "Folder '{name}' already exists.",
     "choose_folder": "Choose folder",
     "reveal_in_fm": "Show in file manager",
     "rename_error": "Rename error",
@@ -1766,6 +1786,11 @@
   },
   "command_palette": {
     "placeholder": "Search command…"
+  },
+  "tab_switcher": {
+    "name": "Tab switcher",
+    "description": "Switch between open tabs",
+    "open_tabs": "Open tabs"
   },
   "table_grid_picker": {
     "label_latex": "LaTeX tabular",

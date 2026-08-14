@@ -5,10 +5,10 @@ NotePadPQ
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional
 
+from core.persistence import atomic_write_json, load_json
 from core.platform import get_config_dir
 
 
@@ -30,29 +30,29 @@ class RecentFiles:
         return cls._instance
 
     def _load(self) -> tuple[list[str], set[str]]:
-        try:
-            if self._path.exists():
-                data = json.loads(self._path.read_text(encoding="utf-8"))
-                if isinstance(data, list):
-                    # Formato legacy: lista piatta senza pin.
-                    return [p for p in data if Path(p).exists()], set()
-                recent = [p for p in data.get("recent", []) if Path(p).exists()]
-                pinned = {p for p in data.get("pinned", []) if Path(p).exists()}
-                return recent, pinned
-        except Exception:
-            pass
+        def valid(data: object) -> bool:
+            if isinstance(data, list):
+                return all(isinstance(path, str) for path in data)
+            return (isinstance(data, dict)
+                    and isinstance(data.get("recent"), list)
+                    and isinstance(data.get("pinned"), list)
+                    and all(isinstance(path, str) for path in data["recent"])
+                    and all(isinstance(path, str) for path in data["pinned"]))
+
+        data = load_json(self._path, validate=valid)
+        if isinstance(data, list):
+            # Formato legacy: lista piatta senza pin.
+            return [path for path in data if Path(path).exists()], set()
+        if isinstance(data, dict):
+            recent = [path for path in data["recent"] if Path(path).exists()]
+            pinned = {path for path in data["pinned"] if Path(path).exists()}
+            return recent, pinned
         return [], set()
 
     def _save(self) -> None:
         try:
-            self._path.write_text(
-                json.dumps(
-                    {"recent": self._list, "pinned": sorted(self._pinned)},
-                    ensure_ascii=False, indent=2
-                ),
-                encoding="utf-8"
-            )
-        except Exception:
+            atomic_write_json(self._path, {"recent": self._list, "pinned": sorted(self._pinned)})
+        except OSError:
             pass
 
     def add(self, path: Path) -> None:

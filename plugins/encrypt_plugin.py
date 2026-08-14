@@ -4,15 +4,12 @@ NotePadPQ
 
 Cifratura e decifratura del testo selezionato (o dell'intero documento).
 
-Algoritmi supportati:
+Algoritmi per la cifratura:
   - AES-256-GCM       (AEAD, raccomandato, default)
   - ChaCha20-Poly1305 (AEAD, moderno, veloce)
-  - AES-256-CBC
-  - AES-128-CBC
-  - DES-CBC       (compatibilità legacy)
-  - 3DES-CBC      (Triple DES)
-  - XOR           (semplice, nessuna dipendenza esterna)
-  - Caesar cipher (shift configurabile, per testo ASCII)
+
+I formati non autenticati delle versioni precedenti sono disponibili solo per
+la decifratura, attivando esplicitamente la compatibilita legacy.
 
 Dipendenza:
   pip install cryptography
@@ -49,35 +46,73 @@ if TYPE_CHECKING:
 
 # ─── Algoritmi ────────────────────────────────────────────────────────────────
 
-def _derive_key(password: str, salt: bytes, key_len: int) -> bytes:
+_ENVELOPE_PREFIX = "NPQ1"
+_MODERN_KDF_ITERATIONS = 600_000
+_LEGACY_KDF_ITERATIONS = 100_000
+
+
+def _derive_key(password: str, salt: bytes, key_len: int,
+                iterations: int = _LEGACY_KDF_ITERATIONS) -> bytes:
     """Deriva una chiave dalla password tramite PBKDF2-HMAC-SHA256."""
-    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100_000, key_len)
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations, key_len)
+
+
+def _encode_envelope(algorithm: str, salt: bytes, nonce: bytes, ciphertext: bytes) -> str:
+    return f"{_ENVELOPE_PREFIX}:{algorithm}:" + base64.b64encode(
+        salt + nonce + ciphertext).decode("ascii")
+
+
+def _decode_envelope(text: str, algorithm: str) -> tuple[bytes, bytes, bytes]:
+    prefix = f"{_ENVELOPE_PREFIX}:{algorithm}:"
+    if not text.strip().startswith(prefix):
+        raise ValueError("Not a supported authenticated encryption envelope")
+    try:
+        blob = base64.b64decode(text.strip()[len(prefix):], validate=True)
+    except Exception as exc:
+        raise ValueError("Invalid encryption envelope encoding") from exc
+    # salt + nonce + an AEAD tag; do not pass malformed inputs to the backend.
+    if len(blob) < 16 + 12 + 16:
+        raise ValueError("Invalid encryption envelope")
+    return blob[:16], blob[16:28], blob[28:]
 
 
 def _aes_gcm_encrypt(text: str, password: str) -> str:
-    """AES-256-GCM encrypt → Base64. AEAD: autentica il ciphertext."""
+    """AES-256-GCM into a versioned, authenticated text envelope."""
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
     salt  = os.urandom(16)
     nonce = os.urandom(12)
-    key   = _derive_key(password, salt, 32)
+    key   = _derive_key(password, salt, 32, _MODERN_KDF_ITERATIONS)
 
-    ct_with_tag = AESGCM(key).encrypt(nonce, text.encode("utf-8"), None)
-    return base64.b64encode(salt + nonce + ct_with_tag).decode("ascii")
+    aad = b"NPQ1:AGCM"
+    ct_with_tag = AESGCM(key).encrypt(nonce, text.encode("utf-8"), aad)
+    return _encode_envelope("AGCM", salt, nonce, ct_with_tag)
 
 
 def _aes_gcm_decrypt(b64text: str, password: str) -> str:
-    """AES-256-GCM decrypt da Base64."""
+    """Decrypt only the current AES-GCM envelope format."""
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-    blob  = base64.b64decode(b64text.strip())
-    salt  = blob[:16]
-    nonce = blob[16:28]
-    ct    = blob[28:]
-    key   = _derive_key(password, salt, 32)
+    salt, nonce, ct = _decode_envelope(b64text, "AGCM")
+    key = _derive_key(password, salt, 32, _MODERN_KDF_ITERATIONS)
 
-    plain = AESGCM(key).decrypt(nonce, ct, None)
+    plain = AESGCM(key).decrypt(nonce, ct, b"NPQ1:AGCM")
     return plain.decode("utf-8")
+
+
+def _legacy_aes_gcm_decrypt(b64text: str, password: str) -> str:
+    """Compatibility reader for the pre-NPQ1 AES-GCM blob format."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    try:
+        blob = base64.b64decode(b64text.strip(), validate=True)
+    except Exception as exc:
+        raise ValueError("Invalid legacy encryption encoding") from exc
+    if len(blob) < 16 + 12 + 16:
+        raise ValueError("Invalid legacy encryption data")
+    salt, nonce, ciphertext = blob[:16], blob[16:28], blob[28:]
+    key = _derive_key(password, salt, 32)
+    return AESGCM(key).decrypt(nonce, ciphertext, None).decode("utf-8")
 
 
 def _chacha20_encrypt(text: str, password: str) -> str:
@@ -86,46 +121,37 @@ def _chacha20_encrypt(text: str, password: str) -> str:
 
     salt  = os.urandom(16)
     nonce = os.urandom(12)
-    key   = _derive_key(password, salt, 32)
+    key   = _derive_key(password, salt, 32, _MODERN_KDF_ITERATIONS)
 
-    ct_with_tag = ChaCha20Poly1305(key).encrypt(nonce, text.encode("utf-8"), None)
-    return base64.b64encode(salt + nonce + ct_with_tag).decode("ascii")
+    aad = b"NPQ1:C20P"
+    ct_with_tag = ChaCha20Poly1305(key).encrypt(nonce, text.encode("utf-8"), aad)
+    return _encode_envelope("C20P", salt, nonce, ct_with_tag)
 
 
 def _chacha20_decrypt(b64text: str, password: str) -> str:
     """ChaCha20-Poly1305 decrypt da Base64."""
     from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
-    blob  = base64.b64decode(b64text.strip())
-    salt  = blob[:16]
-    nonce = blob[16:28]
-    ct    = blob[28:]
-    key   = _derive_key(password, salt, 32)
+    salt, nonce, ct = _decode_envelope(b64text, "C20P")
+    key = _derive_key(password, salt, 32, _MODERN_KDF_ITERATIONS)
 
-    plain = ChaCha20Poly1305(key).decrypt(nonce, ct, None)
+    plain = ChaCha20Poly1305(key).decrypt(nonce, ct, b"NPQ1:C20P")
     return plain.decode("utf-8")
 
 
-def _aes_encrypt(text: str, password: str, key_len: int = 32) -> str:
-    """AES-CBC encrypt → Base64."""
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-    from cryptography.hazmat.primitives import padding as sym_padding
-    from cryptography.hazmat.backends import default_backend
+def _legacy_chacha20_decrypt(b64text: str, password: str) -> str:
+    """Compatibility reader for the pre-NPQ1 ChaCha20-Poly1305 blob format."""
+    from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
-    salt = os.urandom(16)
-    iv   = os.urandom(16)
-    key  = _derive_key(password, salt, key_len)
-
-    padder  = sym_padding.PKCS7(128).padder()
-    padded  = padder.update(text.encode("utf-8")) + padder.finalize()
-
-    cipher  = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
-    enc     = cipher.encryptor()
-    ct      = enc.update(padded) + enc.finalize()
-
-    # Formato: salt(16) + iv(16) + ciphertext
-    blob = salt + iv + ct
-    return base64.b64encode(blob).decode("ascii")
+    try:
+        blob = base64.b64decode(b64text.strip(), validate=True)
+    except Exception as exc:
+        raise ValueError("Invalid legacy encryption encoding") from exc
+    if len(blob) < 16 + 12 + 16:
+        raise ValueError("Invalid legacy encryption data")
+    salt, nonce, ciphertext = blob[:16], blob[16:28], blob[28:]
+    key = _derive_key(password, salt, 32)
+    return ChaCha20Poly1305(key).decrypt(nonce, ciphertext, None).decode("utf-8")
 
 
 def _aes_decrypt(b64text: str, password: str, key_len: int = 32) -> str:
@@ -147,33 +173,6 @@ def _aes_decrypt(b64text: str, password: str, key_len: int = 32) -> str:
     unpadder = sym_padding.PKCS7(128).unpadder()
     plain    = unpadder.update(padded) + unpadder.finalize()
     return plain.decode("utf-8")
-
-
-def _des_encrypt(text: str, password: str, triple: bool = False) -> str:
-    """DES/3DES-CBC encrypt → Base64."""
-    from cryptography.hazmat.primitives.ciphers import Cipher, modes
-    from cryptography.hazmat.primitives import padding as sym_padding
-    from cryptography.hazmat.backends import default_backend
-    try:
-        from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
-    except ImportError:
-        from cryptography.hazmat.primitives.ciphers.algorithms import TripleDES
-
-    key_len = 24 if triple else 8
-    salt    = os.urandom(8)
-    iv      = os.urandom(8)
-    key     = _derive_key(password, salt, key_len)
-
-    padder  = sym_padding.PKCS7(64).padder()
-    padded  = padder.update(text.encode("utf-8")) + padder.finalize()
-
-    algo   = TripleDES(key) if triple else TripleDES(key * 3)
-    cipher = Cipher(algo, modes.CBC(iv), backend=default_backend())
-    enc    = cipher.encryptor()
-    ct     = enc.update(padded) + enc.finalize()
-
-    blob = salt + iv + ct
-    return base64.b64encode(blob).decode("ascii")
 
 
 def _des_decrypt(b64text: str, password: str, triple: bool = False) -> str:
@@ -203,16 +202,6 @@ def _des_decrypt(b64text: str, password: str, triple: bool = False) -> str:
     return plain.decode("utf-8")
 
 
-def _xor_crypt(text: str, password: str) -> str:
-    """XOR semplice → Base64. Reversibile (stessa operazione per encrypt/decrypt)."""
-    if not password:
-        return text
-    key   = password.encode("utf-8")
-    raw   = text.encode("utf-8")
-    out   = bytes(b ^ key[i % len(key)] for i, b in enumerate(raw))
-    return base64.b64encode(out).decode("ascii")
-
-
 def _xor_decrypt(b64text: str, password: str) -> str:
     """XOR decrypt da Base64."""
     raw = base64.b64decode(b64text.strip())
@@ -221,20 +210,16 @@ def _xor_decrypt(b64text: str, password: str) -> str:
     return out.decode("utf-8", errors="replace")
 
 
-def _caesar_encrypt(text: str, shift: int) -> str:
+def _caesar_decrypt(text: str, shift: int) -> str:
     result = []
     for ch in text:
         if ch.isupper():
-            result.append(chr((ord(ch) - 65 + shift) % 26 + 65))
+            result.append(chr((ord(ch) - 65 - shift) % 26 + 65))
         elif ch.islower():
-            result.append(chr((ord(ch) - 97 + shift) % 26 + 97))
+            result.append(chr((ord(ch) - 97 - shift) % 26 + 97))
         else:
             result.append(ch)
     return "".join(result)
-
-
-def _caesar_decrypt(text: str, shift: int) -> str:
-    return _caesar_encrypt(text, -shift)
 
 
 def _has_cryptography() -> bool:
@@ -264,18 +249,14 @@ class _EncryptDialog(QDialog):
 
         # Algoritmo
         self._algo = QComboBox()
-        has_crypto = _has_cryptography()
-        if has_crypto:
-            self._algo.addItems([
-                "AES-256-GCM",
-                "ChaCha20-Poly1305",
-                "AES-256-CBC",
-                "AES-128-CBC",
-                "3DES-CBC",
-                "DES-CBC",
-            ])
-        self._algo.addItems(["XOR", "Caesar cipher"])
+        self._has_crypto = _has_cryptography()
+        self._set_algorithms(False)
         form.addRow(tr("plugin.encrypt.label_algorithm"), self._algo)
+
+        self._legacy = QCheckBox("Enable legacy decryption formats (not authenticated)")
+        self._legacy.setVisible(self.mode == "decrypt")
+        self._legacy.toggled.connect(self._on_legacy_toggled)
+        form.addRow("", self._legacy)
 
         # Password
         self._pwd = QLineEdit()
@@ -303,8 +284,8 @@ class _EncryptDialog(QDialog):
 
         layout.addLayout(form)
 
-        if not _has_cryptography():
-            warn = QLabel(tr("plugin.encrypt.no_crypto_warning"))
+        if not self._has_crypto:
+            warn = QLabel("Authenticated encryption requires the cryptography package.")
             warn.setStyleSheet("color: #f0a000; font-size: 11px;")
             layout.addWidget(warn)
 
@@ -318,18 +299,44 @@ class _EncryptDialog(QDialog):
         btns.button(QDialogButtonBox.StandardButton.Ok).setText(tr("button.ok", default="OK"))
         btns.button(QDialogButtonBox.StandardButton.Cancel).setText(tr("button.cancel", default="Cancel"))
 
+    def _set_algorithms(self, legacy: bool) -> None:
+        self._algo.clear()
+        if self._has_crypto:
+            self._algo.addItems(["AES-256-GCM", "ChaCha20-Poly1305"])
+        if legacy and self.mode == "decrypt":
+            legacy_algorithms = [
+                "Legacy AES-256-GCM", "Legacy ChaCha20-Poly1305",
+                "Legacy AES-256-CBC", "Legacy AES-128-CBC",
+                "Legacy 3DES-CBC", "Legacy DES-CBC", "Legacy XOR",
+                "Legacy Caesar cipher",
+            ]
+            if not self._has_crypto:
+                legacy_algorithms = ["Legacy XOR", "Legacy Caesar cipher"]
+            self._algo.addItems(legacy_algorithms)
+
+    def _on_legacy_toggled(self, enabled: bool) -> None:
+        current = self._algo.currentText()
+        self._set_algorithms(enabled)
+        if self._algo.findText(current) >= 0:
+            self._algo.setCurrentText(current)
+        self._on_algo_changed(self._algo.currentText())
+
     def _on_algo_changed(self, algo: str) -> None:
-        is_caesar = algo == "Caesar cipher"
+        is_caesar = algo == "Legacy Caesar cipher"
         self._shift_label.setVisible(is_caesar)
         self._shift.setVisible(is_caesar)
-        pwd_needed = algo != "Caesar cipher"
+        pwd_needed = algo != "Legacy Caesar cipher"
         self._pwd.setEnabled(pwd_needed)
 
     def _on_ok(self) -> None:
         algo = self._algo.currentText()
         pwd  = self._pwd.text()
 
-        if algo != "Caesar cipher" and not pwd:
+        if not algo:
+            QMessageBox.warning(self, "Encrypt", "Authenticated encryption requires the cryptography package.")
+            return
+
+        if algo != "Legacy Caesar cipher" and not pwd:
             QMessageBox.warning(self, "Encrypt", tr("plugin.encrypt.password_required"))
             return
 
@@ -390,20 +397,8 @@ def do_encrypt(editor: "EditorWidget", parent) -> None:
             result = _aes_gcm_encrypt(text, pwd)
         elif algo == "ChaCha20-Poly1305":
             result = _chacha20_encrypt(text, pwd)
-        elif algo == "AES-256-CBC":
-            result = _aes_encrypt(text, pwd, 32)
-        elif algo == "AES-128-CBC":
-            result = _aes_encrypt(text, pwd, 16)
-        elif algo == "3DES-CBC":
-            result = _des_encrypt(text, pwd, triple=True)
-        elif algo == "DES-CBC":
-            result = _des_encrypt(text, pwd, triple=False)
-        elif algo == "XOR":
-            result = _xor_crypt(text, pwd)
-        elif algo == "Caesar cipher":
-            result = _caesar_encrypt(text, dlg.result_shift)
         else:
-            return
+            raise ValueError("Only authenticated modern encryption formats are supported")
 
         _apply(editor, result, sel)
 
@@ -428,17 +423,21 @@ def do_decrypt(editor: "EditorWidget", parent) -> None:
             result = _aes_gcm_decrypt(text, pwd)
         elif algo == "ChaCha20-Poly1305":
             result = _chacha20_decrypt(text, pwd)
-        elif algo == "AES-256-CBC":
+        elif algo == "Legacy AES-256-GCM":
+            result = _legacy_aes_gcm_decrypt(text, pwd)
+        elif algo == "Legacy ChaCha20-Poly1305":
+            result = _legacy_chacha20_decrypt(text, pwd)
+        elif algo == "Legacy AES-256-CBC":
             result = _aes_decrypt(text, pwd, 32)
-        elif algo == "AES-128-CBC":
+        elif algo == "Legacy AES-128-CBC":
             result = _aes_decrypt(text, pwd, 16)
-        elif algo == "3DES-CBC":
+        elif algo == "Legacy 3DES-CBC":
             result = _des_decrypt(text, pwd, triple=True)
-        elif algo == "DES-CBC":
+        elif algo == "Legacy DES-CBC":
             result = _des_decrypt(text, pwd, triple=False)
-        elif algo == "XOR":
+        elif algo == "Legacy XOR":
             result = _xor_decrypt(text, pwd)
-        elif algo == "Caesar cipher":
+        elif algo == "Legacy Caesar cipher":
             result = _caesar_decrypt(text, dlg.result_shift)
         else:
             return
@@ -457,8 +456,8 @@ class EncryptPlugin(BasePlugin):
     NAME        = "Encrypt/Decrypt"
     VERSION     = "1.0"
     DESCRIPTION = (
-        "Cifratura AES-256-GCM, ChaCha20-Poly1305, AES-256/128-CBC, 3DES, DES, XOR e Caesar cipher "
-        "sul testo selezionato. Richiede 'pip install cryptography' per gli algoritmi forti."
+        "Cifratura autenticata AES-256-GCM e ChaCha20-Poly1305 sul testo selezionato. "
+        "I formati legacy sono disponibili solo per la decifratura esplicita."
     )
     AUTHOR      = "NotePadPQ Team"
 

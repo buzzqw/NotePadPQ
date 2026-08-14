@@ -21,6 +21,12 @@ class SnippetTabstopParsingTest(unittest.TestCase):
         self.assertEqual(expanded, "atwobonecd")
         self.assertEqual([n for n, _, _ in stops], [1, 2, 0])
 
+    def test_nested_placeholder_defaults_are_expanded_and_navigable(self):
+        expanded, stops = _process_tabstops("${1:open('${2:file}')} ${0}")
+
+        self.assertEqual(expanded, "open('file') ")
+        self.assertEqual(stops, [(1, 0, 12), (2, 6, 4), (0, 13, 0)])
+
 
 class SnippetExpandTest(unittest.TestCase):
     """Copre SnippetManager.expand() e il suo aggancio a Tab in

@@ -88,6 +88,18 @@ def _fix_webengine_gpu() -> None:
 _fix_webengine_gpu()
 
 
+def _startup_language(settings, i18n) -> str:
+    """Return the saved language, or a supported system language on first run."""
+    lang = settings.get("i18n/language", None)
+    if lang:
+        return lang
+
+    from PyQt6.QtCore import QLocale
+    system_name = QLocale.system().name()        # es. "it_IT", "de_DE", "C"
+    base = system_name.split("_")[0].lower()    # "it", "de", "c"
+    return base if base in i18n.available_languages() else "en"
+
+
 def check_dependencies() -> bool:
     """Verifica le dipendenze obbligatorie prima di avviare."""
     missing = []
@@ -276,14 +288,9 @@ def main():
     # Inizializza settings
     settings = Settings.instance()
 
-    # Inizializza i18n — usa la lingua salvata, altrimenti rileva dalla locale
+    # Inizializza i18n — usa la scelta esplicita, altrimenti rileva la locale.
     i18n = I18n.instance()
-    lang = settings.get("i18n/language", None)
-    if lang is None:
-        from PyQt6.QtCore import QLocale
-        system_name = QLocale.system().name()        # es. "it_IT", "de_DE", "C"
-        base = system_name.split("_")[0].lower()     # "it", "de", "c"
-        lang = base if base in i18n.available_languages() else "en"
+    lang = _startup_language(settings, i18n)
     if lang != "en":
         i18n.set_language(lang)
 
@@ -299,10 +306,16 @@ def main():
         win.open_files([Path(p) for p in _paths])
     _pending_from_ipc.clear()
 
+    # File da riga di comando. Vengono aperti insieme alla sessione solo dopo il
+    # caricamento dei plugin, cosi' le loro estensioni vengono gestite dal plugin.
+    files_from_cli = [Path(p) for p in sys.argv[1:] if Path(p).is_file()]
+    startup_content_restored = False
+
     # ── Post-startup deferred ─────────────────────────────────────────────────
     # Eseguito dopo che tutti i plugin sono stati caricati (uno per tick).
     # La finestra è già visibile e responsiva durante questo processo.
     def _finish_startup():
+        nonlocal startup_content_restored
         from PyQt6.QtCore import QTimer as _QT
 
         win._rebuild_toolbar()
@@ -360,6 +373,25 @@ def main():
         except Exception:
             pass
 
+        # I plugin registrano i propri handler di apertura (spreadsheet,
+        # richtext, PDF, ecc.) durante load_all_deferred(). Ripristinare prima
+        # della sua conclusione aprirebbe quei documenti come normali file testo.
+        if not startup_content_restored:
+            startup_content_restored = True
+            restored = False
+            if settings.get("file/restore_session", True):
+                try:
+                    from core.session import Session
+                    restored = Session.instance().restore(win)
+                except Exception:
+                    pass
+
+            if files_from_cli:
+                win.open_files(files_from_cli)
+
+            if not restored and not files_from_cli:
+                win._tab_manager.new_tab()
+
     # ── Carica plugin ────────────────────────────────────────────────────────
     # Fatto DOPO win.show(): i plugin aggiungono dock widget che richiedono
     # la finestra già inizializzata. Il caricamento è scaglionato (un plugin
@@ -370,28 +402,6 @@ def main():
     except Exception as e:
         print(f"[main] Errore caricamento plugin: {e}")
         _finish_startup()
-
-    # 1. Recupera i file passati dall'esterno (es. doppio clic su un file)
-    files_from_cli = [Path(p) for p in sys.argv[1:] if Path(p).is_file()]
-
-    # 2. Ripristina SEMPRE la sessione precedente (se l'opzione è attiva nelle impostazioni)
-    restored = False
-    if settings.get("file/restore_session", True):
-        try:
-            from core.session import Session
-            sess = Session.instance()
-            restored = sess.restore(win)
-        except Exception:
-            pass
-
-    # 3. Apri anche i file del doppio clic (se presenti)
-    if files_from_cli:
-        win.open_files(files_from_cli)
-
-    # 4. Se non abbiamo ripristinato nulla e non abbiamo aperto file nuovi, 
-    # allora (e solo allora) apri un foglio bianco pulito.
-    if not restored and not files_from_cli:
-        win._tab_manager.new_tab()
 
     sys.exit(app.exec())
 

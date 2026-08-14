@@ -530,6 +530,7 @@
     "export_done": "Exportación completada: {path}",
     "export_plain_warning": "Exportar como texto plano, se perderá el formato. ¿Continuar?",
     "file_read_error_status": "Error de lectura: {error}",
+    "autobackup_failed": "La copia de seguridad automatica fallo para {path}: {error}",
     "file_reloaded": "Archivo recargado desde disco.",
     "ftp_sync_error": "Error de sincronización: {error}",
     "language_set": "Idioma establecido a {lang}.",
@@ -686,7 +687,7 @@
     "lang": {
       "choose": "Idioma de la interfaz",
       "label": "Idioma:",
-      "restart_note": "El cambio de idioma se aplica de inmediato."
+      "restart_note": "El cambio de idioma se aplicará al reiniciar la aplicación."
     },
     "theme_editor_unavailable": "Editor de temas no disponible en esta versión.",
     "theme_imported": "Tema importado: {name}",
@@ -1582,6 +1583,10 @@
     "rename_title": "Rename",
     "rename_prompt": "New name:",
     "delete_confirm_title": "Confirm deletion",
+    "delete_file_confirm": "¿Mover el archivo '{name}' a la papelera?",
+    "delete_folder_confirm": "¿Mover la carpeta '{name}' y todo su contenido a la papelera?",
+    "delete_to_trash": "Se puede restaurar desde la papelera.",
+    "delete_permanently": "La papelera no está disponible. El elemento seleccionado se eliminará de forma permanente.",
     "delete_confirm": "Delete {kind} '{name}'?\nThis operation cannot be undone.",
     "file_exists_error": "File '{name}' already exists.",
     "folder_exists_error": "Folder '{name}' already exists.",
@@ -1659,6 +1664,11 @@
   },
   "command_palette": {
     "placeholder": "Search command…"
+  },
+  "tab_switcher": {
+    "name": "Selector de pestañas",
+    "description": "Cambiar entre pestañas abiertas",
+    "open_tabs": "Pestañas abiertas"
   },
   "table_grid_picker": {
     "label_latex": "LaTeX tabular",

@@ -78,10 +78,6 @@ export QTWEBENGINEPROCESS_PATH="${INT}/PyQt6/Qt6/libexec/QtWebEngineProcess"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/notepadpq-rt-${UID}}"
 mkdir -p "${XDG_RUNTIME_DIR}"
 
-# --no-sandbox: necessario in AppImage dove il namespace sandbox di Chromium
-# non è disponibile. GPU acceleration rimane attiva se la GPU funziona.
-export QTWEBENGINE_CHROMIUM_FLAGS="${QTWEBENGINE_CHROMIUM_FLAGS:-} --no-sandbox"
-
 # Auto-detect: se GLX non ha FBConfig hardware disponibili, attiva il renderer
 # software Mesa (llvmpipe). Permette a WebEngine (terminale, richeditor, ecc.)
 # di funzionare anche su VM e macchine senza driver GL proprietari.

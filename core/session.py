@@ -11,14 +11,94 @@ Salva e ripristina:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
+from uuid import uuid4
 
+from PyQt6.QtCore import QTimer
+
+from core.persistence import atomic_write_bytes, atomic_write_json, atomic_write_text, load_json
 from core.platform import get_config_dir
 
 if TYPE_CHECKING:
     from ui.tab_manager import TabManager
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _valid_session(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+    if "current_index" in data and not _is_int(data["current_index"]):
+        return False
+    for key in ("tabs", "spreadsheets", "unsaved_buffers"):
+        if key in data and not isinstance(data[key], list):
+            return False
+    for tab in data.get("tabs", []):
+        if not (isinstance(tab, dict) and isinstance(tab.get("path"), str)):
+            return False
+        if any(field in tab and not _is_int(tab[field]) for field in ("line", "col")):
+            return False
+        if "encoding" in tab and not isinstance(tab["encoding"], str):
+            return False
+    for entry in data.get("spreadsheets", []):
+        if not (isinstance(entry, dict) and isinstance(entry.get("path"), str)):
+            return False
+        if "delimiter" in entry and not isinstance(entry["delimiter"], str):
+            return False
+        if "encoding" in entry and not isinstance(entry["encoding"], str):
+            return False
+        if "first_row_header" in entry and not isinstance(entry["first_row_header"], bool):
+            return False
+    for entry in data.get("unsaved_buffers", []):
+        if not (isinstance(entry, dict) and isinstance(entry.get("buffer_file"), str)):
+            return False
+        if any(field in entry and not _is_int(entry[field]) for field in ("line", "col")):
+            return False
+        if "encoding" in entry and not isinstance(entry["encoding"], str):
+            return False
+    return True
+
+
+def _valid_ui_state(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+    bool_keys = {"minimap", "word_wrap", "symbol_panel", "file_browser", "build_panel", "show_preview"}
+    string_keys = {"active_theme", "active_profile", "minimap_side"}
+    return (all(key not in data or isinstance(data[key], bool) for key in bool_keys)
+            and all(key not in data or isinstance(data[key], str) for key in string_keys)
+            and ("layout_version" not in data or _is_int(data["layout_version"])))
+
+
+def restore_cursor_after_load(main_window, path: Path, line: int, col: int,
+                              *, positions_are_one_based: bool = True) -> None:
+    """Restore a cursor only after a potentially lazy document load completes."""
+    def find_editor():
+        for editor in main_window._tab_manager.all_editors():
+            try:
+                if editor.file_path and editor.file_path.resolve() == path.resolve():
+                    return editor
+            except OSError:
+                continue
+        return None
+
+    def set_cursor() -> None:
+        editor = find_editor()
+        if editor is None:
+            return
+        target_line = max(0, line - 1) if positions_are_one_based else max(0, line)
+        target_col = max(0, col - 1) if positions_are_one_based else max(0, col)
+        editor.setCursorPosition(target_line, target_col)
+        editor.ensureLineVisible(target_line)
+
+    editor = find_editor()
+    loader = getattr(main_window, "_lazy_loaders", {}).get(editor) if editor else None
+    if loader is not None and hasattr(loader, "load_finished"):
+        loader.load_finished.connect(set_cursor)
+    else:
+        QTimer.singleShot(0, set_cursor)
 
 
 class Session:
@@ -52,15 +132,7 @@ class Session:
         # Cartella per i buffer non salvati — indipendente dal backup folder
         buffers_dir = self._path.parent / "unsaved_buffers"
 
-        # Pulisce i buffer temporanei precedenti prima di riscriverli
-        try:
-            if buffers_dir.exists():
-                for old in buffers_dir.glob("buffer_*.txt"):
-                    old.unlink(missing_ok=True)
-        except Exception:
-            pass
-
-        unsaved_index = 0
+        saved_buffer_names: set[str] = set()
         for editor in tab_manager.all_editors():
             if editor.file_path and editor.file_path.exists():
                 line, col = editor.get_cursor_position_1based()
@@ -77,8 +149,8 @@ class Session:
                     continue
                 try:
                     buffers_dir.mkdir(parents=True, exist_ok=True)
-                    buf_path = buffers_dir / f"buffer_{unsaved_index}.txt"
-                    buf_path.write_text(content, encoding="utf-8")
+                    buf_path = buffers_dir / f"buffer_{uuid4().hex}.txt"
+                    atomic_write_text(buf_path, content)
                     line, col = editor.get_cursor_position_1based()
                     data["unsaved_buffers"].append({
                         "buffer_file": buf_path.name,
@@ -86,7 +158,7 @@ class Session:
                         "col":         col,
                         "encoding":    editor.encoding,
                     })
-                    unsaved_index += 1
+                    saved_buffer_names.add(buf_path.name)
                 except Exception as e:
                     print(f"[session] Buffer non salvato non persistito: {e}")
         if hasattr(tab_manager, "all_custom_tabs"):
@@ -99,10 +171,12 @@ class Session:
                         "first_row_header": getattr(widget, "_first_row_header", True),
                     })
         try:
-            self._path.write_text(
-                json.dumps(data, ensure_ascii=False, indent=2),
-                encoding="utf-8"
-            )
+            atomic_write_json(self._path, data)
+            # The manifest now points at the new buffers, so old ones can be removed.
+            if buffers_dir.exists():
+                for old in buffers_dir.glob("buffer_*.txt"):
+                    if old.name not in saved_buffer_names:
+                        old.unlink(missing_ok=True)
         except Exception as e:
             print(f"[session] Errore salvataggio: {e}")
 
@@ -113,9 +187,8 @@ class Session:
         """
         if not self._path.exists():
             return False
-        try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
-        except Exception:
+        data = load_json(self._path, validate=_valid_session)
+        if not isinstance(data, dict):
             return False
 
         tabs = data.get("tabs", [])
@@ -128,13 +201,9 @@ class Session:
                 p = Path(tab.get("path", ""))
                 if p.exists():
                     main_window.open_files([p])
-                    # Ripristina posizione cursore
-                    editor = main_window._tab_manager.current_editor()
-                    if editor:
-                        line = tab.get("line", 1)
-                        col  = tab.get("col", 1)
-                        editor.go_to_line(line)
-                        editor.setCursorPosition(line - 1, col - 1)
+                    restore_cursor_after_load(
+                        main_window, p, tab.get("line", 1), tab.get("col", 1),
+                    )
                     opened += 1
         finally:
             main_window.setUpdatesEnabled(True)
@@ -170,7 +239,7 @@ class Session:
                 if not buf_file:
                     continue
                 buf_path = buffers_dir / buf_file
-                if not buf_path.exists():
+                if buf_path.parent != buffers_dir or not buf_path.exists():
                     continue
                 try:
                     content = buf_path.read_text(encoding="utf-8")
@@ -204,7 +273,6 @@ class Session:
             from config.themes import ThemeManager
             from core.build_manager import BuildManager
             from config.settings import Settings
-            import json as _json
 
             state = {
                 "active_theme":    ThemeManager.instance().active_name(),
@@ -225,10 +293,7 @@ class Session:
             }
 
             ui_path = self._path.parent / "ui_state.json"
-            ui_path.write_text(
-                _json.dumps(state, ensure_ascii=False, indent=2),
-                encoding="utf-8"
-            )
+            atomic_write_json(ui_path, state)
 
             # Salva il layout completo dock/toolbar di QMainWindow —
             # include posizione, dimensioni e visibilità di tutti i QDockWidget
@@ -239,8 +304,8 @@ class Session:
                 geom_bytes   = main_window.saveGeometry().data()
                 layout_path  = self._path.parent / "window_layout.bin"
                 geom_path    = self._path.parent / "window_geometry.bin"
-                layout_path.write_bytes(layout_bytes)
-                geom_path.write_bytes(geom_bytes)
+                atomic_write_bytes(layout_path, layout_bytes)
+                atomic_write_bytes(geom_path, geom_bytes)
             except Exception as le:
                 print(f"[session] Layout dock non salvato: {le}")
 
@@ -252,10 +317,8 @@ class Session:
         ui_path = self._path.parent / "ui_state.json"
         if not ui_path.exists():
             return
-        try:
-            import json as _json
-            state = _json.loads(ui_path.read_text(encoding="utf-8"))
-        except Exception:
+        state = load_json(ui_path, validate=_valid_ui_state)
+        if not isinstance(state, dict):
             return
 
         # Tema

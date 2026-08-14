@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QListWidget, QListWidgetItem
+from i18n.i18n import tr
 
 
 class TabSwitcherPopup(QWidget):
@@ -32,33 +33,14 @@ class TabSwitcherPopup(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setObjectName("tabSwitcherRoot")
-        self.setStyleSheet("""
-            #tabSwitcherRoot {
-                background: #252526;
-                border: 1px solid #3c3c3c;
-                border-radius: 6px;
-            }
-            QListWidget {
-                background: #252526;
-                color: #d4d4d4;
-                border: none;
-                outline: none;
-                font-size: 12px;
-            }
-            QListWidget::item {
-                padding: 4px 14px;
-                border-radius: 3px;
-            }
-            QListWidget::item:selected {
-                background: #264f78;
-                color: #ffffff;
-            }
-        """)
+        self.setAccessibleName(tr("tab_switcher.name"))
+        self.setAccessibleDescription(tr("tab_switcher.description"))
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         self._list = QListWidget()
         self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._list.setAccessibleName(tr("tab_switcher.open_tabs"))
         self._list.setMinimumWidth(220)
         layout.addWidget(self._list)
 

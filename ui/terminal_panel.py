@@ -8,11 +8,12 @@ Esegue una vera e propria sessione shell continua.
 
 import os
 import json
+import sys
 from pathlib import Path
 from typing import Optional
 
 from i18n.i18n import tr
-from PyQt6.QtCore import QUrl, Qt, QProcess, QProcessEnvironment, pyqtSignal, pyqtSlot, QObject, QTimer
+from PyQt6.QtCore import QUrl, Qt, QProcess, QProcessEnvironment, pyqtSignal, pyqtSlot, QObject
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QLabel, QMessageBox
 )
@@ -151,6 +152,7 @@ class TerminalPanel(QWidget):
         super().__init__(parent)
         self._cwd: Path = Path.home()
         self._process: Optional[QProcess] = None
+        self._restart_pending = False
         self._webview = None
         self._setup_ui()
         self._start_shell()
@@ -237,6 +239,9 @@ class TerminalPanel(QWidget):
             return
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             return
+        if self._process is not None:
+            self._process.deleteLater()
+            self._process = None
 
         self._process = QProcess(self)
         self._process.setWorkingDirectory(str(self._cwd))
@@ -253,23 +258,30 @@ class TerminalPanel(QWidget):
         self._process.readyReadStandardError.connect(self._on_stderr)
         self._process.finished.connect(self._on_finished)
 
-        # Lancia la shell interattiva
+        # Lancia la shell interattiva. Pass the shell as an argv item rather
+        # than interpolating it into Python source code.
         if os.name == "nt":
             self._process.start("cmd.exe")
-            QTimer.singleShot(500, lambda: self._write_to_process("\r\n"))
         else:
-            shell = os.environ.get("SHELL", "/bin/bash")
-            self._process.start("python3", ["-c", f"import pty; pty.spawn('{shell}')"])            
+            shell = os.environ.get("SHELL", "")
+            if not (shell.startswith("/") and os.path.isfile(shell) and os.access(shell, os.X_OK)):
+                shell = "/bin/sh"
+            self._process.start(
+                sys.executable,
+                ["-c", "import pty, sys; pty.spawn(sys.argv[1])", shell],
+            )
 
     def _restart_shell(self) -> None:
         self.clear_output()
+        self._restart_pending = True
         self._kill_process()
-        self._start_shell()
+        if self._process is None or self._process.state() == QProcess.ProcessState.NotRunning:
+            self._start_pending_shell()
 
     def _kill_process(self) -> None:
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             self._process.kill()
-            self._process.waitForFinished(500)
+            self._process.waitForFinished(1000)
         
         self._write_to_js("\r\n\x1b[31m[Processo terminato]\x1b[0m\r\n")
 
@@ -291,6 +303,15 @@ class TerminalPanel(QWidget):
     def _on_finished(self, exit_code: int, exit_status) -> None:
         msg = f"\r\n\x1b[31m[Processo terminato con codice {exit_code}]\x1b[0m\r\n"
         self._write_to_js(msg)
+        self._start_pending_shell()
+
+    def _start_pending_shell(self) -> None:
+        if not self._restart_pending:
+            return
+        if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
+            return
+        self._restart_pending = False
+        self._start_shell()
 
     def _write_to_js(self, data: str) -> None:
         """Invia l'output del processo alla console xterm.js"""

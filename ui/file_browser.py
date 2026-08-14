@@ -53,18 +53,24 @@ class FileBrowser(QWidget):
         btn_home = QToolButton()
         btn_home.setText("🏠")
         btn_home.setToolTip(tr("tooltip.filebrowser_home"))
+        btn_home.setAccessibleName(tr("tooltip.filebrowser_home"))
+        btn_home.setAccessibleDescription(tr("tooltip.filebrowser_home"))
         btn_home.clicked.connect(lambda: self._set_root(Path.home()))
         bar.addWidget(btn_home)
 
         btn_choose = QToolButton()
         btn_choose.setText("📂")
         btn_choose.setToolTip(tr("tooltip.filebrowser_choose"))
+        btn_choose.setAccessibleName(tr("tooltip.filebrowser_choose"))
+        btn_choose.setAccessibleDescription(tr("tooltip.filebrowser_choose"))
         btn_choose.clicked.connect(self._choose_root)
         bar.addWidget(btn_choose)
 
         btn_up = QToolButton()
         btn_up.setText("⬆")
         btn_up.setToolTip(tr("tooltip.filebrowser_up"))
+        btn_up.setAccessibleName(tr("tooltip.filebrowser_up"))
+        btn_up.setAccessibleDescription(tr("tooltip.filebrowser_up"))
         btn_up.clicked.connect(self._go_up)
         bar.addWidget(btn_up)
 
@@ -78,6 +84,8 @@ class FileBrowser(QWidget):
         )
 
         self._tree = QTreeView()
+        self._tree.setAccessibleName(tr("action.view_file_browser"))
+        self._tree.setAccessibleDescription(tr("tooltip.filebrowser_path"))
         self._tree.setModel(self._model)
         self._tree.setAnimated(True)
         self._tree.setIndentation(16)
@@ -216,17 +224,31 @@ class FileBrowser(QWidget):
             QMessageBox.critical(self, tr("file_browser.rename_error", default="Errore rinomina"), str(e))
 
     def _delete(self, path: Path) -> None:
-        kind = path.name
+        try:
+            from send2trash import send2trash
+        except ImportError:
+            send2trash = None
+        message_key = (
+            "file_browser.delete_folder_confirm" if path.is_dir()
+            else "file_browser.delete_file_confirm"
+        )
+        message = tr(message_key, name=path.name)
+        message += "\n\n" + tr(
+            "file_browser.delete_to_trash" if send2trash else "file_browser.delete_permanently"
+        )
         reply = QMessageBox.question(
             self,
             tr("file_browser.delete_confirm_title"),
-            tr("file_browser.delete_confirm", kind=kind, name=path.name),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
         try:
-            if path.is_dir():
+            if send2trash:
+                send2trash(str(path))
+            elif path.is_dir():
                 import shutil
                 shutil.rmtree(path)
             else:

@@ -9,7 +9,6 @@ ${FILENAME}, ${DATE}, ${CLIPBOARD}.
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +18,7 @@ from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import QApplication
 
 from core.platform import get_data_dir
+from core.persistence import atomic_write_json, load_json
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -503,39 +503,54 @@ def _process_tabstops(body: str):
       - default = testo di placeholder (già inserito in expanded_body)
     Ordinamento: 1, 2, 3, ... poi 0 (posizione finale $0).
     """
-    result: list[str] = []
-    stops: list[tuple[int, int, int]] = []
-    pos = 0
-    i = 0
-    while i < len(body):
-        if body[i] == '$' and i + 1 < len(body):
-            if body[i + 1] == '{':
-                j = body.find('}', i + 2)
-                if j != -1:
-                    inner = body[i + 2:j]
-                    colon = inner.find(':')
-                    if colon != -1:
-                        n_str, default = inner[:colon], inner[colon + 1:]
-                    else:
-                        n_str, default = inner, ''
+    def process(text: str) -> tuple[str, list[tuple[int, int, int]]]:
+        result: list[str] = []
+        stops: list[tuple[int, int, int]] = []
+        pos = 0
+        i = 0
+        while i < len(text):
+            if text[i:i + 2] == "${":
+                # Match balanced braces so defaults can contain nested
+                # placeholders or ordinary constructs such as \text{...}.
+                depth = 1
+                end = -1
+                for index in range(i + 2, len(text)):
+                    if text[index] == '{':
+                        depth += 1
+                    elif text[index] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            end = index
+                            break
+                if end != -1:
+                    inner = text[i + 2:end]
+                    n_str, separator, default = inner.partition(":")
                     try:
-                        stops.append((int(n_str), pos, len(default)))
-                        result.append(default)
-                        pos += len(default)
-                        i = j + 1
-                        continue
+                        number = int(n_str)
                     except ValueError:
-                        pass
-            elif body[i + 1] == '0':
+                        number = -1
+                    if number >= 0:
+                        expanded_default, nested_stops = process(default if separator else "")
+                        stops.append((number, pos, len(expanded_default)))
+                        stops.extend((n, pos + offset, length)
+                                     for n, offset, length in nested_stops)
+                        result.append(expanded_default)
+                        pos += len(expanded_default)
+                        i = end + 1
+                        continue
+            elif text[i:i + 2] == "$0":
                 stops.append((0, pos, 0))
                 i += 2
                 continue
-        result.append(body[i])
-        pos += 1
-        i += 1
+            result.append(text[i])
+            pos += 1
+            i += 1
+        return "".join(result), stops
+
+    result, stops = process(body)
     numbered = sorted([s for s in stops if s[0] > 0], key=lambda s: s[0])
     final    = [s for s in stops if s[0] == 0]
-    return ''.join(result), numbered + final
+    return result, numbered + final
 
 
 # ─── SnippetManager ───────────────────────────────────────────────────────────
@@ -570,13 +585,21 @@ class SnippetManager(QObject):
     def _load_user_snippets(self) -> None:
         for f in self._snippets_dir().glob("*.json"):
             lang = f.stem.lower()
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
+            def valid(data: object) -> bool:
+                return (isinstance(data, dict)
+                        and all(isinstance(name, str)
+                                and isinstance(snippet, dict)
+                                and isinstance(snippet.get("trigger"), str)
+                                and isinstance(snippet.get("body"), str)
+                                and ("description" not in snippet
+                                     or isinstance(snippet["description"], str))
+                                for name, snippet in data.items()))
+
+            data = load_json(f, validate=valid)
+            if isinstance(data, dict):
                 if lang not in self._snippets:
                     self._snippets[lang] = {}
                 self._snippets[lang].update(data)
-            except Exception:
-                pass
 
     def get_triggers(self, language: str) -> dict[str, str]:
         """Restituisce {trigger: description} per il linguaggio."""
@@ -659,7 +682,4 @@ class SnippetManager(QObject):
             k: v for k, v in self._snippets[lang].items()
             if k not in BUILTIN_SNIPPETS.get(lang, {})
         }
-        path.write_text(
-            json.dumps(user_snips, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
+        atomic_write_json(path, user_snips)

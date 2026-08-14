@@ -45,6 +45,7 @@ hiddenimports = (
         'pathlib',
         'threading',
         'subprocess',
+        'ftplib',
     ]
 )
 
@@ -75,7 +76,6 @@ excludes = [
     'xmlrpc',
     'pydoc',
     'doctest',
-    'ftplib',
     'imaplib',
     'nntplib',
     'optparse',

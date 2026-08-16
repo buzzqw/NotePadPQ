@@ -2262,6 +2262,7 @@ class MainWindow(QMainWindow):
                 prev.encoding_changed.disconnect(self._statusbar.set_encoding)
                 prev.line_ending_changed.disconnect(self._statusbar.set_line_ending)
                 prev.overwrite_changed.disconnect(self._statusbar.set_overwrite)
+                prev.vim_mode_changed.disconnect(self._statusbar.set_vim_mode)
                 prev.zoom_changed.disconnect(self._statusbar.set_zoom)
             except (RuntimeError, TypeError):
                 pass
@@ -2307,6 +2308,7 @@ class MainWindow(QMainWindow):
             lambda mod, ed=editor: self._on_tab_modified(ed, mod)
         )
         editor.overwrite_changed.connect(self._statusbar.set_overwrite)
+        editor.vim_mode_changed.connect(self._statusbar.set_vim_mode)
         editor.zoom_changed.connect(self._statusbar.set_zoom)
 
         # Writing goal — ricollega al nuovo editor se l'obiettivo è attivo

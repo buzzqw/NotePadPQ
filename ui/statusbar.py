@@ -48,12 +48,13 @@ class StatusBar(QStatusBar):
         self._lbl_encoding = QLabel("UTF-8")
         self._lbl_le       = QLabel("LF")
         self._lbl_mode     = QLabel(tr("label.insert_mode"))
+        self._lbl_vim_mode = QLabel("")
         self._lbl_zoom     = QLabel("")
         self._lbl_lang     = QLabel("")
         self._lbl_readonly = QLabel("")
 
         for lbl in [self._lbl_cursor, self._lbl_sel, self._lbl_encoding,
-                    self._lbl_le, self._lbl_mode, self._lbl_zoom,
+                    self._lbl_le, self._lbl_mode, self._lbl_vim_mode, self._lbl_zoom,
                     self._lbl_lang, self._lbl_readonly]:
             lbl.setContentsMargins(4, 0, 4, 0)
 
@@ -67,6 +68,7 @@ class StatusBar(QStatusBar):
         for widget in [
             self._lbl_readonly, _separator(),
             self._lbl_mode,     _separator(),
+            self._lbl_vim_mode, _separator(),
             self._lbl_zoom,     _separator(),
             self._lbl_le,       _separator(),
             self._lbl_encoding, _separator(),
@@ -85,6 +87,7 @@ class StatusBar(QStatusBar):
         self.set_encoding(editor.encoding)
         self.set_line_ending(editor.line_ending.label())
         self.set_overwrite(False)
+        self.set_vim_mode(getattr(getattr(editor, "_vim_mode", None), "mode", ""))
         self.set_zoom(editor.zoom_level)
         self._update_lang(editor)
 
@@ -118,6 +121,9 @@ class StatusBar(QStatusBar):
             tr("label.overwrite_mode") if overwrite
             else tr("label.insert_mode")
         )
+
+    def set_vim_mode(self, mode: str) -> None:
+        self._lbl_vim_mode.setText(mode)
 
     def set_zoom(self, level: int) -> None:
         if level == 0:

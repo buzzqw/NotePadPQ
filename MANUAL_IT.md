@@ -20,6 +20,7 @@
 23. [Editor Rich Text](#23-editor-rich-text)
 24. [Search PQ](#24-search-pq)
 25. [Terminal](#25-terminal)
+26. [Modalità Vim](#26-modalità-vim)
 11. [Pannelli laterali e inferiori](#11-pannelli-laterali-e-inferiori)
 12. [Multi-cursore](#12-multi-cursore)
 13. [Split View](#13-split-view)
@@ -1729,6 +1730,24 @@ Il plugin **Terminal** (`Ctrl+Alt+T`, oppure **Plugin → Terminal**) espone il 
 - Nessuna dipendenza esterna; funziona su Linux, Windows e macOS.
 
 Il pannello può essere agganciato a qualsiasi lato della finestra (alto, basso, sinistra, destra) o staccato come finestra indipendente trascinando la barra del titolo.
+
+---
+
+## 26. Modalità Vim
+
+La modalità Vim è **disattivata per impostazione predefinita**. Si abilita da **Preferenze → Editor → Abilita modalità Vim** e agisce soltanto nell'area di testo: menu, scorciatoie dell'applicazione e comportamento standard restano invariati quando è disattivata.
+
+La barra di stato mostra `NORMAL`, `INSERT` o `VISUAL` per la tab attiva.
+
+- **Normal**: movimenti `h`, `j`, `k`, `l`, `w`, `b`, `0`, `$`, `gg`, `G`; inserimento `i`, `a`, `I`, `A`, `o`, `O`; modifica `x`, `dd`, `cc`, `yy`, `p`, `P`, `u`, `Ctrl+R` e ripetizione `.`.
+- **Visual**: `v` seleziona caratteri e `V` righe; `y`, `d` e `c` applicano l'operazione alla selezione.
+- **Text object**: gli operatori funzionano con parole e delimitatori, ad esempio `ciw`, `di"`, `da(`, `ci{`.
+- **Registri**: `"ay` salva il testo copiato nel registro `a`; `"ap` lo incolla. Il registro senza nome resta sincronizzato con gli appunti di sistema.
+- **Jump list**: `Ctrl+O` e `Ctrl+I` navigano le posizioni visitate con `G`, `gg` e `:goto`.
+
+Premi `:` per aprire il prompt, che mostra esempi dei comandi disponibili: `:w`, `:q`, `:wq`, `:e percorso`, `:set wrap`, `:set nowrap` e `:goto numero`.
+
+`:!comando` esegue un comando shell nella directory del file corrente, dopo una conferma, ad esempio `:!chmod 666 nomefile.txt`. L'esito e l'eventuale output sono sempre mostrati. Se nell'editor e' presente una selezione, lo stesso comando la usa come input: l'output viene mostrato in anteprima e sostituisce il testo solo dopo conferma, utile per `:!sort` o `:!awk '{print toupper($0)}'`. Il comando ha gli stessi permessi dell'utente, quindi va usato solo con comandi fidati.
 
 ---
 

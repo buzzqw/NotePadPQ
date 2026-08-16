@@ -26,6 +26,7 @@ _DEFAULTS: dict[str, Any] = {
     "editor/show_eol":         False,
     "editor/word_wrap":        False,
     "editor/show_minimap":     False,
+    "editor/vim_mode_enabled": False,
     # Tema
     "theme/active":            "Dark",
     # File

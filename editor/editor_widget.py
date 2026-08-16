@@ -514,6 +514,7 @@ class EditorWidget(QsciScintilla):
     context_menu_requested = pyqtSignal(object)  # QMenu — plugin possono aggiungere voci
     paste_clipboard_image_requested = pyqtSignal()  # incolla immagine clipboard come LaTeX
     latex_image_drop_requested = pyqtSignal(object)  # file immagine trascinato su LaTeX
+    vim_mode_changed = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -597,6 +598,9 @@ class EditorWidget(QsciScintilla):
         # Multi-cursore (Ctrl+D, Ctrl+Shift+D, Ctrl+Alt+↑/↓, …)
         from editor.multicursor import MultiCursorManager
         self._multicursor = MultiCursorManager(self)
+        from editor.vim_mode import VimMode
+        self._vim_mode = VimMode(self, settings.get("editor/vim_mode_enabled", False))
+        self._vim_mode.mode_changed.connect(self.vim_mode_changed)
 
         # Sincronizzazione nome \begin{X}/\end{X}: quando il cursore lascia
         # l'argomento di uno dei due dopo averlo modificato, l'altro capo
@@ -1838,6 +1842,8 @@ class EditorWidget(QsciScintilla):
     def keyPressEvent(self, event) -> None:
         """Intercetta Insert per toggle overwrite e registra macro."""
         self._hide_hover_popup()
+        if self._vim_mode.handle_key(event):
+            return
 
         # Navigazione tab-stop snippet: Tab avanza, Escape annulla
         if self._tabstops:

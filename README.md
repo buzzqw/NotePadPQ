@@ -31,7 +31,7 @@ are added through integrated panels and optional plugins.
 
 | Area | Included capabilities |
 |---|---|
-| **Editor** | 40+ language modes, QScintilla and Pygments lexers, folding, minimap, smart highlighting, autocomplete, snippets, macros, multi-cursor and configurable typography |
+| **Editor** | 40+ language modes, QScintilla and Pygments lexers, folding, minimap, smart highlighting, autocomplete, snippets, macros, multi-cursor, optional Vim mode and configurable typography |
 | **Projects and files** | Tabs, split views, session restore, project manager, recent files, external-change handling, tail mode and paged editing for files over 200 MB |
 | **LaTeX** | Root-file resolution, latexmk profiles, BibTeX/Biber awareness, Function List, completion, diagnostics, templates, PDF preview and bidirectional SyncTeX |
 | **Build system** | 12 built-in profiles, custom profiles, variables, environment overrides, pre/post hooks, pipelines, task discovery, concurrent jobs and clickable diagnostics |
@@ -54,6 +54,9 @@ are added through integrated panels and optional plugins.
 - Multi-cursor editing, macros, column editor, case conversion, smart
   indentation, comment/uncomment, line operations, regex tester and numeric
   converter.
+- Optional Vim mode with Normal, Insert and Visual input modes, core motions
+  and operators, text objects, registers, jump navigation, `:` commands, and
+  confirmed shell execution or selection filtering through `:!command`.
 - Markup shortcuts for both Markdown and LaTeX, table alignment, environment
   and tag wrapping, LaTeX environment pairing and synchronized environment
   renaming.
@@ -354,7 +357,8 @@ sistema di plugin estendibile.
 Le aree principali sono:
 
 - editor QScintilla/Pygments per oltre 40 linguaggi, autocomplete, macro,
-  multi-cursore, minimap, split view e recupero sessione;
+  multi-cursore, modalità Vim opzionale, minimap, split view e recupero
+  sessione;
 - workflow LaTeX completo con root project, `latexmk`, BibTeX/Biber, Function
   List gerarchica, template, diagnostica, PDF preview e SyncTeX bidirezionale;
 - Build Panel con 12 profili built-in, profili personalizzati, variabili,

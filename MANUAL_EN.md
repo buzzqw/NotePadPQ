@@ -32,6 +32,7 @@
 23. [Rich Text Editor](#23-rich-text-editor)
 24. [Search PQ](#24-search-pq)
 25. [Terminal](#25-terminal)
+26. [Vim Mode](#26-vim-mode)
 
 ---
 
@@ -1740,6 +1741,24 @@ The **Terminal** plugin (`Ctrl+Alt+T`, or **Plugins → Terminal**) exposes the 
 - No external dependencies; works on Linux, Windows, and macOS.
 
 The panel can be docked to any side of the window (top, bottom, left, right) or detached as an independent window by dragging the title bar.
+
+---
+
+## 26. Vim Mode
+
+Vim mode is **disabled by default**. Enable it in **Preferences -> Editor -> Enable Vim mode**. It only changes text-editor input: menus, application shortcuts, and standard editing behavior remain unchanged while it is disabled.
+
+The status bar shows `NORMAL`, `INSERT`, or `VISUAL` for the active tab.
+
+- **Normal**: movement with `h`, `j`, `k`, `l`, `w`, `b`, `0`, `$`, `gg`, `G`; insertion with `i`, `a`, `I`, `A`, `o`, `O`; editing with `x`, `dd`, `cc`, `yy`, `p`, `P`, `u`, `Ctrl+R`, and repeat with `.`.
+- **Visual**: `v` selects characters and `V` selects lines; `y`, `d`, and `c` apply to the selection.
+- **Text objects**: operators work with words and delimiters, for example `ciw`, `di"`, `da(`, and `ci{`.
+- **Registers**: `"ay` stores copied text in register `a`; `"ap` pastes it. The unnamed register remains synchronized with the system clipboard.
+- **Jump list**: `Ctrl+O` and `Ctrl+I` navigate positions visited with `G`, `gg`, and `:goto`.
+
+Press `:` in `NORMAL` mode to open the Vim command prompt, which shows examples of the available commands. The prompt already displays `:`, so enter either `!pwd` or `:!pwd`; both forms are accepted. Available commands are `:w`, `:q`, `:wq`, `:e path`, `:set wrap`, `:set nowrap`, and `:goto number`.
+
+`:!command` runs a shell command in the current file's directory after confirmation, for example `:!chmod 666 filename.txt`. Its outcome and any output are always shown. When text is selected in the editor, the same command receives the selection as standard input; its output is previewed and replaces the selection only after confirmation. This is useful for `:!sort` or `:!awk '{print toupper($0)}'`. The command has the current user's permissions, so use only trusted commands.
 
 ---
 

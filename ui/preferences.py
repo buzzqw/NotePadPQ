@@ -141,6 +141,10 @@ class PreferencesDialog(QDialog):
 
         vl.addWidget(grp_indent)
 
+        self._vim_mode_enabled = QCheckBox("Abilita modalità Vim (Normal, Insert e Visual)")
+        self._vim_mode_enabled.setToolTip("Attiva comandi Vim solo negli editor di testo; disattivata mantiene i comandi standard.")
+        vl.addWidget(self._vim_mode_enabled)
+
         # Edge column (riga guida verticale)
         grp_edge = QGroupBox(tr("pref.editor.edge_group"))
         el = QFormLayout(grp_edge)
@@ -659,6 +663,7 @@ class PreferencesDialog(QDialog):
         self._use_tabs.setChecked(s.get("editor/use_tabs", False))
         self._auto_indent.setChecked(s.get("editor/auto_indent", True))
         self._edge_column.setValue(s.get("editor/edge_column",   0))
+        self._vim_mode_enabled.setChecked(s.get("editor/vim_mode_enabled", False))
 
         # Aspetto
         theme_name = s.get("theme/active", "Dark")
@@ -794,6 +799,7 @@ class PreferencesDialog(QDialog):
         s.set("editor/use_tabs",          self._use_tabs.isChecked())
         s.set("editor/auto_indent",  self._auto_indent.isChecked())
         s.set("editor/edge_column", self._edge_column.value())
+        s.set("editor/vim_mode_enabled", self._vim_mode_enabled.isChecked())
 
         # Indentation changes are expected to take effect without reopening tabs.
         mw_editors = self.parent()
@@ -806,6 +812,7 @@ class PreferencesDialog(QDialog):
                     self._use_tabs.isChecked(),
                     self._auto_indent.isChecked(),
                 )
+                ed._vim_mode.set_enabled(self._vim_mode_enabled.isChecked())
 
         # Aspetto — applica tema a caldo e ri-applica a tutti gli editor
         # (include le nuove impostazioni font che apply_to_editor legge da QSettings)

@@ -398,7 +398,9 @@ def main():
     # per tick) per non bloccare la UI.
     try:
         from plugins.plugin_manager import PluginManager
-        PluginManager.instance().load_all_deferred(win, on_done=_finish_startup)
+        plugin_manager = PluginManager.instance()
+        app.aboutToQuit.connect(plugin_manager.unload_all)
+        plugin_manager.load_all_deferred(win, on_done=_finish_startup)
     except Exception as e:
         print(f"[main] Errore caricamento plugin: {e}")
         _finish_startup()

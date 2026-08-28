@@ -196,6 +196,7 @@ The plugin system includes the following integrated extensions:
 | Plugin | Scope |
 |---|---|
 | **AI Assistant** | Multi-provider chat, streaming, contextual actions, attachments, token estimates, regeneration and inline diffs |
+| **LanguageTool locale** | Optional LanguageTool Standalone server, live grammar/style diagnostics and contextual replacements; LaTeX prose is checked with markup masked |
 | **Clipboard History** | Persistent multi-entry clipboard with quick selection |
 | **Compare & Merge** | Editable three-way comparison, character-level diff and synchronized scrolling |
 | **Code Formatter** | Python, JS/TS/HTML/CSS, C/C++, Rust, Go, JSON and XML formatting; optional format-on-save |

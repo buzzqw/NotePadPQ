@@ -492,6 +492,7 @@ INDICATOR_SMART_HL  = 5   # Smart Highlight: parola sotto cursore
 INDICATOR_SPELL     = 6   # Sottolineatura a zig-zag rossa per errori ortografici
 INDICATOR_FIND_LINE = 7   # Evidenziazione riga intera durante la navigazione risultati
 INDICATOR_LATEX_COL = 8   # Warning colonne tabella LaTeX (squiggly ambra)
+INDICATOR_LANGUAGETOOL = 9 # Errori grammaticali LanguageTool (squiggly ambra)
 
 # ─── EditorWidget ─────────────────────────────────────────────────────────────
 
@@ -825,6 +826,14 @@ class EditorWidget(QsciScintilla):
         )
         self.setIndicatorForegroundColor(QColor(200, 160, 0), INDICATOR_LATEX_COL)
         self.setIndicatorDrawUnder(True, INDICATOR_LATEX_COL)
+
+        # Indicatori LanguageTool: colore distinto sia dallo spell checker sia
+        # dai warning LaTeX, mantenendo il testo sempre leggibile.
+        self.indicatorDefine(
+            QsciScintilla.IndicatorStyle.SquiggleIndicator, INDICATOR_LANGUAGETOOL
+        )
+        self.setIndicatorForegroundColor(QColor(220, 160, 40), INDICATOR_LANGUAGETOOL)
+        self.setIndicatorDrawUnder(True, INDICATOR_LANGUAGETOOL)
 
     def _setup_caret(self) -> None:
         """Configura il cursore (caret)."""

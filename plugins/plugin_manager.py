@@ -375,6 +375,19 @@ class PluginManager:
             print(f"[plugins] Errore disabilitazione {name}: {e}")
             return False
 
+    def unload_all(self) -> None:
+        """Scarica i plugin attivi prima della chiusura dell'applicazione."""
+        for name, entry in list(self._plugins.items()):
+            if not entry["enabled"]:
+                continue
+            try:
+                entry["instance"].on_unload()
+            except Exception as e:
+                print(f"[plugins] Errore scaricamento {name}: {e}")
+            finally:
+                entry["enabled"] = False
+        self._main_window = None
+
     def get_all(self) -> dict[str, dict]:
         return dict(self._plugins)
 

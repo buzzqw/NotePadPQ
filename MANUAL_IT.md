@@ -756,6 +756,21 @@ Tutti i plugin mostrano icone Lucide nel menu Plugin (stesso stile della toolbar
 | **Search PQ** | `Ctrl+Alt+F` | Ricerca e sostituzione avanzata nel documento: modalità TEXT/REGEXP/LIKE, coda risultati, filtro inline, sostituzione (vedi [sezione 24](#24-search-pq)) |
 | **Terminal** | `Ctrl+Alt+T` | Terminale xterm.js con PTY nativo come pannello dock indipendente (vedi [sezione 25](#25-terminal)) |
 | **Web Search** | — | Ricerca web e Wikipedia sul testo selezionato dal menu contestuale |
+| **LanguageTool locale** | — | Controllo grammaticale e stilistico tramite server LanguageTool Standalone locale |
+
+### LanguageTool locale
+
+Il plugin e' **disattivato per impostazione predefinita**. Per abilitarlo seleziona
+**Plugin -> LanguageTool locale -> Attiva controllo LanguageTool**. Quando e' attivo,
+controlla automaticamente i testi dopo una breve pausa durante la digitazione e mostra
+gli errori nel dock laterale. Il menu contestuale offre le sostituzioni disponibili.
+
+Il plugin usa il server HTTP locale di LanguageTool Standalone sulla porta 8081. Se il
+comando `languagetool` e' disponibile nel `PATH`, il server viene avviato automaticamente;
+in caso contrario puoi configurare endpoint e comando da **Impostazioni...**. Il testo non
+viene inviato a un servizio cloud. Codice, JSON e altri linguaggi sorgente vengono ignorati
+per evitare correzioni inappropriate. Nei file LaTeX il plugin maschera comandi, commenti e
+formule, controlla la sola prosa e mantiene le posizioni originali degli eventuali suggerimenti.
 
 ### REST Client
 

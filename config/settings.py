@@ -81,6 +81,13 @@ _DEFAULTS: dict[str, Any] = {
     # Controllo ortografico
     "spellcheck/enabled":      False,
     "spellcheck/language":     "it",
+    # LanguageTool locale (plugin disattivato al primo avvio)
+    "languagetool/enabled":    False,
+    "languagetool/endpoint":   "http://127.0.0.1:8081/v2/check",
+    "languagetool/command":    "languagetool",
+    "languagetool/auto_start": True,
+    "languagetool/language":   "it",
+    "languagetool/max_chars":  100000,
     # LaTeX
     "latex/env_usage_counts":  "{}",  # JSON: {env_name: count} per ordinare il popup \begin{
     "latex/cwl_directories":    [],    # directory .cwl aggiuntive, in ordine di precedenza

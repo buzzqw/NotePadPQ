@@ -2524,6 +2524,39 @@ class MainWindow(QMainWindow):
         "remove_empty", "remove_whitespace", "remove_every_nth",
     })
 
+    def _ask_csv_open_mode(self, path: Path) -> str:
+        """Chiede se un CSV va aperto come testo o come foglio di calcolo."""
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setWindowTitle(tr(
+            "plugin.spreadsheet.csv_open_title",
+            default="Apri file CSV",
+        ))
+        msg.setText(tr(
+            "plugin.spreadsheet.csv_open_prompt",
+            name=path.name,
+            default="Come vuoi aprire «{name}»?",
+        ))
+        plugin_btn = msg.addButton(
+            tr("plugin.spreadsheet.csv_open_plugin", default="Usa plugin foglio di calcolo"),
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        text_btn = msg.addButton(
+            tr("plugin.spreadsheet.csv_open_text", default="Apri come testo semplice"),
+            QMessageBox.ButtonRole.ActionRole,
+        )
+        msg.addButton(
+            tr("plugin.spreadsheet.csv_open_cancel", default="Annulla"),
+            QMessageBox.ButtonRole.RejectRole,
+        )
+        msg.setDefaultButton(plugin_btn)
+        msg.exec()
+        if msg.clickedButton() is plugin_btn:
+            return "spreadsheet"
+        if msg.clickedButton() is text_btn:
+            return "text"
+        return "cancel"
+
     def open_files(self, paths: list[Path]) -> None:
         """Apre una lista di file in nuovi tab (chiamato anche da drag&drop)."""
         for path in paths:
@@ -2533,8 +2566,16 @@ class MainWindow(QMainWindow):
             if path.suffix.lower() in self._SPREADSHEET_EXTS:
                 plugin = getattr(self, "_spreadsheet_plugin", None)
                 if plugin is not None:
-                    plugin.open_spreadsheet(path)
-                    continue
+                    if path.suffix.lower() == ".csv":
+                        mode = self._ask_csv_open_mode(path)
+                        if mode == "cancel":
+                            continue
+                        if mode == "spreadsheet":
+                            plugin.open_spreadsheet(path)
+                            continue
+                    else:
+                        plugin.open_spreadsheet(path)
+                        continue
                 # Plugin non caricato: apre come testo normale
             # Intercetta file richtext
             if path.suffix.lower() in self._RICHTEXT_EXTS:

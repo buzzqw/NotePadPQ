@@ -9,7 +9,8 @@ XLS: sola lettura (formato legacy).
 
 Attivazione:
   Menu Plugin → Foglio di calcolo → Apri foglio...
-  I file CSV/XLSX/XLS/ODS vengono aperti automaticamente come foglio.
+  I file TSV/XLSX/XLS/ODS vengono aperti automaticamente come foglio;
+  per i CSV l'apertura automatica propone la modalità testo o foglio.
 """
 from __future__ import annotations
 

@@ -1439,7 +1439,7 @@ The Spreadsheet plugin opens CSV, TSV, XLSX, XLSM, XLS, and ODS files in a dedic
 
 ### Opening Files
 
-Files with extensions `.csv`, `.tsv`, `.xlsx`, `.xlsm`, `.xls`, `.ods` are automatically opened as a spreadsheet when you open them with **File → Open**, drag them into the editor, or they are reopened from the previous session.
+Files with extensions `.tsv`, `.xlsx`, `.xlsm`, `.xls`, `.ods` are automatically opened as a spreadsheet when you open them with **File → Open**, drag them into the editor, or they are reopened from the previous session. For `.csv` files, NotePadPQ first asks whether to open them as **plain text** or use the **Spreadsheet plugin**. The same choice is shown for CSV files dragged into the editor; opening a file through **Plugins → Spreadsheet → Open spreadsheet...** uses the plugin directly.
 
 You can also use **Plugins → Spreadsheet → Open spreadsheet...** to choose the file manually.
 
@@ -1456,7 +1456,7 @@ If the file contains more than one sheet, a sheet selection dialog is shown befo
 ### Interface
 
 ```
-[ filename.xlsx ]  [+ Row] [+ Column] [− Sel. rows] [🔍 Filter] [💾 Save] [📤 Export] [📊 Chart]
+[ filename.xlsx ]  [+ Row] [+ Column] [− Sel. column] [− Sel. rows] [🔍 Filter] [💾 Save] [📤 Export] [📊 Chart]
 [ fx ▾ ] [ A1 ] [ formula bar .............................................. ]
 ───────────────────────────────────────────────────────────────────────────────
    A  Name      B  Age      C  City
@@ -1573,7 +1573,7 @@ Click **🔍 Filter** or press `Ctrl+F` to open the filter bar. Choose the colum
 - **Esc** cancels editing
 - **Drag column header**: moves the column to another position
 - **Drag row header**: moves the row to another position
-- **Right-click on column header** → "Rename column..."
+- **Right-click on column header** → "Rename column..." or "Delete column"
 
 ### Row/Column Operations
 
@@ -1581,6 +1581,7 @@ Click **🔍 Filter** or press `Ctrl+F` to open the filter bar. Choose the colum
 |---|---|
 | **+ Row** | Inserts an empty row below the last selected |
 | **+ Column** | Adds an empty column to the right |
+| **− Sel. column** | Deletes the columns of the selected cells |
 | **− Sel. rows** | Deletes selected rows |
 
 ### Status Bar

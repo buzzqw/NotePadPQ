@@ -766,7 +766,12 @@
       "select_sheet_prompt": "The file contains {count} sheets.\nChoose the sheet to open:",
       "title": "Spreadsheet",
       "open_error": "Cannot open file:\n{error}",
-      "open_dialog": "Open spreadsheet"
+      "open_dialog": "Open spreadsheet",
+      "csv_open_title": "Open CSV file",
+      "csv_open_prompt": "How do you want to open «{name}»?",
+      "csv_open_plugin": "Use spreadsheet plugin",
+      "csv_open_text": "Open as plain text",
+      "csv_open_cancel": "Cancel"
     },
     "richtext": {
       "menu": "Rich Text Editor",

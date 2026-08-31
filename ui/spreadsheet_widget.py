@@ -788,6 +788,29 @@ class SpreadsheetModel(QAbstractTableModel):
         self.endInsertColumns()
         self._set_modified(True)
 
+    def delete_columns(self, columns: list[int]) -> None:
+        """Elimina le colonne indicate, mantenendo l'ordine delle rimanenti."""
+        valid = sorted({c for c in columns if 0 <= c < self.columnCount()}, reverse=True)
+        if not valid:
+            return
+
+        for col in valid:
+            self.beginRemoveColumns(QModelIndex(), col, col)
+            if col < len(self._headers):
+                del self._headers[col]
+            for row in self._data:
+                if col < len(row):
+                    del row[col]
+            self.endRemoveColumns()
+
+        deleted = set(valid)
+        self._sort_keys = [
+            (col - sum(removed < col for removed in deleted), order)
+            for col, order in self._sort_keys
+            if col not in deleted
+        ]
+        self._set_modified(True)
+
     def rename_column(self, col: int, new_name: str) -> None:
         if 0 <= col < len(self._headers) and new_name != self._headers[col]:
             self._headers[col] = new_name
@@ -1517,8 +1540,14 @@ class SpreadsheetWidget(QWidget):
             btn_add_col = QPushButton("+ Colonna")
             btn_add_col.setFixedHeight(24)
             btn_add_col.setToolTip("Aggiunge una colonna vuota a destra")
-            btn_add_col.clicked.connect(self._model.add_column)
+            btn_add_col.clicked.connect(self._add_column)
             toolbar.addWidget(btn_add_col)
+
+            btn_del_col = QPushButton("− Colonna sel.")
+            btn_del_col.setFixedHeight(24)
+            btn_del_col.setToolTip("Elimina le colonne delle celle selezionate")
+            btn_del_col.clicked.connect(self._delete_selected_columns)
+            toolbar.addWidget(btn_del_col)
 
             btn_del_rows = QPushButton("− Righe sel.")
             btn_del_rows.setFixedHeight(24)
@@ -1671,7 +1700,7 @@ class SpreadsheetWidget(QWidget):
             "Click: ordina per questa colonna\n"
             "Shift+Click: aggiunge colonna all'ordinamento\n"
             "Trascina: sposta la colonna\n"
-            "Tasto destro: rinomina colonna"
+            "Tasto destro: rinomina o elimina colonna"
         )
 
         vh = self._view.verticalHeader()
@@ -1785,6 +1814,16 @@ class SpreadsheetWidget(QWidget):
             )
         else:
             self._filter_active_label.setText("")
+
+    def _refresh_filter_columns(self) -> None:
+        """Sincronizza l'elenco del filtro dopo una modifica delle colonne."""
+        self._filter_col.blockSignals(True)
+        self._filter_col.clear()
+        self._filter_col.addItem("— Tutte le colonne —", -1)
+        for i, header in enumerate(self._model.get_headers()):
+            self._filter_col.addItem(header, i)
+        self._filter_col.blockSignals(False)
+        self._apply_filter()
 
     # ── Event filter (Ctrl+S, Ctrl+F) ────────────────────────────────────────
 
@@ -1917,6 +1956,10 @@ class SpreadsheetWidget(QWidget):
             insert_pos = self._model.rowCount()
         self._model.insert_row_at(insert_pos)
 
+    def _add_column(self) -> None:
+        self._model.add_column()
+        self._refresh_filter_columns()
+
     def _delete_selected_rows(self) -> None:
         sel = self._view.selectionModel().selectedIndexes()
         if not sel:
@@ -1928,6 +1971,17 @@ class SpreadsheetWidget(QWidget):
             source_rows.append(src.row())
         self._model.delete_rows(source_rows)
 
+    def _delete_selected_columns(self) -> None:
+        sel = self._view.selectionModel().selectedIndexes()
+        if not sel:
+            return
+        source_cols = {
+            self._proxy.mapToSource(idx).column()
+            for idx in sel
+        }
+        self._model.delete_columns(list(source_cols))
+        self._refresh_filter_columns()
+
     # ── Header context menu / Rinomina colonna ────────────────────────────────
 
     def _on_header_context_menu(self, pos) -> None:
@@ -1938,11 +1992,16 @@ class SpreadsheetWidget(QWidget):
         if logical < 0:
             return
         menu = QMenu(self)
-        act = menu.addAction("Rinomina colonna…")
-        if menu.exec(hh.mapToGlobal(pos)) == act:
+        act_rename = menu.addAction("Rinomina colonna…")
+        act_delete = menu.addAction("Elimina colonna")
+        chosen = menu.exec(hh.mapToGlobal(pos))
+        if chosen == act_rename:
             headers = self._model.get_headers()
             current = headers[logical] if logical < len(headers) else ""
             QTimer.singleShot(0, lambda: self._do_rename_column(logical, current))
+        elif chosen == act_delete:
+            self._model.delete_columns([logical])
+            self._refresh_filter_columns()
 
     def _do_rename_column(self, col: int, current: str) -> None:
         new_name, ok = QInputDialog.getText(
@@ -2126,6 +2185,7 @@ class SpreadsheetWidget(QWidget):
         self._view.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._view.selectionModel().currentChanged.connect(self._on_current_cell_changed)
         self._sort_keys = []
+        self._refresh_filter_columns()
         self._current_sheet = current or requested_sheet
         self._formula_bar.setText("")
         self._cell_ref.setText("")

@@ -1443,7 +1443,7 @@ Il plugin Foglio di Calcolo apre file CSV, TSV, XLSX, XLSM, XLS e ODS in un tab 
 
 ### Apertura file
 
-I file con estensione `.csv`, `.tsv`, `.xlsx`, `.xlsm`, `.xls`, `.ods` vengono aperti automaticamente come foglio di calcolo quando li apri con **File → Apri**, trascini nell'editor o li riapri dalla sessione precedente.
+I file con estensione `.tsv`, `.xlsx`, `.xlsm`, `.xls`, `.ods` vengono aperti automaticamente come foglio di calcolo quando li apri con **File → Apri**, trascini nell'editor o li riapri dalla sessione precedente. Per i file `.csv` viene prima chiesto se aprirli come **testo semplice** o usare il **plugin Foglio di Calcolo**. La scelta vale anche per i CSV trascinati nell'editor; l'apertura da **Plugin → Foglio di calcolo → Apri foglio…** usa direttamente il plugin.
 
 Puoi anche usare **Plugin → Foglio di calcolo → Apri foglio…** per scegliere il file manualmente.
 
@@ -1460,7 +1460,7 @@ Se il file contiene più di un foglio, viene proposto un dialog di selezione fog
 ### Interfaccia
 
 ```
-[ filename.xlsx ]  [+ Riga] [+ Colonna] [− Righe sel.] [🔍 Filtro] [💾 Salva] [📤 Esporta] [📊 Grafico]
+[ filename.xlsx ]  [+ Riga] [+ Colonna] [− Colonna sel.] [− Righe sel.] [🔍 Filtro] [💾 Salva] [📤 Esporta] [📊 Grafico]
 [ fx ▾ ] [ A1 ] [ formula bar .............................................. ]
 ───────────────────────────────────────────────────────────────────────────────
    A  Nome      B  Età      C  Città
@@ -1577,7 +1577,7 @@ Clicca **🔍 Filtro** o premi `Ctrl+F` per aprire la barra filtri. Scegli la co
 - **Esc** annulla l'editing
 - **Drag intestazione colonna** : sposta la colonna in un'altra posizione
 - **Drag intestazione riga** : sposta la riga in un'altra posizione
-- **Tasto destro su intestazione colonna** → "Rinomina colonna…"
+- **Tasto destro su intestazione colonna** → "Rinomina colonna…" o "Elimina colonna"
 
 ### Operazioni righe/colonne
 
@@ -1585,6 +1585,7 @@ Clicca **🔍 Filtro** o premi `Ctrl+F` per aprire la barra filtri. Scegli la co
 |---|---|
 | **+ Riga** | Inserisce una riga vuota sotto l'ultima selezionata |
 | **+ Colonna** | Aggiunge una colonna vuota a destra |
+| **− Colonna sel.** | Elimina le colonne delle celle selezionate |
 | **− Righe sel.** | Elimina le righe selezionate |
 
 ### Barra di stato

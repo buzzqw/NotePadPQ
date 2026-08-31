@@ -766,7 +766,12 @@
       "select_sheet_prompt": "Il file contiene {count} fogli.\nScegli il foglio da aprire:",
       "title": "Foglio di calcolo",
       "open_error": "Impossibile aprire il file:\n{error}",
-      "open_dialog": "Apri foglio di calcolo"
+      "open_dialog": "Apri foglio di calcolo",
+      "csv_open_title": "Apri file CSV",
+      "csv_open_prompt": "Come vuoi aprire «{name}»?",
+      "csv_open_plugin": "Usa plugin foglio di calcolo",
+      "csv_open_text": "Apri come testo semplice",
+      "csv_open_cancel": "Annulla"
     },
     "richtext": {
       "menu": "Editor Rich Text",

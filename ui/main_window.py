@@ -2566,6 +2566,14 @@ class MainWindow(QMainWindow):
             if path.suffix.lower() in self._SPREADSHEET_EXTS:
                 plugin = getattr(self, "_spreadsheet_plugin", None)
                 if plugin is not None:
+                    # Il caricamento del foglio e' asincrono: finche' il tab non
+                    # esiste, una seconda richiesta dello stesso file arrivata
+                    # dal file manager riproporrebbe il prompt CSV.
+                    loading_paths = getattr(plugin, "_loading_paths", ())
+                    resolved_path = path.resolve()
+                    if any(Path(loading).resolve() == resolved_path
+                           for loading in loading_paths):
+                        continue
                     if path.suffix.lower() == ".csv":
                         mode = self._ask_csv_open_mode(path)
                         if mode == "cancel":

@@ -44,6 +44,7 @@ _DEFAULTS: dict[str, Any] = {
     "file/restore_session":    True,
     "file/restore_unsaved":    True,
     "file/recent_max":         20,
+    "search/auto_refresh_results": True,
     # Autocompletamento
     "autocomplete/enabled":    True,
     "autocomplete/threshold":  2,
@@ -66,6 +67,7 @@ _DEFAULTS: dict[str, Any] = {
     "build/trigger_on_edit_delay_ms": 900,
     "build/latex_auxiliary_auto": False,
     "build/output_max_lines":  10000,
+    "build/timeout_seconds":    300,
     "build/unified_errors":    True,
     # i18n
     # None means no explicit user choice: select the first-run language from
@@ -78,6 +80,7 @@ _DEFAULTS: dict[str, Any] = {
     # Barre
     "view/toolbar":            True,
     "view/statusbar":          True,
+    "view/split_sync_zoom":    False,
     # Controllo ortografico
     "spellcheck/enabled":      False,
     "spellcheck/language":     "it",

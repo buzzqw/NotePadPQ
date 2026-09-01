@@ -109,6 +109,25 @@ class CWLModel:
         return [environment for environment in self.environments.values()
                 if environment.package.casefold() in wanted]
 
+    def option_candidates_for(self, command: str,
+                              packages: Iterable[str] = ()) -> list[str]:
+        """Return key-value hints encoded as optional CWL arguments."""
+        wanted = {str(package).strip().casefold() for package in packages}
+        command_name = str(command).casefold()
+        candidates: set[str] = set()
+        for entry in self.commands.values():
+            if entry.name.casefold() != command_name:
+                continue
+            if wanted and entry.package.casefold() not in wanted:
+                continue
+            for argument in entry.arguments:
+                name = argument.name.strip().strip("<>")
+                if not argument.optional or not name or name.casefold() in {
+                        "option", "options"}:
+                    continue
+                candidates.add(name if name.endswith("=") else f"{name}=")
+        return sorted(candidates)
+
 
 def _description_and_metadata(line: str) -> tuple[str, str, bool, int | None]:
     """Split a command line into its signature and supported CWL metadata."""

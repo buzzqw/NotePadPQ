@@ -22,11 +22,13 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional, TYPE_CHECKING
@@ -49,6 +51,13 @@ def _log_warn(msg: str) -> None:
 
 
 BuildCommand = str | list[str]
+
+BUILD_STATE_QUEUED = "queued"
+BUILD_STATE_RUNNING = "running"
+BUILD_STATE_SUCCEEDED = "succeeded"
+BUILD_STATE_FAILED = "failed"
+BUILD_STATE_CANCELLED = "cancelled"
+BUILD_STATE_TIMED_OUT = "timed_out"
 
 
 def _popen_process_group_kwargs() -> dict:
@@ -227,21 +236,36 @@ class BuildWorker(QThread):
     finished_ok  = pyqtSignal(float)
     finished_err = pyqtSignal(int)
     stopped      = pyqtSignal()
+    state_changed = pyqtSignal(str)
 
-    def __init__(self, command: BuildCommand, cwd: str, env: dict, run_id: str = ""):
+    def __init__(self, command: BuildCommand, cwd: str, env: dict, run_id: str = "",
+                 timeout: float | None = None):
         super().__init__()
         self._command = command
         self._cwd     = cwd
         self._env     = env
         self._run_id  = run_id
+        self._timeout = timeout if timeout and timeout > 0 else None
         self._proc: Optional[subprocess.Popen] = None
         self._abort   = False
         self._outcome: tuple[str, float] | None = None
+        self._state = BUILD_STATE_QUEUED
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+    def _set_state(self, state: str) -> None:
+        if self._state != state:
+            self._state = state
+            self.state_changed.emit(state)
 
     def run(self) -> None:
         start   = time.monotonic()
+        lines: queue.Queue[str | None] = queue.Queue()
 
         try:
+            self._set_state(BUILD_STATE_RUNNING)
             self._proc = subprocess.Popen(
                 self._command if isinstance(self._command, list)
                 else [get_default_shell(), get_shell_exec_flag(), self._command],
@@ -257,32 +281,73 @@ class BuildWorker(QThread):
             if self._abort:
                 _terminate_process_tree(self._proc)
                 self._outcome = ("stopped", 0)
+                self._set_state(BUILD_STATE_CANCELLED)
                 self.stopped.emit()
                 return
-            for line in self._proc.stdout:
+
+            def _read_output() -> None:
+                try:
+                    for line in self._proc.stdout:
+                        lines.put(line)
+                finally:
+                    lines.put(None)
+
+            reader = threading.Thread(target=_read_output, daemon=True)
+            reader.start()
+            timed_out = False
+            stream_closed = False
+            while not stream_closed:
                 if self._abort:
                     _terminate_process_tree(self._proc)
                     self._outcome = ("stopped", 0)
+                    self._set_state(BUILD_STATE_CANCELLED)
                     self.stopped.emit()
                     return
-                self.output_line.emit(line.rstrip())
+
+                if self._timeout is not None and time.monotonic() - start >= self._timeout:
+                    timed_out = True
+                    _terminate_process_tree(self._proc)
+                    self.output_line.emit(
+                        tr("build.timeout", seconds=f"{self._timeout:g}",
+                           default="Build timed out after {seconds}s.")
+                    )
+                    self._outcome = ("timeout", self._timeout)
+                    self._set_state(BUILD_STATE_TIMED_OUT)
+                    break
+
+                try:
+                    line = lines.get(timeout=0.05)
+                except queue.Empty:
+                    continue
+                if line is None:
+                    stream_closed = True
+                else:
+                    self.output_line.emit(line.rstrip())
 
             self._proc.wait()
             elapsed = time.monotonic() - start
 
-            if self._abort:
+            if timed_out:
+                self._outcome = ("timeout", self._timeout or elapsed)
+                self._set_state(BUILD_STATE_TIMED_OUT)
+                self.finished_err.emit(-1)
+            elif self._abort:
                 self._outcome = ("stopped", 0)
+                self._set_state(BUILD_STATE_CANCELLED)
                 self.stopped.emit()
             elif self._proc.returncode == 0:
                 self._outcome = ("ok", elapsed)
+                self._set_state(BUILD_STATE_SUCCEEDED)
                 self.finished_ok.emit(elapsed)
             else:
                 self._outcome = ("error", float(self._proc.returncode))
+                self._set_state(BUILD_STATE_FAILED)
                 self.finished_err.emit(self._proc.returncode)
 
         except Exception as e:
             self.output_line.emit(tr("build.error_prefix", error=str(e)))
             self._outcome = ("error", -1)
+            self._set_state(BUILD_STATE_FAILED)
             self.finished_err.emit(-1)
 
     def abort(self) -> None:
@@ -298,33 +363,48 @@ class InteractiveBuildWorker(QThread):
     finished_ok  = pyqtSignal(float)
     finished_err = pyqtSignal(int)
     stopped      = pyqtSignal()
+    state_changed = pyqtSignal(str)
 
-    def __init__(self, command: BuildCommand, cwd: str, env: dict, run_id: str = ""):
+    def __init__(self, command: BuildCommand, cwd: str, env: dict, run_id: str = "",
+                 timeout: float | None = None):
         super().__init__()
         self._command = command
         self._cwd     = cwd
         self._env     = env
         self._run_id  = run_id
+        self._timeout = timeout if timeout and timeout > 0 else None
         self._proc: Optional[subprocess.Popen] = None
         self._abort   = False
         self._input_queue: list[str] = []
         self._outcome: tuple[str, float] | None = None
+        self._state = BUILD_STATE_QUEUED
+
+    @property
+    def state(self) -> str:
+        return self._state
+
+    def _set_state(self, state: str) -> None:
+        if self._state != state:
+            self._state = state
+            self.state_changed.emit(state)
 
     def send_input(self, text: str) -> None:
         self._input_queue.append(text)
 
     def run(self) -> None:
+        self._set_state(BUILD_STATE_RUNNING)
         if _has_pty() and not IS_WINDOWS:
             self._run_pty()
         else:
             self._run_pipe()
 
     def _run_pty(self) -> None:
+        import codecs
+        import errno
         import pty
         import select
         start = time.monotonic()
         master_fd = None
-        master = None
         master_w = None
         slave_fd = None
 
@@ -347,12 +427,12 @@ class InteractiveBuildWorker(QThread):
                 if self._abort:
                     _terminate_process_tree(self._proc)
                     self._outcome = ("stopped", 0)
+                    self._set_state(BUILD_STATE_CANCELLED)
                     self.stopped.emit()
                     return
                 os.close(slave_fd)
                 slave_fd = None
 
-                master = os.fdopen(master_fd, "r", encoding="utf-8", errors="replace")
                 # Il writer deve usare un duplicato: due wrapper Python sullo
                 # stesso fd chiuderebbero il descrittore due volte durante la
                 # finalizzazione, producendo EBADF e possibili leak.
@@ -361,12 +441,27 @@ class InteractiveBuildWorker(QThread):
                 )
 
                 timeout = 0.05
+                timed_out = False
+                decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+                pending_output = ""
                 while True:
                     if self._abort:
                         _terminate_process_tree(self._proc)
                         self._outcome = ("stopped", 0)
+                        self._set_state(BUILD_STATE_CANCELLED)
                         self.stopped.emit()
                         return
+                    if self._timeout is not None and time.monotonic() - start >= self._timeout:
+                        timed_out = True
+                        _terminate_process_tree(self._proc)
+                        if pending_output:
+                            self.output_line.emit(pending_output.rstrip("\r\n"))
+                            pending_output = ""
+                        self.output_line.emit(
+                            tr("build.timeout", seconds=f"{self._timeout:g}",
+                               default="Build timed out after {seconds}s.")
+                        )
+                        break
 
                     while self._input_queue:
                         inp = self._input_queue.pop(0)
@@ -376,26 +471,52 @@ class InteractiveBuildWorker(QThread):
                         except Exception:
                             pass
 
-                    r, _, _ = select.select([master], [], [], timeout)
+                    r, _, _ = select.select([master_fd], [], [], timeout)
                     if r:
                         try:
-                            line = master.readline()
-                            if not line:
+                            try:
+                                chunk = os.read(master_fd, 4096)
+                            except OSError as exc:
+                                # Linux reports EIO when the PTY slave closes.
+                                if exc.errno == errno.EIO:
+                                    chunk = b""
+                                else:
+                                    raise
+                            if not chunk:
+                                pending_output += decoder.decode(b"", final=True)
+                                if pending_output:
+                                    self.output_line.emit(pending_output.rstrip("\r\n"))
+                                    pending_output = ""
                                 break
-                            self.output_line.emit(line.rstrip("\n\r"))
+                            pending_output += decoder.decode(chunk)
+                            while "\n" in pending_output:
+                                line, pending_output = pending_output.split("\n", 1)
+                                self.output_line.emit(line.rstrip("\r"))
                         except Exception:
                             break
 
+                if pending_output and not timed_out:
+                    # A process may exit after writing a final unterminated line.
+                    self.output_line.emit(pending_output.rstrip("\r\n"))
+                    pending_output = ""
+
                 self._proc.wait()
                 elapsed = time.monotonic() - start
-                if self._abort:
+                if timed_out:
+                    self._outcome = ("timeout", self._timeout or elapsed)
+                    self._set_state(BUILD_STATE_TIMED_OUT)
+                    self.finished_err.emit(-1)
+                elif self._abort:
                     self._outcome = ("stopped", 0)
+                    self._set_state(BUILD_STATE_CANCELLED)
                     self.stopped.emit()
                 elif self._proc.returncode == 0:
                     self._outcome = ("ok", elapsed)
+                    self._set_state(BUILD_STATE_SUCCEEDED)
                     self.finished_ok.emit(elapsed)
                 else:
                     self._outcome = ("error", float(self._proc.returncode))
+                    self._set_state(BUILD_STATE_FAILED)
                     self.finished_err.emit(self._proc.returncode)
 
             finally:
@@ -404,13 +525,13 @@ class InteractiveBuildWorker(QThread):
                         os.close(slave_fd)
                 except Exception:
                     pass
-                for stream in (master_w, master):
+                for stream in (master_w,):
                     try:
                         if stream is not None:
                             stream.close()
                     except Exception:
                         pass
-                if master is None and master_fd is not None:
+                if master_fd is not None:
                     try:
                         os.close(master_fd)
                     except OSError:
@@ -419,6 +540,7 @@ class InteractiveBuildWorker(QThread):
         except Exception as e:
             self.output_line.emit(tr("build.error_prefix", error=str(e)))
             self._outcome = ("error", -1)
+            self._set_state(BUILD_STATE_FAILED)
             self.finished_err.emit(-1)
 
     def _run_pipe(self) -> None:
@@ -444,6 +566,7 @@ class InteractiveBuildWorker(QThread):
             if self._abort:
                 _terminate_process_tree(self._proc)
                 self._outcome = ("stopped", 0)
+                self._set_state(BUILD_STATE_CANCELLED)
                 self.stopped.emit()
                 return
             import threading
@@ -461,29 +584,65 @@ class InteractiveBuildWorker(QThread):
 
             threading.Thread(target=_feed_input, daemon=True).start()
 
-            for line in self._proc.stdout:
+            lines: queue.Queue[str | None] = queue.Queue()
+
+            def _read_output() -> None:
+                try:
+                    for line in self._proc.stdout:
+                        lines.put(line)
+                finally:
+                    lines.put(None)
+
+            threading.Thread(target=_read_output, daemon=True).start()
+            timed_out = False
+            stream_closed = False
+            while not stream_closed:
                 if self._abort:
                     _terminate_process_tree(self._proc)
                     self._outcome = ("stopped", 0)
+                    self._set_state(BUILD_STATE_CANCELLED)
                     self.stopped.emit()
                     return
-                self.output_line.emit(line.rstrip())
+                if self._timeout is not None and time.monotonic() - start >= self._timeout:
+                    timed_out = True
+                    _terminate_process_tree(self._proc)
+                    self.output_line.emit(
+                        tr("build.timeout", seconds=f"{self._timeout:g}",
+                           default="Build timed out after {seconds}s.")
+                    )
+                    break
+                try:
+                    line = lines.get(timeout=0.05)
+                except queue.Empty:
+                    continue
+                if line is None:
+                    stream_closed = True
+                else:
+                    self.output_line.emit(line.rstrip())
 
             self._proc.wait()
             elapsed = time.monotonic() - start
-            if self._abort:
+            if timed_out:
+                self._outcome = ("timeout", self._timeout or elapsed)
+                self._set_state(BUILD_STATE_TIMED_OUT)
+                self.finished_err.emit(-1)
+            elif self._abort:
                 self._outcome = ("stopped", 0)
+                self._set_state(BUILD_STATE_CANCELLED)
                 self.stopped.emit()
             elif self._proc.returncode == 0:
                 self._outcome = ("ok", elapsed)
+                self._set_state(BUILD_STATE_SUCCEEDED)
                 self.finished_ok.emit(elapsed)
             else:
                 self._outcome = ("error", float(self._proc.returncode))
+                self._set_state(BUILD_STATE_FAILED)
                 self.finished_err.emit(self._proc.returncode)
 
         except Exception as e:
             self.output_line.emit(tr("build.error_prefix", error=str(e)))
             self._outcome = ("error", -1)
+            self._set_state(BUILD_STATE_FAILED)
             self.finished_err.emit(-1)
 
     def abort(self) -> None:
@@ -538,6 +697,7 @@ class BuildManager(QObject):
     build_done    = pyqtSignal(str, bool, str)
     build_errors  = pyqtSignal(str, list)
     pipeline_step = pyqtSignal(str, int, int, str)
+    build_state_changed = pyqtSignal(str, str)
 
     _instance: Optional["BuildManager"] = None
     _MAX_OUTPUT_LINES = 10000
@@ -551,6 +711,7 @@ class BuildManager(QObject):
         self._profile_overrides: dict[str, str] = {}
         self._project_configs: dict[Path, tuple[int, dict]] = {}
         self._build_contexts: dict[str, object] = {}
+        self._build_states: dict[str, str] = {}
         self._load_user_profiles()
 
     @classmethod
@@ -997,12 +1158,17 @@ class BuildManager(QObject):
         pipeline = getattr(worker, "_pipeline", [])
         step = pipeline[idx]
 
-        if not success and step.get("stop_on_error", True):
+        timed_out = getattr(worker, "_outcome", (None,))[0] == "timeout"
+        if (not success and (step.get("stop_on_error", True) or timed_out)):
             self.build_output.emit(run_id,
                 tr("build.pipeline_step_failed", name=step.get("name", f"Step {idx+1}"),
                    default="Pipeline step failed: {name}"))
-            self.build_done.emit(run_id, False, tr("build.pipeline_failed",
-                default="Pipeline stopped due to error"))
+            message_key = "build.timeout" if timed_out else "build.pipeline_failed"
+            message = tr(message_key,
+                         seconds=f"{getattr(worker, '_outcome', ('timeout', 0))[1]:g}",
+                         default="Build timed out after {seconds}s.") if timed_out else tr(
+                             message_key, default="Pipeline stopped due to error")
+            self.build_done.emit(run_id, False, message)
             self.release_build_context(run_id)
             return
 
@@ -1088,6 +1254,7 @@ class BuildManager(QObject):
                 output_dir: Path | None = None) -> bool:
 
         from config.settings import Settings
+        self._set_build_state(run_id, BUILD_STATE_QUEUED)
 
         def _exec_command(cmd: BuildCommand) -> BuildWorker:
             if (isinstance(cmd, str) and file_path.suffix.lower() in {".tex", ".ltx", ".latex"}
@@ -1164,8 +1331,13 @@ class BuildManager(QObject):
             self._retire_worker(old)
 
         cls = InteractiveBuildWorker if interactive else BuildWorker
-        worker = cls(command, cwd, env, run_id)
+        worker = cls(command, cwd, env, run_id, timeout=self.get_build_timeout())
+        self._set_build_state(run_id, BUILD_STATE_QUEUED)
         worker.output_line.connect(lambda line, rid=run_id: self.build_output.emit(rid, line))
+        if hasattr(worker, "state_changed"):
+            worker.state_changed.connect(
+                lambda state, rid=run_id: self._set_build_state(rid, state)
+            )
         self._workers[run_id] = worker
         worker.finished.connect(
             lambda rid=run_id, w=worker: self._finalize_worker(rid, w)
@@ -1194,8 +1366,15 @@ class BuildManager(QObject):
             return
         self._workers.pop(run_id, None)
         outcome = worker._outcome or ("error", -1)
+        outcome_state = {
+            "ok": BUILD_STATE_SUCCEEDED,
+            "timeout": BUILD_STATE_TIMED_OUT,
+            "stopped": BUILD_STATE_CANCELLED,
+        }.get(outcome[0], BUILD_STATE_FAILED)
+        self._set_build_state(run_id, outcome_state)
+        target_run_id = run_id.replace("_pre", "") if hasattr(worker, "_is_hook") else run_id
+        self._set_build_state(target_run_id, outcome_state)
         if outcome[0] == "stopped":
-            target_run_id = run_id.replace("_pre", "") if hasattr(worker, "_is_hook") else run_id
             self.build_done.emit(target_run_id, False, tr("build.interrupted"))
             self.release_build_context(target_run_id)
             self._delete_worker(worker)
@@ -1249,8 +1428,13 @@ class BuildManager(QObject):
             self._continue_pipeline(run_id, worker, ok)
             return
 
-        msg = tr("msg.build_finished_ok", seconds=f"{secs:.1f}") if ok else \
-              tr("msg.build_finished_error", code=-1)
+        if ok:
+            msg = tr("msg.build_finished_ok", seconds=f"{secs:.1f}")
+        elif getattr(worker, "_outcome", (None,))[0] == "timeout":
+            msg = tr("build.timeout", seconds=f"{secs:g}",
+                     default="Build timed out after {seconds}s.")
+        else:
+            msg = tr("msg.build_finished_error", code=-1)
         self.build_done.emit(run_id, ok, msg)
 
         self.release_build_context(run_id)
@@ -1293,6 +1477,24 @@ class BuildManager(QObject):
     def get_output_limit(self) -> int:
         from config.settings import Settings
         return Settings.instance().get("build/output_max_lines", self._MAX_OUTPUT_LINES)
+
+    def get_build_timeout(self) -> float | None:
+        """Return the build timeout in seconds, or ``None`` when disabled."""
+        from config.settings import Settings
+        try:
+            value = float(Settings.instance().get("build/timeout_seconds", 300))
+        except (TypeError, ValueError):
+            value = 300.0
+        return value if value > 0 else None
+
+    def get_state(self, run_id: str) -> str | None:
+        """Return the latest lifecycle state for a build run."""
+        return self._build_states.get(run_id)
+
+    def _set_build_state(self, run_id: str, state: str) -> None:
+        if self._build_states.get(run_id) != state:
+            self._build_states[run_id] = state
+            self.build_state_changed.emit(run_id, state)
 
     # ── Espansione variabili ──────────────────────────────────────────────────
 

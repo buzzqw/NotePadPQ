@@ -190,6 +190,7 @@
     "split_rotate": "Geteilte Ansicht drehen",
     "split_move_tab": "Tab in anderes Panel verschieben",
     "split_sync_cursor": "Cursor zwischen Panels synchronisieren",
+    "split_sync_zoom": "Zoom zwischen Panels synchronisieren",
     "unsplit": "Geteilte Ansicht schließen",
     "incremental_search": "Inkrementelle Suche",
     "autoclose_toggle": "Klammern/Anführungszeichen autom. schließen",

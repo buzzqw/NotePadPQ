@@ -8,7 +8,6 @@ come in Notepad++. Ogni sessione salva i file aperti e le posizioni cursore.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -19,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.platform import get_config_dir
+from core.persistence import atomic_write_json, load_json
 from core.session import restore_cursor_after_load
 from i18n.i18n import tr
 
@@ -32,9 +32,36 @@ def _sessions_dir() -> Path:
     return p
 
 
+def _safe_session_name(name: str) -> str:
+    return "".join(c for c in name if c.isalnum() or c in " _-").strip()
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _valid_named_session(data: object) -> bool:
+    if not isinstance(data, dict):
+        return False
+    if not isinstance(data.get("tabs"), list):
+        return False
+    if "name" in data and not isinstance(data["name"], str):
+        return False
+    if "current_index" in data and not _is_int(data["current_index"]):
+        return False
+    for tab in data["tabs"]:
+        if not (isinstance(tab, dict) and isinstance(tab.get("path"), str)):
+            return False
+        if any(field in tab and not _is_int(tab[field]) for field in ("line", "col")):
+            return False
+        if "encoding" in tab and not isinstance(tab["encoding"], str):
+            return False
+    return True
+
+
 def save_named_session(name: str, main_window: "MainWindow") -> bool:
     """Salva la sessione corrente con il nome dato."""
-    safe = "".join(c for c in name if c.isalnum() or c in " _-").strip()
+    safe = _safe_session_name(name)
     if not safe:
         return False
     path = _sessions_dir() / f"{safe}.json"
@@ -54,26 +81,27 @@ def save_named_session(name: str, main_window: "MainWindow") -> bool:
                 "encoding": editor.encoding,
             })
     try:
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_json(path, data)
         return True
-    except Exception:
+    except OSError:
         return False
 
 
 def load_named_session(name: str, main_window: "MainWindow") -> bool:
     """Carica la sessione con il nome dato."""
-    safe = "".join(c for c in name if c.isalnum() or c in " _-").strip()
+    safe = _safe_session_name(name)
+    if not safe:
+        return False
     path = _sessions_dir() / f"{safe}.json"
     if not path.exists():
         return False
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    data = load_json(path, validate=_valid_named_session)
+    if not isinstance(data, dict):
         return False
 
-    for tab in data.get("tabs", []):
+    for tab in data["tabs"]:
         p = Path(tab.get("path", ""))
-        if p.exists():
+        if p.is_file():
             main_window.open_files([p])
             restore_cursor_after_load(
                 main_window, p, tab.get("line", 0), tab.get("col", 0),

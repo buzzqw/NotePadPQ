@@ -25,6 +25,7 @@ from core.latex_references import (
     LatexInclude,
     LatexLocation,
     LatexReference,
+    LatexSection,
     LatexReferencesAnalysis,
     analyze_latex_project,
 )
@@ -216,6 +217,7 @@ class LatexReferencesPanel(QWidget):
 
     _CATEGORIES = (
         ("all", "All"),
+        ("toc", "Project structure"),
         ("definitions", "Definitions"),
         ("references", "References"),
         ("undefined", "Undefined"),
@@ -307,6 +309,11 @@ class LatexReferencesPanel(QWidget):
     def _rebuild(self) -> None:
         self._tree.clear()
         category = self._category.currentData()
+        if category == "toc":
+            self._rebuild_toc()
+            self._tree.resizeColumnToContents(0)
+            self._tree.resizeColumnToContents(3)
+            return
         for kind, value in self._items_for_category(category):
             if isinstance(value, LatexReference):
                 location = value.location
@@ -322,6 +329,55 @@ class LatexReferencesPanel(QWidget):
             self._tree.addTopLevelItem(item)
         self._tree.resizeColumnToContents(0)
         self._tree.resizeColumnToContents(3)
+
+    def _rebuild_toc(self) -> None:
+        """Show project sections, includes, labels and bibliography together."""
+        analysis = self.model.analysis
+        sections_by_file: dict[Path, list[LatexSection]] = {}
+        for section in analysis.sections:
+            sections_by_file.setdefault(section.location.file, []).append(section)
+        labels_by_file: dict[Path, list[LatexReference]] = {}
+        for label in analysis.definitions:
+            labels_by_file.setdefault(label.location.file, []).append(label)
+        includes_by_file: dict[Path, list[LatexInclude]] = {}
+        for include in analysis.includes:
+            includes_by_file.setdefault(include.location.file, []).append(include)
+
+        for path in analysis.files:
+            file_item = QTreeWidgetItem(["file", path.name, str(path.parent), ""])
+            file_item.setToolTip(1, str(path))
+            self._tree.addTopLevelItem(file_item)
+            stack: list[tuple[int, QTreeWidgetItem]] = []
+            for section in sections_by_file.get(path, ()):
+                item = QTreeWidgetItem([
+                    section.kind, section.title or f"\\{section.kind}",
+                    path.name, str(section.location.line),
+                ])
+                item.setData(0, Qt.ItemDataRole.UserRole, section.location)
+                while stack and stack[-1][0] >= section.depth:
+                    stack.pop()
+                (stack[-1][1] if stack else file_item).addChild(item)
+                stack.append((section.depth, item))
+            for label in labels_by_file.get(path, ()):
+                item = QTreeWidgetItem(["label", label.key, path.name, str(label.line)])
+                item.setData(0, Qt.ItemDataRole.UserRole, label.location)
+                file_item.addChild(item)
+            for include in includes_by_file.get(path, ()):
+                target = str(include.resolved) if include.resolved else include.requested
+                item = QTreeWidgetItem([include.kind, target, path.name, str(include.line)])
+                item.setData(0, Qt.ItemDataRole.UserRole, include.location)
+                file_item.addChild(item)
+
+        if analysis.bibliography_files or analysis.bibliography_keys:
+            bibliography = QTreeWidgetItem(["bibliography", "Bibliography", "", ""])
+            self._tree.addTopLevelItem(bibliography)
+            for path in analysis.bibliography_files:
+                bibliography.addChild(QTreeWidgetItem(
+                    ["file", path.name, str(path.parent), ""],
+                ))
+            for key in analysis.bibliography_keys:
+                bibliography.addChild(QTreeWidgetItem(["key", key, "", ""]))
+        self._tree.expandAll()
 
     def _activate(self, item: QTreeWidgetItem, _column: int) -> None:
         location = item.data(0, Qt.ItemDataRole.UserRole)

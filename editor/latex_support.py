@@ -2148,11 +2148,12 @@ class LaTeXSupport:
             "subsubsection", "paragraph", "subparagraph",
         ]
         pattern = re.compile(
-            r'\\(' + '|'.join(_cmds) + r')\*?\{([^}]*)\}'
+            r'\\(' + '|'.join(_cmds) + r')\*?(?:\[([^]]*)\])?\{([^}]*)\}'
         )
         for i, line in enumerate(text.split("\n")):
             for m in pattern.finditer(line):
-                sections.append((m.group(1), m.group(2), i))
+                title = m.group(2) if m.group(2) is not None else m.group(3)
+                sections.append((m.group(1), title, i))
         return sections
 
     @staticmethod

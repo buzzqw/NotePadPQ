@@ -43,6 +43,10 @@ _RE_CITE     = re.compile(r'\\(?:cite[a-zA-Z]*|parencite|footcite|textcite|autoc
 _RE_BEGIN_ENV = re.compile(r'\\begin\{([^}]+)\}')
 _RE_END_ENV   = re.compile(r'\\end\{([^}]+)\}')
 _RE_BEGIN_END  = re.compile(r'\\(begin|end)\{([^}]+)\}')
+_RE_TIKZ_COMMAND = re.compile(
+    r'\\(?:draw|path|fill|filldraw|shade|shadedraw|clip|useasboundingbox|'
+    r'node|coordinate|matrix|graph|pic|foreach)\b'
+)
 _COL_CHARS    = frozenset("lcrpLCRX")
 
 # Ambienti tabellari LaTeX con specifica colonne
@@ -86,6 +90,9 @@ class _CheckWorker(QThread):
         if self._cancelled:
             return
         issues.extend(self._check_tabular_columns())
+        if self._cancelled:
+            return
+        issues.extend(self._check_tikz_semicolons())
         if not self._cancelled:
             self.done.emit(self._generation, issues)
 
@@ -333,6 +340,59 @@ class _CheckWorker(QThread):
 
             i = end_line + 1
 
+        return issues
+
+    def _check_tikz_semicolons(self) -> list[dict]:
+        """Warn when a TikZ drawing command is not terminated by ``;``."""
+        sources = self._project_sources() if self._file_path else [(None, self._text)]
+        issues: list[dict] = []
+        for path, source in sources:
+            if self._cancelled:
+                return issues
+            for issue in self._check_tikz_semicolons_single(source):
+                if path is not None:
+                    issue["file"] = path
+                issues.append(issue)
+        return issues
+
+    @staticmethod
+    def _check_tikz_semicolons_single(text: str) -> list[dict]:
+        code = strip_latex_comments(text)
+        events = []
+        for match in _RE_BEGIN_END.finditer(code):
+            if match.group(2).strip().rstrip("*") == "tikzpicture":
+                events.append((match.start(), "end" if match.group(1) == "end" else "begin"))
+        events.extend((match.start(),
+                       "foreach" if match.group(0).startswith(r"\foreach") else "command")
+                      for match in _RE_TIKZ_COMMAND.finditer(code))
+        events.sort(key=lambda event: event[0])
+
+        issues: list[dict] = []
+        tikz_depth = 0
+        for index, (position, event_type) in enumerate(events):
+            if event_type == "begin":
+                tikz_depth += 1
+                continue
+            if event_type == "end":
+                tikz_depth = max(0, tikz_depth - 1)
+                continue
+            if event_type == "foreach":
+                continue
+            if tikz_depth <= 0:
+                continue
+
+            boundary = len(code)
+            for next_position, next_type in events[index + 1:]:
+                if next_type in {"command", "foreach", "end"}:
+                    boundary = next_position
+                    break
+            if code.find(";", position, boundary) >= 0:
+                continue
+            issues.append({
+                "line": code.count("\n", 0, position),
+                "severity": "warning",
+                "msg": "TikZ command is missing a terminating ';'",
+            })
         return issues
 
     _RE_LENGTH_MACRO = re.compile(r'^\\[A-Za-z]+$')

@@ -190,6 +190,7 @@
     "split_rotate": "Rotar vista dividida",
     "split_move_tab": "Mover pestaña al otro panel",
     "split_sync_cursor": "Sincronizar cursor entre paneles",
+    "split_sync_zoom": "Sincronizar zoom entre paneles",
     "unsplit": "Cerrar vista dividida",
     "incremental_search": "Búsqueda incremental",
     "autoclose_toggle": "Autocierre de paréntesis/comillas",

@@ -190,6 +190,7 @@
     "split_rotate": "Obróć podział",
     "split_move_tab": "Przenieś kartę do drugiego panelu",
     "split_sync_cursor": "Synchronizuj kursory między panelami",
+    "split_sync_zoom": "Synchronizuj powiększenie między panelami",
     "unsplit": "Zamknij widok podzielony",
     "incremental_search": "Wyszukiwanie przyrostowe",
     "autoclose_toggle": "Auto-zamykanie nawiasów/cudzysłowów",

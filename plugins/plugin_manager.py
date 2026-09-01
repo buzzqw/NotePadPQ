@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.platform import get_data_dir
+from core.persistence import atomic_write_json
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -95,19 +96,13 @@ class PluginManager:
 
     def _save_disabled(self) -> None:
         try:
-            self._disabled_path.write_text(
-                json.dumps(list(self._disabled), ensure_ascii=False),
-                encoding="utf-8"
-            )
+            atomic_write_json(self._disabled_path, list(self._disabled))
         except Exception:
             pass
 
     def _save_trusted(self) -> None:
         try:
-            self._trusted_path.write_text(
-                json.dumps({"bindings": self._trusted}, ensure_ascii=False),
-                encoding="utf-8"
-            )
+            atomic_write_json(self._trusted_path, {"bindings": self._trusted})
         except Exception:
             pass
 

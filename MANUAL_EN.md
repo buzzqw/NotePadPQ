@@ -1,6 +1,6 @@
 # NotePadPQ: User Manual
 
-> Version 1.8.2: Advanced text editor based on **QScintilla/PyQt6**
+> Version 1.9.8: Advanced text editor based on **QScintilla/PyQt6**
 > Platforms: Linux, Windows, FreeBSD
 
 ---
@@ -325,6 +325,7 @@ The dialog has 4 tabs.
 | Regular expression | Enables Python regex syntax |
 | Wrap search | Restarts from beginning/end at document end |
 | In selection | Searches only within selected text |
+| Auto-refresh results | Recalculates the list when the document changes |
 
 **Buttons:**
 
@@ -334,7 +335,7 @@ The dialog has 4 tabs.
 - **Count**: populates the list with all occurrences and shows the total
 
 **Occurrence list:**
-Populated automatically while typing (after 2 characters) and via the Count button. Double-click on a row jumps to the corresponding position in the document.
+Populated automatically while typing (after 2 characters) and via the Count button. With **Auto-refresh results** enabled, it is recalculated after document changes (250 ms debounce). Double-click on a row jumps to the corresponding position in the document.
 
 **Regex manual:**
 Appears automatically when "Regular expression" is activated; see also [section 18](#18-regular-expressions-complete-reference).
@@ -345,6 +346,8 @@ Same options as the Find tab, plus:
 
 - **Replace**: replaces the selected occurrence and moves to the next
 - **Replace all**: replaces all occurrences in the document
+
+The **Auto-refresh results** option is also available here and updates the occurrence list after document changes.
 
 In the "Replace with" field you can use `\1`, `\2`, ... to refer to regex capture groups.
 
@@ -368,6 +371,8 @@ Search (and optionally replace) in all files open in tabs.
 | Go to line | `Ctrl+G` |
 | Go to matching bracket | `Ctrl+]` |
 | Inline incremental search | `Ctrl+Shift+F2` |
+
+Incremental search calculates matches on a background snapshot, so typing remains responsive; results from an outdated snapshot are discarded.
 
 ---
 
@@ -636,6 +641,8 @@ The following variables are available in commands, accepted in both `${VAR}` and
 
 **Build while editing**: the Build menu option starts a LaTeX build after a configurable pause while typing. Debouncing prevents duplicate processes and the option is disabled by default.
 
+**Build timeout**: in **Preferences → Build**, set the maximum time for a build. The default is 300 seconds; set it to `0` to disable the timeout. It also applies to interactive PTY builds and pipeline steps. PTY output remains responsive even when a line has no trailing newline.
+
 **Concurrent Builds**: run a build in the main panel and a task in the Task tab simultaneously — each has its own independent worker.
 
 **LaTeX Draft Mode**: enable Draft Mode from the Build menu to add `-draftmode` to `pdflatex`, `xelatex`, or `lualatex` commands. This checks the document without producing a PDF.
@@ -896,7 +903,10 @@ Divides the editor area into two panels for working on two files (or two points 
 | Rotate split orientation | `Ctrl+Alt+R` |
 | Move tab to other panel | `Ctrl+Alt+M` |
 | Sync cursor between panels | View menu → Split View |
+| Sync zoom between panels | View menu → Split View |
 | Remove split | `Ctrl+Alt+1` |
+
+**Sync zoom between panels** keeps the zoom level of the current editors aligned. When enabled, it immediately copies the primary panel's zoom to the secondary panel; the setting is remembered between launches. Subsequent zoom changes are propagated in both directions.
 
 ---
 
@@ -966,6 +976,7 @@ Open with `Ctrl+Alt+P` or **Tools → Preferences**. Changes can be applied imme
 - **Auto-build on file save**: trigger the build command automatically when saving a file
 - **Unified errors (LSP + Build)**: merge LSP diagnostics with build errors in a single view
 - **Max output lines**: configurable limit for the build log (default 10000) to prevent memory issues on long builds
+- **Build timeout**: maximum time in seconds (default 300); `0` disables the timeout
 
 ### Language Tab
 - Select the interface language among: Italian, English, German, French, Spanish
@@ -995,7 +1006,7 @@ NotePadPQ has comprehensive LaTeX support, but **advanced** features require opt
 ### Features Always Available (no extra dependencies)
 - **Full LaTeX syntax highlighting**
 - **Code folding** for environments (`\begin{...}` / `\end{...}`)
-- **Contextual autocomplete**: typing `\cite{` → BibTeX keys; `\ref{` → labels; `\begin{` → environments; `\usepackage{` → packages; `[` → command/environment/package options
+- **Contextual autocomplete**: typing `\cite{` → BibTeX keys; `\ref{` → labels; `\begin{` → environments; `\usepackage{` → packages; `[` → command/environment/package options. Inside option groups, `,` completes the next key and `=` completes values when available from CWL files.
 - **Package-specific autocomplete**: when the document uses `\usepackage{multicol}`, `\usepackage{tabularx}`, `\usepackage{longtable}`, `\usepackage{tabulary}`, etc., package-specific commands are automatically suggested (e.g. `\columnbreak`, `\endhead`, `\endfirsthead`, column templates `X`, `lX`, `LCR`...)
 - **Build panel**: configurable compilation profiles (pdflatex, xelatex, lualatex, latexmk, etc.)
 - **Clickable errors**: click an error in the build output to jump to the line in the source
@@ -1006,6 +1017,8 @@ NotePadPQ has comprehensive LaTeX support, but **advanced** features require opt
 - **BibTeX Wizard**: from **LaTeX → BibTeX Wizard**, create guided bibliography entries, generate a key, and look up bibliographic data from a DOI via Crossref; copy or insert the resulting entry.
 - **Balance checker**: detects unbalanced `\begin{}`/`\end{}` in real time with gutter markers
 - **Table column checker**: in `tabular`, `tabular*`, `tabularx`, `tabulary`, `array`, `longtable`, `supertabular`, and `xltabular` environments, compares the number of columns declared in the column spec (e.g. `{lXXXXXXX}`) against the actual number of columns in each body row. If a row has **more** columns than declared, only the excess part is underlined in amber (from the extra `&` onward); if the column spec declares **more** columns than any row actually uses, only the excess letters (`X`, `l`, `c`, `r`, `p`…) in the column spec itself are underlined. `\multicolumn{N}{...}{...}` is correctly counted as N columns.
+- **TikZ checker**: reports drawing commands (`\draw`, `\path`, `\node`, etc.) without a terminating semicolon inside `tikzpicture`. The control construct `\foreach` does not require its own semicolon.
+- **LaTeX sections**: project structure also recognizes short titles such as `\section[Table of contents entry]{Full title}` and uses the short entry for navigation.
 
 ### Features Requiring Optional Libraries
 
@@ -1711,13 +1724,17 @@ Additional options: **Aa** (case-sensitive) and **\b** (word boundaries).
 
 The search starts automatically 300 ms after you stop typing (debounce) and re-runs immediately whenever any option changes.
 
+### Automatic Refresh
+
+The **Auto-refresh results** checkbox recalculates the current document search after an edit, with a 250 ms debounce. It is enabled by default and persisted; file-system searches are not relaunched automatically.
+
 ### Result Tree
 
 Results are grouped by file. A single click on a row navigates directly to that position in the document. The header row (in blue) shows the search parameters and statistics; clicking it restores the values in the search fields.
 
 ### Result Queue
 
-The **+ Queue** checkbox: when enabled, each new search is added to the tree without clearing previous ones, creating a visual search history. Clicking a previous blue header restores its parameters in the fields.
+The **+ Queue** checkbox: when enabled, each new search is added to the tree without clearing previous ones, creating a visual search history. An automatic refresh replaces only the current group, preserving earlier history. Clicking a previous blue header restores its parameters in the fields.
 
 ### Inline Filter
 
@@ -1763,4 +1780,4 @@ Press `:` in `NORMAL` mode to open the Vim command prompt, which shows examples 
 
 ---
 
-*Manual updated: NotePadPQ 1.8.2*
+*Manual updated: NotePadPQ 1.9.8*

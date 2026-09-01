@@ -138,6 +138,8 @@ class SplitViewManager(QWidget):
         self._secondary: Optional[_SplitPanel] = None
         self._active: _SplitPanel = self._primary
         self._sync_cursor: bool = False
+        self._sync_zoom: bool = False
+        self._sync_zoom_guard: bool = False
 
         self._connect_panel(self._primary)
 
@@ -308,6 +310,9 @@ class SplitViewManager(QWidget):
             else:
                 secondary_tm.new_tab()
 
+            if self._sync_zoom:
+                self.set_sync_zoom(True)
+
         # Distribuzione equa
         total = (self._splitter.width()
                  if orientation == Qt.Orientation.Horizontal
@@ -425,6 +430,49 @@ class SplitViewManager(QWidget):
                 ed.verticalScrollBar().valueChanged.connect(scroll_slot)
                 self._sync_connections[ed] = (cursor_slot, scroll_slot)
 
+    def set_sync_zoom(self, enabled: bool) -> None:
+        """Sincronizza il livello di zoom tra gli editor dei due pannelli."""
+        self._sync_zoom = enabled
+        self._sync_zoom_guard = False
+
+        for ed, slot in getattr(self, "_sync_zoom_connections", {}).items():
+            try:
+                ed.zoom_changed.disconnect(slot)
+            except Exception:
+                pass
+        self._sync_zoom_connections: dict = {}
+
+        if not enabled:
+            return
+
+        for panel in self._panels():
+            for ed in panel.tab_manager.all_editors():
+                slot = lambda level, e=ed: self._on_sync_zoom_from(e, level)
+                ed.zoom_changed.connect(slot)
+                self._sync_zoom_connections[ed] = slot
+
+        primary_ed = self._primary.tab_manager.current_editor()
+        secondary_ed = (self._secondary.tab_manager.current_editor()
+                        if self._secondary is not None else None)
+        if primary_ed is not None and secondary_ed is not None:
+            self._on_sync_zoom_from(primary_ed, primary_ed.zoom_level)
+
+    def _on_sync_zoom_from(self, sender_ed, level: int) -> None:
+        if self._sync_zoom_guard:
+            return
+        in_primary = sender_ed in self._primary.tab_manager.all_editors()
+        other = self._secondary if in_primary else self._primary
+        if other is None:
+            return
+        other_ed = other.tab_manager.current_editor()
+        if other_ed is None or other_ed is sender_ed:
+            return
+        self._sync_zoom_guard = True
+        try:
+            other_ed.zoomTo(level)
+        finally:
+            self._sync_zoom_guard = False
+
     def _on_sync_cursor_from(self, sender_ed, line: int, col: int) -> None:
         """line e col sono 1-based (da cursor_changed); converti a 0-based per QScintilla."""
         in_primary = sender_ed in self._primary.tab_manager.all_editors()
@@ -467,6 +515,8 @@ class SplitViewManager(QWidget):
     def _on_panel_editor_changed(self, editor, panel: _SplitPanel) -> None:
         # Il pannello che emette il segnale diventa attivo
         self._active = panel
+        if self._sync_zoom:
+            self.set_sync_zoom(True)
         self.current_editor_changed.emit(editor)
 
     # ── Utility ───────────────────────────────────────────────────────────────

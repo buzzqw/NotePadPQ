@@ -371,11 +371,14 @@ class _SearchResultsPanel(QWidget):
         self._file_search_result_id = 0
         self._result_generation = 0
         self._current_result_id = 0
+        self._current_search_source = ""
+        self._observed_editor = None
+        self._refresh_pending = False
         self._shutting_down = False
         self._debounce_timer = QTimer(self)
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.setInterval(300)
-        self._debounce_timer.timeout.connect(self._do_search_in_doc)
+        self._debounce_timer.timeout.connect(self._on_debounce_timeout)
         self._setup_ui()
         self.navigate_requested.connect(self._do_navigate)
         self._restore_history()
@@ -467,6 +470,24 @@ class _SearchResultsPanel(QWidget):
         self._chk_auto_search.setFixedHeight(22)
         self._chk_auto_search.stateChanged.connect(self._on_auto_search_toggled)
         opts.addWidget(self._chk_auto_search)
+
+        self._chk_auto_refresh_results = QCheckBox(
+            _t("auto_refresh_results", default="Auto-aggiorna risultati")
+        )
+        self._chk_auto_refresh_results.setToolTip(
+            _t(
+                "auto_refresh_results_tooltip",
+                default="Aggiorna automaticamente l'elenco quando il documento cambia",
+            )
+        )
+        self._chk_auto_refresh_results.setChecked(
+            self._settings().get("search/auto_refresh_results", True)
+        )
+        self._chk_auto_refresh_results.toggled.connect(
+            self._on_auto_refresh_results_toggled
+        )
+        self._chk_auto_refresh_results.setFixedHeight(22)
+        opts.addWidget(self._chk_auto_refresh_results)
 
         self._chk_in_selection = QCheckBox(_t("search_in_selection"))
         self._chk_in_selection.setToolTip(_t("search_in_selection_tooltip"))
@@ -746,6 +767,7 @@ class _SearchResultsPanel(QWidget):
                 self._lbl_summary.setText(_t("msg_no_results_doc", query=query))
             return
         self._current_query = query
+        self._current_search_source = "files" if color == "files_header" else "document"
         self._result_generation += 1
         self._current_result_id = self._result_generation
         tagged_results = _merge_search_results(
@@ -1076,6 +1098,7 @@ class _SearchResultsPanel(QWidget):
         self._update_regex_indicator()
         if not self._chk_auto_search.isChecked():
             return
+        self._refresh_pending = False
         self._debounce_timer.stop()
         if len(text) >= 1:
             self._debounce_timer.start()
@@ -1092,6 +1115,43 @@ class _SearchResultsPanel(QWidget):
         """Quando auto-search viene (ri)attivato, avvia subito la ricerca corrente."""
         if state == Qt.CheckState.Checked.value and len(self._search_edit.text()) >= 1:
             self._do_search_in_doc()
+
+    def _settings(self):
+        from config.settings import Settings
+        return Settings.instance()
+
+    def _on_auto_refresh_results_toggled(self, checked: bool) -> None:
+        self._settings().set("search/auto_refresh_results", bool(checked))
+        if checked:
+            self._schedule_editor_refresh()
+
+    def _on_debounce_timeout(self) -> None:
+        refresh = self._refresh_pending
+        self._refresh_pending = False
+        self._do_search_in_doc(refresh=refresh)
+
+    def _on_editor_changed(self, editor) -> None:
+        if self._observed_editor is not editor:
+            if self._observed_editor is not None:
+                try:
+                    self._observed_editor.textChanged.disconnect(self._on_editor_text_changed)
+                except (RuntimeError, TypeError):
+                    pass
+            self._observed_editor = editor
+            if editor is not None:
+                editor.textChanged.connect(self._on_editor_text_changed)
+        self._schedule_editor_refresh()
+
+    def _on_editor_text_changed(self) -> None:
+        self._schedule_editor_refresh()
+
+    def _schedule_editor_refresh(self) -> None:
+        if (not self._chk_auto_refresh_results.isChecked()
+                or self._current_search_source != "document"
+                or not self._current_query):
+            return
+        self._refresh_pending = True
+        self._debounce_timer.start()
 
     def _on_search_mode_changed(self, _index: int) -> None:
         """Aggiorna visibilità indicatore regex e riesegue ricerca."""
@@ -1125,6 +1185,8 @@ class _SearchResultsPanel(QWidget):
 
     def clear_all(self) -> None:
         """Cancella tutti i risultati e le evidenziazioni."""
+        self._debounce_timer.stop()
+        self._refresh_pending = False
         if self._file_search_worker and self._file_search_worker.isRunning():
             self._file_search_worker.cancel()
         if self._file_replace_worker and self._file_replace_worker.isRunning():
@@ -1140,6 +1202,7 @@ class _SearchResultsPanel(QWidget):
         self._tree.clear()
         self._all_results.clear()
         self._current_query = ""
+        self._current_search_source = ""
         self._lbl_summary.setText(_t("no_search"))
         self._update_replace_buttons_visibility()
 
@@ -1176,7 +1239,7 @@ class _SearchResultsPanel(QWidget):
         return [(i, t.rstrip("\n").rstrip("\r"))
                 for i, t in enumerate(editor.text().split("\n"))]
 
-    def _do_search_in_doc(self) -> None:
+    def _do_search_in_doc(self, refresh: bool = False) -> None:
         """Cerca nel documento/editor attivo."""
         if self._file_search_worker and self._file_search_worker.isRunning():
             self._file_search_worker.cancel()
@@ -1192,6 +1255,8 @@ class _SearchResultsPanel(QWidget):
             return
 
         self._current_query = query
+        self._current_search_source = "document"
+        previous_result_id = self._current_result_id
         pattern_data = self._compile_full_pattern()
         if pattern_data is None:
             return
@@ -1225,7 +1290,9 @@ class _SearchResultsPanel(QWidget):
                 "col": col,
             })
 
-        if not self._chk_append.isChecked():
+        if refresh:
+            self._remove_result_group(previous_result_id)
+        elif not self._chk_append.isChecked():
             self._tree.clear()
             self._all_results.clear()
         if not results:
@@ -1235,6 +1302,21 @@ class _SearchResultsPanel(QWidget):
             return
 
         self.add_results(query, results)
+
+    def _remove_result_group(self, search_id: int) -> None:
+        """Rimuove il gruppo precedente quando il documento viene modificato."""
+        if not search_id:
+            return
+        self._all_results = [
+            result for result in self._all_results
+            if result.get("_search_id") != search_id
+        ]
+        for index in range(self._tree.topLevelItemCount() - 1, -1, -1):
+            item = self._tree.topLevelItem(index)
+            params = item.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(params, dict) and params.get("search_id") == search_id:
+                self._tree.takeTopLevelItem(index)
+        self._update_replace_buttons_visibility()
 
     # ── Cerca nei file ────────────────────────────────────────────────────────
 
@@ -1269,6 +1351,7 @@ class _SearchResultsPanel(QWidget):
         include_hidden = self._chk_files_hidden.isChecked()
         query = self._search_edit.text().strip()
         self._current_query = query
+        self._current_search_source = "files"
 
         pattern_data = self._compile_full_pattern()
         if pattern_data is None:
@@ -1919,6 +2002,10 @@ class SearchResultsPlugin(BasePlugin):
         self._dock.hide()
 
         main_window._find_result_panel = self._panel
+        main_window._tab_manager.current_editor_changed.connect(
+            self._panel._on_editor_changed
+        )
+        self._panel._on_editor_changed(main_window._current_editor())
 
         try:
             from config.themes import ThemeManager
@@ -1939,6 +2026,13 @@ class SearchResultsPlugin(BasePlugin):
 
     def on_unload(self) -> None:
         main_window = self._mw
+        if main_window is not None and hasattr(self, "_panel"):
+            try:
+                main_window._tab_manager.current_editor_changed.disconnect(
+                    self._panel._on_editor_changed
+                )
+            except (RuntimeError, TypeError):
+                pass
         if hasattr(self, "_dock"):
             self._panel.shutdown()
             self._dock.hide()

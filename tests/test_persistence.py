@@ -15,6 +15,7 @@ from core.persistence import atomic_write_json, atomic_write_text, load_json
 from core.recent_files import RecentFiles
 from core.session import Session
 from editor.snippets import SnippetManager
+from ui.named_sessions import load_named_session
 
 
 class PersistenceTests(unittest.TestCase):
@@ -73,6 +74,19 @@ class PersistenceTests(unittest.TestCase):
             self.assertFalse(session.restore(object()))
 
             self.assertEqual(len(list(Path(directory).glob("session.json.invalid-*"))), 1)
+
+    def test_named_session_rejects_invalid_manifest_and_preserves_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            sessions_dir = Path(directory) / "sessions"
+            sessions_dir.mkdir()
+            path = sessions_dir / "broken.json"
+            path.write_text('{"tabs": "wrong"}', encoding="utf-8")
+
+            with patch("ui.named_sessions._sessions_dir", return_value=sessions_dir):
+                self.assertFalse(load_named_session("broken", object()))
+
+            self.assertFalse(path.exists())
+            self.assertEqual(len(list(sessions_dir.glob("broken.json.invalid-*"))), 1)
 
     def test_user_snippet_schema_errors_are_archived(self):
         with tempfile.TemporaryDirectory() as directory:

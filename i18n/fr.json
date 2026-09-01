@@ -190,6 +190,7 @@
     "split_rotate": "Faire pivoter la division",
     "split_move_tab": "Déplacer l'onglet vers l'autre panneau",
     "split_sync_cursor": "Synchroniser le curseur entre les panneaux",
+    "split_sync_zoom": "Synchroniser le zoom entre les panneaux",
     "unsplit": "Fermer la vue divisée",
     "incremental_search": "Recherche incrémentale",
     "autoclose_toggle": "Fermeture auto. des parenthèses/guillemets",

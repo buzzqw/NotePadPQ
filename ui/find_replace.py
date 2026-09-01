@@ -340,6 +340,11 @@ class FindReplaceDialog(QDialog):
         self._fif_rif_mw:  Optional[ManagedWorker] = None
         self._fif_rif_mw2: Optional[ManagedWorker] = None
         self._fif_total_matches = 0
+        self._observed_editor = None
+        self._find_results_refresh_timer = QTimer(self)
+        self._find_results_refresh_timer.setSingleShot(True)
+        self._find_results_refresh_timer.setInterval(250)
+        self._find_results_refresh_timer.timeout.connect(self._refresh_find_results)
         self.setWindowTitle(tr("action.find"))
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
         self.resize(780, 580)
@@ -347,6 +352,8 @@ class FindReplaceDialog(QDialog):
 
         self._build_ui()
         self._restore_state()
+        self._mw._tab_manager.current_editor_changed.connect(self._on_editor_changed)
+        self._on_editor_changed(self._current_editor())
 
     # ── Costruzione UI ────────────────────────────────────────────────────────
 
@@ -490,14 +497,23 @@ class FindReplaceDialog(QDialog):
         self._chk_wrap    = QCheckBox(tr("label.wrap_around"))
         self._chk_wrap.setChecked(True)
         self._chk_sel     = QCheckBox(tr("label.in_selection"))
+        self._chk_auto_refresh = QCheckBox(
+            tr("label.auto_refresh_results", default="Auto-aggiorna risultati")
+        )
         self._chk_case.setToolTip(tr("tooltip.find_case"))
         self._chk_word.setToolTip(tr("tooltip.find_word"))
         self._chk_regex.setToolTip(tr("tooltip.find_regex_help"))
         self._chk_wrap.setToolTip(tr("tooltip.find_wrap"))
         self._chk_sel.setToolTip(tr("tooltip.find_in_selection"))
+        self._chk_auto_refresh.setToolTip(
+            tr(
+                "tooltip.find_auto_refresh",
+                default="Aggiorna automaticamente l'elenco quando il documento cambia",
+            )
+        )
         opts = QHBoxLayout()
         for chk in [self._chk_case, self._chk_word, self._chk_regex,
-                    self._chk_wrap, self._chk_sel]:
+                    self._chk_wrap, self._chk_sel, self._chk_auto_refresh]:
             opts.addWidget(chk)
         opts.addStretch()
         g.addLayout(opts, 1, 0, 1, 2)
@@ -626,6 +642,7 @@ ESEMPI
         self._find_edit.currentTextChanged.connect(
             lambda: self._search_timer.start()
         )
+        self._chk_auto_refresh.toggled.connect(self._on_auto_refresh_toggled)
 
         return outer
 
@@ -651,13 +668,23 @@ ESEMPI
         self._chk_regex2 = QCheckBox(tr("label.regex"))
         self._chk_regex2.setToolTip(tr("tooltip.find_regex_help"))
         self._chk_wrap2  = QCheckBox(tr("label.wrap_around"))
+        self._chk_auto_refresh_replace = QCheckBox(
+            tr("label.auto_refresh_results", default="Auto-aggiorna risultati")
+        )
         self._chk_wrap2.setChecked(True)
         self._chk_case2.setToolTip(tr("tooltip.find_case"))
         self._chk_word2.setToolTip(tr("tooltip.find_word"))
         self._chk_wrap2.setToolTip(tr("tooltip.find_wrap"))
+        self._chk_auto_refresh_replace.setToolTip(
+            tr(
+                "tooltip.find_auto_refresh",
+                default="Aggiorna automaticamente l'elenco quando il documento cambia",
+            )
+        )
         opts2 = QHBoxLayout()
         for chk in [self._chk_case2, self._chk_word2,
-                    self._chk_regex2, self._chk_wrap2]:
+                    self._chk_regex2, self._chk_wrap2,
+                    self._chk_auto_refresh_replace]:
             opts2.addWidget(chk)
         opts2.addStretch()
         g.addLayout(opts2, 2, 0, 1, 2)
@@ -709,6 +736,7 @@ ESEMPI
                 status_label=self._lbl_replace_status,
             )
         )
+        self._chk_auto_refresh_replace.toggled.connect(self._on_auto_refresh_toggled)
 
         return w
 
@@ -1073,6 +1101,7 @@ ESEMPI
         except Exception:
             pass
         self._cancel_find_in_files()
+        self._find_results_refresh_timer.stop()
         if self._fif_rif_mw is not None:
             self._fif_rif_mw.worker.cancel()
             self._fif_rif_mw.stop()
@@ -1100,6 +1129,66 @@ ESEMPI
         self._do_find(self._find_edit, forward=forward, highlight_all=True)
         if len(text) >= 2:
             self._populate_occurrences(editor, text, flags)
+
+    def _on_auto_refresh_toggled(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("search/auto_refresh_results", bool(checked))
+        for checkbox in (self._chk_auto_refresh, self._chk_auto_refresh_replace):
+            checkbox.blockSignals(True)
+            checkbox.setChecked(checked)
+            checkbox.blockSignals(False)
+        if checked:
+            self._schedule_find_results_refresh()
+
+    def _on_editor_changed(self, editor) -> None:
+        if self._observed_editor is not editor:
+            if self._observed_editor is not None:
+                try:
+                    self._observed_editor.textChanged.disconnect(self._on_editor_text_changed)
+                except (RuntimeError, TypeError):
+                    pass
+            self._observed_editor = editor
+            if editor is not None:
+                editor.textChanged.connect(self._on_editor_text_changed)
+        if self.isVisible():
+            self._schedule_find_results_refresh()
+
+    def _on_editor_text_changed(self) -> None:
+        if self.isVisible():
+            self._schedule_find_results_refresh()
+
+    def _schedule_find_results_refresh(self) -> None:
+        tab_index = self._tabs.currentIndex()
+        checkbox = (self._chk_auto_refresh if tab_index == 0
+                    else self._chk_auto_refresh_replace if tab_index == 1 else None)
+        query = (self._find_edit.currentText() if tab_index == 0
+                 else self._find_edit2.currentText() if tab_index == 1 else "")
+        if checkbox is None or not checkbox.isChecked() or not query:
+            return
+        self._find_results_refresh_timer.start()
+
+    def _refresh_find_results(self) -> None:
+        tab_index = self._tabs.currentIndex()
+        checkbox = (self._chk_auto_refresh if tab_index == 0
+                    else self._chk_auto_refresh_replace if tab_index == 1 else None)
+        if not self.isVisible() or checkbox is None or not checkbox.isChecked():
+            return
+        editor = self._current_editor()
+        text = (self._find_edit.currentText() if tab_index == 0
+                else self._find_edit2.currentText())
+        if editor is None or not text:
+            return
+        if tab_index == 0:
+            flags = self._get_flags()
+            self._do_find(self._find_edit, forward=self._radio_fwd.isChecked(),
+                          flags=flags)
+            if len(text) >= 2:
+                self._populate_occurrences(editor, text, flags, publish_panel=False)
+            else:
+                self._find_occurrences.clear()
+        else:
+            self._populate_replace_occurrences(
+                editor, text, self._get_flags_replace())
 
     def _do_mark_all(self) -> None:
         editor = self._current_editor()
@@ -1177,7 +1266,8 @@ ESEMPI
         label.setStyleSheet("font-family: monospace; font-size: 12px; padding: 0 2px;")
         return label
 
-    def _populate_occurrences(self, editor, pattern_text: str, flags: dict) -> None:
+    def _populate_occurrences(self, editor, pattern_text: str, flags: dict,
+                              publish_panel: bool = True) -> None:
         """Popola la lista occorrenze nel tab Cerca."""
         self._find_occurrences.clear()
         if not pattern_text:
@@ -1238,7 +1328,7 @@ ESEMPI
                 msg += "  " + tr("msg.truncated", max_items=_MAX_ITEMS)
             self._lbl_status.setText(msg)
             panel = getattr(self._mw, "_find_result_panel", None)
-            if panel and file_path:
+            if publish_panel and panel and file_path:
                 panel.add_results(pattern_text, panel_results)
         else:
             self._lbl_status.setText(tr("msg.no_results_query", query=pattern_text))
@@ -2041,6 +2131,13 @@ ESEMPI
         if _last_find_text:
             self._find_edit.setCurrentText(_last_find_text)
             self._find_edit2.setCurrentText(_last_find_text)
+        try:
+            from config.settings import Settings
+            enabled = Settings.instance().get("search/auto_refresh_results", True)
+        except Exception:
+            enabled = True
+        self._chk_auto_refresh.setChecked(enabled)
+        self._chk_auto_refresh_replace.setChecked(enabled)
         self._restore_transparency_state()
 
     def _restore_transparency_state(self) -> None:

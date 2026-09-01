@@ -38,6 +38,18 @@ class CWLTest(unittest.TestCase):
         self.assertIn("Run the demo", command.as_api_term())
         self.assertEqual(package.environments["demoenv"].name, "demoenv")
 
+    def test_optional_cwl_arguments_expose_key_value_hints(self):
+        from editor.cwl import CWLModel
+
+        package = parse_cwl(r"\custom[width][mode]{value}", package="custom")
+        model = CWLModel(
+            packages={"custom": package},
+            commands=package.commands,
+        )
+
+        self.assertEqual(model.option_candidates_for(r"\custom", ["custom"]),
+                         ["mode=", "width="])
+
     def test_directory_precedence_is_deterministic_and_package_scoped(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -137,6 +149,32 @@ class CWLTest(unittest.TestCase):
             labels = shown[-1][1]
             self.assertIn("projectpkg  [Project package]", labels)
             self.assertIn("amsmath", labels)
+        finally:
+            manager.shutdown()
+            editor.deleteLater()
+            self.app.processEvents()
+
+    def test_custom_cwl_option_completion_uses_optional_argument_names(self):
+        editor = EditorWidget()
+        manager = AutoCompleteManager(editor)
+        shown = []
+        editor.showUserList = lambda list_id, labels: shown.append((list_id, labels))
+        editor.setText(r"\usepackage{mycwl}\mycommand[")
+        editor.setCursorPosition(0, len(editor.text(0)))
+        try:
+            with mock.patch.object(
+                    LaTeXSupport, "get_cwl_model",
+                    return_value=mock.Mock(
+                        option_candidates_for=lambda command, packages: ["width=", "mode="],
+                    )):
+                manager.set_language("latex")
+                self.assertTrue(manager.handle_latex_option("["))
+                self.assertEqual(shown[-1], (10, ["width=", "mode="]))
+
+                editor.setText(r"\usepackage{mycwl}\mycommand[width=, mo")
+                editor.setCursorPosition(0, len(editor.text(0)))
+                self.assertTrue(manager.handle_latex_option(","))
+                self.assertEqual(shown[-1], (12, ["mode="]))
         finally:
             manager.shutdown()
             editor.deleteLater()

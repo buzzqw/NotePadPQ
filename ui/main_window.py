@@ -114,6 +114,7 @@ _ICON_MAP: dict[str, str] = {
     "view_typewriter": "type.svg", "view_plain_text_mode": "file.svg",
     "view_git_gutter": "git-branch.svg", "view_git_blame_inline": "pen.svg",
     "split_move_tab": "arrow-left-right.svg", "split_sync_cursor": "link.svg",
+    "split_sync_zoom": "zoom-in.svg",
     "unsplit": "maximize-2.svg",
     # Strumenti
     "build_profiles": "sliders.svg", "record_macro": "circle.svg",
@@ -1480,6 +1481,7 @@ class MainWindow(QMainWindow):
     # ── Menu Visualizza ───────────────────────────────────────────────────────
 
     def _build_menu_view(self, mb: QMenuBar) -> None:
+        from config.settings import Settings
         m = mb.addMenu(tr("menu.view"))
         self._menus["view"] = m
 
@@ -1554,6 +1556,14 @@ class MainWindow(QMainWindow):
             "split_sync_cursor", "",
             self._toggle_split_sync, checkable=True, checked=False
         ))
+        zoom_sync = bool(Settings.instance().get("view/split_sync_zoom", False))
+        sub_split.addAction(self._act(
+            "split_sync_zoom", "",
+            self._toggle_split_zoom, checkable=True,
+            checked=zoom_sync
+        ))
+        if zoom_sync:
+            self._tab_manager.set_sync_zoom(True)
         self._sep(sub_split)
         sub_split.addAction(self._act(
             "unsplit",          "Ctrl+Alt+1",
@@ -5154,6 +5164,12 @@ class MainWindow(QMainWindow):
             "Sincronizzazione cursore split: " +
             ("attiva" if checked else "disattiva"), 3000
         )
+
+    def _toggle_split_zoom(self, checked: bool) -> None:
+        """Attiva/disattiva la sincronizzazione dello zoom nello split."""
+        self._tab_manager.set_sync_zoom(checked)
+        from config.settings import Settings
+        Settings.instance().set("view/split_sync_zoom", bool(checked))
 
     # ── Notifiche verso il PluginManager ─────────────────────────────────────
     # Tutti i metodi usano try/except: un plugin bacato non deve mai

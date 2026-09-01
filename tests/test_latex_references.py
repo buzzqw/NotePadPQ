@@ -59,6 +59,8 @@ class LatexReferencesTest(unittest.TestCase):
             self.assertEqual(result.missing_includes[0].requested, "missing")
             self.assertEqual(result.missing_assets[0].requested, "missing-image")
             self.assertEqual(result.definitions[0].line, 8)
+            self.assertEqual([(item.kind, item.title) for item in result.sections],
+                             [("section", "Chapter")])
 
     def test_unsaved_current_text_is_used_for_project_root_file(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -66,6 +68,16 @@ class LatexReferencesTest(unittest.TestCase):
             main.write_text(r"\documentclass{article}\label{old}")
             result = analyze_latex_project(main, r"\documentclass{article}\label{new}")
             self.assertEqual([item.key for item in result.definitions], ["new"])
+
+    def test_sections_use_short_title_when_present(self):
+        with tempfile.TemporaryDirectory() as temp:
+            main = Path(temp) / "main.tex"
+            main.write_text(r"\section[Short title]{Long title}")
+
+            result = analyze_latex_project(main)
+
+            self.assertEqual([(item.kind, item.title) for item in result.sections],
+                             [("section", "Short title")])
 
     def test_model_and_panel_have_standalone_navigation_api(self):
         with tempfile.TemporaryDirectory() as temp:

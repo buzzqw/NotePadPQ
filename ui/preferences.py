@@ -447,6 +447,22 @@ class PreferencesDialog(QDialog):
         lim_row.addStretch()
         gl.addLayout(lim_row)
 
+        self._build_timeout = QSpinBox()
+        self._build_timeout.setRange(0, 86400)
+        self._build_timeout.setSingleStep(30)
+        self._build_timeout.setSuffix(" s")
+        self._build_timeout.setToolTip(
+            tr("tooltip.pref_build_timeout",
+               default="Tempo massimo di una compilazione; 0 disabilita il timeout.")
+        )
+        timeout_row = QHBoxLayout()
+        timeout_row.addWidget(QLabel(
+            tr("pref.build.timeout", default="Timeout compilazione:")
+        ))
+        timeout_row.addWidget(self._build_timeout)
+        timeout_row.addStretch()
+        gl.addLayout(timeout_row)
+
         vl.addWidget(grp)
 
         self._build_settings_map = {
@@ -726,6 +742,7 @@ class PreferencesDialog(QDialog):
         self._build_trigger_save.setChecked(s.get("build/trigger_on_save", False))
         self._build_unified_errors.setChecked(s.get("build/unified_errors", True))
         self._build_output_limit.setValue(s.get("build/output_max_lines", 10000))
+        self._build_timeout.setValue(s.get("build/timeout_seconds", 300))
         saved_term_cmd = s.get("build/terminal_cmd", "")
         matched = False
         for i in range(self._terminal_combo.count()):
@@ -878,6 +895,7 @@ class PreferencesDialog(QDialog):
         for key, cb in self._build_settings_map.items():
             s.set(key, cb.isChecked())
         s.set("build/output_max_lines", self._build_output_limit.value())
+        s.set("build/timeout_seconds", self._build_timeout.value())
         term_data = self._terminal_combo.currentData()
         if term_data == "__custom__":
             s.set("build/terminal_cmd", self._terminal_custom.text().strip())

@@ -1045,6 +1045,8 @@ class AutoCompleteManager(QObject):
 
     def _on_char_added_for_lsp(self, _char: int) -> None:
         self._enable_cwl_for_completion()
+        if self._language == "latex" and chr(_char) in "=,":
+            self.handle_latex_option(chr(_char))
         self._lsp_completion_timer.start()
 
     def _enable_cwl_for_completion(self, force: bool = False) -> None:
@@ -1318,7 +1320,7 @@ class AutoCompleteManager(QObject):
         il comando o ambiente che precede la parentesi.
         Restituisce True se ha gestito il carattere.
         """
-        if self._language != "latex" or bracket != "[":
+        if self._language != "latex" or bracket not in "[=,":
             return False
 
         self._enable_cwl_for_completion(force=True)
@@ -1326,6 +1328,9 @@ class AutoCompleteManager(QObject):
         ed = self._editor
         line, col = ed.getCursorPosition()
         line_text = ed.text(line)[:col]
+
+        if bracket != "[":
+            return self._complete_active_latex_option(line_text, col)
 
         # \\hyperref[  →  label del progetto (il label di hyperref è fra [ ])
         if re.search(r'\\hyperref\[$', line_text):
@@ -1348,9 +1353,14 @@ class AutoCompleteManager(QObject):
             m_pkg_name = re.search(r'^\s*\{([^}]+)\}', rest)
             if m_pkg_name:
                 options = self._get_package_options(m_pkg_name.group(1))
-                if options:
-                    self._editor.showUserList(11, options)
-                    return True
+            else:
+                from editor.latex_support import PACKAGE_OPTIONS
+                options = sorted({
+                    option for values in PACKAGE_OPTIONS.values() for option in values
+                })
+            if options:
+                self._editor.showUserList(11, options)
+                return True
 
         # \\includegraphics[
         if re.search(r'\\includegraphics\[$', line_text):
@@ -1390,11 +1400,83 @@ class AutoCompleteManager(QObject):
         if m_cmd:
             from editor.latex_support import COMMAND_OPTIONS
             opts = COMMAND_OPTIONS.get(m_cmd.group(1), [])
+            if not opts:
+                try:
+                    from editor.latex_support import LaTeXSupport
+                    opts = LaTeXSupport.get_cwl_model(
+                        getattr(ed, "file_path", None),
+                    ).option_candidates_for(
+                        "\\" + m_cmd.group(1),
+                        LaTeXSupport.extract_used_packages(ed.text()),
+                    )
+                except Exception:
+                    opts = []
             if opts:
                 self._editor.showUserList(10, opts)
                 return True
 
         return False
+
+    def _complete_active_latex_option(self, line_text: str, col: int) -> bool:
+        """Complete an option key or value inside the active ``[...]`` group."""
+        start = line_text.rfind("[")
+        if start < 0 or line_text.rfind("]", 0, col) > start:
+            return False
+        before = line_text[:start]
+        options: list[str] = []
+        command_name = ""
+
+        env_match = re.search(r"\\begin\{([^}]+)\}\s*$", before)
+        if env_match:
+            options = self._get_environment_options(env_match.group(1))
+        else:
+            command_match = re.search(r"\\([A-Za-z@]+)\*?\s*$", before)
+            if command_match:
+                command_name = "\\" + command_match.group(1)
+                from editor.latex_support import COMMAND_OPTIONS
+                options = list(COMMAND_OPTIONS.get(command_match.group(1), []))
+            package_match = re.search(r"\\usepackage\s*$", before)
+            if package_match:
+                rest = self._editor.text(self._editor.getCursorPosition()[0])[col:]
+                package = re.search(r"^\s*\{([^}]+)\}", rest)
+                if package:
+                    options = self._get_package_options(package.group(1))
+                else:
+                    from editor.latex_support import PACKAGE_OPTIONS
+                    options = sorted({
+                        option for values in PACKAGE_OPTIONS.values() for option in values
+                    })
+
+        if not options and command_name:
+            try:
+                from editor.latex_support import LaTeXSupport
+                packages = LaTeXSupport.extract_used_packages(self._editor.text())
+                options = LaTeXSupport.get_cwl_model(
+                    getattr(self._editor, "file_path", None),
+                ).option_candidates_for(command_name, packages)
+            except Exception:
+                options = []
+        if not options:
+            return False
+
+        token = line_text[start + 1:].rsplit(",", 1)[-1].strip()
+        if "=" in token:
+            key, value_prefix = token.split("=", 1)
+            candidates = [
+                option.split("=", 1)[1]
+                for option in options
+                if "=" in option and option.split("=", 1)[0].casefold() == key.casefold()
+            ]
+            prefix = value_prefix.casefold()
+        else:
+            candidates = options
+            prefix = token.casefold()
+        candidates = sorted({item for item in candidates
+                             if item and item.casefold().startswith(prefix)})
+        if not candidates:
+            return False
+        self._editor.showUserList(12, candidates)
+        return True
 
     def _get_environment_options(self, env: str) -> list[str]:
         try:

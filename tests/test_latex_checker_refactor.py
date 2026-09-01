@@ -96,6 +96,30 @@ class LatexCheckerRefactorTest(unittest.TestCase):
                 LaTeXSupport.rename_label_across_files(main, "old", "new")
             self.assertEqual(child.read_text(encoding="utf-8"), r"\label{old}\label{new}")
 
+    def test_tikz_commands_require_terminating_semicolon(self):
+        text = r"""\begin{tikzpicture}
+\draw (0,0) -- (1,1)
+\node at (0,0) {ok};
+\end{tikzpicture}"""
+
+        issues = _CheckWorker._check_tikz_semicolons_single(text)
+
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]["line"], 1)
+
+    def test_tikz_commands_outside_environment_are_ignored(self):
+        issues = _CheckWorker._check_tikz_semicolons_single(
+            r"\draw (0,0) -- (1,1)",
+        )
+        self.assertEqual(issues, [])
+
+    def test_foreach_control_command_does_not_require_semicolon(self):
+        text = r"""\begin{tikzpicture}
+\foreach \x in {1,2} {\draw (0,0) -- (\x,1);}
+\end{tikzpicture}"""
+
+        self.assertEqual(_CheckWorker._check_tikz_semicolons_single(text), [])
+
 
 if __name__ == "__main__":
     unittest.main()

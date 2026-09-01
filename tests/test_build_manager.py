@@ -16,6 +16,7 @@ Testa:
 
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,6 +68,18 @@ class TestBuildWorker(unittest.TestCase):
         worker.start()
         worker.wait(5000)
         self.assertTrue(worker.isFinished() or not worker.isRunning())
+
+    def test_worker_timeout_sets_terminal_state(self):
+        from core.build_manager import BuildWorker, BUILD_STATE_TIMED_OUT
+
+        command = f'"{sys.executable}" -c "import time; time.sleep(10)"'
+        worker = BuildWorker(command, ".", dict(os.environ), run_id="test_timeout",
+                             timeout=0.05)
+        worker.start()
+        worker.wait(3000)
+        self.assertFalse(worker.isRunning())
+        self.assertEqual(worker.state, BUILD_STATE_TIMED_OUT)
+        self.assertEqual(worker._outcome[0], "timeout")
 
 
 class TestVariableExpansion(unittest.TestCase):
@@ -749,6 +762,36 @@ class TestInteractiveWorker(unittest.TestCase):
         self.assertTrue(worker.isFinished() or not worker.isRunning())
         if output:
             self.assertIn("hello", " ".join(output))
+
+    def test_interactive_worker_timeout_sets_terminal_state(self):
+        from core.build_manager import InteractiveBuildWorker, BUILD_STATE_TIMED_OUT
+
+        command = f'"{sys.executable}" -c "import time; time.sleep(10)"'
+        worker = InteractiveBuildWorker(
+            command, ".", dict(os.environ), run_id="test_iw_timeout", timeout=0.05,
+        )
+        worker.start()
+        worker.wait(3000)
+        self.assertFalse(worker.isRunning())
+        self.assertEqual(worker.state, BUILD_STATE_TIMED_OUT)
+        self.assertEqual(worker._outcome[0], "timeout")
+
+    def test_interactive_worker_timeout_handles_partial_output(self):
+        from core.build_manager import InteractiveBuildWorker, BUILD_STATE_TIMED_OUT
+
+        worker = InteractiveBuildWorker(
+            [sys.executable, "-c", "import sys,time; sys.stdout.write('partial'); sys.stdout.flush(); time.sleep(10)"],
+            ".", dict(os.environ), run_id="test_iw_partial_timeout", timeout=0.05,
+        )
+        output = []
+        worker.output_line.connect(output.append)
+        worker.start()
+        worker.wait(3000)
+        self._app.processEvents()
+
+        self.assertFalse(worker.isRunning())
+        self.assertEqual(worker.state, BUILD_STATE_TIMED_OUT)
+        self.assertIn("partial", output)
 
 
 class TestOutputLimit(unittest.TestCase):

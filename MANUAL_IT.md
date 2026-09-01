@@ -1,6 +1,6 @@
 # NotePadPQ: Manuale d'uso
 
-> Versione 1.8.2: Editor di testo avanzato basato su **QScintilla/PyQt6**
+> Versione 1.9.8: Editor di testo avanzato basato su **QScintilla/PyQt6**
 > Piattaforme: Linux, Windows, FreeBSD
 
 ---
@@ -17,10 +17,6 @@
 8. [Documento](#8-documento)
 9. [Strumenti](#9-strumenti)
 10. [Plugin](#10-plugin)
-23. [Editor Rich Text](#23-editor-rich-text)
-24. [Search PQ](#24-search-pq)
-25. [Terminal](#25-terminal)
-26. [Modalità Vim](#26-modalità-vim)
 11. [Pannelli laterali e inferiori](#11-pannelli-laterali-e-inferiori)
 12. [Multi-cursore](#12-multi-cursore)
 13. [Split View](#13-split-view)
@@ -33,6 +29,10 @@
 20. [LSP: Language Server Protocol](#20-lsp--language-server-protocol)
 21. [AI Assistant](#21-ai-assistant)
 22. [Foglio di Calcolo](#22-foglio-di-calcolo)
+23. [Editor Rich Text](#23-editor-rich-text)
+24. [Search PQ](#24-search-pq)
+25. [Terminal](#25-terminal)
+26. [Modalità Vim](#26-modalità-vim)
 
 ---
 
@@ -331,6 +331,7 @@ Il dialog ha 4 tab.
 | Espressione regolare | Abilita la sintassi regex Python |
 | Cerca circolare | Riparte dall'inizio/fine al termine del documento |
 | Nella selezione | Cerca solo nel testo selezionato |
+| Aggiorna risultati automaticamente | Ricalcola l'elenco quando cambia il documento |
 
 **Pulsanti:**
 
@@ -340,7 +341,7 @@ Il dialog ha 4 tab.
 - **Conta**: popola la lista con tutte le occorrenze e mostra il totale
 
 **Lista occorrenze:**  
-Si popola automaticamente durante la digitazione (dopo 2 caratteri) e tramite il pulsante Conta. Doppio clic su una riga salta alla posizione corrispondente nel documento.
+Si popola automaticamente durante la digitazione (dopo 2 caratteri) e tramite il pulsante Conta. Con **Aggiorna risultati automaticamente** attivo, viene ricalcolata dopo una modifica al documento (debounce di 250 ms). Doppio clic su una riga salta alla posizione corrispondente nel documento.
 
 **Manuale regex:**  
 Appare automaticamente quando si attiva "Espressione regolare"; vedi anche [sezione 18](#18-espressioni-regolari--riferimento-completo).
@@ -351,6 +352,8 @@ Stesse opzioni del tab Cerca più:
 
 - **Sostituisci**: sostituisce l'occorrenza selezionata e passa alla successiva
 - **Sostituisci tutto**: sostituisce tutte le occorrenze nel documento
+
+L'opzione **Aggiorna risultati automaticamente** è disponibile anche qui e aggiorna l'elenco delle occorrenze dopo le modifiche al documento.
 
 Nel campo "Sostituisci con" puoi usare `\1`, `\2`, ... per riferirsi ai gruppi catturati dalla regex.
 
@@ -374,6 +377,8 @@ Cerca (e opzionalmente sostituisce) in tutti i file aperti nei tab.
 | Vai alla riga | `Ctrl+G` |
 | Vai alla parentesi corrispondente | `Ctrl+]` |
 | Ricerca incrementale inline | `Ctrl+Shift+F2` |
+
+La ricerca incrementale calcola i match su uno snapshot del documento in background, così la digitazione non viene bloccata; i risultati di uno snapshot ormai superato vengono ignorati.
 
 ---
 
@@ -648,6 +653,8 @@ Nei comandi sono disponibili le seguenti variabili, accettate sia nella forma `$
 
 **Compila durante la modifica**: l'opzione nel menu Build avvia una build LaTeX dopo una pausa configurabile nella digitazione. Il debounce evita processi duplicati e l'opzione è disattivata di default.
 
+**Timeout compilazione**: in **Preferenze → Compilazione** puoi impostare il tempo massimo di una build. Il valore predefinito è 300 secondi; imposta `0` per disabilitare il timeout. Vale anche per le build interattive PTY e per i passi delle pipeline. L'output PTY viene gestito anche quando una riga non termina con newline.
+
 **Build concorrenti**: esegui una build nel pannello principale e un task nel tab Task contemporaneamente — ognuno ha il suo worker indipendente.
 
 **Draft Mode LaTeX**: dal menu Build abilita la modalità Draft per inserire `-draftmode` nei comandi `pdflatex`, `xelatex` o `lualatex`. Verifica il documento senza produrre un PDF.
@@ -891,7 +898,10 @@ Divide l'area editor in due pannelli per lavorare su due file (o due punti dello
 | Ruota orientazione split | `Ctrl+Alt+R` |
 | Sposta tab nell'altro pannello | `Ctrl+Alt+M` |
 | Sincronizza cursore tra pannelli | Menu Visualizza → Split View |
+| Sincronizza zoom tra pannelli | Menu Visualizza → Split View |
 | Rimuovi split | `Ctrl+Alt+1` |
+
+**Sincronizza zoom tra pannelli** mantiene allineato il livello di zoom degli editor correnti. Quando viene attivata, copia subito lo zoom del pannello primario nel pannello secondario; l'impostazione viene ricordata tra gli avvii. I successivi cambi di zoom vengono propagati in entrambe le direzioni.
 
 ---
 
@@ -961,6 +971,7 @@ Apri con `Ctrl+Alt+P` oppure **Strumenti → Preferenze**. Le modifiche possono 
 - **Compila al salvataggio**: esegue automaticamente la build quando salvi un file
 - **Errori unificati (LSP + Build)**: unisce le diagnostiche LSP con gli errori di build in un'unica vista
 - **Max righe output**: limite configurabile per il log di build (default 10000) per evitare problemi di memoria
+- **Timeout compilazione**: tempo massimo in secondi (default 300); `0` disabilita il timeout
 
 ### Scheda Lingua
 - Seleziona la lingua dell'interfaccia tra: Italiano, English, Deutsch, Français, Español
@@ -990,7 +1001,7 @@ NotePadPQ ha un supporto LaTeX completo, ma le funzionalità **avanzate** richie
 ### Funzionalità sempre disponibili (nessuna dipendenza extra)
 - **Syntax highlighting** LaTeX completo
 - **Code folding** di ambienti (`\begin{...}` / `\end{...}`)
-- **Autocompletamento contestuale**: digitando `\cite{` → chiavi BibTeX; `\ref{` → label; `\begin{` → ambienti; `\usepackage{` → pacchetti; `[` → opzioni comando/ambiente/pacchetto
+- **Autocompletamento contestuale**: digitando `\cite{` → chiavi BibTeX; `\ref{` → label; `\begin{` → ambienti; `\usepackage{` → pacchetti; `[` → opzioni comando/ambiente/pacchetto. Nei gruppi di opzioni, `,` completa la chiave successiva e `=` completa i valori quando disponibili nei file CWL.
 - **Autocompletamento per pacchetto**: quando il documento usa `\usepackage{multicol}`, `\usepackage{tabularx}`, `\usepackage{longtable}`, `\usepackage{tabulary}` ecc., vengono suggeriti automaticamente i comandi specifici del pacchetto (es. `\columnbreak`, `\endhead`, `\endfirsthead`, template colonne `X`, `lX`, `LCR`…)
 - **Build panel**: profili di compilazione configurabili (pdflatex, xelatex, lualatex, latexmk, ecc.)
 - **Errori cliccabili**: click su un errore nell'output di compilazione salta alla riga nel sorgente
@@ -1001,6 +1012,8 @@ NotePadPQ ha un supporto LaTeX completo, ma le funzionalità **avanzate** richie
 - **BibTeX Wizard**: da **LaTeX → BibTeX Wizard** crea voci bibliografiche guidate, genera la chiave e cerca i dati bibliografici da un DOI tramite Crossref; puoi copiare o inserire direttamente la voce risultante.
 - **Checker bilanciamento**: rileva `\begin{}`/`\end{}` sbilanciati in tempo reale con marcatori nel gutter
 - **Checker colonne tabella**: negli ambienti `tabular`, `tabular*`, `tabularx`, `tabulary`, `array`, `longtable`, `supertabular`, `xltabular`, confronta il numero di colonne dichiarate nella column spec (es. `{lXXXXXXX}`) con il numero di colonne effettive di ogni riga del corpo. Se una riga ha **più** colonne del dichiarato, sottolinea in ambra solo la parte in eccesso (dall'ultima `&` di troppo in poi); se la column spec dichiara **più** colonne di quelle usate da tutte le righe, sottolinea solo le lettere (`X`, `l`, `c`, `r`, `p`…) in eccesso nella column spec stessa. `\multicolumn{N}{...}{...}` viene conteggiato correttamente come N colonne.
+- **Checker TikZ**: segnala i comandi di disegno (`\draw`, `\path`, `\node`, ecc.) privi del punto e virgola finale dentro `tikzpicture`. Il costrutto di controllo `\foreach` non richiede un punto e virgola proprio.
+- **Sezioni LaTeX**: la struttura del progetto riconosce anche titoli brevi come `\section[Voce nell'indice]{Titolo completo}` e usa la voce breve per la navigazione.
 
 ### Funzionalità che richiedono librerie opzionali
 
@@ -1715,13 +1728,17 @@ Opzioni aggiuntive: **Aa** (case-sensitive) e **\b** (confini di parola).
 
 La ricerca parte automaticamente dopo 300 ms dal termine della digitazione (debounce) e si riavvia immediatamente a ogni cambio di opzione.
 
+### Aggiornamento automatico
+
+Il checkbox **Aggiorna risultati automaticamente** ricalcola la ricerca nel documento dopo una modifica, con debounce di 250 ms. È attivo per impostazione predefinita e la scelta viene salvata; la ricerca nei file su disco non viene rilanciata automaticamente.
+
 ### Albero dei risultati
 
 I risultati sono raggruppati per file. Un click singolo su una riga naviga direttamente alla posizione nel documento. La riga di intestazione (in blu) mostra parametri e statistiche della ricerca; cliccandola ripristina i valori nei campi di ricerca.
 
 ### Coda risultati (Queue)
 
-Il checkbox **+ Queue**: se attivo, ogni nuova ricerca viene aggiunta all'albero senza cancellare le precedenti, creando una cronologia visuale. Cliccare un'intestazione blu precedente ne ripristina i parametri nei campi.
+Il checkbox **+ Queue**: se attivo, ogni nuova ricerca viene aggiunta all'albero senza cancellare le precedenti, creando una cronologia visuale. Un aggiornamento automatico sostituisce solo il gruppo corrente, preservando la cronologia precedente. Cliccare un'intestazione blu precedente ne ripristina i parametri nei campi.
 
 ### Filtro inline
 
@@ -1767,4 +1784,4 @@ Premi `:` per aprire il prompt, che mostra esempi dei comandi disponibili: `:w`,
 
 ---
 
-*Manuale aggiornato: NotePadPQ 1.8.2*
+*Manuale aggiornato: NotePadPQ 1.9.8*

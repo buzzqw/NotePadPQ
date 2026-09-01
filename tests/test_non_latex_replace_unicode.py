@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import QApplication
 
 from editor.editor_widget import INDICATOR_SPELL, EditorWidget
 from ui.find_replace import _ReplaceInFilesWorker, _ReplaceWriterWorker
-from ui.incremental_search import IncrementalSearchBar
+from ui.incremental_search import IncrementalSearchBar, _IncrementalSearchWorker
 from ui.spell_check_dialog import SpellCheckDialog
 
 
@@ -105,6 +105,15 @@ class UnicodeCoordinateTest(unittest.TestCase):
         self.assertEqual([m.group(0) for m in bar._build_pattern("abc").finditer("Abc abc")], ["abc"])
         bar._cb_case = Check(False)
         self.assertEqual([m.group(0) for m in bar._build_pattern("abc").finditer("Abc abc")], ["Abc", "abc"])
+
+    def test_incremental_worker_returns_snapshot_offsets(self):
+        emitted = []
+        worker = _IncrementalSearchWorker("Alpha alpha", re.compile("alpha", re.IGNORECASE))
+        worker.finished.connect(emitted.append)
+
+        worker.run()
+
+        self.assertEqual(emitted, [[(0, 5), (6, 11)]])
 
 
 if __name__ == "__main__":

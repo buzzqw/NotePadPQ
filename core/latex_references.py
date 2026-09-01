@@ -90,6 +90,16 @@ class LatexInclude:
 
 
 @dataclass(frozen=True, slots=True)
+class LatexSection:
+    """A section heading collected from one source file."""
+
+    title: str
+    kind: str
+    depth: int
+    location: LatexLocation
+
+
+@dataclass(frozen=True, slots=True)
 class LatexReferencesAnalysis:
     """Immutable result returned by :func:`analyze_latex_project`."""
 
@@ -109,6 +119,7 @@ class LatexReferencesAnalysis:
     bibliography_files: tuple[Path, ...] = ()
     bibliography_keys: tuple[str, ...] = ()
     unused_citations: tuple[str, ...] = ()
+    sections: tuple[LatexSection, ...] = ()
 
     @property
     def duplicate(self) -> tuple[LatexReference, ...]:
@@ -352,8 +363,20 @@ def analyze_latex_project(
     includes: list[LatexInclude] = []
     assets: list[LatexInclude] = []
     bibliography_files: set[Path] = set()
+    sections: list[LatexSection] = []
 
     for path, text in sources:
+        for kind, title, line in LaTeXSupport.extract_sections(text):
+            sections.append(LatexSection(
+                title=title.strip(),
+                kind=kind,
+                depth={
+                    "part": 0, "chapter": 1, "section": 2,
+                    "subsection": 3, "subsubsection": 4,
+                    "paragraph": 5, "subparagraph": 6,
+                }.get(kind, 0),
+                location=LatexLocation(path, line + 1, 0),
+            ))
         for occurrence in LaTeXSupport.extract_label_reference_occurrences(text):
             location = LatexLocation(
                 path, occurrence["line"] + 1, occurrence["column"],
@@ -408,7 +431,7 @@ def analyze_latex_project(
         tuple(item for item in includes if item.missing),
         tuple(item for item in assets if item.missing),
         tuple(sorted(bibliography_files)), tuple(sorted(bibliography_keys)),
-        unused_citations,
+        unused_citations, tuple(sections),
     )
 
 
@@ -419,6 +442,7 @@ analyze_project = analyze_latex_project
 
 
 __all__ = [
-    "LatexInclude", "LatexLocation", "LatexReference", "LatexReferencesAnalysis",
+    "LatexInclude", "LatexLocation", "LatexReference", "LatexSection",
+    "LatexReferencesAnalysis",
     "analyze_latex_project", "analyze_project", "scan_latex_project",
 ]

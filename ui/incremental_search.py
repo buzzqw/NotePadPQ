@@ -28,9 +28,10 @@ Integrazione in MainWindow:
 from __future__ import annotations
 
 import re
+import threading
 from typing import Optional, List, TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from PyQt6.QtGui import QKeySequence, QAction, QShortcut, QPalette
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QLineEdit, QPushButton,
@@ -38,6 +39,7 @@ from PyQt6.QtWidgets import (
 )
 
 from i18n.i18n import tr
+from core.worker_pool import ManagedWorker
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -46,6 +48,34 @@ if TYPE_CHECKING:
 # Indicatore QScintilla per la ricerca incrementale
 _INC_INDICATOR     = 9    # occorrenze non correnti
 _INC_CUR_INDICATOR = 10   # occorrenza corrente
+
+
+class _IncrementalSearchWorker(QObject):
+    """Calcola i match su uno snapshot senza accedere a QScintilla."""
+
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, text: str, pattern: re.Pattern):
+        super().__init__()
+        self._text = text
+        self._pattern = pattern
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    def run(self) -> None:
+        matches = []
+        try:
+            for match in self._pattern.finditer(self._text):
+                if self._cancelled.is_set():
+                    return
+                matches.append((match.start(), match.end()))
+            self.finished.emit(matches)
+        except Exception as exc:
+            self.error.emit(str(exc))
+
 
 class IncrementalSearchBar(QWidget):
     """
@@ -62,6 +92,10 @@ class IncrementalSearchBar(QWidget):
         self._matches: List[tuple] = []   # [(line_from, col_from, line_to, col_to)]
         self._current_idx = -1
         self._last_text   = ""
+        self._search_generation = 0
+        self._search_worker: Optional[ManagedWorker] = None
+        self._search_workers: list[ManagedWorker] = []
+        self._observed_editor = None
 
         self._build_ui()
         self.hide()
@@ -76,6 +110,7 @@ class IncrementalSearchBar(QWidget):
         main_window._tab_manager.current_editor_changed.connect(
             self._on_editor_changed
         )
+        self._on_editor_changed(self._current_editor())
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -185,6 +220,7 @@ class IncrementalSearchBar(QWidget):
 
     def hide_bar(self) -> None:
         """Nasconde la barra e riporta il focus all'editor."""
+        self._invalidate_search()
         self._clear_highlights()
         self.hide()
         self.closed.emit()
@@ -195,16 +231,35 @@ class IncrementalSearchBar(QWidget):
     # ── Ricerca ───────────────────────────────────────────────────────────────
 
     def _on_text_changed(self) -> None:
+        self._invalidate_search()
         self._search_timer.start()
 
+    def _on_editor_text_changed(self) -> None:
+        if not self.isVisible():
+            return
+        self._invalidate_search()
+        self._search_timer.start()
+
+    def _invalidate_search(self) -> None:
+        self._search_generation += 1
+        worker = self._search_worker
+        if worker is not None and worker.worker is not None:
+            worker.worker.cancel()
+            if worker.thread is not None and worker.thread.isRunning():
+                worker.stop()
+        self._search_worker = None
+        self._search_workers = [item for item in self._search_workers
+                                if item.thread is not None]
+
     def _do_search(self) -> None:
-        """Esegue la ricerca e aggiorna tutti gli highlight."""
+        """Avvia la ricerca su uno snapshot e aggiorna gli highlight al termine."""
         editor = self._current_editor()
         if not editor:
             return
 
         text   = self._field.text()
         self._last_text = text
+        self._invalidate_search()
         self._clear_highlights()
         self._matches = []
         self._current_idx = -1
@@ -222,46 +277,69 @@ class IncrementalSearchBar(QWidget):
             self._count_lbl.setText("regex ✗")
             return
 
-        # Python regex offsets are characters, but lineIndexFromPosition takes
-        # native Scintilla UTF-8 byte positions. Its returned line/index pair is
-        # then safe for QScintilla's line/index drawing and selection methods.
         doc_text = editor.text()
-        try:
-            self._matches = []
-            for m in pattern.finditer(doc_text):
-                start_byte = len(doc_text[:m.start()].encode("utf-8"))
-                end_byte = len(doc_text[:m.end()].encode("utf-8"))
-                ls, cs = editor.lineIndexFromPosition(start_byte)
-                le, ce = editor.lineIndexFromPosition(end_byte)
-                self._matches.append((ls, cs, le, ce))
-        except Exception:
-            self._matches = []
+        generation = self._search_generation
+        worker = _IncrementalSearchWorker(doc_text, pattern)
+        managed = ManagedWorker(worker)
+        self._search_worker = managed
+        self._search_workers.append(managed)
+        managed.thread.started.connect(worker.run)
+        worker.finished.connect(
+            lambda matches, gen=generation, ed=editor, snapshot=doc_text:
+            self._apply_search_results(gen, ed, snapshot, matches)
+        )
+        worker.error.connect(
+            lambda error, gen=generation: self._search_error(gen, error)
+        )
+        managed.start()
 
+    def _search_error(self, generation: int, error: str) -> None:
+        if generation != self._search_generation:
+            return
+        self._set_field_color(True)
+        self._count_lbl.setText(error or tr("search.no_matches", default="nessuno"))
+
+    def _apply_search_results(self, generation: int, editor,
+                              doc_text: str, char_matches: list[tuple[int, int]]) -> None:
+        """Converte gli offset dello snapshot in coordinate native Scintilla."""
+        if generation != self._search_generation or editor is not self._current_editor():
+            return
+        if editor.text() != doc_text:
+            return
+
+        line_starts = [0]
+        line_starts.extend(i + 1 for i, char in enumerate(doc_text) if char == "\n")
+
+        def char_to_line_col(offset: int) -> tuple[int, int]:
+            import bisect
+            offset = max(0, min(offset, len(doc_text)))
+            line = bisect.bisect_right(line_starts, offset) - 1
+            return line, len(doc_text[line_starts[line]:offset].encode("utf-8"))
+
+        self._matches = [
+            (*char_to_line_col(start), *char_to_line_col(end))
+            for start, end in char_matches
+        ]
         total = len(self._matches)
-
         if total == 0:
             self._set_field_color(True)
             self._count_lbl.setText(tr("search.no_matches", default="nessuno"))
             return
 
         self._set_field_color(False)
-
-        # Evidenzia tutte le occorrenze
         self._setup_indicators(editor)
         for ls, cs, le, ce in self._matches:
             editor.fillIndicatorRange(ls, cs, le, ce, _INC_INDICATOR)
 
-        # Vai all'occorrenza più vicina al cursore corrente
         cur_line, cur_col = editor.getCursorPosition()
         cur_byte = editor.positionFromLineIndex(cur_line, cur_col)
         cur_pos = len(doc_text.encode("utf-8")[:cur_byte].decode("utf-8", "ignore"))
         nearest = 0
-        for i, m in enumerate(pattern.finditer(doc_text)):
-            if m.start() >= cur_pos:
+        for i, (start, _end) in enumerate(char_matches):
+            if start >= cur_pos:
                 break
             nearest = i
         self._goto(nearest)
-
         self._count_lbl.setText(f"{self._current_idx + 1} / {total}")
 
     def _build_pattern(self, text: str) -> re.Pattern:
@@ -355,6 +433,16 @@ class IncrementalSearchBar(QWidget):
         return self._mw._tab_manager.current_editor()
 
     def _on_editor_changed(self, editor) -> None:
+        if self._observed_editor is not editor:
+            if self._observed_editor is not None:
+                try:
+                    self._observed_editor.textChanged.disconnect(self._on_editor_text_changed)
+                except (RuntimeError, TypeError):
+                    pass
+            self._observed_editor = editor
+            if editor is not None:
+                editor.textChanged.connect(self._on_editor_text_changed)
+        self._invalidate_search()
         self._matches = []
         self._current_idx = -1
         if self.isVisible():

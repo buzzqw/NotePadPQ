@@ -144,12 +144,32 @@ def main():
         sys.exit(1)
 
     import traceback
+    from core.diagnostics import (
+        ProfilingApplication,
+        configure_diagnostics,
+        install_event_loop_monitor,
+        log_qt_message,
+        operation,
+        profile_operation,
+        profiling_requested,
+        record_exception,
+    )
+
+    profile_enabled = profiling_requested()
+    # --profile is an application option, not a file path and must not reach Qt.
+    if "--profile" in sys.argv:
+        sys.argv.remove("--profile")
 
     def _excepthook(exc_type, exc_value, exc_tb):
         print("=" * 60, file=sys.stderr)
         print("NotePadPQ — ECCEZIONE NON GESTITA:", file=sys.stderr)
         traceback.print_exception(exc_type, exc_value, exc_tb, file=sys.stderr)
         print("=" * 60, file=sys.stderr)
+        record_exception(
+            "python.unhandled_exception",
+            exc_value,
+            "".join(traceback.format_exception(exc_type, exc_value, exc_tb)),
+        )
         sys.__excepthook__(exc_type, exc_value, exc_tb)
 
     sys.excepthook = _excepthook
@@ -171,6 +191,7 @@ def main():
         if msg_type in (QtMsgType.QtWarningMsg, QtMsgType.QtCriticalMsg, QtMsgType.QtFatalMsg):
             loc = f" ({context.file}:{context.line})" if context.file else ""
             print(f"{label}{loc} {message}", file=sys.stderr)
+            log_qt_message(label, str(message), loc)
 
     qInstallMessageHandler(_qt_msg_handler)
 
@@ -215,10 +236,25 @@ def main():
         except Exception:
             pass
 
-    app = QApplication(sys.argv)
+    app_class = ProfilingApplication if profile_enabled else QApplication
+    app = app_class(sys.argv)
     app.setApplicationName("NotePadPQ")
     app.setOrganizationName("NotePadPQ")
     app.setApplicationVersion("1.9.8")
+
+    profile_log = configure_diagnostics(enabled=profile_enabled)
+    if profile_log is not None:
+        print(f"NotePadPQ performance log: {profile_log}", file=sys.stderr)
+        install_event_loop_monitor(app)
+
+    def _wait_for_latex_workers() -> None:
+        try:
+            from editor.latex_checker import wait_for_orphaned_workers
+            wait_for_orphaned_workers()
+        except Exception:
+            pass
+
+    app.aboutToQuit.connect(_wait_for_latex_workers)
 
     # Su alcune configurazioni Linux il flag può essere True di default.
     # Lo forziamo False per garantire che le icone nei menu siano visibili.
@@ -295,7 +331,8 @@ def main():
         i18n.set_language(lang)
 
     # Crea finestra principale
-    win = MainWindow()
+    with operation("startup.main_window"):
+        win = MainWindow()
     win.show()
 
     # Il server single-instance è già attivo (avviato subito dopo il check
@@ -314,6 +351,7 @@ def main():
     # ── Post-startup deferred ─────────────────────────────────────────────────
     # Eseguito dopo che tutti i plugin sono stati caricati (uno per tick).
     # La finestra è già visibile e responsiva durante questo processo.
+    @profile_operation("startup.deferred_initialization")
     def _finish_startup():
         nonlocal startup_content_restored
         from PyQt6.QtCore import QTimer as _QT

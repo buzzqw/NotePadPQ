@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.Qsci import QsciScintilla
 
 from core.file_manager import FileManager
+from core.diagnostics import operation, profile_operation
 from editor.editor_widget import LineEnding
 from i18n.i18n import tr
 
@@ -171,6 +172,7 @@ class _LoadWorker(QObject):
     def acknowledge_chunk(self) -> None:
         self._chunk_ack.set()
 
+    @profile_operation("file.load_large")
     def run(self) -> None:
         """Eseguito nel thread di background."""
         try:
@@ -563,6 +565,7 @@ class _SaveWorker(QObject):
         except (LookupError, UnicodeEncodeError):
             return self._new_text.encode("utf-8")
 
+    @profile_operation("file.save_large")
     def run(self) -> None:
         doc = self._doc
         tmp_path = self.dest_path.with_name(self.dest_path.name + ".notepadpq_tmp")
@@ -700,12 +703,13 @@ class LazyLoader(QObject):
 
     def _start_normal(self) -> None:
         self.load_started.emit("normal")
-        try:
-            content, encoding, le = FileManager.read(self._path)
-            self._editor.load_content(content, encoding, le)
-            self.load_finished.emit()
-        except Exception as e:
-            self.load_error.emit(str(e))
+        with operation("file.load_normal", path=self._path):
+            try:
+                content, encoding, le = FileManager.read(self._path)
+                self._editor.load_content(content, encoding, le)
+                self.load_finished.emit()
+            except Exception as e:
+                self.load_error.emit(str(e))
 
     # ── Modalità LAZY ─────────────────────────────────────────────────────────
 

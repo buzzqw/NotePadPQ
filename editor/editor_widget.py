@@ -36,6 +36,7 @@ from PyQt6.Qsci import (
 )
 
 from core.platform import get_data_dir, get_preferred_monospace_font, IS_WINDOWS
+from core.diagnostics import operation, profile_operation
 from i18n.i18n import tr
 
 # Dipendenze opzionali per hover preview — caricate in lazy loading al primo utilizzo
@@ -1261,6 +1262,7 @@ class EditorWidget(QsciScintilla):
 
     # ── Contenuto ─────────────────────────────────────────────────────────────
 
+    @profile_operation("editor.load_content")
     def load_content(self, text: str, encoding: str = "UTF-8",
                      line_ending: Optional[LineEnding] = None) -> None:
         """
@@ -1281,10 +1283,19 @@ class EditorWidget(QsciScintilla):
         self.setEolMode(line_ending.to_qsci())
 
         # Blocca i segnali durante il caricamento per evitare falsi "modified"
-        self.blockSignals(True)
-        self.setText(normalized)
-        self.setModified(False)
-        self.blockSignals(False)
+        with operation("editor.set_text", chars=len(normalized)):
+            self.blockSignals(True)
+            # Il contenuto appena aperto non deve entrare nella cronologia
+            # Undo: su documenti LaTeX multi-MB Scintilla può duplicarlo in
+            # memoria e rallentare sensibilmente setText().
+            self.SendScintilla(self.SCI_SETUNDOCOLLECTION, 0)
+            try:
+                self.setText(normalized)
+                self.setModified(False)
+                self.SendScintilla(self.SCI_EMPTYUNDOBUFFER)
+            finally:
+                self.SendScintilla(self.SCI_SETUNDOCOLLECTION, 1)
+                self.blockSignals(False)
 
         # Posiziona il cursore all'inizio
         self.setCursorPosition(0, 0)
@@ -1296,14 +1307,16 @@ class EditorWidget(QsciScintilla):
         # setText() ha i segnali bloccati: il lexer custom non ha ricevuto
         # textChanged e la cache byte può quindi contenere il documento prima
         # del caricamento.
-        lexer = self.lexer()
-        if hasattr(lexer, "recolor"):
-            lexer.recolor()
-        elif hasattr(lexer, "invalidate_cache"):
-            lexer.invalidate_cache()
-            self.SendScintilla(self.SCI_COLOURISE, 0, -1)
+        with operation("editor.recolor"):
+            lexer = self.lexer()
+            if hasattr(lexer, "recolor"):
+                lexer.recolor()
+            elif hasattr(lexer, "invalidate_cache"):
+                lexer.invalidate_cache()
+                self.SendScintilla(self.SCI_COLOURISE, 0, -1)
 
-        self.refresh_language_support(force_check=True)
+        with operation("editor.refresh_language_support"):
+            self.refresh_language_support(force_check=True)
 
     def refresh_language_support(self, force_check: bool = False) -> None:
         """Aggiorna supporto linguaggio, API e checker dopo un load/append."""

@@ -19,6 +19,7 @@ from PyQt6.QtCore import QObject, QFileSystemWatcher, pyqtSignal
 
 from editor.editor_widget import LineEnding
 from core.persistence import atomic_write_bytes
+from core.diagnostics import operation
 
 try:
     import chardet as _chardet
@@ -57,47 +58,48 @@ class FileManager:
         Rileva BOM, encoding e line ending automaticamente.
         Lancia IOError in caso di errore lettura.
         """
-        raw = path.read_bytes()
+        with operation("file.read", path=path) as details:
+            raw = path.read_bytes()
+            details["size_bytes"] = len(raw)
 
-        # Rilevamento BOM
-        encoding, bom_len = FileManager._detect_bom(raw)
-        if encoding:
-            content_bytes = raw[bom_len:]
+            # Rilevamento BOM
+            encoding, bom_len = FileManager._detect_bom(raw)
+            if encoding:
+                content_bytes = raw[bom_len:]
+                try:
+                    text = content_bytes.decode(encoding)
+                    le = LineEnding.detect(text)
+                    return text, encoding.upper().replace("-SIG", " BOM"), le
+                except UnicodeDecodeError:
+                    pass
+
+            # UTF-8 strict: se i byte sono UTF-8 validi, è definitivamente UTF-8.
+            # chardet può sbagliare su file con lunga intestazione ASCII + pochi
+            # caratteri estesi, quindi viene usato solo se UTF-8 fallisce.
             try:
-                text = content_bytes.decode(encoding)
+                text = raw.decode("utf-8")
                 le = LineEnding.detect(text)
-                return text, encoding.upper().replace("-SIG", " BOM"), le
+                return text, "UTF-8", le
             except UnicodeDecodeError:
                 pass
 
-        # UTF-8 strict: se i byte sono UTF-8 validi, è definitivamente UTF-8.
-        # chardet può sbagliare su file con lunga intestazione ASCII + pochi caratteri
-        # estesi (es. rileva MacRoman invece di UTF-8, causando √® al posto di è).
-        # La decodifica UTF-8 senza errors= è un test infallibile (zero falsi positivi).
-        try:
-            text = raw.decode("utf-8")
+            # chardet (raggiunto solo se il file non è UTF-8 valido)
+            detected_enc = FileManager._chardet_detect(raw)
+
+            # Tentativo con encoding rilevato poi fallback
+            for enc in ([detected_enc] if detected_enc else []) + _FALLBACK_ENCODINGS:
+                try:
+                    text = raw.decode(enc)
+                    le = LineEnding.detect(text)
+                    display_enc = enc.upper()
+                    return text, display_enc, le
+                except (UnicodeDecodeError, LookupError):
+                    continue
+
+            # Ultimo fallback: latin-1 non fallisce mai
+            text = raw.decode("latin-1", errors="replace")
             le = LineEnding.detect(text)
-            return text, "UTF-8", le
-        except UnicodeDecodeError:
-            pass
-
-        # chardet (raggiunto solo se il file non è UTF-8 valido)
-        detected_enc = FileManager._chardet_detect(raw)
-
-        # Tentativo con encoding rilevato poi fallback
-        for enc in ([detected_enc] if detected_enc else []) + _FALLBACK_ENCODINGS:
-            try:
-                text = raw.decode(enc)
-                le = LineEnding.detect(text)
-                display_enc = enc.upper()
-                return text, display_enc, le
-            except (UnicodeDecodeError, LookupError):
-                continue
-
-        # Ultimo fallback: latin-1 non fallisce mai
-        text = raw.decode("latin-1", errors="replace")
-        le = LineEnding.detect(text)
-        return text, "Latin-1", le
+            return text, "Latin-1", le
 
     @staticmethod
     def write(path: Path, content: str, encoding: str,
@@ -109,29 +111,31 @@ class FileManager:
         backup: crea <file>.bak prima di sovrascrivere.
         Lancia IOError in caso di errore scrittura.
         """
-        if backup and path.exists():
-            FileManager._make_backup(path)
+        with operation("file.write", path=path, encoding=encoding) as details:
+            if backup and path.exists():
+                FileManager._make_backup(path)
 
-        # Normalizza nome encoding
-        enc_clean = encoding.upper().replace(" BOM", "-SIG").replace(" ", "-")
+            # Normalizza nome encoding
+            enc_clean = encoding.upper().replace(" BOM", "-SIG").replace(" ", "-")
 
-        # Gestione BOM esplicito. Per gli encoding endian-specifici Python non
-        # aggiunge automaticamente il BOM, quindi lo aggiungiamo al payload.
-        bom = b""
-        if write_bom and enc_clean == "UTF-8":
-            enc_clean = "UTF-8-SIG"
-        elif write_bom:
-            bom = {
-                "UTF-16-LE": b"\xff\xfe",
-                "UTF-16-BE": b"\xfe\xff",
-                "UTF-32-LE": b"\xff\xfe\x00\x00",
-                "UTF-32-BE": b"\x00\x00\xfe\xff",
-            }.get(enc_clean, b"")
+            # Gestione BOM esplicito. Per gli encoding endian-specifici Python
+            # non aggiunge automaticamente il BOM, quindi lo aggiungiamo.
+            bom = b""
+            if write_bom and enc_clean == "UTF-8":
+                enc_clean = "UTF-8-SIG"
+            elif write_bom:
+                bom = {
+                    "UTF-16-LE": b"\xff\xfe",
+                    "UTF-16-BE": b"\xfe\xff",
+                    "UTF-32-LE": b"\xff\xfe\x00\x00",
+                    "UTF-32-BE": b"\x00\x00\xfe\xff",
+                }.get(enc_clean, b"")
 
-        # The shared writer fsyncs a sibling temporary file before replacing
-        # the destination, preserving both file permissions and prior content
-        # if the process is interrupted mid-save.
-        atomic_write_bytes(path, bom + content.encode(enc_clean))
+            # The shared writer fsyncs a sibling temporary file before replacing
+            # the destination, preserving content if interrupted mid-save.
+            payload = bom + content.encode(enc_clean)
+            details["size_bytes"] = len(payload)
+            atomic_write_bytes(path, payload)
 
     @staticmethod
     def _detect_bom(raw: bytes) -> tuple[Optional[str], int]:

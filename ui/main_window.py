@@ -39,6 +39,7 @@ from i18n.i18n import tr, I18n
 from ui.busy_indicator import show_busy, hide_busy
 from core.platform import IS_WINDOWS, get_config_dir
 from core.external_open import open_url as _open_url
+from core.diagnostics import profile_operation
 
 if TYPE_CHECKING:
     from core.lazy_loader import LazyLoader
@@ -2567,6 +2568,7 @@ class MainWindow(QMainWindow):
             return "text"
         return "cancel"
 
+    @profile_operation("ui.open_files")
     def open_files(self, paths: list[Path]) -> None:
         """Apre una lista di file in nuovi tab (chiamato anche da drag&drop)."""
         for path in paths:
@@ -2802,6 +2804,7 @@ class MainWindow(QMainWindow):
         worker.error.connect(_on_error)
         thread.start()
 
+    @profile_operation("ui.save_editor")
     def _save_editor(self, editor: EditorWidget, path: Path) -> bool:
         from core.file_manager import FileManager
         from PyQt6.QtCore import QTimer

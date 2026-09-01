@@ -39,6 +39,7 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal
 from core.platform import get_default_shell, get_shell_exec_flag, IS_WINDOWS
 from core.platform import get_config_dir
 from core.latex_project import get_output_directory
+from core.diagnostics import profile_operation
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -260,6 +261,7 @@ class BuildWorker(QThread):
             self._state = state
             self.state_changed.emit(state)
 
+    @profile_operation("build.run")
     def run(self) -> None:
         start   = time.monotonic()
         lines: queue.Queue[str | None] = queue.Queue()
@@ -391,6 +393,7 @@ class InteractiveBuildWorker(QThread):
     def send_input(self, text: str) -> None:
         self._input_queue.append(text)
 
+    @profile_operation("build.run_interactive")
     def run(self) -> None:
         self._set_state(BUILD_STATE_RUNNING)
         if _has_pty() and not IS_WINDOWS:

@@ -6,11 +6,55 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from editor.latex_checker import _CheckWorker
+from editor.latex_checker import (
+    _LIVE_CHECK_MAX_BYTES,
+    _ORPHANED_WORKERS,
+    _CheckWorker,
+    LaTeXChecker,
+    wait_for_orphaned_workers,
+)
 from editor.latex_support import LaTeXSupport
 
 
 class LatexCheckerRefactorTest(unittest.TestCase):
+    def test_large_documents_do_not_start_live_checker_on_each_edit(self):
+        checker = LaTeXChecker.__new__(LaTeXChecker)
+        checker._enabled = True
+        checker._editor = mock.Mock()
+        checker._editor.length.return_value = _LIVE_CHECK_MAX_BYTES + 1
+        checker._timer = mock.Mock()
+
+        checker._on_text_changed()
+
+        checker._timer.start.assert_not_called()
+
+    def test_orphaned_workers_are_waited_before_shutdown(self):
+        class Worker:
+            def __init__(self):
+                self.cancelled = False
+                self.waited = False
+                self.deleted = False
+
+            def cancel(self):
+                self.cancelled = True
+
+            def wait(self):
+                self.waited = True
+
+            def deleteLater(self):
+                self.deleted = True
+
+        worker = Worker()
+        _ORPHANED_WORKERS.add(worker)
+        try:
+            wait_for_orphaned_workers()
+            self.assertTrue(worker.cancelled)
+            self.assertTrue(worker.waited)
+            self.assertTrue(worker.deleted)
+            self.assertNotIn(worker, _ORPHANED_WORKERS)
+        finally:
+            _ORPHANED_WORKERS.discard(worker)
+
     def test_duplicate_and_unused_labels_ignore_comments_strings_and_similar_names(self):
         text = (
             "% \\label{ignored}\n"

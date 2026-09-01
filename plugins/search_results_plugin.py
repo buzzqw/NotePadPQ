@@ -39,6 +39,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QColor, QBrush, QFont, QKeyEvent
 
 from plugins.base_plugin import BasePlugin
+from core.diagnostics import profile_operation
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -185,6 +186,7 @@ class _FileSearchWorker(QThread):
     def cancel(self) -> None:
         self._cancelled.set()
 
+    @profile_operation("search.files")
     def run(self) -> None:
         must_pats, must_not_pats, smart_mode = self._pattern_data
         batch = []
@@ -281,6 +283,7 @@ class _FileReplaceWorker(QThread):
     def cancel(self) -> None:
         self._cancelled.set()
 
+    @profile_operation("search.replace_files")
     def run(self) -> None:
         total_count = 0
         changed_files = []

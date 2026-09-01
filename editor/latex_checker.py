@@ -25,6 +25,7 @@ from typing import Optional, TYPE_CHECKING
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.Qsci import QsciScintilla
+from core.diagnostics import profile_operation
 from editor.latex_support import strip_latex_comments
 
 if TYPE_CHECKING:
@@ -55,17 +56,22 @@ _TABULAR_ENVS = frozenset({
     "array", "longtable", "supertabular", "xltabular",
 })
 
+# Full-project checks are too expensive to repeat after every pause while
+# editing a large source. They are still run on initial load and on demand.
+_LIVE_CHECK_MAX_BYTES = 1 * 1024 * 1024
+
 
 class _CheckWorker(QThread):
     """Esegue i tre controlli LaTeX in un thread separato per non bloccare la UI."""
 
     done = pyqtSignal(int, list)   # (generation, list[dict])
 
-    def __init__(self, text: str, file_path, generation: int):
+    def __init__(self, text: str, file_path, generation: int, include_project: bool = True):
         super().__init__(None)
         self._text       = text
         self._file_path  = file_path
         self._generation = generation
+        self._include_project = include_project
         self._cancelled  = False
         self._sources = None
         self._label_analysis = None
@@ -73,6 +79,7 @@ class _CheckWorker(QThread):
     def cancel(self) -> None:
         self._cancelled = True
 
+    @profile_operation("latex.check")
     def run(self) -> None:
         issues: list[dict] = []
         if self._cancelled:
@@ -100,7 +107,7 @@ class _CheckWorker(QThread):
         """Restituisce i sorgenti del progetto con il testo corrente in memoria."""
         if self._sources is not None:
             return self._sources
-        if not self._file_path:
+        if not self._file_path or not self._include_project:
             self._sources = [(None, self._text)]
             return self._sources
         from editor.latex_support import LaTeXSupport, _cached_read_text
@@ -184,7 +191,7 @@ class _CheckWorker(QThread):
         if self._label_analysis is None:
             from editor.latex_support import LaTeXSupport
             self._label_analysis = LaTeXSupport.analyze_label_references(
-                self._text, self._file_path,
+                self._text, self._file_path if self._include_project else None,
             )
         return self._label_analysis
 
@@ -192,7 +199,8 @@ class _CheckWorker(QThread):
         from editor.latex_support import LaTeXSupport
         fp = self._file_path
         if fp:
-            known = set(LaTeXSupport.extract_bibtex_keys_multifile(fp))
+            known = (set(LaTeXSupport.extract_bibtex_keys_multifile(fp))
+                     if self._include_project else set())
             known.update(LaTeXSupport.extract_bibtex_keys(self._text, fp))
         else:
             known = set(LaTeXSupport.extract_bibtex_keys(self._text, fp))
@@ -217,11 +225,11 @@ class _CheckWorker(QThread):
         return issues
 
     def _check_tabular_columns(self) -> list[dict]:
-        if not self._file_path:
+        if not self._file_path or not self._include_project:
             return self._check_tabular_columns_single()
         issues = []
         for path, source in self._project_sources():
-            worker = _CheckWorker(source, path, self._generation)
+            worker = _CheckWorker(source, path, self._generation, include_project=False)
             worker._cancelled = self._cancelled
             for issue in worker._check_tabular_columns_single():
                 if path is not None:
@@ -577,6 +585,25 @@ class _CheckWorker(QThread):
         return max(1, len(_CheckWorker._separator_positions(row)) + 1 + extra_cols)
 
 
+# Workers that outlive their editor must remain referenced until QThread emits
+# finished; otherwise QObject destruction aborts the process while the thread
+# is still executing.
+_ORPHANED_WORKERS: set[_CheckWorker] = set()
+
+
+def wait_for_orphaned_workers() -> None:
+    """Stop checker workers retained during shutdown and wait for completion."""
+    for worker in list(_ORPHANED_WORKERS):
+        try:
+            worker.cancel()
+            worker.wait()
+            worker.deleteLater()
+        except RuntimeError:
+            pass
+        finally:
+            _ORPHANED_WORKERS.discard(worker)
+
+
 class LaTeXChecker(QObject):
     """
     Checker LaTeX asincrono per un EditorWidget.
@@ -598,7 +625,7 @@ class LaTeXChecker(QObject):
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(1500)  # debounce: 1.5 secondi dopo l'ultima modifica
-        self._timer.timeout.connect(self._run_check)
+        self._timer.timeout.connect(self._run_live_check)
         editor.destroyed.connect(self.stop)
 
         self._setup_markers()
@@ -664,12 +691,27 @@ class LaTeXChecker(QObject):
                 return True
         except RuntimeError:
             return True
+        # The editor can be destroyed before a long check reacts to cancel().
+        # Keep the QThread alive until it finishes instead of letting Python
+        # garbage collection invoke QThread::~QThread while it is running.
+        _ORPHANED_WORKERS.add(worker)
+        try:
+            worker.finished.connect(lambda w=worker: _ORPHANED_WORKERS.discard(w))
+        except RuntimeError:
+            _ORPHANED_WORKERS.discard(worker)
         return False
 
     def _forget_finished_workers(self) -> None:
-        self._old_workers = {
-            worker for worker in self._old_workers if worker.isRunning()
-        }
+        remaining = set()
+        for worker in self._old_workers:
+            try:
+                if worker.isRunning():
+                    remaining.add(worker)
+            except RuntimeError:
+                # The worker's finished signal can be delivered after
+                # deleteLater has already removed its C++ object.
+                continue
+        self._old_workers = remaining
 
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
@@ -682,8 +724,11 @@ class LaTeXChecker(QObject):
     # ── Trigger ───────────────────────────────────────────────────────────────
 
     def _on_text_changed(self) -> None:
-        if self._enabled:
+        if self._enabled and self._editor.length() <= _LIVE_CHECK_MAX_BYTES:
             self._timer.start()
+
+    def _run_live_check(self) -> None:
+        self._run_check(include_project=False)
 
     def force_check(self) -> None:
         """Esegui subito il controllo (es. su salvataggio file)."""
@@ -692,7 +737,7 @@ class LaTeXChecker(QObject):
 
     # ── Controllo (asincrono) ──────────────────────────────────────────────────
 
-    def _run_check(self) -> None:
+    def _run_check(self, include_project: bool = True) -> None:
         if not self._enabled or not self._started:
             return
         if self._worker is not None:
@@ -705,7 +750,7 @@ class LaTeXChecker(QObject):
         text = self._editor.text()
         fp   = getattr(self._editor, "file_path", None)
 
-        worker = _CheckWorker(text, fp, self._gen)
+        worker = _CheckWorker(text, fp, self._gen, include_project=include_project)
         worker.done.connect(self._on_check_done)
         worker.finished.connect(worker.deleteLater)
         self._worker = worker

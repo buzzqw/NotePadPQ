@@ -326,6 +326,27 @@ are available in the [manual](MANUAL_EN.md).
 
 ## Development
 
+### Performance diagnostics
+
+To identify slow operations or UI freezes, start NotePadPQ with the optional
+profiler:
+
+```bash
+python main.py --profile
+```
+
+The log path is printed to the terminal and is normally
+`~/.config/NotePadPQ/notepadpq-performance.log`. The log contains I/O,
+loads, saves, slow Qt events, main-loop delays and a per-operation summary when
+the application exits. To lower the default 100 ms threshold:
+
+```bash
+NOTEPADPQ_PROFILE_THRESHOLD_MS=25 python main.py --profile
+```
+
+It can also be enabled with `NOTEPADPQ_PROFILE=1`. Document contents, queries
+and document values are not recorded.
+
 Install development dependencies and run the test suite:
 
 ```bash

@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QIcon, QAction
 
 from core.external_open import open_url as _open_url
+from core.diagnostics import profile_operation
 from i18n.i18n import tr
 from config.settings import Settings
 
@@ -489,6 +490,7 @@ class _PdfRenderWorker(QThread):
     def cancel(self) -> None:
         self._cancelled = True
 
+    @profile_operation("preview.pdf_render_page")
     def run(self) -> None:
         try:
             import fitz as _fitz
@@ -644,6 +646,7 @@ class PreviewPanel(QWidget):
         self._sync_highlight: bool = Settings.instance().get("preview/sync_highlight", False)
 
         self._timer = QTimer(self)
+        self._timer.setObjectName("preview_update")
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._update_preview)
         self._last_hash: int = 0   # evita re-render se il testo non è cambiato
@@ -654,6 +657,7 @@ class PreviewPanel(QWidget):
         # micro-pausa durante la digitazione/scroll, con l'effetto di
         # un salto di pagina continuo e fastidioso.
         self._cursor_sync_timer = QTimer(self)
+        self._cursor_sync_timer.setObjectName("preview_cursor_sync")
         self._cursor_sync_timer.setSingleShot(True)
         self._cursor_sync_timer.setInterval(450)
         self._cursor_sync_timer.timeout.connect(self._do_cursor_sync)
@@ -668,6 +672,7 @@ class PreviewPanel(QWidget):
 
         # Debounce selection sync: evidenzia nel PDF il testo selezionato nel .tex
         self._selection_sync_timer = QTimer(self)
+        self._selection_sync_timer.setObjectName("preview_selection_sync")
         self._selection_sync_timer.setSingleShot(True)
         self._selection_sync_timer.setInterval(450)
         self._selection_sync_timer.timeout.connect(self._do_selection_sync)
@@ -677,6 +682,7 @@ class PreviewPanel(QWidget):
         # Debounce scroll continuo: aggiorna il numero di pagina corrente
         # senza bloccare ogni pixel di drag
         self._cont_scroll_timer = QTimer(self)
+        self._cont_scroll_timer.setObjectName("preview_continuous_scroll")
         self._cont_scroll_timer.setSingleShot(True)
         self._cont_scroll_timer.setInterval(80)
         self._cont_scroll_timer.timeout.connect(self._pdf_on_cont_scroll)
@@ -1450,6 +1456,7 @@ class PreviewPanel(QWidget):
         self._timer.start(300)   # delay iniziale (era 100, troppo aggressivo)
 
     @pyqtSlot()
+    @profile_operation("preview.update")
     def _update_preview(self) -> None:
         if self._editor is None:
             return
@@ -1758,6 +1765,7 @@ class PreviewPanel(QWidget):
 
     # ── PDF rendering ────────────────────────────────────────────────────────
 
+    @profile_operation("preview.pdf_load")
     def _render_pdf(self) -> None:
         """Apre/renderizza il PDF dal path corrente usando PyMuPDF."""
         if not _get_fitz():
@@ -2293,8 +2301,6 @@ class PreviewPanel(QWidget):
         vp_top = self._pdf_scroll_cont.verticalScrollBar().value()
         lo_y   = vp_top - vp_h
         hi_y   = vp_top + vp_h + vp_h
-        evict_lo = vp_top - 4 * vp_h
-        evict_hi = vp_top + 6 * vp_h
         visible_lo = vp_top
         visible_hi = vp_top + vp_h
         viewport_center = vp_top + vp_h / 2
@@ -2304,16 +2310,31 @@ class PreviewPanel(QWidget):
         for idx, lbl in enumerate(self._pdf_cont_page_labels):
             top = lbl.y()
             bot = top + lbl.height()
-            if idx in self._pdf_cont_rendered:
-                if bot < evict_lo or top > evict_hi:
-                    lbl.clear()
-                    lbl.setPixmap(self._null_pixmap())
-                    self._pdf_cont_rendered.discard(idx)
-                    evicted += 1
             if bot >= lo_y and top <= hi_y:
                 wanted.add(idx)
             if bot >= visible_lo and top <= visible_hi:
                 visible.add(idx)
+
+        # Keep all visible/priority pages, then only the nearest prefetch
+        # pages. This gives the continuous viewer a deterministic memory cap
+        # instead of relying only on the distance from the viewport.
+        protected = visible | self._pdf_cont_priority
+        prefetch = sorted(
+            wanted - protected,
+            key=lambda idx: abs((self._pdf_cont_page_labels[idx].y()
+                                 + self._pdf_cont_page_labels[idx].height() / 2)
+                                - viewport_center),
+        )
+        wanted = protected | set(
+            prefetch[:max(0, self._PDF_MAX_CACHED_PAGES - len(protected))]
+        )
+
+        for idx in self._pdf_cont_rendered - wanted:
+            lbl = self._pdf_cont_page_labels[idx]
+            lbl.clear()
+            lbl.setPixmap(self._null_pixmap())
+            self._pdf_cont_rendered.discard(idx)
+            evicted += 1
 
         self._pdf_cont_wanted = wanted
         for worker, idx in list(self._pdf_cont_render_workers.items()):
@@ -2340,6 +2361,10 @@ class PreviewPanel(QWidget):
             gc.collect()
 
     _PDF_MAX_WORKERS = 2
+    # Keep the visible pages plus a small nearby cache.  Distance-based
+    # eviction alone can retain too many large QPixmaps while scrolling a
+    # long document.
+    _PDF_MAX_CACHED_PAGES = 12
 
     def _pdf_start_cont_render_workers(self) -> None:
         """Avvia al massimo pochi rasterizer, rispettando l'ordine della coda."""
@@ -2414,6 +2439,7 @@ class PreviewPanel(QWidget):
         self._pdf_cont_wanted.clear()
         self._pdf_cont_priority.clear()
 
+    @profile_operation("preview.pdf_relayout")
     def _pdf_cont_relayout(self) -> None:
         """Ridimensiona i placeholder già esistenti al nuovo zoom/crop invece
         di distruggerli e ricrearli (widget + pixmap) da zero come fa

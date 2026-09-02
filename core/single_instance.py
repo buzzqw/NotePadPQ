@@ -33,6 +33,7 @@ class SingleInstance(QObject):
         self._server = None
         self._callback: Optional[Callable[[List[str]], None]] = None
         self._buffers: dict[int, bytes] = {}
+        self._connection_slots: dict[int, tuple[Callable, Callable]] = {}
         self._conn_seq: int = 0
 
     def send_args_if_secondary(self, paths: List[str]) -> bool:
@@ -116,23 +117,29 @@ class SingleInstance(QObject):
         self._conn_seq += 1
         cid = self._conn_seq
         self._buffers[cid] = b""
-        conn.readyRead.connect(lambda: self._on_ready_read(conn, cid))
-        conn.disconnected.connect(lambda: self._cleanup_connection(conn, cid))
+        ready_read = lambda c=conn, i=cid: self._on_ready_read(c, i)
+        disconnected = lambda c=conn, i=cid: self._cleanup_connection(c, i)
+        self._connection_slots[cid] = (ready_read, disconnected)
+        conn.readyRead.connect(ready_read)
+        conn.disconnected.connect(disconnected)
 
     def _cleanup_connection(self, conn: QLocalSocket, cid: int) -> None:
         self._buffers.pop(cid, None)
-        # Disconnette entrambi i segnali prima di chiudere: previene callback
-        # stale e double-free. Non chiamare deleteLater: nextPendingConnection()
-        # parenta già il socket al server, che lo distruggerà a shutdown.
-        try:
-            conn.readyRead.disconnect()
-            conn.disconnected.disconnect()
-        except RuntimeError:
-            pass
-        try:
-            conn.close()
-        except RuntimeError:
-            pass
+        slots = self._connection_slots.pop(cid, None)
+        if not sip.isdeleted(conn) and slots is not None:
+            # Disconnect only our handlers. A wildcard disconnect can touch
+            # Qt's internal QNativeSocketEngine signals during notification.
+            for signal, slot in ((conn.readyRead, slots[0]),
+                                 (conn.disconnected, slots[1])):
+                try:
+                    signal.disconnect(slot)
+                except (RuntimeError, TypeError):
+                    pass
+        if not sip.isdeleted(conn):
+            try:
+                conn.close()
+            except RuntimeError:
+                pass
 
     def _on_ready_read(self, conn: QLocalSocket, cid: int) -> None:
         # Esce subito se il C++ object è già stato distrutto (readyRead stale in coda)

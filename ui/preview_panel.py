@@ -496,35 +496,45 @@ class _PdfRenderWorker(QThread):
             import fitz as _fitz
             from PyQt6.QtGui import QImage, QPainter, QPen, QBrush, QColor
 
-            doc  = _fitz.open(self._path)
-            page = doc[self._page_idx]
+            doc = _fitz.open(self._path)
+            try:
+                page = doc[self._page_idx]
 
-            clip_rect = page.rect
-            cp = self._crop_params
-            if cp.get("enabled"):
-                c_t, c_b = cp["t"], cp["b"]
-                c_l, c_r = cp["l"], cp["r"]
-                if c_t == 0 and c_b == 0 and c_l == 0 and c_r == 0:
-                    blocks = page.get_text("blocks")
-                    if blocks:
-                        x0 = min(b[0] for b in blocks); y0 = min(b[1] for b in blocks)
-                        x1 = max(b[2] for b in blocks); y1 = max(b[3] for b in blocks)
+                clip_rect = page.rect
+                cp = self._crop_params
+                if cp.get("enabled"):
+                    c_t, c_b = cp["t"], cp["b"]
+                    c_l, c_r = cp["l"], cp["r"]
+                    if c_t == 0 and c_b == 0 and c_l == 0 and c_r == 0:
+                        blocks = page.get_text("blocks")
+                        if blocks:
+                            x0 = min(b[0] for b in blocks); y0 = min(b[1] for b in blocks)
+                            x1 = max(b[2] for b in blocks); y1 = max(b[3] for b in blocks)
+                            clip_rect = _fitz.Rect(
+                                max(0, x0-15), max(0, y0-15),
+                                min(page.rect.width, x1+15), min(page.rect.height, y1+15))
+                    else:
                         clip_rect = _fitz.Rect(
-                            max(0, x0-15), max(0, y0-15),
-                            min(page.rect.width, x1+15), min(page.rect.height, y1+15))
-                else:
-                    clip_rect = _fitz.Rect(
-                        page.rect.x0+c_l, page.rect.y0+c_t,
-                        page.rect.x1-c_r, page.rect.y1-c_b)
+                            page.rect.x0+c_l, page.rect.y0+c_t,
+                            page.rect.x1-c_r, page.rect.y1-c_b)
 
-            mat = _fitz.Matrix(self._zoom, self._zoom)
-            pix = page.get_pixmap(matrix=mat, alpha=False, clip=clip_rect)
-            # bytes() copia i samples prima che doc.close() li liberi
-            img = QImage(bytes(pix.samples), pix.width, pix.height,
-                         pix.stride, QImage.Format.Format_RGB888).copy()
+                mat = _fitz.Matrix(self._zoom, self._zoom)
+                pix = page.get_pixmap(matrix=mat, alpha=False, clip=clip_rect)
+                # A cancelled render must not create another large image copy.
+                if self._cancelled:
+                    return
+                # bytes() copies the samples before fitz releases them.
+                img = QImage(bytes(pix.samples), pix.width, pix.height,
+                             pix.stride, QImage.Format.Format_RGB888).copy()
+                # The QImage is independent; release the native pixmap now
+                # instead of retaining it through the overlays below.
+                del pix
 
-            links = page.get_links()
-            doc.close()
+                links = page.get_links()
+            finally:
+                # PyMuPDF owns native resources outside Python's allocator.
+                # Always close the per-render document, including failures.
+                doc.close()
 
             if self._cancelled:
                 return
@@ -605,6 +615,8 @@ def _retain_pdf_worker(worker: _PdfRenderWorker) -> None:
         _PDF_ACTIVE_WORKERS.discard(w)
 
     worker.finished.connect(_release)
+    # QThread wrappers otherwise depend on delayed Python garbage collection.
+    worker.finished.connect(worker.deleteLater)
 
 
 class _PdfContContainer(QWidget):
@@ -1166,6 +1178,21 @@ class PreviewPanel(QWidget):
                 self._render_worker.cancel()
                 self._park_worker(self._render_worker, self._old_render_workers)
                 self._render_worker = None
+            # Do not retain rendered pages while the preview shows another
+            # format.  The document itself is also no longer needed here.
+            if hasattr(self, "_pdf_lbl_img"):
+                self._pdf_lbl_img.clear()
+            for lbl in getattr(self, "_pdf_cont_page_labels", ()):
+                lbl.clear()
+            getattr(self, "_pdf_cont_rendered", set()).clear()
+            doc = getattr(self, "_pdf_doc", None)
+            if doc is not None:
+                try:
+                    doc.close()
+                except Exception:
+                    pass
+            self._pdf_doc = None
+            self._pdf_path = None
         self._mode = mode if mode in _SUPPORTED_MODES else "text"
         labels = {
             "markdown": "Markdown",
@@ -2237,6 +2264,7 @@ class PreviewPanel(QWidget):
                 w = item.widget()
                 if w:
                     w.setParent(None)
+                    w.deleteLater()
             self._pdf_cont_page_labels = []
             self._pdf_cont_clip_rects  = []
             self._pdf_cont_rendered    = set()
@@ -2319,6 +2347,17 @@ class PreviewPanel(QWidget):
         # pages. This gives the continuous viewer a deterministic memory cap
         # instead of relying only on the distance from the viewport.
         protected = visible | self._pdf_cont_priority
+        if len(protected) > self._PDF_MAX_CACHED_PAGES:
+            # A very large viewport or many highlight requests must not turn
+            # the nominal cache size into an unbounded set of pixmaps.
+            def _page_distance(idx):
+                lbl = self._pdf_cont_page_labels[idx]
+                return abs((lbl.y() + lbl.height() / 2) - viewport_center)
+
+            priority = sorted(self._pdf_cont_priority, key=_page_distance)
+            visible_only = sorted(visible - self._pdf_cont_priority,
+                                  key=_page_distance)
+            protected = set((priority + visible_only)[:self._PDF_MAX_CACHED_PAGES])
         prefetch = sorted(
             wanted - protected,
             key=lambda idx: abs((self._pdf_cont_page_labels[idx].y()
@@ -2891,6 +2930,28 @@ class PreviewPanel(QWidget):
 
         # Altrimenti, lascia che lo scroll funzioni normalmente dentro la pagina
         super().wheelEvent(event)        
+
+    def hideEvent(self, event) -> None:
+        """Release rendered page images while the preview is hidden."""
+        if not getattr(self, "_closing", False):
+            self._pdf_cancel_cont_renders(invalidate=True)
+            if self._render_worker is not None:
+                self._render_worker.cancel()
+                self._park_worker(self._render_worker, self._old_render_workers)
+                self._render_worker = None
+            if hasattr(self, "_pdf_lbl_img"):
+                self._pdf_lbl_img.clear()
+            for lbl in getattr(self, "_pdf_cont_page_labels", ()):
+                lbl.clear()
+            getattr(self, "_pdf_cont_rendered", set()).clear()
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if (not getattr(self, "_closing", False)
+                and getattr(self, "_mode", None) == "pdf"
+                and getattr(self, "_pdf_doc", None) is not None):
+            QTimer.singleShot(0, self._pdf_refresh)
 
     def closeEvent(self, event) -> None:
         if self._closing:

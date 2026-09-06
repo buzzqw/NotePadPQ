@@ -8,16 +8,25 @@ Il progetto viene salvato come JSON con estensione .npqproj.
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QToolBar, QTreeWidget,
-    QTreeWidgetItem, QFileDialog, QInputDialog, QMessageBox,
-    QMenu, QAbstractItemView, QLabel, QPushButton,
+    QAbstractItemView,
+    QFileDialog,
+    QInputDialog,
+    QLabel,
+    QMenu,
+    QMessageBox,
+    QToolBar,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
@@ -28,11 +37,28 @@ if TYPE_CHECKING:
 
 _PROJ_FILTER = "Progetto NotePadPQ (*.npqproj);;Tutti i file (*)"
 
+
+def _decode_project_file_path(value: str, project_path: Path) -> str:
+    """Resolve a stored project path relative to the project file."""
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = project_path.parent / path
+    return str(path.resolve())
+
+
+def _encode_project_file_path(value: str, project_path: Path) -> str:
+    """Store paths inside the project directory relative to the project file."""
+    path = Path(value).expanduser().resolve()
+    try:
+        return path.relative_to(project_path.parent.resolve()).as_posix()
+    except ValueError:
+        return str(path)
+
 # ── Struttura dati progetto ────────────────────────────────────────────────────
 # {
 #   "name": "Nome Progetto",
 #   "groups": [
-#     { "name": "Gruppo", "files": ["/path/file1.py", ...] }
+#     { "name": "Gruppo", "files": ["src/file1.py", ...] }
 #   ]
 # }
 
@@ -149,7 +175,7 @@ class ProjectManager(QWidget):
                 data = json.load(f)
             self._project_path = Path(path)
             self._dirty = False
-            self._data = data
+            self._data = self._normalize_loaded_data(data, self._project_path)
             self._rebuild_tree()
         except Exception as e:
             QMessageBox.critical(self, tr("project_manager.error_title"), tr("project_manager.open_error", error=str(e)))
@@ -174,11 +200,53 @@ class ProjectManager(QWidget):
 
     def _write(self, path: Path) -> None:
         try:
+            data = self._serializable_data(path)
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(self._project_data(), f, ensure_ascii=False, indent=2)
+                json.dump(data, f, ensure_ascii=False, indent=2)
             self._dirty = False
         except Exception as e:
             QMessageBox.critical(self, tr("project_manager.error_title"), tr("project_manager.save_error", error=str(e)))
+
+    @staticmethod
+    def _normalize_loaded_data(data: dict, project_path: Path) -> dict:
+        """Load both legacy absolute paths and new relative project paths."""
+        if not isinstance(data, dict):
+            raise ValueError("Il progetto deve contenere un oggetto JSON")
+        normalized = copy.deepcopy(data)
+        groups = normalized.get("groups", [])
+        if not isinstance(groups, list):
+            normalized["groups"] = []
+            return normalized
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            files = group.get("files", [])
+            if isinstance(files, list):
+                group["files"] = [
+                    _decode_project_file_path(value, project_path)
+                    for value in files
+                    if isinstance(value, str) and value.strip()
+                ]
+            else:
+                group["files"] = []
+        return normalized
+
+    def _serializable_data(self, project_path: Path) -> dict:
+        """Return project data with portable paths without mutating the UI state."""
+        data = copy.deepcopy(self._project_data())
+        groups = data.get("groups", [])
+        if not isinstance(groups, list):
+            data["groups"] = []
+            return data
+        for group in groups:
+            if not isinstance(group, dict):
+                continue
+            group["files"] = [
+                _encode_project_file_path(value, project_path)
+                for value in group.get("files", [])
+                if isinstance(value, str) and value.strip()
+            ]
+        return data
 
     def action_add_files(self) -> None:
         if not self._project_data().get("groups"):

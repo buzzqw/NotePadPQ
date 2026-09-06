@@ -97,6 +97,7 @@
     "compile": "Kompiluj",
     "run": "Uruchom",
     "build": "Zbuduj",
+    "build_view": "Zbuduj i pokaż",
     "stop_build": "Zatrzymaj",
     "build_profiles": "Profile kompilacji...",
     "record_macro": "Nagraj makro",
@@ -717,7 +718,10 @@
     "crop_left": "Lewa:",
     "crop_right": "Prawa:",
     "refresh": "Odśwież",
-    "plain_text": "Zwykły tekst"
+    "plain_text": "Zwykły tekst",
+    "compile_latex": "Kompiluj LaTeX w podglądzie",
+    "latex_compile_failed": "Kompilacja LaTeX nie powiodła się:\n{message}",
+    "latex_pdf_missing": "Kompilacja zakończona, ale nie znaleziono pliku PDF."
   },
   "richtext": {
     "downloading_jodit": "Pobieranie edytora Jodit…",

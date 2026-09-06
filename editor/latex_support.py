@@ -38,6 +38,16 @@ _RE_INCLUDE_INPUT   = re.compile(
     r'|\\(?:import|subimport|includefrom|subinputfrom)\*?\s*'
     r'\{([^}]*)\}\s*\{([^}]+)\}'
 )
+_PACKAGE_OPTIONS_RE = re.compile(
+    r'\\(?:usepackage|RequirePackage|documentclass)'
+    r'(?:\[([^\]]*)\])?\s*\{([^}]+)\}'
+)
+_CUSTOM_COMMAND_DEFINITION_RE = re.compile(
+    r"\\(?:new|renew|provide)command\*?\s*"
+    r"(?:\{(?P<braced>\\[A-Za-z@]+)\}|(?P<plain>\\[A-Za-z@]+))\s*"
+    r"(?:\[(?P<arguments>\d+)\])?"
+    r"(?:\[(?P<default>[^]]*)\])?"
+)
 _MATH_ENV_NAMES = frozenset({
     "equation", "align", "gather", "multline", "math", "displaymath",
     "split", "cases", "alignat", "flalign", "subequations",
@@ -2083,6 +2093,29 @@ class LaTeXSupport:
         return sorted(set(cmds))
 
     @staticmethod
+    def extract_custom_command_completions(text: str) -> list[str]:
+        """Estrae le macro custom nel formato API usato da QScintilla."""
+        stripped = strip_latex_comments(text)
+        completions: dict[str, str] = {}
+        for match in _CUSTOM_COMMAND_DEFINITION_RE.finditer(stripped):
+            command = match.group("braced") or match.group("plain")
+            count = match.group("arguments")
+            if count is None:
+                completions.setdefault(command, command)
+                continue
+
+            argument_count = int(count)
+            has_optional = match.group("default") is not None
+            suffix = "[]" if has_optional else ""
+            suffix += "{}" * (argument_count - int(has_optional))
+            completions.setdefault(command, f"{command}{suffix}?1")
+
+        # Le altre definizioni non espongono una firma di argomenti.
+        for command in LaTeXSupport.extract_custom_commands(stripped):
+            completions.setdefault(command, command)
+        return sorted(completions.values())
+
+    @staticmethod
     def _custom_environments_from_stripped(stripped_text: str) -> set[str]:
         return set(re.findall(
             r'\\(?:new|renew)environment\*?\{([^}]+)\}', stripped_text
@@ -2134,6 +2167,39 @@ class LaTeXSupport:
             except Exception:
                 pass
         return sorted(packages)
+
+    @staticmethod
+    def extract_package_options_multifile(
+            tex_path: Optional[Path]) -> dict[str, set[str]]:
+        """Collect package/class options used by all project sources.
+
+        CWL files use ``#ifOption`` to gate entries that only exist when a
+        package option is enabled.  Keep only the option name (the part before
+        ``=``), matching TeXstudio's conditional syntax.
+        """
+        options: dict[str, set[str]] = {}
+        for fpath in LaTeXSupport.collect_project_files(tex_path):
+            try:
+                text = _cached_read_text_stripped(fpath)
+            except Exception:
+                continue
+            for match in _PACKAGE_OPTIONS_RE.finditer(text):
+                raw_options, raw_packages = match.groups()
+                if not raw_options:
+                    continue
+                package_names = (
+                    name.strip().casefold()
+                    for name in raw_packages.split(",")
+                    if name.strip()
+                )
+                option_names = {
+                    option.strip().casefold().split("=", 1)[0]
+                    for option in raw_options.split(",")
+                    if option.strip()
+                }
+                for package in package_names:
+                    options.setdefault(package, set()).update(option_names)
+        return options
 
     @staticmethod
     def extract_sections(text: str) -> list[tuple[str, str, int]]:
@@ -2421,6 +2487,20 @@ class LaTeXSupport:
         return sorted(set(cmds))
 
     @staticmethod
+    def extract_custom_command_completions_multifile(
+            tex_path: Optional[Path]) -> list[str]:
+        """Raccoglie le firme delle macro custom dal progetto LaTeX."""
+        completions: list[str] = []
+        for fpath in LaTeXSupport.collect_project_files(tex_path):
+            try:
+                completions.extend(LaTeXSupport.extract_custom_command_completions(
+                    _cached_read_text(fpath)
+                ))
+            except Exception:
+                pass
+        return sorted(set(completions))
+
+    @staticmethod
     def build_dynamic_api(text: str,
                            tex_path: Optional[Path] = None,
                            include_cwl: bool = True) -> list[str]:
@@ -2432,12 +2512,15 @@ class LaTeXSupport:
         """
         api: list[str] = []
 
-        # Comandi custom dal documento corrente + file inclusi
+        # Comandi custom dal documento corrente + file inclusi. Le firme con
+        # argomenti usano lo stesso formato API delle voci CWL.
         if tex_path:
-            all_cmds = set(LaTeXSupport.extract_custom_commands_multifile(tex_path))
-            all_cmds.update(LaTeXSupport.extract_custom_commands(text))
+            all_cmds = set(
+                LaTeXSupport.extract_custom_command_completions_multifile(tex_path)
+            )
+            all_cmds.update(LaTeXSupport.extract_custom_command_completions(text))
         else:
-            all_cmds = set(LaTeXSupport.extract_custom_commands(text))
+            all_cmds = set(LaTeXSupport.extract_custom_command_completions(text))
         api.extend(sorted(all_cmds))
 
         # Ambienti custom e pacchetti: includi tutti i sorgenti del progetto,

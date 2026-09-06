@@ -20,6 +20,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -34,7 +35,6 @@ class TestBuildWorker(unittest.TestCase):
 
     def test_worker_executes_and_completes(self):
         from core.build_manager import BuildWorker
-        import os
 
         worker = BuildWorker("echo hello", ".", dict(os.environ), run_id="test1")
         output_lines = []
@@ -48,7 +48,6 @@ class TestBuildWorker(unittest.TestCase):
 
     def test_worker_abort(self):
         from core.build_manager import BuildWorker
-        import os
 
         worker = BuildWorker("sleep 10", ".", dict(os.environ), run_id="test_abort")
         worker.start()
@@ -62,7 +61,6 @@ class TestBuildWorker(unittest.TestCase):
 
     def test_worker_failed_command(self):
         from core.build_manager import BuildWorker
-        import os
 
         worker = BuildWorker("nonexistent_command_xyz 2>&1", ".", dict(os.environ), run_id="test_fail")
         worker.start()
@@ -70,7 +68,7 @@ class TestBuildWorker(unittest.TestCase):
         self.assertTrue(worker.isFinished() or not worker.isRunning())
 
     def test_worker_timeout_sets_terminal_state(self):
-        from core.build_manager import BuildWorker, BUILD_STATE_TIMED_OUT
+        from core.build_manager import BUILD_STATE_TIMED_OUT, BuildWorker
 
         command = f'"{sys.executable}" -c "import time; time.sleep(10)"'
         worker = BuildWorker(command, ".", dict(os.environ), run_id="test_timeout",
@@ -139,8 +137,101 @@ class TestVariableExpansion(unittest.TestCase):
         self.assertIn("/tmp/project/build", result)
         self.assertEqual(result.count("/tmp/project/main.tex"), 2)
 
+    def test_latex_profile_quotes_paths_with_spaces(self):
+        from core.build_manager import BuildManager
+
+        bm = BuildManager()
+        path = Path("/tmp/project with spaces/main file.tex")
+        command = bm._expand_profile_command(
+            "pdflatex -output-directory=${OUTDIR} ${FILE}",
+            path,
+            None,
+            output_dir=path.parent / "build output",
+            root_file=path,
+        )
+
+        self.assertIn("'/tmp/project with spaces/main file.tex'", command)
+        self.assertIn("'/tmp/project with spaces/build output'", command)
+
 
 class TestLatexBuildContext(unittest.TestCase):
+
+    def test_default_latexmk_profiles_are_noninteractive(self):
+        from core.build_manager import DEFAULT_PROFILES
+
+        for name in ("LaTeX (pdflatex)", "LaTeX (xelatex)", "LaTeX (lualatex)"):
+            self.assertIn("-interaction=nonstopmode", DEFAULT_PROFILES[name]["build"])
+
+    def test_build_stops_when_save_is_cancelled(self):
+        from core.build_manager import BUILD_STATE_CANCELLED, BuildManager
+
+        with tempfile.TemporaryDirectory() as temp:
+            main = Path(temp) / "main.tex"
+            main.write_text(r"\documentclass{article}\begin{document}x\end{document}")
+            window = mock.Mock()
+            window.action_save.return_value = False
+
+            class FakeEditor:
+                file_path = main
+
+                def is_modified(self):
+                    return True
+
+                def window(self):
+                    return window
+
+            bm = BuildManager()
+            bm._do_run = mock.Mock()
+            done = []
+            bm.build_done.connect(lambda *args: done.append(args))
+
+            self.assertFalse(bm.run("build", FakeEditor(), run_id="save-cancelled"))
+
+            window.action_save.assert_called_once_with()
+            bm._do_run.assert_not_called()
+            self.assertEqual(bm.get_state("save-cancelled"), BUILD_STATE_CANCELLED)
+            self.assertEqual(done[0][0:2], ("save-cancelled", False))
+
+    def test_missing_profile_reports_terminal_failure(self):
+        from core.build_manager import BUILD_STATE_FAILED, BuildManager
+
+        class FakeEditor:
+            file_path = Path("/tmp/document.unknown")
+
+            def is_modified(self):
+                return False
+
+            def get_content(self):
+                return ""
+
+        bm = BuildManager()
+        done = []
+        bm.build_done.connect(lambda *args: done.append(args))
+
+        self.assertFalse(bm.run("build", FakeEditor(), run_id="missing-profile"))
+
+        self.assertEqual(bm.get_state("missing-profile"), BUILD_STATE_FAILED)
+        self.assertEqual(done[0][0:2], ("missing-profile", False))
+
+    def test_latex_recipe_includes_ltx_and_latex_profiles(self):
+        from ui.latex_recipe_dialog import LatexRecipeDialog
+
+        profiles = {
+            "LTX": {"extensions": [".ltx"]},
+            "LATEX": {"extensions": [".latex"]},
+            "Text": {"extensions": [".txt"]},
+        }
+        fake_manager = mock.Mock()
+        fake_manager.get_profiles.return_value = profiles
+        fake_dialog = mock.Mock(_editor=None)
+
+        with mock.patch(
+            "ui.latex_recipe_dialog.BuildManager.instance",
+            return_value=fake_manager,
+        ):
+            result = LatexRecipeDialog._latex_profiles(fake_dialog)
+
+        self.assertEqual(set(result), {"LTX", "LATEX"})
 
     def test_detects_biblatex_backend_and_injects_latexmk_flag(self):
         from core.build_manager import BuildManager
@@ -159,7 +250,6 @@ class TestLatexBuildContext(unittest.TestCase):
             self.assertNotIn("-usebibtex", command)
 
     def test_build_uses_root_and_configured_output_directory(self):
-        from unittest import mock
         from core.build_manager import BuildManager
 
         with tempfile.TemporaryDirectory() as temp:
@@ -201,7 +291,6 @@ class TestLatexBuildContext(unittest.TestCase):
             self.assertEqual(bm.get_build_context("context-test").root, main.resolve())
 
     def test_ramdisk_profile_redirects_output_and_copies_back(self):
-        from unittest import mock
         from core.build_manager import BuildManager
 
         with tempfile.TemporaryDirectory() as temp, tempfile.TemporaryDirectory() as runtime:
@@ -243,7 +332,6 @@ class TestLatexBuildContext(unittest.TestCase):
             self.assertIn(str(root), kwargs["post_hook"])
 
     def test_ramdisk_unavailable_falls_back_to_normal_directory(self):
-        from unittest import mock
         from core.build_manager import BuildManager
 
         with tempfile.TemporaryDirectory() as temp:
@@ -752,7 +840,6 @@ class TestInteractiveWorker(unittest.TestCase):
 
     def test_interactive_worker_runs(self):
         from core.build_manager import InteractiveBuildWorker
-        import os
 
         worker = InteractiveBuildWorker("echo hello", ".", dict(os.environ), run_id="test_iw")
         output = []
@@ -764,7 +851,7 @@ class TestInteractiveWorker(unittest.TestCase):
             self.assertIn("hello", " ".join(output))
 
     def test_interactive_worker_timeout_sets_terminal_state(self):
-        from core.build_manager import InteractiveBuildWorker, BUILD_STATE_TIMED_OUT
+        from core.build_manager import BUILD_STATE_TIMED_OUT, InteractiveBuildWorker
 
         command = f'"{sys.executable}" -c "import time; time.sleep(10)"'
         worker = InteractiveBuildWorker(
@@ -777,7 +864,7 @@ class TestInteractiveWorker(unittest.TestCase):
         self.assertEqual(worker._outcome[0], "timeout")
 
     def test_interactive_worker_timeout_handles_partial_output(self):
-        from core.build_manager import InteractiveBuildWorker, BUILD_STATE_TIMED_OUT
+        from core.build_manager import BUILD_STATE_TIMED_OUT, InteractiveBuildWorker
 
         worker = InteractiveBuildWorker(
             [sys.executable, "-c", "import sys,time; sys.stdout.write('partial'); sys.stdout.flush(); time.sleep(10)"],

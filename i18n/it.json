@@ -97,6 +97,7 @@
     "compile": "Compila",
     "run": "Esegui",
     "build": "Build",
+    "build_view": "Compila e mostra",
     "stop_build": "Interrompi",
     "build_profiles": "Profili di compilazione...",
     "build_clean_aux_before_toggle": "Pulisci file ausiliari LaTeX prima della compilazione",
@@ -736,7 +737,10 @@
     "crop_left": "Sinistra:",
     "crop_right": "Destra:",
     "refresh": "Aggiorna",
-    "plain_text": "Testo"
+    "plain_text": "Testo",
+    "compile_latex": "Compila LaTeX nell'anteprima",
+    "latex_compile_failed": "Compilazione LaTeX non riuscita:\n{message}",
+    "latex_pdf_missing": "Compilazione completata, ma il PDF non è stato trovato."
   },
   "richtext": {
     "downloading_jodit": "Download editor Jodit in corso\u2026",

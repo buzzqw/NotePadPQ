@@ -97,6 +97,7 @@
     "compile": "Compiler",
     "run": "Exécuter",
     "build": "Générer",
+    "build_view": "Générer et afficher",
     "stop_build": "Arrêter",
     "build_profiles": "Profils de génération...",
     "record_macro": "Enregistrer une macro",
@@ -717,7 +718,10 @@
     "crop_left": "Gauche:",
     "crop_right": "Droite:",
     "refresh": "Actualiser",
-    "plain_text": "Texte brut"
+    "plain_text": "Texte brut",
+    "compile_latex": "Compiler LaTeX dans l'aperçu",
+    "latex_compile_failed": "Échec de la compilation LaTeX :\n{message}",
+    "latex_pdf_missing": "Compilation terminée, mais le PDF est introuvable."
   },
   "richtext": {
     "downloading_jodit": "Téléchargement de l'éditeur Jodit…",

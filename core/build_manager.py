@@ -143,7 +143,7 @@ DEFAULT_PROFILES: dict[str, dict] = {
         "extensions": [".tex", ".ltx", ".latex"],
         "compile":    "pdflatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
         "run":        "pdflatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
-        "build":      "latexmk -pdf -file-line-error -synctex=1 -output-directory=${OUTDIR} ${FILE}",
+        "build":      "latexmk -pdf -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
         "error_parser": "latex",
         "bib_backend": "auto",
     },
@@ -151,7 +151,7 @@ DEFAULT_PROFILES: dict[str, dict] = {
         "extensions": [".tex", ".ltx", ".latex"],
         "compile":    "xelatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
         "run":        "xelatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
-        "build":      "latexmk -xelatex -file-line-error -synctex=1 -output-directory=${OUTDIR} ${FILE}",
+        "build":      "latexmk -xelatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
         "error_parser": "latex",
         "bib_backend": "auto",
     },
@@ -159,7 +159,7 @@ DEFAULT_PROFILES: dict[str, dict] = {
         "extensions": [".tex", ".ltx", ".latex"],
         "compile":    "lualatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
         "run":        "lualatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
-        "build":      "latexmk -lualatex -file-line-error -synctex=1 -output-directory=${OUTDIR} ${FILE}",
+        "build":      "latexmk -lualatex -file-line-error -synctex=1 -interaction=nonstopmode -output-directory=${OUTDIR} ${FILE}",
         "error_parser": "latex",
         "bib_backend": "auto",
     },
@@ -869,6 +869,13 @@ class BuildManager(QObject):
         """Rilascia il testo completo conservato per una build terminata."""
         self._build_contexts.pop(run_id, None)
 
+    def _finish_without_worker(self, run_id: str, message: str,
+                               state: str = BUILD_STATE_FAILED) -> None:
+        """Close a run that failed before a worker could be started."""
+        self._set_build_state(run_id, state)
+        self.build_output.emit(run_id, message)
+        self.build_done.emit(run_id, False, message)
+
     # ── Esecuzione ────────────────────────────────────────────────────────────
 
     @staticmethod
@@ -906,7 +913,15 @@ class BuildManager(QObject):
                 from ui.main_window import MainWindow
                 win = editor.window()
                 if hasattr(win, "action_save"):
-                    win.action_save()
+                    if win.action_save() is False:
+                        message = tr(
+                            "build.save_cancelled",
+                            default="Build cancelled because the file was not saved.",
+                        )
+                        self._finish_without_worker(
+                            run_id, message, state=BUILD_STATE_CANCELLED
+                        )
+                        return False
 
         content = editor.get_content()
         latex_context = None
@@ -922,14 +937,16 @@ class BuildManager(QObject):
 
         profile_name = self.get_profile_for_file(editor_file_path)
         if not profile_name:
-            self.build_output.emit(run_id, tr("build.no_profile", suffix=file_path.suffix))
+            message = tr("build.no_profile", suffix=file_path.suffix)
+            self._finish_without_worker(run_id, message)
             self.release_build_context(run_id)
             return False
 
         project_profiles = self.get_project_profiles(editor_file_path)
         profile = project_profiles.get(profile_name) or self._profiles.get(profile_name)
         if not isinstance(profile, dict):
-            self.build_output.emit(run_id, tr("build.no_profile", suffix=file_path.suffix))
+            message = tr("build.no_profile", suffix=file_path.suffix)
+            self._finish_without_worker(run_id, message)
             self.release_build_context(run_id)
             return False
 
@@ -959,11 +976,11 @@ class BuildManager(QObject):
             try:
                 latex_context.output_directory.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
-                self.build_output.emit(
-                    run_id,
-                    tr("build.output_dir_error", error=str(exc),
-                       default="Cannot create LaTeX output directory: {error}"),
+                message = tr(
+                    "build.output_dir_error", error=str(exc),
+                    default="Cannot create LaTeX output directory: {error}",
                 )
+                self._finish_without_worker(run_id, message)
                 self.release_build_context(run_id)
                 return False
 
@@ -979,7 +996,8 @@ class BuildManager(QObject):
 
         command = profile.get(action, "")
         if not command:
-            self.build_output.emit(run_id, tr("build.no_command", action=action, profile=profile_name))
+            message = tr("build.no_command", action=action, profile=profile_name)
+            self._finish_without_worker(run_id, message)
             self.release_build_context(run_id)
             return False
 
@@ -1508,7 +1526,9 @@ class BuildManager(QObject):
         # LaTeX profiles retain their established shell behavior. The argv
         # conversion below is deliberately limited to non-LaTeX builds.
         if path and path.suffix.lower() in {".tex", ".ltx", ".latex"}:
-            return self._expand_vars(command, path, editor, output_dir, root_file)
+            return self._expand_vars(
+                command, path, editor, output_dir, root_file, quote_paths=True
+            )
         return self._expand_command(command, path, editor, output_dir, root_file)
 
     def _expand_command(self, command: str, path: Path | None,
@@ -1558,8 +1578,8 @@ class BuildManager(QObject):
 
     def _expand_vars(self, command: str, path: Path | None,
                      editor: Optional["EditorWidget"],
-                     output_dir: Path | None = None,
-                     root_file: Path | None = None) -> str:
+                     output_dir: Path | None = None, root_file: Path | None = None,
+                     quote_paths: bool = False) -> str:
         line, col = (1, 1)
         if editor:
             line, col = editor.get_cursor_position_1based()
@@ -1576,10 +1596,20 @@ class BuildManager(QObject):
             "OUTDIR":   str(output_dir or (path.parent if path else "")),
             "ROOT":     str(root_file or path or ""),
         }
+        if quote_paths:
+            for name in ("FILE", "DIR", "BASENAME", "BASEFILE", "FILENAME", "OUTDIR", "ROOT"):
+                vals[name] = self._quote_shell_value(vals[name])
         for name, val in vals.items():
             command = command.replace(f"${{{name}}}", val)
             command = command.replace(f"$({name})", val)
         return command
+
+    @staticmethod
+    def _quote_shell_value(value: str) -> str:
+        """Quote a path value for the shell-backed LaTeX profiles."""
+        if IS_WINDOWS:
+            return '"' + value.replace('"', '\\"') + '"'
+        return shlex.quote(value)
 
     @staticmethod
     def _add_draftmode_flag(command: str) -> str:

@@ -50,6 +50,160 @@ class CWLTest(unittest.TestCase):
         self.assertEqual(model.option_candidates_for(r"\custom", ["custom"]),
                          ["mode=", "width="])
 
+    def test_package_queries_keep_supporting_manually_constructed_models(self):
+        from editor.cwl import CWLModel
+
+        package = parse_cwl(
+            r"\custom{value}" "\n" r"\begin{customenv}" "\n",
+            package="custom",
+        )
+        model = CWLModel(commands=package.commands)
+
+        self.assertEqual(
+            [command.name for command in model.commands_for(["custom"])],
+            [r"\custom"],
+        )
+        environment_model = CWLModel(environments=package.environments)
+        self.assertEqual(
+            [environment.name for environment in environment_model.environments_for(["custom"])],
+            ["customenv"],
+        )
+
+    def test_keyvals_blocks_expose_flags_values_and_typed_options(self):
+        package = parse_cwl(
+            "#keyvals:\\rotatebox\n"
+            "origin=\n"
+            "units=%<number%>\n"
+            "direction#left,right\n"
+            "draft\n"
+            "#endkeyvals\n"
+            r"\rotatebox[options]{angle}{content}",
+            package="graphicx",
+        )
+        from editor.cwl import CWLModel
+        model = CWLModel(packages={"graphicx": package}, commands=package.commands)
+
+        self.assertEqual(
+            model.option_candidates_for(r"\rotatebox", ["graphicx"]),
+            ["direction=left", "direction=right", "draft", "origin=", "units="],
+        )
+
+    def test_cwl_metadata_and_non_brace_arguments_are_parsed(self):
+        package = parse_cwl(
+            r"\sqrt{arg}#m" "\n"
+            r"\line(xslope,yslope){length}#*/picture" "\n"
+            r"\alt<overlay spec>{a}{b}" "\n"
+            r"\tag_attr_new:nn {%<name%>} {%<content%>}#/%expl3" "\n"
+            r"\verb{verbatimSymbol}#S" "\n",
+            package="demo",
+        )
+
+        self.assertEqual(package.commands[r"\sqrt"].signature, r"\sqrt{arg}")
+        line = package.commands[r"\line"]
+        self.assertEqual(
+            [(argument.name, argument.optional) for argument in line.arguments],
+            [("xslope,yslope", False), ("length", False)],
+        )
+        self.assertEqual(line.completion, r"\line(){}")
+        alt = package.commands[r"\alt"]
+        self.assertEqual(alt.completion, r"\alt<>{}{}")
+        self.assertIn(r"\tag_attr_new:nn", package.commands)
+        self.assertNotIn(r"\verb", package.commands)
+
+    def test_keyval_enumerations_and_context_selectors_are_preserved(self):
+        package = parse_cwl(
+            "#keyvals:\\foo#o1,\\foo#o2\n"
+            "backend=#bibtex,biber\n"
+            "draft\n"
+            "#endkeyvals\n",
+            package="demo",
+        )
+
+        from editor.cwl import CWLModel
+        model = CWLModel(packages={"demo": package})
+
+        self.assertEqual(
+            model.option_candidates_for(r"\foo", ["demo"]),
+            ["backend=biber", "backend=bibtex", "draft"],
+        )
+        self.assertIn(r"\foo#o1", package.keyvals)
+        self.assertIn(r"\foo#o2", package.keyvals)
+
+    def test_keyvals_header_ignores_metadata_suffix_and_supports_multiple_contexts(self):
+        package = parse_cwl(
+            "#keyvals:\\foo,\\bar#c\n"
+            "mode#fast,slow\n"
+            "#endkeyvals\n",
+            package="demo",
+        )
+
+        from editor.cwl import CWLModel
+        model = CWLModel(packages={"demo": package})
+
+        self.assertEqual(model.option_candidates_for(r"\foo", ["demo"]),
+                         ["mode=fast", "mode=slow"])
+        self.assertEqual(model.option_candidates_for(r"\bar", ["demo"]),
+                         ["mode=fast", "mode=slow"])
+
+        package = parse_cwl(
+            "#keyvals:\\usepackage/demo#c\n"
+            "draft\n"
+            "#endkeyvals\n",
+            package="demo",
+        )
+        model = CWLModel(packages={"demo": package})
+        self.assertEqual(model.option_candidates_for(r"\usepackage", ["demo"]), ["draft"])
+
+    def test_builtin_graphicx_keyvals_reach_option_completion(self):
+        from editor.cwl import load_cwl_directories
+
+        model = load_cwl_directories([Path(__file__).parents[1] / "editor" / "cwl"])
+
+        options = model.option_candidates_for(r"\rotatebox", ["graphicx"])
+
+        self.assertEqual(options, ["origin=", "units="])
+
+    def test_keyvals_reach_latex_option_popup(self):
+        from editor.cwl import load_cwl_directories
+
+        editor = EditorWidget()
+        manager = AutoCompleteManager(editor)
+        shown = []
+        editor.showUserList = lambda list_id, labels: shown.append((list_id, labels))
+        editor.setText(r"\usepackage{graphicx}\rotatebox[")
+        editor.setCursorPosition(0, len(editor.text(0)))
+        model = load_cwl_directories([Path(__file__).parents[1] / "editor" / "cwl"])
+        try:
+            with mock.patch.object(LaTeXSupport, "get_cwl_model", return_value=model):
+                manager.set_language("latex")
+                self.assertTrue(manager.handle_latex_option("["))
+            self.assertEqual(shown[-1], (10, ["origin=", "units="]))
+        finally:
+            manager.shutdown()
+            editor.deleteLater()
+            self.app.processEvents()
+
+    def test_keyvals_merge_with_static_includegraphics_options(self):
+        from editor.cwl import load_cwl_directories
+
+        editor = EditorWidget()
+        manager = AutoCompleteManager(editor)
+        shown = []
+        editor.showUserList = lambda list_id, labels: shown.append((list_id, labels))
+        editor.setText(r"\usepackage{graphicx}\includegraphics[")
+        editor.setCursorPosition(0, len(editor.text(0)))
+        model = load_cwl_directories([Path(__file__).parents[1] / "editor" / "cwl"])
+        try:
+            with mock.patch.object(LaTeXSupport, "get_cwl_model", return_value=model):
+                manager.set_language("latex")
+                self.assertTrue(manager.handle_latex_option("["))
+            self.assertIn("width=", shown[-1][1])
+            self.assertIn("keepaspectratio=true", shown[-1][1])
+        finally:
+            manager.shutdown()
+            editor.deleteLater()
+            self.app.processEvents()
+
     def test_directory_precedence_is_deterministic_and_package_scoped(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -66,6 +220,110 @@ class CWLTest(unittest.TestCase):
 
             self.assertEqual(model.commands[r"\demo"].signature, r"\demo{project}")
             self.assertEqual(model.packages["demo"].source, (project / "demo.cwl").resolve())
+
+    def test_cwl_includes_merge_entries_into_the_including_package(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "base.cwl").write_text(
+                "#keyvals:\\derivedcommand\n"
+                "baseflag\n"
+                "#endkeyvals\n"
+                r"\basecommand{value}" "\n"
+                r"\begin{baseenvironment}" "\n"
+            )
+            (root / "derived.cwl").write_text(
+                "#include:base\n"
+                r"\derivedcommand[customoption]{value}" "\n"
+                r"\basecommand{local-value}" "\n"
+            )
+
+            model = load_cwl_directories([root])
+
+            self.assertEqual(model.packages["derived"].includes, ("base",))
+            commands = {command.name: command for command in model.commands_for(["derived"])}
+            self.assertEqual(commands[r"\basecommand"].signature, r"\basecommand{local-value}")
+            self.assertEqual(commands[r"\derivedcommand"].package, "derived")
+            self.assertEqual(
+                model.environments_for(["derived"])[0].name,
+                "baseenvironment",
+            )
+            self.assertEqual(
+                model.option_candidates_for(r"\derivedcommand", ["derived"]),
+                ["baseflag", "customoption="],
+            )
+
+    def test_cwl_included_keyvals_are_merged_on_collision(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "first.cwl").write_text(
+                "#keyvals:\\command\nfirst\n#endkeyvals\n"
+            )
+            (root / "second.cwl").write_text(
+                "#keyvals:\\command\nsecond\n#endkeyvals\n"
+            )
+            (root / "derived.cwl").write_text(
+                "#include:first\n#include:second\n"
+            )
+
+            model = load_cwl_directories([root])
+
+            self.assertEqual(
+                model.option_candidates_for(r"\command", ["derived"]),
+                ["first", "second"],
+            )
+
+    def test_conditional_cwl_includes_follow_package_options(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "skins.cwl").write_text(r"\skincommand" "\n")
+            (root / "plain.cwl").write_text(r"\plaincommand" "\n")
+            (root / "tcolorbox.cwl").write_text(
+                "#ifOption:skins\n"
+                "#include:skins\n"
+                "#else\n"
+                "#include:plain\n"
+                "#endif\n"
+                r"\boxcommand" "\n"
+            )
+
+            without_option = load_cwl_directories([root])
+            with_option = load_cwl_directories(
+                [root], package_options={"tcolorbox": {"skins"}}
+            )
+
+            self.assertNotIn(
+                r"\skincommand",
+                {command.name for command in without_option.commands_for(["tcolorbox"])},
+            )
+            self.assertIn(
+                r"\plaincommand",
+                {command.name for command in without_option.commands_for(["tcolorbox"])},
+            )
+            self.assertIn(
+                r"\skincommand",
+                {command.name for command in with_option.commands_for(["tcolorbox"])},
+            )
+
+    def test_cwl_include_cycles_are_ignored_without_recursing_forever(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "first.cwl").write_text(
+                "#include:second\n" r"\firstcommand" "\n"
+            )
+            (root / "second.cwl").write_text(
+                "#include:first\n" r"\secondcommand" "\n"
+            )
+
+            model = load_cwl_directories([root])
+
+            self.assertEqual(
+                {command.name for command in model.commands_for(["first"])},
+                {r"\firstcommand", r"\secondcommand"},
+            )
+            self.assertEqual(
+                {command.name for command in model.commands_for(["second"])},
+                {r"\firstcommand", r"\secondcommand"},
+            )
 
     def test_load_cwl_directories_caches_until_a_file_changes(self):
         # _complete_packages (autocomplete.py) chiama load_cwl_directories in

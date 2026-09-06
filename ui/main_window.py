@@ -1837,6 +1837,7 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("run",          "F5", self.action_run))
         m.addAction(self._act("compile",      "F6", self.action_compile))
         m.addAction(self._act("build",        "F7", self.action_build))
+        m.addAction(self._act("build_view",   "",   self.action_build_view))
         m.addAction(self._act("stop_build",   "",   self.action_stop_build))
         m.addAction(self._act("build_profiles","F8", self.action_build_profiles))
         self._sep(m)
@@ -4240,6 +4241,16 @@ class MainWindow(QMainWindow):
         self._build_dock.show()
         self._build_panel._run_action("build")
 
+    def action_build_view(self) -> None:
+        """Build the current document and show the generated PDF preview."""
+        editor = self._current_editor()
+        if editor is None:
+            return
+        self._preview_dock.show()
+        self._preview_panel_dock.set_editor(editor)
+        self._build_dock.show()
+        self._build_panel._run_action("build")
+
     def action_stop_build(self) -> None:
         from core.build_manager import BuildManager
         BuildManager.instance().stop()
@@ -4304,9 +4315,19 @@ class MainWindow(QMainWindow):
                 _timer.start(900)
 
         def trigger(_editor=editor):
+            from config.settings import Settings
             from core.build_manager import BuildManager
-            if not BuildManager.instance().is_running():
-                self._trigger_build_on_edit(_editor)
+            if (not Settings.instance().get("build/trigger_on_edit", False)
+                    or not getattr(_editor, "file_path", None)
+                    or _editor.file_path.suffix.lower() not in {".tex", ".ltx", ".latex"}):
+                return
+            manager = BuildManager.instance()
+            if manager.is_running():
+                # Non perdere l'ultima modifica: il timer viene riprovato
+                # quando la build precedente ha finito.
+                timer.start(250)
+                return
+            self._trigger_build_on_edit(_editor)
 
         timer.timeout.connect(trigger)
         editor._latex_autobuild_timer = timer
@@ -4340,10 +4361,53 @@ class MainWindow(QMainWindow):
         Settings.instance().set("build/unified_errors", checked)
 
     def _trigger_build_on_save(self, editor) -> None:
+        from config.settings import Settings
         from core.build_manager import BuildManager
         from uuid import uuid4
-        BuildManager.instance().run("build", editor,
-                                    run_id=f"autobuild_{uuid4().hex[:8]}")
+
+        def set_pending(value: bool) -> None:
+            try:
+                editor._pending_build_on_save = value
+            except RuntimeError:
+                pass
+
+        def editor_is_open() -> bool:
+            tab_manager = getattr(self, "_tab_manager", None)
+            if tab_manager is None:
+                return True
+            try:
+                return editor in tab_manager.all_editors()
+            except (RuntimeError, AttributeError):
+                return False
+
+        if not Settings.instance().get("build/trigger_on_save", False):
+            set_pending(False)
+            return
+        if not editor_is_open() or not getattr(editor, "file_path", None):
+            set_pending(False)
+            return
+
+        manager = BuildManager.instance()
+        if manager.is_running():
+            if getattr(editor, "_pending_build_on_save", False):
+                return
+            set_pending(True)
+
+            def retry() -> None:
+                if not editor_is_open():
+                    set_pending(False)
+                    return
+                if manager.is_running():
+                    QTimer.singleShot(250, retry)
+                    return
+                set_pending(False)
+                self._trigger_build_on_save(editor)
+
+            QTimer.singleShot(250, retry)
+            return
+
+        set_pending(False)
+        manager.run("build", editor, run_id=f"autobuild_{uuid4().hex[:8]}")
 
     def action_keybinding_editor(self) -> None:
         from ui.keybinding import KeyBindingDialog

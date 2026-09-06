@@ -20,10 +20,8 @@ Uso:
 
 from __future__ import annotations
 
-import re
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 
 class SyncTeX:
@@ -32,12 +30,12 @@ class SyncTeX:
     Una istanza per coppia (tex_path, pdf_path).
     """
 
-    _available_cached: Optional[bool] = None
+    _available_cached: bool | None = None
 
     def __init__(self, tex_path: Path, pdf_path: Path):
         self.tex_path = Path(tex_path)
         self.pdf_path = Path(pdf_path)
-        self._available: Optional[bool] = None
+        self._available: bool | None = None
 
     # ── Disponibilità ─────────────────────────────────────────────────────────
 
@@ -46,12 +44,12 @@ class SyncTeX:
         """Verifica che il CLI synctex sia nel PATH (risultato in cache)."""
         if cls._available_cached is None:
             try:
-                r = subprocess.run(
+                result = subprocess.run(
                     ["synctex", "help"],
                     capture_output=True, timeout=3
                 )
-                cls._available_cached = True
-            except (FileNotFoundError, subprocess.TimeoutExpired):
+                cls._available_cached = result.returncode == 0
+            except (OSError, subprocess.TimeoutExpired):
                 cls._available_cached = False
         return cls._available_cached
 
@@ -63,7 +61,7 @@ class SyncTeX:
 
     # ── tex -> pdf ────────────────────────────────────────────────────────────
 
-    def tex_to_pdf(self, line: int, col: int = 1) -> Optional[dict]:
+    def tex_to_pdf(self, line: int, col: int = 1) -> dict | None:
         """
         Dato riga/colonna nel .tex, restituisce pagina e coordinate nel PDF.
         Ritorna: {"page": int, "x": float, "y": float} oppure None.
@@ -83,38 +81,52 @@ class SyncTeX:
         except Exception:
             return None
 
-    def _parse_view(self, output: str) -> Optional[dict]:
+    def _parse_view(self, output: str) -> dict | None:
         """Parsa l'output di `synctex view`."""
         if "SyncTeX result begin" not in output:
             return None
         result = {}
         for line in output.splitlines():
             if line.startswith("Page:"):
-                try: result["page"] = int(line.split(":")[1].strip())
-                except ValueError: pass
+                try:
+                    result["page"] = int(line.split(":")[1].strip())
+                except ValueError:
+                    pass
             elif line.startswith("x:"):
-                try: result["x"] = float(line.split(":")[1].strip())
-                except ValueError: pass
+                try:
+                    result["x"] = float(line.split(":")[1].strip())
+                except ValueError:
+                    pass
             elif line.startswith("y:"):
-                try: result["y"] = float(line.split(":")[1].strip())
-                except ValueError: pass
+                try:
+                    result["y"] = float(line.split(":")[1].strip())
+                except ValueError:
+                    pass
             elif line.startswith("h:"):
-                try: result["h"] = float(line.split(":")[1].strip())
-                except ValueError: pass
+                try:
+                    result["h"] = float(line.split(":")[1].strip())
+                except ValueError:
+                    pass
             elif line.startswith("v:"):
-                try: result["v"] = float(line.split(":")[1].strip())
-                except ValueError: pass
+                try:
+                    result["v"] = float(line.split(":")[1].strip())
+                except ValueError:
+                    pass
             elif line.startswith("W:"):
-                try: result["W"] = float(line.split(":")[1].strip())
-                except ValueError: pass
+                try:
+                    result["W"] = float(line.split(":")[1].strip())
+                except ValueError:
+                    pass
             elif line.startswith("H:"):
-                try: result["H"] = float(line.split(":")[1].strip())
-                except ValueError: pass
+                try:
+                    result["H"] = float(line.split(":")[1].strip())
+                except ValueError:
+                    pass
         return result if "page" in result else None
 
     # ── pdf -> tex ────────────────────────────────────────────────────────────
 
-    def pdf_to_tex(self, page: int, x: float, y: float) -> Optional[dict]:
+    def pdf_to_tex(self, page: int, x: float, y: float) -> dict | None:
         """
         Dato pagina e coordinate nel PDF, restituisce file e riga nel sorgente.
         Ritorna: {"file": str, "line": int} oppure None.
@@ -133,7 +145,7 @@ class SyncTeX:
         except Exception:
             return None
 
-    def _parse_edit(self, output: str) -> Optional[dict]:
+    def _parse_edit(self, output: str) -> dict | None:
         """Parsa l'output di `synctex edit`."""
         if "SyncTeX result begin" not in output:
             return None
@@ -156,7 +168,7 @@ class SyncTeX:
     # ── Utility ───────────────────────────────────────────────────────────────
 
     @staticmethod
-    def find_pdf_for_tex(tex_path: Path) -> Optional[Path]:
+    def find_pdf_for_tex(tex_path: Path) -> Path | None:
         """Cerca il PDF corrispondente al file .tex (stesso nome, stessa dir)."""
         pdf = tex_path.with_suffix(".pdf")
         return pdf if pdf.exists() else None

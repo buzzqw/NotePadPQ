@@ -51,6 +51,23 @@ class LatexSupportTest(unittest.TestCase):
         text = "one \\% two\ntwo \\\\% three\n"
         self.assertEqual(strip_latex_comments(text), "one \\% two\n" + "two " + "\\\\" + "\n")
 
+    def test_package_options_are_collected_for_conditional_cwl(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "main.tex"
+            child = root / "styles.tex"
+            main.write_text(
+                "\\documentclass[11pt]{article}\n"
+                "\\usepackage[skins,backend=biber]{tcolorbox}\n"
+                "\\input{styles}\n"
+            )
+            child.write_text("\\usepackage[most]{tcolorbox}\n")
+
+            options = LaTeXSupport.extract_package_options_multifile(main)
+
+            self.assertEqual(options["tcolorbox"], {"skins", "backend", "most"})
+            self.assertEqual(options["article"], {"11pt"})
+
     def test_dollar_handler_ignores_escaped_and_existing_closer(self):
         escaped = _DollarEditor(r"\$", 2)
         LaTeXSupport._handle_dollar(escaped)
@@ -178,6 +195,32 @@ class LatexSupportTest(unittest.TestCase):
             self.assertIn(r"\begin{customenv}", api)
             self.assertIn(r"\lstinline{}", api)
             self.assertIn("lstlisting", LaTeXSupport.get_all_environments("", main))
+
+    def test_dynamic_api_preserves_custom_command_arguments(self):
+        text = (
+            r"\newcommand{\vect}[2]{#1 + #2}" "\n"
+            r"\newcommand{\tagged}[2][blue]{#2}" "\n"
+            r"\newcommand\plain[1]{#1}"
+        )
+
+        api = LaTeXSupport.build_dynamic_api(text, include_cwl=False)
+
+        self.assertIn(r"\vect{}{}?1", api)
+        self.assertIn(r"\tagged[]{}?1", api)
+        self.assertIn(r"\plain{}?1", api)
+        self.assertNotIn(r"\vect", api)
+
+    def test_dynamic_api_preserves_custom_command_arguments_from_included_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "main.tex"
+            child = root / "macros.tex"
+            main.write_text(r"\input{macros}")
+            child.write_text(r"\renewcommand{\R}[2]{#1#2}")
+
+            api = LaTeXSupport.build_dynamic_api("", main, include_cwl=False)
+
+            self.assertIn(r"\R{}{}?1", api)
 
     def test_environment_order_uses_frequency_before_alphabetical_order(self):
         with mock.patch.object(

@@ -97,6 +97,7 @@
     "compile": "Compilar",
     "run": "Ejecutar",
     "build": "Construir",
+    "build_view": "Construir y mostrar",
     "stop_build": "Detener",
     "build_profiles": "Perfiles de construcción...",
     "record_macro": "Grabar macro",
@@ -717,7 +718,10 @@
     "crop_left": "Izquierda:",
     "crop_right": "Derecha:",
     "refresh": "Actualizar",
-    "plain_text": "Texto plano"
+    "plain_text": "Texto plano",
+    "compile_latex": "Compilar LaTeX en la vista previa",
+    "latex_compile_failed": "La compilación de LaTeX falló:\n{message}",
+    "latex_pdf_missing": "La compilación terminó, pero no se encontró el PDF."
   },
   "richtext": {
     "downloading_jodit": "Descargando el editor Jodit…",

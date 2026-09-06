@@ -77,6 +77,9 @@ tests/*
 !tests/test_latex_external_tools.py
 !tests/test_latex_references.py
 !tests/test_cwl.py
+!tests/test_latex_integration.py
+!tests/test_project_manager.py
+!tests/test_synctex.py
 !tests/test_latex_navigation.py
 !tests/test_latex_image_dialog.py
 !tests/test_git_async.py

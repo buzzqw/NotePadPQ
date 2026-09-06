@@ -14,6 +14,8 @@ from PyQt6.QtWidgets import (
 
 from core.build_manager import BuildManager
 
+_LATEX_EXTENSIONS = {".tex", ".ltx", ".latex"}
+
 
 class LatexRecipeDialog(QDialog):
     """Seleziona il profilo LaTeX attivo senza sostituire il dialogo completo."""
@@ -32,14 +34,14 @@ class LatexRecipeDialog(QDialog):
         if self._editor is None or self._editor.file_path is None:
             return {
                 name: profile for name, profile in profiles.items()
-                if ".tex" in profile.get("extensions", [])
+                if _LATEX_EXTENSIONS.intersection(profile.get("extensions", []))
             }
         project = BuildManager.instance().get_project_profiles(self._editor.file_path)
         merged = dict(profiles)
         merged.update(project)
         return {
             name: profile for name, profile in merged.items()
-            if ".tex" in profile.get("extensions", [])
+            if _LATEX_EXTENSIONS.intersection(profile.get("extensions", []))
         }
 
     def _build_ui(self) -> None:

@@ -5,7 +5,7 @@ NotePadPQ
 Split view opzionale affiancata all'editor. Supporta:
   - Markdown  → HTML renderizzato (via python-markdown)
   - HTML      → preview diretta nel QWebEngineView
-  - LaTeX     → struttura ad albero navigabile (sezioni/label, no compilazione)
+   - LaTeX     → PDF compilato inline, con struttura ad albero come fallback
   - reStructuredText → HTML via docutils (se installato)
 
 Il pannello si attiva per documento (F12 o menu Visualizza).
@@ -16,13 +16,15 @@ Integrazione con tab_manager:
     tab_manager.toggle_preview(True/False)
     → crea/mostra/nasconde un PreviewPanel affiancato all'editor corrente.
 
-Il pannello non dipende da compilatori LaTeX esterni.
+La compilazione LaTeX è esplicita e usa il profilo configurato in BuildManager;
+senza compilatore resta disponibile l'albero della struttura.
 """
 
 from __future__ import annotations
 
 import bisect
 import re
+from pathlib import Path
 from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer, QThread, QEvent, pyqtSlot, pyqtSignal
@@ -30,7 +32,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QToolBar, QToolButton, QSplitter, QSizePolicy,
     QTreeWidget, QTreeWidgetItem, QStackedWidget,
-    QTextBrowser, QScrollBar,
+    QTextBrowser, QScrollArea, QScrollBar,
 )
 from PyQt6.QtGui import QIcon, QAction
 
@@ -339,11 +341,12 @@ class _SyncTeXFwdWorker(QThread):
 
     done = pyqtSignal(int, object)  # (generation, result_dict or None)
 
-    def __init__(self, tex_path, pdf_path, line: int, generation: int):
+    def __init__(self, tex_path, pdf_path, line: int, col: int, generation: int):
         super().__init__(None)
         self._tex_path  = tex_path
         self._pdf_path  = pdf_path
         self._line      = line
+        self._col       = col
         self._gen       = generation
         self._cancelled = False
 
@@ -354,7 +357,7 @@ class _SyncTeXFwdWorker(QThread):
         try:
             from editor.synctex import SyncTeX
             sx     = SyncTeX(self._tex_path, self._pdf_path)
-            result = sx.tex_to_pdf(self._line, col=1)
+            result = sx.tex_to_pdf(self._line, col=self._col)
             if not self._cancelled:
                 self.done.emit(self._gen, result)
         except Exception:
@@ -663,6 +666,22 @@ class PreviewPanel(QWidget):
         self._timer.timeout.connect(self._update_preview)
         self._last_hash: int = 0   # evita re-render se il testo non è cambiato
 
+        self._latex_compile_timer = QTimer(self)
+        self._latex_compile_timer.setObjectName("preview_latex_compile")
+        self._latex_compile_timer.setSingleShot(True)
+        self._latex_compile_timer.timeout.connect(self._compile_latex_preview)
+        self._latex_compile_enabled = False
+        self._latex_compile_run_id = ""
+        self._latex_compile_source_hash: int | None = None
+        try:
+            from core.build_manager import BuildManager
+            BuildManager.instance().build_done.connect(
+                self._on_latex_preview_build_done,
+                Qt.ConnectionType.UniqueConnection,
+            )
+        except Exception:
+            pass
+
         # Debounce cursor sync: evita un SyncTeX subprocess o tree-walk
         # per ogni singolo tasto freccia. Aggiorna solo dopo un attimo di
         # quiete: un valore troppo basso fa "inseguire" il PDF ad ogni
@@ -674,6 +693,7 @@ class PreviewPanel(QWidget):
         self._cursor_sync_timer.setInterval(450)
         self._cursor_sync_timer.timeout.connect(self._do_cursor_sync)
         self._cursor_sync_line: int = 0
+        self._cursor_sync_col: int = 0
         # cursorPositionChanged scatta anche scrivendo (il cursore avanza a
         # ogni carattere): senza questo flag, digitare una parola con pause
         # naturali >450ms tra le lettere fa scattare più sync forward in
@@ -758,6 +778,15 @@ class PreviewPanel(QWidget):
         btn_refresh.setToolTip(tr("preview.refresh"))
         btn_refresh.clicked.connect(self._update_preview)
         toolbar.addWidget(btn_refresh)
+
+        self._latex_compile_btn = QToolButton()
+        self._latex_compile_btn.setText("▶")
+        self._latex_compile_btn.setToolTip(
+            tr("preview.compile_latex", default="Compila LaTeX nell'anteprima")
+        )
+        self._latex_compile_btn.clicked.connect(self._compile_latex_preview)
+        self._latex_compile_btn.setEnabled(False)
+        toolbar.addWidget(self._latex_compile_btn)
 
         vl.addWidget(toolbar)
 
@@ -1028,6 +1057,13 @@ class PreviewPanel(QWidget):
 
     def set_editor(self, editor) -> None:
         """Collega il pannello a un EditorWidget."""
+        previous_editor = self._editor
+        self._cancel_latex_preview_build()
+        if editor is not previous_editor:
+            self._latex_compile_enabled = False
+        self._cancel_cursor_sync()
+        self._cancel_selection_sync()
+        self._cancel_backward_sync()
         if self._editor is not None:
             try:
                 self._editor.textChanged.disconnect(self._on_text_changed)
@@ -1108,6 +1144,104 @@ class PreviewPanel(QWidget):
                 pass
 
         self._schedule_update()
+
+    def _update_latex_compile_button(self) -> None:
+        if not hasattr(self, "_latex_compile_btn"):
+            return
+        path = getattr(self._editor, "file_path", None) if self._editor else None
+        is_latex = bool(
+            path and str(path).lower().endswith((".tex", ".ltx", ".latex"))
+        )
+        self._latex_compile_btn.setEnabled(
+            is_latex and not self._latex_compile_run_id
+        )
+
+    def _cancel_latex_preview_build(self) -> None:
+        self._latex_compile_timer.stop()
+        run_id = self._latex_compile_run_id
+        self._latex_compile_run_id = ""
+        self._latex_compile_source_hash = None
+        if run_id:
+            try:
+                from core.build_manager import BuildManager
+                BuildManager.instance().stop(run_id)
+            except Exception:
+                pass
+        self._update_latex_compile_button()
+
+    def _compile_latex_preview(self) -> None:
+        editor = self._editor
+        path = getattr(editor, "file_path", None) if editor else None
+        if not editor or not path or not str(path).lower().endswith(
+                (".tex", ".ltx", ".latex")):
+            return
+        try:
+            from uuid import uuid4
+            from core.build_manager import BuildManager
+            manager = BuildManager.instance()
+            if manager.is_running():
+                if not self._latex_compile_run_id:
+                    self._latex_compile_timer.start(max(300, self._delay_ms))
+                return
+            self._latex_compile_enabled = True
+            self._latex_compile_source_hash = hash(editor.text())
+            run_id = f"preview_latex_{uuid4().hex[:10]}"
+            self._latex_compile_run_id = run_id
+            self._update_latex_compile_button()
+            if not manager.run("build", editor, run_id=run_id):
+                self._latex_compile_run_id = ""
+                self._latex_compile_source_hash = None
+                self._update_latex_compile_button()
+        except Exception as exc:
+            self._latex_compile_run_id = ""
+            self._latex_compile_source_hash = None
+            self._update_latex_compile_button()
+            self._text_fallback.setPlainText(f"Errore compilazione LaTeX: {exc}")
+
+    @pyqtSlot(str, bool, str)
+    def _on_latex_preview_build_done(
+            self, run_id: str, success: bool, message: str) -> None:
+        if run_id != self._latex_compile_run_id:
+            return
+        source_hash = self._latex_compile_source_hash
+        self._latex_compile_run_id = ""
+        self._latex_compile_source_hash = None
+        self._update_latex_compile_button()
+        editor = self._editor
+        if not success or editor is None:
+            if not success:
+                self._text_fallback.setPlainText(tr(
+                    "preview.latex_compile_failed",
+                    default="Compilazione LaTeX non riuscita:\n{message}",
+                    message=message,
+                ))
+                if self._mode == "latex":
+                    self._stack.setCurrentIndex(2)
+            return
+
+        pdf_path = _tex_pdf_path(editor)
+        if pdf_path is not None:
+            tex_path = getattr(editor, "file_path", None)
+            try:
+                from core.latex_project import resolve_project_root
+                tex_path = resolve_project_root(tex_path, editor.text())
+            except Exception:
+                pass
+            self.set_pdf_path(pdf_path, tex_path=tex_path)
+        elif self._mode == "latex":
+            self._text_fallback.setPlainText(
+                tr("preview.latex_pdf_missing",
+                   default="Compilazione completata, ma il PDF non è stato trovato.")
+            )
+            self._stack.setCurrentIndex(2)
+
+        # If the user edited while the compiler was running, compile the newest
+        # buffer once more after the current process has fully terminated.
+        try:
+            if source_hash is not None and hash(editor.text()) != source_hash:
+                self._latex_compile_timer.start(max(500, self._delay_ms))
+        except Exception:
+            pass
 
     def set_pdf_path(self, pdf_path, tex_path=None) -> None:
         """
@@ -1203,6 +1337,7 @@ class PreviewPanel(QWidget):
             "text":     tr("preview.plain_text", default="Testo"),
         }
         self._lbl_mode.setText(f"  {labels.get(self._mode, self._mode)}")
+        self._update_latex_compile_button()
 
     # ── Segnali editor ────────────────────────────────────────────────────────
 
@@ -1210,26 +1345,34 @@ class PreviewPanel(QWidget):
     def _on_text_changed(self) -> None:
         self._suppress_next_cursor_sync = True
         if self._mode == "pdf":
-            # L'anteprima PDF riflette il file compilato su disco, non il
-            # buffer dell'editor: BuildPanel la aggiorna esplicitamente via
-            # set_pdf_path() dopo ogni compilazione riuscita. Rilanciare qui
-            # il render del file compilato ad ogni tasto premuto è inutile e
-            # rallenta pesantemente l'editing sui documenti con molte pagine.
+            # L'anteprima PDF riflette il file compilato su disco. Dopo che
+            # l'utente ha attivato la compilazione dal pannello, ricompila il
+            # buffer con debounce; prima di allora il PDF resta statico come
+            # quello mostrato da BuildPanel.
             # Annulla anche una sync cursor avviata subito prima della
             # modifica: il risultato asincrono non deve ridisegnare il PDF
             # mentre l'utente completa \begin, \vspace o un altro comando.
             self._cancel_cursor_sync()
+            if self._latex_compile_enabled and not self._latex_compile_run_id:
+                self._latex_compile_timer.start(max(500, self._delay_ms))
             return
         if self.isVisible():
             self._timer.start(self._delay_ms)
         else:
             self._needs_refresh = True
+        if (self._mode == "latex" and self._latex_compile_enabled
+                and not self._latex_compile_run_id):
+            self._latex_compile_timer.start(max(500, self._delay_ms))
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
         if self._needs_refresh:
             self._needs_refresh = False
             self._timer.start(self._delay_ms)
+        if (not getattr(self, "_closing", False)
+                and getattr(self, "_mode", None) == "pdf"
+                and getattr(self, "_pdf_doc", None) is not None):
+            QTimer.singleShot(0, self._pdf_refresh)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -1306,6 +1449,7 @@ class PreviewPanel(QWidget):
         # only sync after a moment of inactivity. Avoids a SyncTeX subprocess
         # (or tree walk) on every single keystroke.
         self._cursor_sync_line = line
+        self._cursor_sync_col = col
         self._cursor_sync_timer.start()
 
     def _cancel_cursor_sync(self) -> None:
@@ -1329,7 +1473,7 @@ class PreviewPanel(QWidget):
             # che evidenzia l'intero intervallo a partire dalla prima riga.
             if self._editor and self._editor.hasSelectedText():
                 return
-            self.go_to_pdf_page_for_line(line + 1)
+            self.go_to_pdf_page_for_line(line + 1, self._cursor_sync_col + 1)
         elif self._mode == "markdown":
             self._scroll_preview_to_line(line + 1)
 
@@ -1594,7 +1738,7 @@ class PreviewPanel(QWidget):
                         force_webengine=False)
 
     def _render_latex_tree(self, text: str) -> None:
-        """Costruisce l'albero struttura LaTeX via regex (no compilazione)."""
+        """Costruisce l'albero LaTeX corrente e dei sorgenti inclusi."""
         self._stack.setCurrentIndex(1)
         self._tree.clear()
 
@@ -1617,40 +1761,66 @@ class PreviewPanel(QWidget):
         }
 
         root = self._tree.invisibleRootItem()
-        stack: list[QTreeWidgetItem] = []  # stack per gerarchia
-        lines = text.split("\n")
+        sources = [(None, text)]
+        current_path = getattr(self._editor, "file_path", None) if self._editor else None
+        if current_path:
+            try:
+                from editor.latex_support import LaTeXSupport, _cached_read_text
+                current_path = Path(current_path).resolve()
+                project_files = LaTeXSupport.collect_project_files(current_path)
+                sources = [
+                    (path, text if path == current_path else _cached_read_text(path))
+                    for path in project_files
+                ]
+                if not any(path == current_path for path, _ in sources):
+                    sources.insert(0, (current_path, text))
+            except Exception:
+                sources = [(current_path, text)]
 
-        for lineno, line in enumerate(lines):
-            m = SECT_PAT.match(line)
-            if m:
-                cmd, title = m.group(1), m.group(2)
-                level = level_map.get(cmd, 1)
-                item = QTreeWidgetItem([f"{_sect_prefix(cmd)} {title}"])
-                item.setData(0, Qt.ItemDataRole.UserRole, lineno)
-                item.setToolTip(0, f"Riga {lineno + 1}")
-                # Posiziona nell'albero
-                while stack and _item_level(stack[-1]) >= level:
-                    stack.pop()
-                parent = stack[-1] if stack else root
-                parent.addChild(item)
-                stack.append(item)
-                continue
+        multi_file = len(sources) > 1
+        base_dir = sources[0][0].parent if sources[0][0] else None
 
-            # Label
-            for lm in LABEL_PAT.finditer(line):
-                lbl = QTreeWidgetItem([f"🏷 {lm.group(1)}"])
-                lbl.setData(0, Qt.ItemDataRole.UserRole, lineno)
-                lbl.setToolTip(0, f"\\label  riga {lineno + 1}")
-                parent = stack[-1] if stack else root
-                parent.addChild(lbl)
+        for source_path, source_text in sources:
+            parent = root
+            if multi_file and source_path:
+                try:
+                    label = str(source_path.relative_to(base_dir))
+                except ValueError:
+                    label = source_path.name
+                parent = QTreeWidgetItem(root, [f"📄 {label}"])
 
-        # Figure e tabelle (contatore semplice)
-        fig_count = len(FIG_PAT.findall(text))
-        tab_count = len(TAB_PAT.findall(text))
-        if fig_count:
-            QTreeWidgetItem(root, [f"📷 Figure ({fig_count})"])
-        if tab_count:
-            QTreeWidgetItem(root, [f"📊 Tabelle ({tab_count})"])
+            stack: list[tuple[int, QTreeWidgetItem]] = []
+            location = str(source_path) if source_path else ""
+            for lineno, line in enumerate(source_text.split("\n")):
+                m = SECT_PAT.match(line)
+                if m:
+                    cmd, title = m.group(1), m.group(2)
+                    level = level_map.get(cmd, 1)
+                    item = QTreeWidgetItem([f"{_sect_prefix(cmd)} {title}"])
+                    item.setData(0, Qt.ItemDataRole.UserRole, {"file": location, "line": lineno})
+                    item.setToolTip(0, f"Riga {lineno + 1}")
+                    while stack and stack[-1][0] >= level:
+                        stack.pop()
+                    item_parent = stack[-1][1] if stack else parent
+                    item_parent.addChild(item)
+                    stack.append((level, item))
+                    continue
+
+                for lm in LABEL_PAT.finditer(line):
+                    label_item = QTreeWidgetItem([f"🏷 {lm.group(1)}"])
+                    label_item.setData(
+                        0, Qt.ItemDataRole.UserRole,
+                        {"file": location, "line": lineno},
+                    )
+                    label_item.setToolTip(0, f"\\label  riga {lineno + 1}")
+                    (stack[-1][1] if stack else parent).addChild(label_item)
+
+            fig_count = len(FIG_PAT.findall(source_text))
+            tab_count = len(TAB_PAT.findall(source_text))
+            if fig_count:
+                QTreeWidgetItem(parent, [f"📷 Figure ({fig_count})"])
+            if tab_count:
+                QTreeWidgetItem(parent, [f"📊 Tabelle ({tab_count})"])
 
         self._tree.expandAll()
 
@@ -1689,9 +1859,18 @@ class PreviewPanel(QWidget):
         def _walk(item: QTreeWidgetItem) -> None:
             nonlocal best, best_line
             data = item.data(0, Qt.ItemDataRole.UserRole)
-            if data is not None and data <= line and data > best_line:
+            item_line = data.get("line") if isinstance(data, dict) else data
+            if isinstance(data, dict) and data.get("file"):
+                current = getattr(self._editor, "file_path", None)
+                if current:
+                    try:
+                        if Path(data["file"]).resolve() != Path(current).resolve():
+                            return
+                    except (OSError, TypeError, ValueError):
+                        pass
+            if item_line is not None and item_line <= line and item_line > best_line:
                 best = item
-                best_line = data
+                best_line = item_line
             for i in range(item.childCount()):
                 _walk(item.child(i))
 
@@ -1708,7 +1887,20 @@ class PreviewPanel(QWidget):
         """Navigazione: click sull'albero → salta alla riga nell'editor."""
         if self._editor is None:
             return
-        lineno = item.data(0, Qt.ItemDataRole.UserRole)
+        location = item.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(location, dict):
+            lineno = location.get("line")
+            target = location.get("file")
+            current = getattr(self._editor, "file_path", None)
+            if target and current:
+                try:
+                    if Path(target).resolve() != Path(current).resolve():
+                        self._goto_tex_line(target, lineno + 1)
+                        return
+                except (OSError, TypeError, ValueError):
+                    pass
+        else:
+            lineno = location
         if lineno is not None:
             try:
                 self._editor.setCursorPosition(lineno, 0)
@@ -2807,6 +2999,13 @@ class PreviewPanel(QWidget):
         worker.finished.connect(_cleanup)
         worker.start()
 
+    def _cancel_backward_sync(self) -> None:
+        self._synctex_bwd_gen += 1
+        if self._synctex_bwd_worker is not None:
+            self._synctex_bwd_worker.cancel()
+            self._park_worker(self._synctex_bwd_worker, self._old_synctex_bwd_workers)
+            self._synctex_bwd_worker = None
+
     def _on_synctex_bwd_done(self, gen: int, result) -> None:
         if gen != self._synctex_bwd_gen:
             return
@@ -2815,7 +3014,7 @@ class PreviewPanel(QWidget):
         if result and "line" in result:
             self._goto_tex_line(result.get("file"), result["line"])
 
-    def go_to_pdf_page_for_line(self, line: int) -> None:
+    def go_to_pdf_page_for_line(self, line: int, col: int = 1) -> None:
         """
         Pubblico: dato una riga nel .tex, scrolla il PDF alla pagina e posizione corrispondente.
         Chiamato dall'editor quando il cursore si sposta (integrazione tex->pdf).
@@ -2838,6 +3037,7 @@ class PreviewPanel(QWidget):
             self._editor.file_path,
             _Path(self._pdf_path),
             line,
+            max(1, col),
             self._synctex_fwd_gen,
         )
         worker.done.connect(self._on_synctex_fwd_done)
@@ -2945,13 +3145,6 @@ class PreviewPanel(QWidget):
                 lbl.clear()
             getattr(self, "_pdf_cont_rendered", set()).clear()
         super().hideEvent(event)
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        if (not getattr(self, "_closing", False)
-                and getattr(self, "_mode", None) == "pdf"
-                and getattr(self, "_pdf_doc", None) is not None):
-            QTimer.singleShot(0, self._pdf_refresh)
 
     def closeEvent(self, event) -> None:
         if self._closing:

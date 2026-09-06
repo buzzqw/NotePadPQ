@@ -97,6 +97,7 @@
     "compile": "Compile",
     "run": "Run",
     "build": "Build",
+    "build_view": "Build & View",
     "stop_build": "Stop",
     "build_profiles": "Build Profiles...",
     "build_clean_aux_before_toggle": "Clean LaTeX auxiliary files before compiling",
@@ -736,7 +737,10 @@
     "crop_left": "Left:",
     "crop_right": "Right:",
     "refresh": "Refresh",
-    "plain_text": "Plain text"
+    "plain_text": "Plain text",
+    "compile_latex": "Compile LaTeX in preview",
+    "latex_compile_failed": "LaTeX compilation failed:\n{message}",
+    "latex_pdf_missing": "Compilation finished, but the PDF was not found."
   },
   "richtext": {
     "downloading_jodit": "Downloading Jodit editor\u2026",

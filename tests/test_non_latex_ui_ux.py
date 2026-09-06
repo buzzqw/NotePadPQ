@@ -51,6 +51,79 @@ class NonLatexUiUxTests(unittest.TestCase):
 
         self.assertTrue(action.isChecked())
 
+    def test_build_view_opens_preview_before_starting_build(self):
+        editor = object()
+        calls = []
+        window = SimpleNamespace(
+            _current_editor=lambda: editor,
+            _preview_dock=SimpleNamespace(show=lambda: calls.append("preview")),
+            _preview_panel_dock=SimpleNamespace(
+                set_editor=lambda value: calls.append(("editor", value))
+            ),
+            _build_dock=SimpleNamespace(show=lambda: calls.append("build_dock")),
+            _build_panel=SimpleNamespace(
+                _run_action=lambda action: calls.append(("build", action))
+            ),
+        )
+
+        MainWindow.action_build_view(window)
+
+        self.assertEqual(
+            calls,
+            ["preview", ("editor", editor), "build_dock", ("build", "build")],
+        )
+
+    def test_build_on_save_waits_for_an_existing_build_and_coalesces_retries(self):
+        editor = SimpleNamespace(file_path=Path("/tmp/main.tex"))
+        running = [True]
+        manager = SimpleNamespace(
+            is_running=lambda: running[0], run=unittest.mock.Mock()
+        )
+        window = SimpleNamespace()
+        window._trigger_build_on_save = lambda value: MainWindow._trigger_build_on_save(
+            window, value
+        )
+
+        settings = SimpleNamespace(get=lambda key, default=None: {
+            "build/trigger_on_save": True,
+        }.get(key, default))
+        with patch("config.settings.Settings.instance", return_value=settings), patch(
+            "core.build_manager.BuildManager.instance", return_value=manager
+        ), patch("ui.main_window.QTimer.singleShot") as single_shot:
+            callbacks = []
+            single_shot.side_effect = lambda _delay, callback: callbacks.append(callback)
+            MainWindow._trigger_build_on_save(window, editor)
+            MainWindow._trigger_build_on_save(window, editor)
+
+            self.assertTrue(editor._pending_build_on_save)
+            self.assertEqual(single_shot.call_count, 1)
+            manager.run.assert_not_called()
+
+            running[0] = False
+            callbacks[0]()
+
+        self.assertFalse(editor._pending_build_on_save)
+        manager.run.assert_called_once()
+
+    def test_build_on_save_does_not_queue_a_closed_editor(self):
+        editor = SimpleNamespace(file_path=Path("/tmp/main.tex"))
+        manager = SimpleNamespace(is_running=lambda: True, run=unittest.mock.Mock())
+        window = SimpleNamespace(
+            _tab_manager=SimpleNamespace(all_editors=lambda: []),
+        )
+        settings = SimpleNamespace(get=lambda key, default=None: {
+            "build/trigger_on_save": True,
+        }.get(key, default))
+
+        with patch("config.settings.Settings.instance", return_value=settings), patch(
+            "core.build_manager.BuildManager.instance", return_value=manager
+        ), patch("ui.main_window.QTimer.singleShot") as single_shot:
+            MainWindow._trigger_build_on_save(window, editor)
+
+        self.assertFalse(getattr(editor, "_pending_build_on_save", False))
+        single_shot.assert_not_called()
+        manager.run.assert_not_called()
+
     def test_file_deletion_uses_trash_and_defaults_to_cancel(self):
         browser = FileBrowser()
         with tempfile.TemporaryDirectory() as directory:

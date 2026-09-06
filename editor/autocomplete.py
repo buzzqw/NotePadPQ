@@ -1364,8 +1364,18 @@ class AutoCompleteManager(QObject):
 
         # \\includegraphics[
         if re.search(r'\\includegraphics\[$', line_text):
-            from editor.latex_support import COMMAND_OPTIONS
-            opts = COMMAND_OPTIONS.get("includegraphics", [])
+            from editor.latex_support import COMMAND_OPTIONS, LaTeXSupport
+            opts = list(COMMAND_OPTIONS.get("includegraphics", []))
+            try:
+                opts.extend(LaTeXSupport.get_cwl_model(
+                    getattr(ed, "file_path", None),
+                ).option_candidates_for(
+                    r"\includegraphics",
+                    LaTeXSupport.extract_used_packages(ed.text()),
+                ))
+                opts = list(dict.fromkeys(opts))
+            except Exception:
+                pass
             if opts:
                 self._editor.showUserList(10, opts)
                 return True
@@ -1398,19 +1408,18 @@ class AutoCompleteManager(QObject):
         # Comando generico \\cmd[
         m_cmd = re.search(r'\\(\w+)\[$', line_text)
         if m_cmd:
-            from editor.latex_support import COMMAND_OPTIONS
+            from editor.latex_support import COMMAND_OPTIONS, LaTeXSupport
             opts = COMMAND_OPTIONS.get(m_cmd.group(1), [])
-            if not opts:
-                try:
-                    from editor.latex_support import LaTeXSupport
-                    opts = LaTeXSupport.get_cwl_model(
-                        getattr(ed, "file_path", None),
-                    ).option_candidates_for(
-                        "\\" + m_cmd.group(1),
-                        LaTeXSupport.extract_used_packages(ed.text()),
-                    )
-                except Exception:
-                    opts = []
+            try:
+                cwl_opts = LaTeXSupport.get_cwl_model(
+                    getattr(ed, "file_path", None),
+                ).option_candidates_for(
+                    "\\" + m_cmd.group(1),
+                    LaTeXSupport.extract_used_packages(ed.text()),
+                )
+                opts = list(dict.fromkeys([*opts, *cwl_opts]))
+            except Exception:
+                opts = list(opts)
             if opts:
                 self._editor.showUserList(10, opts)
                 return True
@@ -1433,8 +1442,16 @@ class AutoCompleteManager(QObject):
             command_match = re.search(r"\\([A-Za-z@]+)\*?\s*$", before)
             if command_match:
                 command_name = "\\" + command_match.group(1)
-                from editor.latex_support import COMMAND_OPTIONS
+                from editor.latex_support import COMMAND_OPTIONS, LaTeXSupport
                 options = list(COMMAND_OPTIONS.get(command_match.group(1), []))
+                try:
+                    packages = LaTeXSupport.extract_used_packages(self._editor.text())
+                    options.extend(LaTeXSupport.get_cwl_model(
+                        getattr(self._editor, "file_path", None),
+                        ).option_candidates_for(command_name, packages))
+                    options = list(dict.fromkeys(options))
+                except Exception:
+                    pass
             package_match = re.search(r"\\usepackage\s*$", before)
             if package_match:
                 rest = self._editor.text(self._editor.getCursorPosition()[0])[col:]

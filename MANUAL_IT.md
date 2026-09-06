@@ -996,6 +996,10 @@ Funziona automaticamente su Linux, Windows e macOS senza alcuna configurazione.
 
 ## 17. Supporto LaTeX
 
+Questa sezione è un riepilogo. Per il riferimento completo su build, anteprima,
+progetti multi-file, SyncTeX e risoluzione dei problemi vedere il [manuale LaTeX
+completo](MANUAL_LATEX_IT.md).
+
 NotePadPQ ha un supporto LaTeX completo, ma le funzionalità **avanzate** richiedono librerie opzionali. Lo script `setup.sh` chiede interattivamente se installarle: scegli il componente **[1] LaTeX avanzato** quando richiesto. Se hai già TeX Live installato, `synctex` è già disponibile.
 
 ### Funzionalità sempre disponibili (nessuna dipendenza extra)

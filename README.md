@@ -124,8 +124,9 @@ python -m pip install -e ".[latex]"
 The exact package names vary by distribution. Ensure that the selected engine
 (`pdflatex`, `xelatex` or `lualatex`), `latexmk`, `bibtex` or `biber`, and
 `synctex` are available on `PATH`. Then open the root `.tex` file and use the
-LaTeX profile from the Build Panel. The project manual contains the complete
-LaTeX reference and troubleshooting notes.
+LaTeX profile from the Build Panel. See the [English LaTeX manual](MANUAL_LATEX_EN.md)
+or [Italian LaTeX manual](MANUAL_LATEX_IT.md) for the complete reference and
+troubleshooting notes.
 
 On Arch Linux, the optional project tools can be installed with:
 

@@ -240,7 +240,7 @@ def main():
     app = app_class(sys.argv)
     app.setApplicationName("NotePadPQ")
     app.setOrganizationName("NotePadPQ")
-    app.setApplicationVersion("2.0.0")
+    app.setApplicationVersion("2.0.1")
 
     profile_log = configure_diagnostics(enabled=profile_enabled)
     if profile_log is not None:

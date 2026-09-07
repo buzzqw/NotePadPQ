@@ -1,6 +1,6 @@
 # NotePadPQ: Manuale d'uso
 
-> Versione 1.9.8: Editor di testo avanzato basato su **QScintilla/PyQt6**
+> Versione 2.0.0: Editor di testo avanzato basato su **QScintilla/PyQt6**
 > Piattaforme: Linux, Windows, FreeBSD
 
 ---
@@ -101,7 +101,7 @@ NotePadPQ monitora i file aperti e reagisce in due modi distinti:
 - **Mantieni aperto** *(default)*: il tab rimane aperto con il contenuto in memoria (non salvato su disco)
 
 ### File grandi e modalità paginata
-I file oltre 200 MB vengono caricati progressivamente e aperti in modalità paginata, senza caricare tutto il contenuto in memoria. La barra di stato mostra pagina, percentuale, offset e riga globale approssimativa.
+I file di almeno 200 MB vengono caricati progressivamente e aperti in modalità paginata, senza caricare tutto il contenuto in memoria. La barra di stato mostra pagina, percentuale, offset e riga globale approssimativa.
 
 - **◀ Pag. prec. / Pag. succ. ▶**: naviga tra le pagine; se la pagina corrente è modificata viene chiesto se salvarla, scartarla o annullare.
 - **Vai a…**: salta a una percentuale del file.
@@ -341,7 +341,7 @@ Il dialog ha 4 tab.
 - **Conta**: popola la lista con tutte le occorrenze e mostra il totale
 
 **Lista occorrenze:**  
-Si popola automaticamente durante la digitazione (dopo 2 caratteri) e tramite il pulsante Conta. Con **Aggiorna risultati automaticamente** attivo, viene ricalcolata dopo una modifica al documento (debounce di 250 ms). Doppio clic su una riga salta alla posizione corrispondente nel documento.
+Si popola automaticamente durante la digitazione (dopo 2 caratteri) e tramite il pulsante Conta. Con **Aggiorna risultati automaticamente** attivo, viene ricalcolata dopo una modifica al documento (debounce di 300 ms). Doppio clic su una riga salta alla posizione corrispondente nel documento.
 
 **Manuale regex:**  
 Appare automaticamente quando si attiva "Espressione regolare"; vedi anche [sezione 18](#18-espressioni-regolari--riferimento-completo).
@@ -404,7 +404,11 @@ I mark sono indipendenti tra loro: puoi avere contemporaneamente testo rosso, ve
 
 ### Smart Highlight (automatico)
 
-Quando il cursore si ferma su una parola per più di 300ms, tutte le sue occorrenze vengono evidenziate automaticamente con un box grigio-blu tenue. Il sistema è ottimizzato per non interferire con la digitazione: non scatta mai mentre si scrive, si aggiorna solo quando la parola sotto il cursore cambia, e usa un singolo passaggio sul testo senza rallentare l'editor anche su documenti di grandi dimensioni.
+Dopo 600 ms dall'ultimo movimento del cursore, la parola sotto il cursore viene
+evidenziata automaticamente nell'area vicina alla viewport con un box grigio-blu
+tenue. Il sistema limita la scansione ai dintorni della zona visibile e a un
+massimo di 500 risultati; per documenti oltre 200.000 caratteri viene disattivato
+per evitare costi eccessivi.
 
 È separato dai 5 colori manuali e non interferisce con essi.
 
@@ -488,7 +492,7 @@ Anche `Ctrl+Rotella mouse` direttamente nell'editor.
 La minimap è un pannello dock a tutti gli effetti, come File Browser, Anteprima e gli altri pannelli. Può essere spostata, flottata, agganciata a qualsiasi lato (alto, basso, sinistra, destra) o staccata come finestra indipendente. Per attivarla: **Visualizza → Minimap**. Una volta visibile, trascina la barra del titolo per riposizionarla come qualsiasi altro pannello.
 
 ### Minimap: anteprima hover
-Quando abilitata (**Visualizza → Minimap: anteprima hover**, oppure in **Preferenze → Editor**), tenere il cursore fermo sulla minimap per circa 300ms mostra un popup flottante con l'anteprima del codice nella posizione corrispondente.
+Quando abilitata (**Visualizza → Minimap: anteprima hover**, oppure in **Preferenze → Editor**), tenere il cursore fermo sulla minimap per circa 400 ms mostra un popup flottante con l'anteprima del codice nella posizione corrispondente.
 
 ### Modalità macchina da scrivere
 **Visualizza → Modalità macchina da scrivere**: quando attiva, la riga del cursore viene mantenuta sempre centrata verticalmente sullo schermo. Utile per sessioni di scrittura prolungate.
@@ -552,7 +556,7 @@ Tenendo il cursore fermo per mezzo secondo su determinati elementi, NotePadPQ mo
 - **Sola lettura**: blocca le modifiche
 - **Scrivi BOM**: aggiunge Byte Order Mark per UTF-8/UTF-16
 - **A capo automatico** (`Alt+Z`): manda a capo il testo a schermo senza modificare il file
-- **Controllo Ortografico (`F4`)**: attiva la sottolineatura a zig-zag rossa per le parole errate. La lingua del dizionario è indipendente dalla lingua dell'interfaccia e si seleziona da **Documento → Lingua dizionario** (Italiano, English, Deutsch, Français, Español). Il click destro su una parola sottolineata mostra fino a 8 suggerimenti di correzione, "Aggiungi al dizionario" e "Ignora tutto". Ignora le sigle interamente maiuscole e le parole di meno di 3 lettere.
+- **Controllo Ortografico (`F4`)**: attiva la sottolineatura a zig-zag rossa per le parole errate. La lingua del dizionario è indipendente dalla lingua dell'interfaccia e si seleziona da **Documento → Lingua dizionario** (Italiano, English, Deutsch, Français, Español, Polski). Il click destro su una parola sottolineata mostra fino a 8 suggerimenti di correzione, "Aggiungi al dizionario" e "Ignora tutto". Ignora le sigle interamente maiuscole e le parole di meno di 3 lettere.
 - **Lingua dizionario**: sottomenu di Documento che seleziona la lingua dello spell checker indipendentemente dalla lingua dell'interfaccia. La scelta viene salvata tra le sessioni.
 - **Tipografia intelligente**: converte automaticamente i caratteri "grezzi" in varianti tipografiche corrette: `"..."` → `"..."`, `'...'` → `'...'`, `--` → `—`, `...` → `…`. Non si attiva dentro blocchi di codice. Attivabile da **Documento → Tipografia intelligente** o da **Preferenze → Editor → Scrittura**.
 - **Focus paragrafo**: attenua il testo fuori dal paragrafo corrente (delimitato da righe vuote) per favorire la concentrazione. Il colore di attenuazione si adatta automaticamente al tema chiaro/scuro. Attivabile da **Documento → Focus paragrafo**. Si aggiorna in tempo reale mentre si scrive e al cambio tab.
@@ -612,7 +616,13 @@ Esegue il comando associato al tipo di file corrente e mostra l'output nel panne
 
 #### Profili di compilazione e variabili
 
-I profili di compilazione si configurano da **Build → Profili di compilazione** (`F8`). 12 profili predefiniti (Python, Python uv, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) e possibilità di crearne di personalizzati illimitati. Ogni profilo associa un'estensione file a uno o più comandi (Compila, Esegui, Build).
+I profili globali e utente si configurano da **Build → Profili di compilazione** (`F8`). Sono disponibili 11 profili predefiniti (Python, Python uv, C/C++, tre profili LaTeX, Rust, Go, Bash, JavaScript e Make) e si possono creare profili personalizzati illimitati. I profili specifici del progetto vengono letti dal file `.notepadpq-build.json` nella directory del progetto. Ogni profilo associa un'estensione file a uno o più comandi (Compila, Esegui, Build).
+
+Per i file LaTeX, la selezione rapida della ricetta del documento corrente è
+disponibile da **LaTeX → Strumenti progetto → Ricette di compilazione…**. Il
+menu **LaTeX** è contestuale e compare solo quando il tab attivo è riconosciuto
+come documento LaTeX. Per la configurazione completa dei profili resta
+disponibile `F8`.
 
 Nei comandi sono disponibili le seguenti variabili, accettate sia nella forma `${VAR}` che `$(VAR)`:
 
@@ -750,8 +760,9 @@ Tutti i plugin mostrano icone Lucide nel menu Plugin (stesso stile della toolbar
 
 | Plugin | Scorciatoia | Funzione |
 |---|---|---|
-| **Clipboard History** | `Ctrl+Shift+V` | Cronologia degli appunti con possibilità di incollare elementi precedenti |
-| **Compare & Merge** | `F7` | Confronto modificabile a due o tre vie con syntax highlighting e scroll sincronizzato |
+| **Clipboard History** | `Ctrl+Alt+V` | Cronologia degli appunti con possibilità di incollare elementi precedenti |
+| **Code Formatter** | `Ctrl+Alt+Shift+D` / `Ctrl+Alt+Shift+S` | Formatta documento o selezione tramite il formatter disponibile |
+| **Compare & Merge** | `F9` | Confronto modificabile a due o tre vie con syntax highlighting e scroll sincronizzato |
 | **Database** | — | Client SQL per SQLite, PostgreSQL, MySQL con generazione query AI |
 | **Encrypt/Decrypt** | `Ctrl+Shift+E` / `Ctrl+Shift+W` | Cifratura AES-256-GCM e ChaCha20-Poly1305 del testo selezionato o dell'intero file |
 | **FTP Browser** | — | Sfoglia e modifica file su server FTP |
@@ -760,7 +771,9 @@ Tutti i plugin mostrano icone Lucide nel menu Plugin (stesso stile della toolbar
 | **Git Integration** | — | Pannello Git completo (vedi sotto) |
 | **Hex Viewer** | `Ctrl+Alt+H` | Visualizza il file corrente in formato esadecimale |
 | **PDF Viewer** | — | Visualizza file PDF in un tab dedicato |
+| **REST Client** | `Ctrl+Alt+R` | Editor di richieste HTTP con wizard, collection e ambienti con variabili |
 | **Search PQ** | `Ctrl+Alt+F` | Ricerca e sostituzione avanzata nel documento: modalità TEXT/REGEXP/LIKE, coda risultati, filtro inline, sostituzione (vedi [sezione 24](#24-search-pq)) |
+| **AI Assistant** | `Ctrl+Alt+A` | Assistente AI integrato in un pannello dock |
 | **Terminal** | `Ctrl+Alt+T` | Terminale xterm.js con PTY nativo come pannello dock indipendente (vedi [sezione 25](#25-terminal)) |
 | **Web Search** | — | Ricerca web e Wikipedia sul testo selezionato dal menu contestuale |
 | **LanguageTool locale** | — | Controllo grammaticale e stilistico tramite server LanguageTool Standalone locale |
@@ -1064,6 +1077,10 @@ esistenti del progetto, del checker e della build:
 - **Dashboard progetto**: mostra root risolta, numero di sorgenti, percorsi
   output/PDF, profilo selezionato, salute del progetto, tool ausiliari e stato
   della toolchain.
+- **Ricette di compilazione**: da **LaTeX → Strumenti progetto** permette di
+  selezionare rapidamente il profilo LaTeX attivo e visualizzarne comandi e
+  pipeline. La modifica completa dei profili resta in **Build → Profili di
+  compilazione** (`F8`).
 - **Riferimenti globali**: analizza definizioni, riferimenti, citazioni, label
   duplicate/inutilizzate, inclusioni e asset mancanti nel progetto risolto.
   Il doppio click porta alla posizione nel sorgente.
@@ -1115,8 +1132,13 @@ sequenza diventa:
 LaTeX → makeindex/makeglossaries/nomencl → LaTeX finale
 ```
 
-La finestra **Ricette LaTeX** seleziona il profilo attivo e ne mostra comandi e
-pipeline. È costruita sopra i profili globali e di progetto già esistenti, che
+Per selezionare rapidamente la ricetta del documento corrente, aprire **LaTeX →
+Strumenti progetto → Ricette di compilazione…**. La finestra **Ricette LaTeX**
+elenca i profili LaTeX disponibili nel contesto globale e di progetto, mostra
+quello attivo e ne visualizza engine, comando, directory di output e pipeline.
+Con **Applica** la ricetta scelta diventa il profilo usato per i file LaTeX;
+**Modifica profili completi…** apre l’editor generale dei profili, raggiungibile
+anche con `F8`. I profili globali e il file di progetto `.notepadpq-build.json`
 restano compatibili.
 
 ### Assistenti tabelle ed equazioni
@@ -1351,7 +1373,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `Insert` | Modalità sovrascrittura |
 | `F6` | Compila |
 | `F7` | Build |
-| `F8` | Profili di build |
+| `F8` | Profili di compilazione |
 | `Ctrl+F12` | LSP: Vai alla definizione |
 | `Shift+F12` | LSP: Mostra riferimenti |
 | `Shift+F6` | LSP: Rinomina simbolo |
@@ -1734,7 +1756,7 @@ La ricerca parte automaticamente dopo 300 ms dal termine della digitazione (debo
 
 ### Aggiornamento automatico
 
-Il checkbox **Aggiorna risultati automaticamente** ricalcola la ricerca nel documento dopo una modifica, con debounce di 250 ms. È attivo per impostazione predefinita e la scelta viene salvata; la ricerca nei file su disco non viene rilanciata automaticamente.
+Il checkbox **Aggiorna risultati automaticamente** ricalcola la ricerca nel documento dopo una modifica, con debounce di 300 ms. È attivo per impostazione predefinita e la scelta viene salvata; la ricerca nei file su disco non viene rilanciata automaticamente.
 
 ### Albero dei risultati
 
@@ -1788,4 +1810,4 @@ Premi `:` per aprire il prompt, che mostra esempi dei comandi disponibili: `:w`,
 
 ---
 
-*Manuale aggiornato: NotePadPQ 1.9.8*
+*Manuale aggiornato: NotePadPQ 2.0.0*

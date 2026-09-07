@@ -1,6 +1,6 @@
 # NotePadPQ LaTeX Manual
 
-Version 1.9.9
+Version 2.0.0
 
 This is the complete LaTeX reference for NotePadPQ. It covers editing,
 project discovery, compilation, PDF preview, multi-file projects, SyncTeX,
@@ -137,6 +137,10 @@ Renaming an environment keeps its matching `\begin` and `\end` names in sync.
 
 ### LaTeX menu assistants
 
+The dynamic **LaTeX** menu is available when the active tab is a `.tex`, `.ltx`
+or `.latex` file, or when the editor language is set to LaTeX. The tools below
+are located in this menu.
+
 - **LaTeX Wizard** creates equations, environments and tables. Generated code
   can be reviewed and edited before insertion.
 - **Quick Table** configures environment, alignment, borders, merged cells,
@@ -212,8 +216,17 @@ define:
 - cleanup behavior for auxiliary files;
 - build timeout and output limits.
 
-Use `F8` or **Build -> Build profiles** to inspect and edit profiles. The
-**LaTeX Recipes** dialog shows the selected profile and its command pipeline.
+Use `F8` or **Build -> Build profiles** to open the full editor for global and
+user profiles. User profiles can be created and modified; built-in profiles can
+be customized but not removed. Project-specific profiles are read from
+`.notepadpq-build.json` in the project directory.
+
+To select a recipe quickly for the current LaTeX document, open **LaTeX ->
+Project tools -> Build recipes…**. This item is available only with an active
+LaTeX document. The **LaTeX Recipes** dialog lists profiles applicable to the
+project, highlights the active one, and shows its engine, command, output
+directory and pipeline. **Apply** sets the selected recipe for LaTeX files;
+**Edit full profiles…** opens the same editor available through `F8`.
 Existing global settings and `.notepadpq-build.json` project profiles remain
 valid.
 
@@ -240,8 +253,8 @@ The resulting pipeline is conceptually:
 LaTeX -> makeindex/makeglossaries/nomencl -> final LaTeX pass
 ```
 
-Use explicit recipes when a project needs several named indexes or a custom
-processor order. The LaTeX menu can insert `\makeindex`, `\makeglossaries`
+Configure an explicit pipeline in the profile when a project needs several
+named indexes or a custom processor order. The LaTeX menu can insert `\makeindex`, `\makeglossaries`
 and `\makenomenclature`.
 
 ### Build output and errors

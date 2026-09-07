@@ -15,7 +15,7 @@ Funzionalità:
 
 Attivazione:
   Menu Plugin → Clipboard History
-  Ctrl+Shift+V → apre il pannello
+  Ctrl+Alt+V → apre il pannello
 """
 
 from __future__ import annotations
@@ -390,7 +390,7 @@ class ClipboardHistoryPlugin(BasePlugin):
             main_window, "plugins",
             tr("plugin.clipboard_history.menu"),
             self._toggle,
-            shortcut="Ctrl+Shift+V",
+            shortcut="Ctrl+Alt+V",
             icon_key="plugin_clipboard"
         )
         main_window._menus["plugins"].menuAction().setVisible(True)

@@ -32,9 +32,9 @@ are added through integrated panels and optional plugins.
 | Area | Included capabilities |
 |---|---|
 | **Editor** | 40+ language modes, QScintilla and Pygments lexers, folding, minimap, smart highlighting, autocomplete, snippets, macros, multi-cursor, optional Vim mode and configurable typography |
-| **Projects and files** | Tabs, split views, session restore, project manager, recent files, external-change handling, tail mode and paged editing for files over 200 MB |
+| **Projects and files** | Tabs, split views, session restore, project manager, recent files, external-change handling, tail mode and paged editing for files of at least 200 MB |
 | **LaTeX** | Root-file resolution, latexmk profiles, BibTeX/Biber awareness, Function List, completion, diagnostics, templates, PDF preview and bidirectional SyncTeX |
-| **Build system** | 12 built-in profiles, custom profiles, variables, environment overrides, pre/post hooks, pipelines, task discovery, concurrent jobs and clickable diagnostics |
+| **Build system** | 11 built-in profiles, custom profiles, variables, environment overrides, pre/post hooks, pipelines, task discovery, concurrent jobs and clickable diagnostics |
 | **Preview** | Markdown, HTML, reStructuredText, LaTeX structure, PDF, images, equations, Mermaid and integrated PDF search/selection tools |
 | **Development tools** | LSP client, terminal/PTY panel, Git integration, REST client, formatter plugin and project task runner |
 | **Data and documents** | Spreadsheet editor, rich-text/WYSIWYG editor, database browser, hex viewer and file conversion workflows |
@@ -73,7 +73,7 @@ are added through integrated panels and optional plugins.
 - Bookmarks, five-color marks, go-to-line and matching-bracket navigation.
 - Horizontal and vertical split view, cloned tabs and MRU tab switching
   (`Ctrl+Tab`).
-- Files over 200 MB are loaded progressively in paged mode. Page navigation,
+- Files of at least 200 MB are loaded progressively in paged mode. Page navigation,
   approximate global line navigation and streaming save remain available;
   operations requiring the entire document are explicitly limited.
 
@@ -83,7 +83,7 @@ LaTeX is a first-class workflow, not only a syntax-highlighting mode.
 
 - Root resolution follows project conventions such as `% !TEX root`,
   `.latexmkrc`, `main.tex` and included files.
-- The Build Panel provides 12 built-in profiles:
+- The Build Panel provides 11 built-in profiles:
   `Python`, `Python (uv)`, `C (gcc)`, `C++ (g++)`, `LaTeX (pdflatex)`,
   `LaTeX (xelatex)`, `LaTeX (lualatex)`, `Make`, `Bash`,
   `JavaScript (node)`, `Rust (cargo)` and `Go`.
@@ -384,7 +384,7 @@ Le aree principali sono:
   sessione;
 - workflow LaTeX completo con root project, `latexmk`, BibTeX/Biber, Function
   List gerarchica, template, diagnostica, PDF preview e SyncTeX bidirezionale;
-- Build Panel con 12 profili built-in, profili personalizzati, variabili,
+- Build Panel con 11 profili built-in, profili personalizzati, variabili,
   pipeline, task discovery, PTY, build concorrenti e lista errori cliccabile;
 - anteprima live Markdown/HTML/reStructuredText, visualizzatore PDF, hover di
   immagini/equazioni e diagrammi Mermaid opzionali;

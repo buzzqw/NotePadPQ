@@ -1,6 +1,6 @@
 # Manuale LaTeX di NotePadPQ
 
-Versione 1.9.9
+Versione 2.0.0
 
 Questo è il riferimento completo per l'uso di LaTeX in NotePadPQ. Comprende
 modifica, risoluzione del progetto, compilazione, anteprima PDF, progetti
@@ -136,6 +136,10 @@ Rinominando un ambiente vengono mantenuti sincronizzati i nomi di `\begin` e
 
 ### Assistenti del menu LaTeX
 
+Il menu dinamico **LaTeX** è disponibile quando il tab attivo è un file `.tex`,
+`.ltx` o `.latex` (oppure quando il linguaggio dell'editor è impostato su
+LaTeX). Gli strumenti descritti di seguito si trovano in questo menu.
+
 - **Assistente LaTeX** genera equazioni, ambienti e tabelle; il codice può
   essere controllato e modificato prima dell'inserimento.
 - **Tabella rapida** configura ambiente, allineamento, bordi, celle unite,
@@ -197,7 +201,7 @@ risolti. Se un tab incluso non attivo contiene modifiche non salvate, salvarlo
 prima di compilare per assicurarsi che il compilatore esterno legga gli stessi
 contenuti dell'editor.
 
-## 5. Profili di build e ricette
+## 5. Profili di compilazione e ricette
 
 Il pannello Build supporta profili built-in, utente e progetto. Un profilo può
 definire:
@@ -211,9 +215,19 @@ definire:
 - pulizia dei file ausiliari;
 - timeout e limite dell'output.
 
-Usare `F8` o **Build -> Profili di build** per ispezionare e modificare i
-profili. La finestra **Ricette LaTeX** mostra profilo attivo e pipeline dei
-comandi. Le impostazioni globali esistenti e i profili di progetto
+Usare `F8` o **Build -> Profili di compilazione** per aprire l'editor completo
+dei profili globali e utente. Da qui si possono creare e modificare i profili
+utente; i profili predefiniti possono essere personalizzati ma non rimossi.
+I profili specifici del progetto vengono invece letti dal file
+`.notepadpq-build.json` nella directory del progetto.
+
+Per selezionare rapidamente la ricetta del documento LaTeX corrente, aprire
+**LaTeX -> Strumenti progetto -> Ricette di compilazione…**. Questa voce è
+disponibile solo con un documento LaTeX attivo. La finestra **Ricette LaTeX**
+elenca i profili applicabili al progetto, evidenzia quello attivo e ne mostra
+engine, comando, directory di output e pipeline. **Applica** imposta la ricetta
+selezionata per i file LaTeX; **Modifica profili completi…** apre lo stesso editor
+raggiungibile con `F8`. Le impostazioni globali esistenti e i profili di progetto
 `.notepadpq-build.json` restano validi.
 
 Comandi tipici sono:
@@ -239,8 +253,8 @@ comandi nel sorgente. La pipeline concettuale è:
 LaTeX -> makeindex/makeglossaries/nomencl -> passaggio LaTeX finale
 ```
 
-Usare ricette esplicite quando il progetto richiede più indici nominati o un
-ordine personalizzato. Il menu LaTeX può inserire `\makeindex`,
+Configurare una pipeline esplicita nel profilo quando il progetto richiede più
+indici nominati o un ordine personalizzato. Il menu LaTeX può inserire `\makeindex`,
 `\makeglossaries` e `\makenomenclature`.
 
 ### Output ed errori
@@ -403,7 +417,7 @@ Perl equivalenti per la distribuzione in uso. Il checker interno non dipende da
 |---|---|
 | `F6` | Compila |
 | `F7` | Build |
-| `F8` | Profili di build |
+| `F8` | Profili di compilazione |
 | `F12` | Anteprima |
 | `Ctrl+S` | Salva il file corrente |
 | `Shift+Ctrl+S` | Salva tutto / Salva con nome |

@@ -1,6 +1,6 @@
 # NotePadPQ: User Manual
 
-> Version 1.9.8: Advanced text editor based on **QScintilla/PyQt6**
+> Version 2.0.0: Advanced text editor based on **QScintilla/PyQt6**
 > Platforms: Linux, Windows, FreeBSD
 
 ---
@@ -99,7 +99,7 @@ NotePadPQ monitors open files and responds in two distinct ways:
 - **Keep open** *(default)*: the tab stays open with the in-memory content (not saved to disk)
 
 ### Large Files and Paged Mode
-Files larger than 200 MB are loaded progressively and opened in paged mode, without loading the entire document into memory. The status bar shows the page, percentage, offset, and approximate global line.
+Files of at least 200 MB are loaded progressively and opened in paged mode, without loading the entire document into memory. The status bar shows the page, percentage, offset, and approximate global line.
 
 - **◀ Previous page / Next page ▶**: navigate between pages; if the current page is modified, you are asked whether to save it, discard it, or cancel.
 - **Go to…**: jump to a percentage of the file.
@@ -335,7 +335,7 @@ The dialog has 4 tabs.
 - **Count**: populates the list with all occurrences and shows the total
 
 **Occurrence list:**
-Populated automatically while typing (after 2 characters) and via the Count button. With **Auto-refresh results** enabled, it is recalculated after document changes (250 ms debounce). Double-click on a row jumps to the corresponding position in the document.
+Populated automatically while typing (after 2 characters) and via the Count button. With **Auto-refresh results** enabled, it is recalculated after document changes (300 ms debounce). Double-click on a row jumps to the corresponding position in the document.
 
 **Regex manual:**
 Appears automatically when "Regular expression" is activated; see also [section 18](#18-regular-expressions-complete-reference).
@@ -398,7 +398,10 @@ Marks are independent: you can have red, green, and blue text simultaneously. In
 
 ### Smart Highlight (automatic)
 
-When the cursor rests on a word for more than 300ms, all its occurrences are automatically highlighted with a light grey-blue box. The system is optimized to not interfere with typing: it never triggers while writing, only updates when the word under the cursor changes, and uses a single pass over the text without slowing the editor even on large documents.
+After 600 ms from the last cursor movement, the word under the cursor is
+automatically highlighted near the viewport with a light grey-blue box. The
+scan is limited to the area around the visible region and to at most 500 results;
+for documents over 200,000 characters it is disabled to avoid excessive cost.
 
 It is separate from the 5 manual colors and does not interfere with them.
 
@@ -480,7 +483,7 @@ Also `Ctrl+Mouse wheel` directly in the editor.
 The minimap is a proper dock panel, just like the File Browser, Preview, and other panels. It can be moved, floated, docked to any side (top, bottom, left, right), or detached as an independent window. Activate it from **View → Minimap**. Once visible, drag the title bar to reposition it like any other panel.
 
 ### Minimap: Hover Preview
-When enabled (**View → Minimap: hover preview**, or in **Preferences → Editor**), holding the mouse still on the minimap for approximately 300ms shows a floating popup with a preview of the code at that position.
+When enabled (**View → Minimap: hover preview**, or in **Preferences → Editor**), holding the mouse still on the minimap for approximately 400 ms shows a floating popup with a preview of the code at that position.
 
 ### Typewriter Scrolling
 **View → Typewriter scrolling**: when active, the cursor line is always kept vertically centered on screen. Useful for long writing sessions.
@@ -600,7 +603,7 @@ Runs the command associated with the current file type and shows output in the "
 
 #### Build Profiles and Variables
 
-Build profiles are configured from **Build → Build Profiles** (`F8`). 12 built-in profiles are provided (Python, Python uv, C/C++, LaTeX, Rust, Go, Bash, JavaScript, Make) and you can create unlimited custom profiles. Each profile associates a file extension with one or more commands (Compile, Run, Build).
+Build profiles are configured from **Build → Build Profiles** (`F8`). 11 built-in profiles are provided (Python, Python uv, C/C++, three LaTeX profiles, Rust, Go, Bash, JavaScript, Make) and you can create unlimited custom profiles. Project-specific profiles are loaded from `.notepadpq-build.json` in the project directory. Each profile associates a file extension with one or more commands (Compile, Run, Build).
 
 The following variables are available in commands, accepted in both `${VAR}` and `$(VAR)` form:
 
@@ -738,8 +741,9 @@ All plugins show Lucide icons in the Plugins menu (same style as the main toolba
 
 | Plugin | Shortcut | Function |
 |---|---|---|
-| **Clipboard History** | `Ctrl+Shift+V` | Clipboard history with ability to paste previous items |
-| **Compare & Merge** | `F7` | Editable two- or three-way comparison with syntax highlighting and synchronized scrolling |
+| **Clipboard History** | `Ctrl+Alt+V` | Clipboard history with ability to paste previous items |
+| **Code Formatter** | `Ctrl+Alt+Shift+D` / `Ctrl+Alt+Shift+S` | Format the document or selection through the available formatter |
+| **Compare & Merge** | `F9` | Editable two- or three-way comparison with syntax highlighting and synchronized scrolling |
 | **Database** | — | SQL client for SQLite, PostgreSQL, MySQL with AI query generation |
 | **Encrypt/Decrypt** | `Ctrl+Shift+E` / `Ctrl+Shift+W` | AES-256-GCM and ChaCha20-Poly1305 encryption of selected text or the entire file |
 | **FTP Browser** | — | Browse and edit files on FTP servers |
@@ -748,7 +752,9 @@ All plugins show Lucide icons in the Plugins menu (same style as the main toolba
 | **Git Integration** | — | Full Git panel (see below) |
 | **Hex Viewer** | `Ctrl+Alt+H` | View the current file in hexadecimal format |
 | **PDF Viewer** | — | View PDF files in a dedicated tab |
+| **REST Client** | `Ctrl+Alt+R` | HTTP request editor with wizard, collections and variable environments |
 | **Search PQ** | `Ctrl+Alt+F` | Advanced search and replace in the document: TEXT/REGEXP/LIKE modes, result queue, inline filter, replacement (see [section 24](#24-search-pq)) |
+| **AI Assistant** | `Ctrl+Alt+A` | Integrated AI assistant in a dock panel |
 | **Terminal** | `Ctrl+Alt+T` | xterm.js terminal with native PTY as an independent dock panel (see [section 25](#25-terminal)) |
 | **Web Search** | — | Web and Wikipedia search on selected text from the context menu |
 
@@ -1729,7 +1735,7 @@ The search starts automatically 300 ms after you stop typing (debounce) and re-r
 
 ### Automatic Refresh
 
-The **Auto-refresh results** checkbox recalculates the current document search after an edit, with a 250 ms debounce. It is enabled by default and persisted; file-system searches are not relaunched automatically.
+The **Auto-refresh results** checkbox recalculates the current document search after an edit, with a 300 ms debounce. It is enabled by default and persisted; file-system searches are not relaunched automatically.
 
 ### Result Tree
 
@@ -1783,4 +1789,4 @@ Press `:` in `NORMAL` mode to open the Vim command prompt, which shows examples 
 
 ---
 
-*Manual updated: NotePadPQ 1.9.8*
+*Manual updated: NotePadPQ 2.0.0*

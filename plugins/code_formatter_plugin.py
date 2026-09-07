@@ -24,8 +24,8 @@ Funzionamento "senza danni":
     ma il documento rimane invariato.
   - Se il formatter non è installato, viene mostrato un avviso chiaro.
 
-Menu: Strumenti → 🎨 Format Document  (Ctrl+Alt+F)
-      Strumenti → 🎨 Format Selection  (Ctrl+Alt+Shift+F)
+Menu: Strumenti → 🎨 Format Document  (Ctrl+Alt+Shift+D)
+      Strumenti → 🎨 Format Selection  (Ctrl+Alt+Shift+S)
       Strumenti → ⚙ Preferenze Formatter...
 """
 
@@ -454,14 +454,14 @@ class CodeFormatterPlugin(BasePlugin):
             main_window, "tools",
             "Format Document",
             self._format_document,
-            shortcut="Ctrl+Alt+F",
+            shortcut="Ctrl+Alt+Shift+D",
             icon_key="tool_format_doc",
         )
         self.add_menu_action(
             main_window, "tools",
             "Format Selection",
             self._format_selection,
-            shortcut="Ctrl+Alt+Shift+F",
+            shortcut="Ctrl+Alt+Shift+S",
             icon_key="tool_format_sel",
         )
         self.add_menu_action(

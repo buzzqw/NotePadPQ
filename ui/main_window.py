@@ -523,6 +523,11 @@ class MainWindow(QMainWindow):
         # Sync menu checkmark quando il dock viene chiuso tramite il pulsante X
         self._minimap_dock.visibilityChanged.connect(self._on_minimap_dock_visibility)
 
+        # Pannello Cerca/Sostituisci: viene creato subito, non al primo utilizzo,
+        # così QMainWindow può ripristinarne posizione, dimensione e lato di dock.
+        from ui.find_replace import FindReplaceDialog
+        self._find_replace_panel = FindReplaceDialog._get_or_create(self)
+
     def _setup_statusbar(self) -> None:
         self.setStatusBar(self._statusbar)
 

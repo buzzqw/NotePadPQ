@@ -24,7 +24,7 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
 from core.worker_pool import ManagedWorker
 from PyQt6.QtGui import QColor, QTextCursor
 from PyQt6.QtWidgets import (
-    QDialog, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
+    QDockWidget, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QLineEdit, QCheckBox, QPushButton,
     QPlainTextEdit, QTreeWidget, QTreeWidgetItem, QComboBox,
     QGroupBox, QSplitter, QFileDialog, QApplication,
@@ -328,9 +328,12 @@ class _ElasticTreeWidget(QTreeWidget):
             header.resizeSection(col, available)
 
 
-class FindReplaceDialog(QDialog):
+class FindReplaceDialog(QWidget):
     """
-    Dialog cerca/sostituisci. Singleton — una sola istanza per finestra.
+    Pannello cerca/sostituisci. Singleton — una sola istanza per finestra.
+
+    Il contenuto vive in un QDockWidget, quindi puo essere ancorato, spostato
+    su un altro lato o sganciato come finestra flottante.
     """
 
     def __init__(self, main_window: "MainWindow"):
@@ -346,11 +349,23 @@ class FindReplaceDialog(QDialog):
         self._find_results_refresh_timer.setInterval(250)
         self._find_results_refresh_timer.timeout.connect(self._refresh_find_results)
         self.setWindowTitle(tr("action.find"))
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
-        self.resize(780, 580)
-        self.setMinimumSize(600, 400)
+        self.setMinimumSize(500, 240)
 
         self._build_ui()
+        self._dock = QDockWidget(self.windowTitle(), main_window)
+        self._dock.setObjectName("FindReplaceDock")
+        self._dock.setWidget(self)
+        self._dock.setMinimumWidth(500)
+        self._dock.setMinimumHeight(240)
+        self._dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
+        self._dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetMovable |
+            QDockWidget.DockWidgetFeature.DockWidgetClosable |
+            QDockWidget.DockWidgetFeature.DockWidgetFloatable
+        )
+        main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._dock)
+        self._dock.hide()
+        self._dock.visibilityChanged.connect(self._on_dock_visibility_changed)
         self._restore_state()
         self._mw._tab_manager.current_editor_changed.connect(self._on_editor_changed)
         self._on_editor_changed(self._current_editor())
@@ -418,10 +433,11 @@ class FindReplaceDialog(QDialog):
         """Applica l'opacità in base al check: piena opacità se disattivato,
         altrimenti il livello scelto dallo slider."""
         try:
+            target = self._dock if self._dock.isWindow() else self
             if self._chk_transparent.isChecked():
-                self.setWindowOpacity(self._current_opacity())
+                target.setWindowOpacity(self._current_opacity())
             else:
-                self.setWindowOpacity(1.0)
+                target.setWindowOpacity(1.0)
         except Exception:
             pass
 
@@ -451,16 +467,17 @@ class FindReplaceDialog(QDialog):
             pass
 
     def enterEvent(self, event) -> None:
-        """Mouse sopra il dialog → piena opacità, così digiti/leggi senza
+        """Mouse sopra il pannello → piena opacità, così digiti/leggi senza
         disturbo (comportamento "smart" da editor PRO)."""
         try:
-            self.setWindowOpacity(1.0)
+            target = self._dock if self._dock.isWindow() else self
+            target.setWindowOpacity(1.0)
         except Exception:
             pass
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
-        """Mouse fuori dal dialog → riapplica il livello trasparente scelto,
+        """Mouse fuori dal pannello → riapplica il livello trasparente scelto,
         così la finestra non copre il testo mentre lavori nell'editor."""
         self._apply_transparency()
         super().leaveEvent(event)
@@ -1088,10 +1105,8 @@ ESEMPI
         except Exception:
             pass
 
-    def closeEvent(self, event) -> None:
-        """Alla chiusura del dialog rimuovi le evidenziazioni della ricerca e
-        ripristina lo smart highlight: chiuso il pannello Trova, l'editor torna
-        al suo stato normale senza marcature residue (come negli editor PRO)."""
+    def _clear_search_state(self) -> None:
+        """Rimuove lo stato temporaneo quando il dock viene chiuso."""
         try:
             self._clear_find_highlights(self._current_editor())
         except Exception:
@@ -1110,6 +1125,14 @@ ESEMPI
             self._fif_rif_mw2.worker.cancel()
             self._fif_rif_mw2.stop()
             self._fif_rif_mw2 = None
+
+    def _on_dock_visibility_changed(self, visible: bool) -> None:
+        if not visible:
+            self._clear_search_state()
+
+    def closeEvent(self, event) -> None:
+        """Compatibilità per una eventuale chiusura diretta del widget."""
+        self._clear_search_state()
         super().closeEvent(event)
 
     def _do_incremental(self) -> None:
@@ -2194,8 +2217,8 @@ ESEMPI
         sel = cls._get_selected_text(main_window)
         if sel:
             dlg._find_edit.setCurrentText(sel)
-        dlg.show()
-        dlg.raise_()
+        dlg._dock.show()
+        dlg._dock.raise_()
         dlg._find_edit.setFocus()
         dlg._find_edit.lineEdit().selectAll()
 
@@ -2240,8 +2263,8 @@ ESEMPI
         sel = cls._get_selected_text(main_window)
         if sel:
             dlg._find_edit2.setCurrentText(sel)
-        dlg.show()
-        dlg.raise_()
+        dlg._dock.show()
+        dlg._dock.raise_()
         dlg._find_edit2.setFocus()
         dlg._find_edit2.lineEdit().selectAll()
 
@@ -2252,8 +2275,8 @@ ESEMPI
         sel = cls._get_selected_text(main_window)
         if sel:
             dlg._fif_find.setText(sel)
-        dlg.show()
-        dlg.raise_()
+        dlg._dock.show()
+        dlg._dock.raise_()
 
     @classmethod
     def show_find_all_docs(cls, main_window: "MainWindow") -> None:
@@ -2262,8 +2285,8 @@ ESEMPI
         sel = cls._get_selected_text(main_window)
         if sel:
             dlg._all_find.setText(sel)
-        dlg.show()
-        dlg.raise_()
+        dlg._dock.show()
+        dlg._dock.raise_()
 
     @classmethod
     def show_replace_all_docs(cls, main_window: "MainWindow") -> None:
@@ -2272,8 +2295,8 @@ ESEMPI
         sel = cls._get_selected_text(main_window)
         if sel:
             dlg._all_find.setText(sel)
-        dlg.show()
-        dlg.raise_()
+        dlg._dock.show()
+        dlg._dock.raise_()
 
     @classmethod
     def find_next(cls, main_window: "MainWindow") -> None:

@@ -528,6 +528,7 @@ class FindReplaceDialog(QWidget):
         self._chk_wrap    = QCheckBox(tr("label.wrap_around"))
         self._chk_wrap.setChecked(True)
         self._chk_sel     = QCheckBox(tr("label.in_selection"))
+        self._chk_smart   = QCheckBox(tr("label.smart_search"))
         self._chk_auto_refresh = QCheckBox(
             tr("label.auto_refresh_results", default="Auto-aggiorna risultati")
         )
@@ -536,18 +537,23 @@ class FindReplaceDialog(QWidget):
         self._chk_regex.setToolTip(tr("tooltip.find_regex_help"))
         self._chk_wrap.setToolTip(tr("tooltip.find_wrap"))
         self._chk_sel.setToolTip(tr("tooltip.find_in_selection"))
+        self._chk_smart.setToolTip(tr("tooltip.find_smart_search"))
         self._chk_auto_refresh.setToolTip(
             tr(
                 "tooltip.find_auto_refresh",
                 default="Aggiorna automaticamente l'elenco quando il documento cambia",
             )
         )
-        opts = QHBoxLayout()
-        for chk in [self._chk_case, self._chk_word, self._chk_regex,
-                    self._chk_wrap, self._chk_sel, self._chk_auto_refresh]:
-            opts.addWidget(chk)
-        opts.addStretch()
-        g.addLayout(opts, 1, 0, 1, 2)
+        opts = QGridLayout()
+        opts.setContentsMargins(0, 0, 0, 0)
+        for column, chk in enumerate(
+                [self._chk_case, self._chk_word, self._chk_regex, self._chk_wrap]):
+            opts.addWidget(chk, 0, column)
+        for column, chk in enumerate(
+                [self._chk_sel, self._chk_smart, self._chk_auto_refresh]):
+            opts.addWidget(chk, 1, column)
+        opts.setColumnStretch(3, 1)
+        g.addLayout(opts, 1, 0, 2, 2)
 
         # Direzione
         self._radio_fwd = QRadioButton(tr("label.direction_forward"))
@@ -559,7 +565,7 @@ class FindReplaceDialog(QWidget):
         dir_lay = QHBoxLayout(dir_box)
         dir_lay.addWidget(self._radio_fwd)
         dir_lay.addWidget(self._radio_bwd)
-        g.addWidget(dir_box, 2, 0, 1, 2)
+        g.addWidget(dir_box, 3, 0, 1, 2)
 
         # Pulsanti
         btn_layout = QHBoxLayout()
@@ -573,7 +579,7 @@ class FindReplaceDialog(QWidget):
                     self._btn_mark_all]:
             btn_layout.addWidget(btn)
         btn_layout.addStretch()
-        g.addLayout(btn_layout, 3, 0, 1, 2)
+        g.addLayout(btn_layout, 4, 0, 1, 2)
 
         # Manuale regex — appare SOLO quando "Espressione regolare" è attivo
         self._regex_help = QPlainTextEdit()
@@ -633,12 +639,12 @@ ESEMPI
             )
         except Exception:
             pass
-        g.addWidget(self._regex_help, 4, 0, 1, 2)
+        g.addWidget(self._regex_help, 5, 0, 1, 2)
         self._chk_regex.toggled.connect(self._regex_help.setVisible)
 
         # Status
         self._lbl_status = QLabel("")
-        g.addWidget(self._lbl_status, 5, 0, 1, 2)
+        g.addWidget(self._lbl_status, 6, 0, 1, 2)
 
         outer_lay.addWidget(top)
 
@@ -673,6 +679,10 @@ ESEMPI
         self._find_edit.currentTextChanged.connect(
             lambda: self._search_timer.start()
         )
+        for checkbox in (
+                self._chk_case, self._chk_word, self._chk_regex,
+                self._chk_wrap, self._chk_sel, self._chk_smart):
+            checkbox.toggled.connect(lambda _checked: self._search_timer.start())
         self._chk_auto_refresh.toggled.connect(self._on_auto_refresh_toggled)
 
         return outer
@@ -934,6 +944,7 @@ ESEMPI
             "regex":          self._chk_regex.isChecked(),
             "wrap":           self._chk_wrap.isChecked(),
             "in_selection":   self._chk_sel.isChecked(),
+            "smart_search":   self._chk_smart.isChecked(),
         }
 
     def _build_pattern(self, pattern_text: str,
@@ -953,6 +964,123 @@ ESEMPI
         except re.error as e:
             self._last_pattern_error = str(e)
             return None
+
+    def _smart_patterns(self, pattern_text: str,
+                        flags: dict) -> list[re.Pattern] | None:
+        """Build the terms used by the same-line AND search."""
+        self._last_pattern_error = None
+        terms = pattern_text.split()
+        if len(terms) < 2:
+            return None
+        re_flags = 0 if flags.get("case_sensitive") else re.IGNORECASE
+        patterns = []
+        try:
+            for term in terms:
+                part = term if flags.get("regex") else re.escape(term)
+                if flags.get("whole_word"):
+                    part = rf"\b(?:{part})\b"
+                patterns.append(re.compile(part, re_flags))
+        except re.error as exc:
+            self._last_pattern_error = str(exc)
+            return []
+        return patterns
+
+    @staticmethod
+    def _smart_line_matches(line_text: str,
+                            patterns: list[re.Pattern]) -> list[re.Match]:
+        """Return every term match when all terms occur on ``line_text``."""
+        matches = []
+        for pattern in patterns:
+            term_matches = list(pattern.finditer(line_text))
+            if not term_matches:
+                return []
+            matches.extend(term_matches)
+        return sorted(matches, key=lambda match: (match.start(), match.end()))
+
+    def _highlight_smart_match(self, editor, line: int,
+                               matches: list[re.Match]) -> None:
+        """Highlight all terms on a matching line and select its first term."""
+        line_text = editor.text(line).rstrip("\n").rstrip("\r")
+        editor.clear_indicator(INDICATOR_FIND_LINE)
+        editor.clear_indicator(INDICATOR_FIND)
+        to_byte_col = getattr(editor, "char_col_to_byte_col", lambda _line, col: col)
+        line_end = to_byte_col(line, len(line_text))
+        if line_end:
+            editor.fillIndicatorRange(line, 0, line, line_end, INDICATOR_FIND_LINE)
+        for match in matches:
+            start = to_byte_col(line, match.start())
+            end = to_byte_col(line, match.end())
+            if end > start:
+                editor.fillIndicatorRange(line, start, line, end, INDICATOR_FIND)
+        first = matches[0]
+        start = to_byte_col(line, first.start())
+        end = to_byte_col(line, first.end())
+        editor.setSelection(line, start, line, end)
+        editor.ensureLineVisible(line)
+
+    def _do_smart_find(self, editor, pattern_text: str, flags: dict,
+                       forward: bool, status_label: QLabel) -> bool:
+        """Find the next/previous line containing every smart-search term."""
+        patterns = self._smart_patterns(pattern_text, flags)
+        if not patterns:
+            status_label.setText(
+                tr("msg.regex_error", error=self._last_pattern_error)
+                if self._last_pattern_error else tr("msg.no_results", query=pattern_text)
+            )
+            return False
+
+        lines = editor.text().split("\n")
+        matching = {
+            line: self._smart_line_matches(line_text, patterns)
+            for line, line_text in enumerate(lines)
+        }
+        matching = {line: matches for line, matches in matching.items() if matches}
+        if not matching:
+            status_label.setText(tr("msg.no_results", query=pattern_text))
+            return False
+
+        current_line, current_col = editor.getCursorPosition()
+        current_line = max(0, min(current_line, len(lines) - 1))
+        cursor_char = len(
+            lines[current_line].encode("utf-8")[:current_col].decode("utf-8", "ignore")
+        )
+        candidate = None
+        if forward:
+            for line in range(current_line, len(lines)):
+                matches = matching.get(line)
+                if matches and (line != current_line
+                                or all(m.start() >= cursor_char for m in matches)):
+                    candidate = (line, matches)
+                    break
+            if candidate is None and flags.get("wrap"):
+                for line in range(0, current_line + 1):
+                    matches = matching.get(line)
+                    if matches and (line != current_line
+                                    or any(m.start() < cursor_char for m in matches)):
+                        candidate = (line, matches)
+                        break
+        else:
+            for line in range(current_line, -1, -1):
+                matches = matching.get(line)
+                if matches and (line != current_line
+                                or all(m.end() <= cursor_char for m in matches)):
+                    candidate = (line, matches)
+                    break
+            if candidate is None and flags.get("wrap"):
+                for line in range(len(lines) - 1, current_line - 1, -1):
+                    matches = matching.get(line)
+                    if matches and (line != current_line
+                                    or any(m.end() > cursor_char for m in matches)):
+                        candidate = (line, matches)
+                        break
+
+        if candidate is None:
+            status_label.setText(tr("msg.no_results", query=pattern_text))
+            return False
+        line, matches = candidate
+        self._highlight_smart_match(editor, line, matches)
+        status_label.setText("")
+        return True
 
     def _current_editor(self) -> Optional[EditorWidget]:
         return self._mw._tab_manager.current_editor()
@@ -975,6 +1103,12 @@ ESEMPI
 
         flags = flags or self._get_flags()
         status_label = status_label or self._lbl_status
+        if flags.get("smart_search") and len(text.split()) >= 2:
+            if highlight_all:
+                editor.clear_indicator(INDICATOR_MARK1)
+                self._highlight_all(editor, text, flags, INDICATOR_MARK1)
+            return self._do_smart_find(editor, text, flags, forward, status_label)
+
         # Se in_selection è attivo e c'è testo selezionato, limita la ricerca
         # alla selezione usando setTargetRange di QScintilla
         if flags.get("in_selection") and editor.hasSelectedText():
@@ -1336,8 +1470,11 @@ ESEMPI
         if not pattern_text:
             self._lbl_status.setText("")
             return
-        compiled = self._build_pattern(pattern_text, flags)
-        if compiled is None:
+        smart_patterns = self._smart_patterns(pattern_text, flags) \
+            if flags.get("smart_search") else None
+        compiled = (None if smart_patterns is not None
+                    else self._build_pattern(pattern_text, flags))
+        if smart_patterns == [] or (smart_patterns is None and compiled is None):
             if self._last_pattern_error:
                 self._lbl_status.setText(
                     tr("msg.regex_error", error=self._last_pattern_error))
@@ -1356,12 +1493,18 @@ ESEMPI
         _MAX_ITEMS = 2_000
         truncated = False
         for line_idx, line_text in enumerate(lines):
-            line_matches = list(compiled.finditer(line_text))
+            if smart_patterns is not None:
+                line_matches = self._smart_line_matches(line_text, smart_patterns)
+                if line_matches:
+                    count += 1
+            else:
+                line_matches = list(compiled.finditer(line_text))
+                count += len(line_matches)
             if not line_matches:
                 continue
-            # Count all occurrences but add only one list entry per line
-            # (standard behaviour: Notepad++, VS Code, Sublime Text).
-            count += len(line_matches)
+            # Count all normal occurrences but add only one list entry per line
+            # (standard behaviour: Notepad++, VS Code, Sublime Text). Smart
+            # search counts matching lines, since all terms form one result.
             if len(items_to_add) < _MAX_ITEMS:
                 m = line_matches[0]
                 item = QTreeWidgetItem([str(line_idx + 1), ""])
@@ -1595,6 +1738,26 @@ ESEMPI
         """Evidenzia tutte le occorrenze con un indicatore. Restituisce il count."""
         editor.clear_indicator(indicator)
         text = editor.text()
+        smart_patterns = self._smart_patterns(pattern, flags) \
+            if flags.get("smart_search") else None
+        if smart_patterns is not None:
+            if not smart_patterns:
+                return 0
+            count = 0
+            for line, line_text in enumerate(text.split("\n")):
+                matches = self._smart_line_matches(line_text, smart_patterns)
+                if not matches:
+                    continue
+                count += 1
+                for match in matches:
+                    start = editor.char_col_to_byte_col(line, match.start()) \
+                        if hasattr(editor, "char_col_to_byte_col") else match.start()
+                    end = editor.char_col_to_byte_col(line, match.end()) \
+                        if hasattr(editor, "char_col_to_byte_col") else match.end()
+                    if end > start:
+                        editor.fillIndicatorRange(line, start, line, end, indicator)
+            return count
+
         compiled = self._build_pattern(pattern, flags)
         if compiled is None:
             return 0

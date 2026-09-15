@@ -175,6 +175,80 @@ class FindReplaceSelectionTest(unittest.TestCase):
         self.assertIsNone(editor.selection)
 
 
+class SmartSearchTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.dialog = FindReplaceDialog.__new__(FindReplaceDialog)
+
+    def test_smart_search_requires_all_terms_on_one_line(self):
+        patterns = self.dialog._smart_patterns(
+            "armatura prova di magia",
+            {"case_sensitive": False, "whole_word": False, "regex": False},
+        )
+
+        self.assertIsNotNone(patterns)
+        self.assertTrue(
+            self.dialog._smart_line_matches(
+                "armatura con parole nel mezzo prova di magia", patterns
+            )
+        )
+        self.assertFalse(
+            self.dialog._smart_line_matches("armatura su una riga", patterns)
+        )
+        self.assertFalse(
+            self.dialog._smart_line_matches("prova di magia su un'altra riga", patterns)
+        )
+
+    def test_smart_search_respects_whole_word(self):
+        patterns = self.dialog._smart_patterns(
+            "armatura magia",
+            {"case_sensitive": False, "whole_word": True, "regex": False},
+        )
+
+        self.assertFalse(
+            self.dialog._smart_line_matches("armaturata e magia", patterns)
+        )
+        self.assertTrue(
+            self.dialog._smart_line_matches("armatura e magia", patterns)
+        )
+
+    def test_smart_search_navigates_matching_lines(self):
+        editor = EditorWidget()
+        editor.load_content(
+            "armatura con testo prova di magia\n"
+            "nessuna corrispondenza\n"
+            "prova di magia e armatura\n",
+            "UTF-8",
+        )
+        self.addCleanup(editor.deleteLater)
+        editor.setCursorPosition(0, 0)
+        flags = {
+            "case_sensitive": False,
+            "whole_word": False,
+            "regex": False,
+            "wrap": True,
+            "smart_search": True,
+        }
+        status = QLabel()
+
+        self.assertTrue(
+            self.dialog._do_smart_find(
+                editor, "armatura prova di magia", flags, True, status
+            )
+        )
+        self.assertEqual(editor.getSelection()[0], 0)
+
+        self.assertTrue(
+            self.dialog._do_smart_find(
+                editor, "armatura prova di magia", flags, True, status
+            )
+        )
+        self.assertEqual(editor.getSelection()[0], 2)
+
+
 class UnicodeCoordinateTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

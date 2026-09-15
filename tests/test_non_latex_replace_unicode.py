@@ -141,8 +141,6 @@ class FindReplaceSelectionTest(unittest.TestCase):
 
             def setCursorPosition(self, line, column):
                 self.position = (line, column)
-
-            def clearSelection(self):
                 self.selection = None
 
             def setSelection(self, line, column, end_line, end_column):

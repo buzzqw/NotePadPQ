@@ -1242,7 +1242,9 @@ ESEMPI
                 # Auto-refresh may update highlights, but must not hijack the
                 # cursor while the user is editing the document.
                 if selection is None:
-                    editor.clearSelection()
+                    clear_selection = getattr(editor, "clearSelection", None)
+                    if callable(clear_selection):
+                        clear_selection()
                     editor.setCursorPosition(cursor_line, cursor_col)
                 else:
                     editor.setSelection(*selection)

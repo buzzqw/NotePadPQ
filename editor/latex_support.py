@@ -19,12 +19,25 @@ Uso:
 from __future__ import annotations
 
 import re
-import threading
-import bisect
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtCore import QTimer
+
+from core.latex_parser import (
+    extract_label_reference_occurrences,
+    extract_sections,
+    is_latex_escaped as _is_escaped,
+    label_reference_tokens as _label_reference_tokens,
+    read_latex_group,
+    strip_latex_comments,
+)
+from core.latex_project import (
+    collect_included_files,
+    invalidate_cached_text,
+    read_cached_text,
+    read_cached_text_stripped,
+)
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -33,11 +46,6 @@ if TYPE_CHECKING:
 # ─── Regex compilate a livello modulo (usa frequente: ~100-10k chiamate/sessione)
 
 _RE_BEGIN_END       = re.compile(r'\\(begin|end)\{([^}]+)\}')
-_RE_INCLUDE_INPUT   = re.compile(
-    r'\\(?:input|include|subfile)\*?\s*\{([^}]+)\}'
-    r'|\\(?:import|subimport|includefrom|subinputfrom)\*?\s*'
-    r'\{([^}]*)\}\s*\{([^}]+)\}'
-)
 _PACKAGE_OPTIONS_RE = re.compile(
     r'\\(?:usepackage|RequirePackage|documentclass)'
     r'(?:\[([^\]]*)\])?\s*\{([^}]+)\}'
@@ -53,358 +61,10 @@ _MATH_ENV_NAMES = frozenset({
     "split", "cases", "alignat", "flalign", "subequations",
 })
 
-# ─── Cache file per progetti multi-file ────────────────────────────────────────
-#
-# Il checker LaTeX live (editor/latex_checker.py, ogni 1.5s) e il rebuild
-# dell'autocompletamento (editor/autocomplete.py, ogni 2-3s) chiamano più
-# volte per ciclo le funzioni *_multifile qui sotto, ciascuna delle quali
-# percorre l'intero albero \input/\include e rilegge ogni file coinvolto.
-# Senza cache, un progetto con N file inclusi genera ~8-10×N letture da
-# disco ad ogni pausa di battitura — molto pesante su cartelle sincronizzate
-# (Dropbox, unità di rete). Questa cache, basata su mtime e condivisa da
-# tutte le funzioni sotto, elimina la rilettura dei file non modificati.
-# I due worker girano su QThread separati: il lock evita corse sulla cache.
-
-_MAX_CACHE_SIZE = 128
-
-_file_cache_lock = threading.Lock()
-_file_cache: dict[Path, tuple[float, str]] = {}
-_cache_keys: list[Path] = []
-
-
-def _is_escaped(text: str, pos: int) -> bool:
-    """Return whether the character at ``pos`` has an odd slash prefix."""
-    slashes = 0
-    pos -= 1
-    while pos >= 0 and text[pos] == "\\":
-        slashes += 1
-        pos -= 1
-    return bool(slashes % 2)
-
-
-def strip_latex_comments(text: str) -> str:
-    """Remove TeX comments while respecting odd/even backslash escaping."""
-    out: list[str] = []
-    in_comment = False
-    for ch in text:
-        if ch == "\n":
-            in_comment = False
-            out.append(ch)
-        elif in_comment:
-            continue
-        elif ch == "%":
-            slash_count = 0
-            idx = len(out) - 1
-            while idx >= 0 and out[idx] == "\\":
-                slash_count += 1
-                idx -= 1
-            if slash_count % 2 == 0:
-                in_comment = True
-            else:
-                out.append(ch)
-        else:
-            out.append(ch)
-    return "".join(out)
-
-
-_LABEL_COMMANDS = frozenset({"label"})
-_REFERENCE_COMMANDS = frozenset({
-    "ref", "eqref", "pageref", "cref", "Cref", "autoref", "nameref",
-    "vref", "vpageref", "cpageref", "labelcref", "namecref", "nameCref",
-    "namecrefs", "lcnamecref", "crefrange", "fullref", "hyperref",
-})
-_MULTI_REFERENCE_COMMANDS = frozenset({"crefrange"})
-_OPAQUE_GROUP_COMMANDS = frozenset({
-    "url", "path", "nolinkurl", "texttt", "textsf", "textrm", "textit",
-    "textbf", "textrup", "textnormal", "emph", "mbox", "fbox",
-})
-_VERBATIM_COMMANDS = frozenset({"verb", "Verb", "lstinline", "mintinline"})
-_OPAQUE_ENVIRONMENTS = frozenset({
-    "verbatim", "verbatim*", "Verbatim", "BVerbatim", "lstlisting",
-    "minted", "comment",
-})
-
-
-def _read_latex_group(text: str, start: int) -> Optional[tuple[int, int]]:
-    """Return the content span of a balanced group starting at ``start``."""
-    if start >= len(text) or text[start] != "{":
-        return None
-    depth = 1
-    i = start + 1
-    while i < len(text):
-        if text[i] == "%" and not _is_escaped(text, i):
-            newline = text.find("\n", i)
-            i = len(text) if newline < 0 else newline + 1
-            continue
-        if text[i] == "\\" and i + 1 < len(text):
-            i += 2
-            continue
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return start + 1, i
-        i += 1
-    return None
-
-
-def _skip_latex_space(text: str, start: int) -> int:
-    """Skip whitespace and comments between a command and its argument."""
-    i = start
-    while i < len(text):
-        if text[i].isspace():
-            i += 1
-        elif text[i] == "%" and not _is_escaped(text, i):
-            newline = text.find("\n", i)
-            i = len(text) if newline < 0 else newline + 1
-        else:
-            break
-    return i
-
-
-def _skip_latex_bracket_group(text: str, start: int) -> int:
-    """Skip one simple optional ``[...]`` argument, returning its end."""
-    if start >= len(text) or text[start] != "[":
-        return start
-    depth = 1
-    i = start + 1
-    while i < len(text):
-        if text[i] == "\\" and i + 1 < len(text):
-            i += 2
-            continue
-        if text[i] == "[":
-            depth += 1
-        elif text[i] == "]":
-            depth -= 1
-            if depth == 0:
-                return i + 1
-        i += 1
-    return len(text)
-
-
-def _skip_latex_opaque_command(text: str, name: str, start: int) -> int:
-    """Skip verbatim/string-like command content."""
-    i = _skip_latex_space(text, start)
-    if i < len(text) and text[i] == "*":
-        i = _skip_latex_space(text, i + 1)
-    if name == "mintinline":
-        i = _skip_latex_bracket_group(text, i)
-        i = _skip_latex_space(text, i)
-        language = _read_latex_group(text, i)
-        if language is not None:
-            i = language[1] + 1
-        i = _skip_latex_space(text, i)
-    elif name == "lstinline":
-        i = _skip_latex_bracket_group(text, i)
-        i = _skip_latex_space(text, i)
-    if i >= len(text):
-        return i
-    delimiter = text[i]
-    end = text.find(delimiter, i + 1)
-    return len(text) if end < 0 else end + 1
-
-
-def _skip_latex_opaque_environment(text: str, start: int, name: str) -> int:
-    """Skip a verbatim-like environment, including its matching end token."""
-    i = start
-    while i < len(text):
-        if text[i] == "%" and not _is_escaped(text, i):
-            newline = text.find("\n", i)
-            i = len(text) if newline < 0 else newline + 1
-            continue
-        if text[i] != "\\":
-            i += 1
-            continue
-        command_start = i
-        i += 1
-        if not text.startswith("end", i) or (
-                i + 3 < len(text) and
-                (text[i + 3].isalpha() or text[i + 3] == "@")):
-            continue
-        group = _read_latex_group(text, _skip_latex_space(text, i + 3))
-        if group is not None and text[group[0]:group[1]].strip() == name:
-            return group[1] + 1
-        i = max(i, command_start + 1)
-    return len(text)
-
-
-def _label_reference_tokens(text: str) -> list[dict]:
-    """Scan exact label/reference commands outside comments and string content."""
-    tokens: list[dict] = []
-    i = 0
-    while i < len(text):
-        if text[i] == "%" and not _is_escaped(text, i):
-            newline = text.find("\n", i)
-            i = len(text) if newline < 0 else newline + 1
-            continue
-        if text[i] != "\\":
-            i += 1
-            continue
-
-        command_start = i
-        i += 1
-        if i >= len(text):
-            break
-        if not text[i].isalpha() and text[i] != "@":
-            i += 1
-            continue
-        name_start = i
-        while i < len(text) and (text[i].isalpha() or text[i] == "@"):
-            i += 1
-        name = text[name_start:i]
-
-        if name in _VERBATIM_COMMANDS:
-            i = _skip_latex_opaque_command(text, name, i)
-            continue
-        if name in _OPAQUE_GROUP_COMMANDS:
-            group_start = _skip_latex_space(text, i)
-            group = _read_latex_group(text, group_start)
-            i = len(text) if group is None else group[1] + 1
-            continue
-        if name == "begin":
-            group = _read_latex_group(text, _skip_latex_space(text, i))
-            if group is not None:
-                environment = text[group[0]:group[1]].strip()
-                if environment in _OPAQUE_ENVIRONMENTS:
-                    i = _skip_latex_opaque_environment(text, group[1] + 1, environment)
-                    continue
-        if name not in _LABEL_COMMANDS and name not in _REFERENCE_COMMANDS:
-            continue
-
-        argument_start = _skip_latex_space(text, i + (text[i:i + 1] == "*"))
-        groups: list[tuple[int, int]] = []
-        group_limit = 1 if name not in _MULTI_REFERENCE_COMMANDS else 2
-        while len(groups) < group_limit:
-            group = _read_latex_group(text, argument_start)
-            if group is None:
-                break
-            groups.append(group)
-            argument_start = _skip_latex_space(text, group[1] + 1)
-
-        if name == "hyperref":
-            # hyperref uses an optional label argument, unlike the commands above.
-            bracket_start = _skip_latex_space(text, i)
-            if bracket_start < len(text) and text[bracket_start] == "[":
-                bracket_end = _skip_latex_bracket_group(text, bracket_start)
-                content_start = bracket_start + 1
-                content_end = max(content_start, bracket_end - 1)
-                if bracket_end > content_start:
-                    tokens.extend(_split_reference_argument(
-                        text, content_start, content_end, command_start,
-                    ))
-                i = bracket_end
-            continue
-
-        if name == "label" and groups:
-            content_start, content_end = groups[0]
-            key = text[content_start:content_end].strip()
-            if key:
-                key_start = content_start + (len(text[content_start:content_end]) -
-                                             len(text[content_start:content_end].lstrip()))
-                tokens.append({
-                    "kind": "label", "key": key,
-                    "start": key_start, "end": key_start + len(key),
-                    "command_start": command_start,
-                })
-        elif name in _REFERENCE_COMMANDS:
-            for content_start, content_end in groups:
-                tokens.extend(_split_reference_argument(
-                    text, content_start, content_end, command_start,
-                ))
-        i = max(i, argument_start)
-    return tokens
-
-
-def _split_reference_argument(text: str, start: int, end: int,
-                               command_start: int) -> list[dict]:
-    tokens: list[dict] = []
-    part_start = start
-    for pos in range(start, end + 1):
-        if pos != end and text[pos] != ",":
-            continue
-        raw_start, raw_end = part_start, pos
-        while raw_start < raw_end and text[raw_start].isspace():
-            raw_start += 1
-        while raw_end > raw_start and text[raw_end - 1].isspace():
-            raw_end -= 1
-        if raw_start < raw_end:
-            tokens.append({
-                "kind": "reference", "key": text[raw_start:raw_end],
-                "start": raw_start, "end": raw_end,
-                "command_start": command_start,
-            })
-        part_start = pos + 1
-    return tokens
-
-
-def _cached_read_text(path: Path) -> str:
-    """Legge `path` riusando il contenuto in cache se l'mtime non è cambiato."""
-    mtime = path.stat().st_mtime
-    with _file_cache_lock:
-        cached = _file_cache.get(path)
-        if cached is not None and cached[0] == mtime:
-            if path in _cache_keys:
-                _cache_keys.remove(path)
-            _cache_keys.append(path)
-            return cached[1]
-        while len(_cache_keys) >= _MAX_CACHE_SIZE:
-            old = _cache_keys.pop(0)
-            _file_cache.pop(old, None)
-    text = path.read_text(encoding="utf-8", errors="replace")
-    with _file_cache_lock:
-        _file_cache[path] = (mtime, text)
-        if path in _cache_keys:
-            _cache_keys.remove(path)
-        _cache_keys.append(path)
-    return text
-
-
-_stripped_cache_lock = threading.Lock()
-_stripped_cache: dict[Path, tuple[float, str]] = {}
-_stripped_cache_keys: list[Path] = []
-
-
-def _cached_read_text_stripped(path: Path) -> str:
-    """Come `_cached_read_text`, ma restituisce il testo già privato dei
-    commenti (`strip_latex_comments`), cachato per path+mtime.
-
-    `strip_latex_comments` è uno scan carattere per carattere in puro
-    Python: economico su un singolo file, ma le funzioni `*_multifile`
-    (ambienti custom, pacchetti, `collect_project_files`) lo richiamano
-    ciascuna sullo stesso file invariato a ogni trigger di completamento
-    LaTeX — su documenti grandi la somma di queste ripetizioni diventava
-    uno stallo percettibile a ogni `\\beg`/`\\end` digitato.
-    """
-    mtime = path.stat().st_mtime
-    with _stripped_cache_lock:
-        cached = _stripped_cache.get(path)
-        if cached is not None and cached[0] == mtime:
-            if path in _stripped_cache_keys:
-                _stripped_cache_keys.remove(path)
-            _stripped_cache_keys.append(path)
-            return cached[1]
-        while len(_stripped_cache_keys) >= _MAX_CACHE_SIZE:
-            old = _stripped_cache_keys.pop(0)
-            _stripped_cache.pop(old, None)
-    stripped = strip_latex_comments(_cached_read_text(path))
-    with _stripped_cache_lock:
-        _stripped_cache[path] = (mtime, stripped)
-        if path in _stripped_cache_keys:
-            _stripped_cache_keys.remove(path)
-        _stripped_cache_keys.append(path)
-    return stripped
-
-
-def _invalidate_cached_text(path: Path) -> None:
-    with _stripped_cache_lock:
-        _stripped_cache.pop(path, None)
-        if path in _stripped_cache_keys:
-            _stripped_cache_keys.remove(path)
-    with _file_cache_lock:
-        _file_cache.pop(path, None)
-        if path in _cache_keys:
-            _cache_keys.remove(path)
+_cached_read_text = read_cached_text
+_cached_read_text_stripped = read_cached_text_stripped
+_invalidate_cached_text = invalidate_cached_text
+_read_latex_group = read_latex_group
 
 
 # ─── Ambienti LaTeX standard ─────────────────────────────────────────────────
@@ -1777,17 +1437,7 @@ class LaTeXSupport:
     @staticmethod
     def extract_label_reference_occurrences(text: str) -> list[dict]:
         """Return exact label/ref occurrences outside comments and strings."""
-        occurrences: list[dict] = []
-        newline_positions = [match.start() for match in re.finditer("\n", text)]
-        for token in _label_reference_tokens(text):
-            occurrence = dict(token)
-            position = occurrence["start"]
-            line = bisect.bisect_left(newline_positions, position)
-            occurrence["line"] = line
-            previous_newline = newline_positions[line - 1] if line else -1
-            occurrence["column"] = position if previous_newline < 0 else position - previous_newline - 1
-            occurrences.append(occurrence)
-        return occurrences
+        return extract_label_reference_occurrences(text)
 
     @staticmethod
     def _label_reference_sources(text: str,
@@ -2207,20 +1857,7 @@ class LaTeXSupport:
         Estrae la struttura del documento.
         Restituisce lista di (tipo, titolo, riga_0based).
         """
-        sections: list[tuple[str, str, int]] = []
-        text = strip_latex_comments(text)
-        _cmds = [
-            "part", "chapter", "section", "subsection",
-            "subsubsection", "paragraph", "subparagraph",
-        ]
-        pattern = re.compile(
-            r'\\(' + '|'.join(_cmds) + r')\*?(?:\[([^]]*)\])?\{([^}]*)\}'
-        )
-        for i, line in enumerate(text.split("\n")):
-            for m in pattern.finditer(line):
-                title = m.group(2) if m.group(2) is not None else m.group(3)
-                sections.append((m.group(1), title, i))
-        return sections
+        return extract_sections(text)
 
     @staticmethod
     def get_package_commands(packages: list[str],
@@ -2277,6 +1914,7 @@ class LaTeXSupport:
     @staticmethod
     def _get_env_usage_counts() -> dict:
         import json
+
         from config.settings import Settings
         raw = Settings.instance().get("latex/env_usage_counts", "{}")
         try:
@@ -2289,6 +1927,7 @@ class LaTeXSupport:
         """Incrementa il contatore d'uso di env_name (persistito), usato per
         ordinare il popup \\begin{ con gli ambienti più usati in cima."""
         import json
+
         from config.settings import Settings
         counts = LaTeXSupport._get_env_usage_counts()
         counts[env_name] = counts.get(env_name, 0) + 1
@@ -2404,51 +2043,10 @@ class LaTeXSupport:
             return []
         try:
             from core.latex_project import resolve_project_root
-            resolved = Path(tex_path).resolve()
-            root = resolve_project_root(resolved)
-            if root.is_file():
-                tex_path = root
+            root = resolve_project_root(Path(tex_path).resolve())
         except (OSError, RuntimeError, ValueError):
-            pass
-        visited: set[Path] = set()
-        result: list[Path] = []
-
-        def _resolve_include(base_dir: Path, ref: str) -> Optional[Path]:
-            candidate = base_dir / ref.strip()
-            options = [candidate]
-            if candidate.suffix == "":
-                options.extend(candidate.with_suffix(ext)
-                               for ext in (".tex", ".ltx", ".latex"))
-            for option in options:
-                try:
-                    resolved = option.resolve()
-                except OSError:
-                    continue
-                if resolved.is_file():
-                    return resolved
-            return None
-
-        def _collect(path: Path, depth: int) -> None:
-            if depth > max_depth or path in visited:
-                return
-            visited.add(path)
-            result.append(path)
-            try:
-                stripped_text = _cached_read_text_stripped(path)
-            except Exception:
-                return
-            for m in _RE_INCLUDE_INPUT.finditer(stripped_text):
-                if m.group(1) is not None:
-                    include_dir, ref = path.parent, m.group(1)
-                else:
-                    include_dir = path.parent / m.group(2).strip()
-                    ref = m.group(3)
-                ref_path = _resolve_include(include_dir, ref)
-                if ref_path is not None:
-                    _collect(ref_path, depth + 1)
-
-        _collect(Path(tex_path).resolve(), 0)
-        return result
+            root = Path(tex_path).resolve()
+        return collect_included_files(root, max_depth=max_depth)
 
     @staticmethod
     def extract_labels_multifile(tex_path: Optional[Path]) -> list[str]:

@@ -12,10 +12,20 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.bibtex_parser import find_bibtex_keys
 from core.latex_citations import extract_latex_citation_occurrences
-from editor.latex_support import LaTeXSupport, strip_latex_comments
+from core.latex_parser import (
+    extract_label_reference_occurrences,
+    extract_sections,
+    mask_latex_comments,
+    read_latex_group,
+    strip_latex_comments,
+)
+from core.latex_project import (
+    collect_included_files,
+    read_cached_text,
+)
 
-_BIB_ENTRY_RE = re.compile(r"@[A-Za-z][\w-]*\s*[({]\s*([^,\s]+)\s*,")
 _BIBITEM_RE = re.compile(r"\\bibitem(?:\[[^]]*\])?\s*\{([^}]+)\}")
 _COMMAND_RE = re.compile(r"\\([A-Za-z@]+)")
 _TEX_EXTENSIONS = (".tex", ".ltx", ".latex")
@@ -127,23 +137,7 @@ class LatexReferencesAnalysis:
         return self.duplicates
 
 
-def _balanced_group(text: str, start: int) -> tuple[int, int] | None:
-    if start >= len(text) or text[start] != "{":
-        return None
-    depth = 1
-    index = start + 1
-    while index < len(text):
-        if text[index] == "\\":
-            index += 2
-            continue
-        if text[index] == "{":
-            depth += 1
-        elif text[index] == "}":
-            depth -= 1
-            if depth == 0:
-                return start + 1, index
-        index += 1
-    return None
+_balanced_group = read_latex_group
 
 
 def _command_name(text: str, position: int) -> str:
@@ -156,25 +150,7 @@ def _line_column(text: str, position: int) -> tuple[int, int]:
     return text.count("\n", 0, position) + 1, position - line_start
 
 
-def _masked_comments(text: str) -> str:
-    """Mask comments without changing offsets used for navigation."""
-    chars = list(text)
-    in_comment = False
-    for index, char in enumerate(text):
-        if char == "\n":
-            in_comment = False
-        elif in_comment:
-            chars[index] = " "
-        elif char == "%":
-            slashes = 0
-            previous = index - 1
-            while previous >= 0 and text[previous] == "\\":
-                slashes += 1
-                previous -= 1
-            if slashes % 2 == 0:
-                chars[index] = " "
-                in_comment = True
-    return "".join(chars)
+_masked_comments = mask_latex_comments
 
 
 def _source_texts(
@@ -194,7 +170,7 @@ def _source_texts(
     except (OSError, RuntimeError, ValueError):
         pass
 
-    paths = LaTeXSupport.collect_project_files(root, max_depth=max_depth)
+    paths = collect_included_files(root, max_depth=max_depth)
     if not paths and root != current and current.is_file():
         paths = [current]
     elif not paths and (current.is_file() or content is not None):
@@ -339,10 +315,10 @@ def _parse_include_entries(path: Path, text: str) -> tuple[list[LatexInclude], l
 
 def _bib_keys(path: Path) -> set[str]:
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = read_cached_text(path)
     except OSError:
         return set()
-    return set(_BIB_ENTRY_RE.findall(strip_latex_comments(text)))
+    return set(find_bibtex_keys(text))
 
 
 def analyze_latex_project(
@@ -366,7 +342,7 @@ def analyze_latex_project(
     sections: list[LatexSection] = []
 
     for path, text in sources:
-        for kind, title, line in LaTeXSupport.extract_sections(text):
+        for kind, title, line in extract_sections(text):
             sections.append(LatexSection(
                 title=title.strip(),
                 kind=kind,
@@ -377,7 +353,7 @@ def analyze_latex_project(
                 }.get(kind, 0),
                 location=LatexLocation(path, line + 1, 0),
             ))
-        for occurrence in LaTeXSupport.extract_label_reference_occurrences(text):
+        for occurrence in extract_label_reference_occurrences(text):
             location = LatexLocation(
                 path, occurrence["line"] + 1, occurrence["column"],
                 occurrence["column"] + len(occurrence["key"]),

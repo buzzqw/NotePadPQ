@@ -6,20 +6,35 @@ Pattern: segue la struttura di LaTeXWizardDialog (QDialog con tab, anteprima, In
 """
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
 import re
-from typing import Optional, TYPE_CHECKING
+from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import urlsplit
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QComboBox, QFormLayout, QLineEdit, QPlainTextEdit,
-    QGroupBox, QPushButton, QLabel, QWidget, QMessageBox,
-    QApplication,
-)
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
+from core.bibtex_parser import (
+    find_bibtex_entry_end as _find_entry_end,
+    find_bibtex_keys,
+    split_bibtex_items as _split_bibtex_items,
+)
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -130,7 +145,6 @@ FIELD_LABELS = {
 
 
 _DOI_RE = re.compile(r"^10\.\d{4,9}/\S+$", re.IGNORECASE)
-_ENTRY_HEADER_RE = re.compile(r"@([A-Za-z][\w-]*)\s*([{(])")
 _ENTRY_TYPE_RE = re.compile(r"^[A-Za-z][\w-]*$")
 
 
@@ -222,29 +236,6 @@ def normalize_bibtex_record(
     return normalized
 
 
-def find_bibtex_keys(text: str) -> list[str]:
-    """Extract entry keys from BibTeX/BibLaTeX text without opening files."""
-    # A commented-out entry must not make the current key look duplicated.
-    uncommented = re.sub(r"(?<!\\)%[^\r\n]*", "", text or "")
-    ignored = {"comment", "preamble", "string"}
-    keys: list[str] = []
-    index = 0
-    while index < len(uncommented):
-        match = _ENTRY_HEADER_RE.match(uncommented, index)
-        if not match:
-            index += 1
-            continue
-        end = _find_entry_end(uncommented, match.end() - 1, match.group(2))
-        if end is None:
-            index = match.end()
-            continue
-        parts = _split_bibtex_items(uncommented[match.end():end])
-        if match.group(1).lower() not in ignored and parts and parts[0].strip():
-            keys.append(parts[0].strip())
-        index = end + 1
-    return keys
-
-
 def find_duplicate_keys(keys: Iterable[str] | str) -> list[str]:
     """Return duplicate keys once each, preserving their first-seen order."""
     if isinstance(keys, str):
@@ -315,55 +306,6 @@ def validate_bibtex_record(
         if bib_key and bib_key in duplicate_keys:
             errors.append(f"Duplicate BibTeX key: {bib_key}")
     return errors
-
-
-def _split_bibtex_items(text: str) -> list[str]:
-    """Split an entry body on top-level commas, respecting braces and quotes."""
-    items: list[str] = []
-    start = 0
-    depth = 0
-    quoted = False
-    escaped = False
-    for index, char in enumerate(text):
-        if escaped:
-            escaped = False
-            continue
-        if char == "\\":
-            escaped = True
-        elif char == '"':
-            quoted = not quoted
-        elif not quoted and char in "{(":
-            depth += 1
-        elif not quoted and char in "})":
-            depth = max(0, depth - 1)
-        elif char == "," and not quoted and depth == 0:
-            items.append(text[start:index])
-            start = index + 1
-    items.append(text[start:])
-    return items
-
-
-def _find_entry_end(text: str, opening_index: int, opening: str) -> Optional[int]:
-    closing = "}" if opening == "{" else ")"
-    depth = 0
-    quoted = False
-    escaped = False
-    for index in range(opening_index, len(text)):
-        char = text[index]
-        if escaped:
-            escaped = False
-            continue
-        if char == "\\":
-            escaped = True
-        elif char == '"':
-            quoted = not quoted
-        elif not quoted and char == opening:
-            depth += 1
-        elif not quoted and char == closing:
-            depth -= 1
-            if depth == 0:
-                return index
-    return None
 
 
 def parse_bibtex_record(text: str) -> dict[str, str]:

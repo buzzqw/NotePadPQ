@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from core.latex_parser import (
+    is_latex_escaped,
+    mask_latex_comments,
+    read_latex_group,
+)
+
 _CITATION_COMMANDS = frozenset({
     "parencite", "parencites", "textcite", "textcites", "footcite",
     "footcites", "autocite", "autocites", "smartcite", "smartcites",
@@ -15,47 +21,9 @@ _OPAQUE_COMMANDS = frozenset({
 _VERBATIM_COMMANDS = frozenset({"verb", "Verb", "lstinline", "mintinline"})
 
 
-def _escaped(text: str, position: int) -> bool:
-    slashes = 0
-    position -= 1
-    while position >= 0 and text[position] == "\\":
-        slashes += 1
-        position -= 1
-    return bool(slashes % 2)
-
-
-def _scan(text: str) -> str:
-    chars = list(text)
-    in_comment = False
-    for index, char in enumerate(text):
-        if char == "\n":
-            in_comment = False
-        elif in_comment:
-            chars[index] = " "
-        elif char == "%" and not _escaped(text, index):
-            chars[index] = " "
-            in_comment = True
-    return "".join(chars)
-
-
-def _group(text: str, start: int, opening: str = "{") -> tuple[int, int] | None:
-    closing = "}" if opening == "{" else "]"
-    if start >= len(text) or text[start] != opening:
-        return None
-    depth = 1
-    index = start + 1
-    while index < len(text):
-        if text[index] == "\\":
-            index += 2
-            continue
-        if text[index] == opening:
-            depth += 1
-        elif text[index] == closing:
-            depth -= 1
-            if depth == 0:
-                return start + 1, index
-        index += 1
-    return None
+_escaped = is_latex_escaped
+_scan = mask_latex_comments
+_group = read_latex_group
 
 
 def extract_latex_citation_occurrences(text: str) -> list[dict]:

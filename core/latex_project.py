@@ -1,17 +1,20 @@
 """Contesto riutilizzabile per progetti LaTeX multi-file.
 
 Il modulo descrive il progetto senza avviare compilazione o anteprima. La
-raccolta degli inclusi delega a :mod:`editor.latex_support`, così parser,
-estensioni implicite e gestione dei cicli restano in un solo punto.
+raccolta degli inclusi e la cache dei sorgenti vivono qui, così il supporto
+Qt e l'analisi del progetto condividono un solo punto senza dipendenze
+circolari.
 """
 
 from __future__ import annotations
 
 import re
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
+from core.latex_parser import strip_latex_comments
 
 _TEX_EXTENSIONS = (".tex", ".ltx", ".latex")
 _ROOT_MARKER_RE = re.compile(
@@ -23,6 +26,19 @@ _LATEXMK_ROOT_RE = re.compile(
     r"(?:root_filename|default_files)\s*=\s*(?:\(\s*)?['\"]([^'\"(),\s]+)",
     re.IGNORECASE,
 )
+_INCLUDE_INPUT_RE = re.compile(
+    r'\\(?:input|include|subfile)\*?\s*\{([^}]+)\}'
+    r'|\\(?:import|subimport|includefrom|subinputfrom)\*?\s*'
+    r'\{([^}]*)\}\s*\{([^}]+)\}'
+)
+
+_MAX_CACHE_SIZE = 128
+_file_cache_lock = threading.Lock()
+_file_cache: dict[Path, tuple[float, str]] = {}
+_cache_keys: list[Path] = []
+_stripped_cache_lock = threading.Lock()
+_stripped_cache: dict[Path, tuple[float, str]] = {}
+_stripped_cache_keys: list[Path] = []
 
 
 def _resolved(path: str | Path) -> Path:
@@ -48,11 +64,60 @@ def _read_text(path: Path) -> str:
         return ""
 
 
-def _latex_code(text: str) -> str:
-    """Usa lo stesso trattamento dei commenti del supporto LaTeX esistente."""
-    from editor.latex_support import strip_latex_comments
+def read_cached_text(path: Path) -> str:
+    """Read a source file through the shared bounded LRU cache."""
+    mtime = path.stat().st_mtime
+    with _file_cache_lock:
+        cached = _file_cache.get(path)
+        if cached is not None and cached[0] == mtime:
+            if path in _cache_keys:
+                _cache_keys.remove(path)
+            _cache_keys.append(path)
+            return cached[1]
+        while len(_cache_keys) >= _MAX_CACHE_SIZE:
+            old = _cache_keys.pop(0)
+            _file_cache.pop(old, None)
+    text = path.read_text(encoding="utf-8", errors="replace")
+    with _file_cache_lock:
+        _file_cache[path] = (mtime, text)
+        if path in _cache_keys:
+            _cache_keys.remove(path)
+        _cache_keys.append(path)
+    return text
 
-    return strip_latex_comments(text)
+
+def read_cached_text_stripped(path: Path) -> str:
+    """Read a source file with comments removed through the shared cache."""
+    mtime = path.stat().st_mtime
+    with _stripped_cache_lock:
+        cached = _stripped_cache.get(path)
+        if cached is not None and cached[0] == mtime:
+            if path in _stripped_cache_keys:
+                _stripped_cache_keys.remove(path)
+            _stripped_cache_keys.append(path)
+            return cached[1]
+        while len(_stripped_cache_keys) >= _MAX_CACHE_SIZE:
+            old = _stripped_cache_keys.pop(0)
+            _stripped_cache.pop(old, None)
+    stripped = strip_latex_comments(read_cached_text(path))
+    with _stripped_cache_lock:
+        _stripped_cache[path] = (mtime, stripped)
+        if path in _stripped_cache_keys:
+            _stripped_cache_keys.remove(path)
+        _stripped_cache_keys.append(path)
+    return stripped
+
+
+def invalidate_cached_text(path: Path) -> None:
+    """Invalidate both cached representations of ``path``."""
+    with _stripped_cache_lock:
+        _stripped_cache.pop(path, None)
+        if path in _stripped_cache_keys:
+            _stripped_cache_keys.remove(path)
+    with _file_cache_lock:
+        _file_cache.pop(path, None)
+        if path in _cache_keys:
+            _cache_keys.remove(path)
 
 
 def _tex_candidate(base_dir: Path, reference: str | Path) -> Path:
@@ -88,9 +153,8 @@ def _ancestor_directories_bounded(directory: Path, max_depth: int = 8) -> Iterab
 
 
 def _is_document_root(path: Path) -> bool:
-    from editor.latex_support import _cached_read_text_stripped
     try:
-        stripped = _cached_read_text_stripped(path)
+        stripped = read_cached_text_stripped(path)
     except OSError:
         return False
     return bool(_DOCUMENTCLASS_RE.search(stripped))
@@ -150,9 +214,8 @@ def resolve_project_root(current_file: str | Path, content: str | None = None) -
         # path+mtime invece di rileggere il file da disco a ogni chiamata —
         # per un file di dimensioni non banali, ripetuto a ogni tasto
         # premuto in contesto \begin/\end, il costo diventava percepibile.
-        from editor.latex_support import _cached_read_text
         try:
-            source = _cached_read_text(current)
+            source = read_cached_text(current)
         except OSError:
             source = ""
     else:
@@ -187,13 +250,12 @@ def resolve_project_root(current_file: str | Path, content: str | None = None) -
                 return main.resolve()
 
     if content is None:
-        from editor.latex_support import _cached_read_text_stripped
         try:
-            stripped_source = _cached_read_text_stripped(current)
+            stripped_source = read_cached_text_stripped(current)
         except OSError:
             stripped_source = ""
     else:
-        stripped_source = _latex_code(source)
+        stripped_source = strip_latex_comments(source)
 
     if _DOCUMENTCLASS_RE.search(stripped_source):
         return current
@@ -208,12 +270,51 @@ def resolve_project_root(current_file: str | Path, content: str | None = None) -
 def collect_included_files(root_file: str | Path, max_depth: int = 5) -> list[Path]:
     """Raccoglie ``root_file`` e i sorgenti inclusi, in ordine di visita.
 
-    La logica di parsing è quella di ``LaTeXSupport.collect_project_files``;
-    sono quindi supportati gli stessi comandi e la stessa gestione dei cicli.
+    Il parser e la cache restano in questo modulo senza dipendenze dall'editor,
+    così analisi del progetto e supporto Qt usano la stessa implementazione.
     """
-    from editor.latex_support import LaTeXSupport
+    root = _resolved(root_file)
+    if not root.is_file():
+        return []
 
-    return LaTeXSupport.collect_project_files(_resolved(root_file), max_depth=max_depth)
+    visited: set[Path] = set()
+    result: list[Path] = []
+
+    def resolve_include(base_dir: Path, reference: str) -> Path | None:
+        candidate = base_dir / reference.strip()
+        options = [candidate]
+        if candidate.suffix == "":
+            options.extend(candidate.with_suffix(ext) for ext in _TEX_EXTENSIONS)
+        for option in options:
+            try:
+                resolved = option.resolve()
+            except OSError:
+                continue
+            if resolved.is_file():
+                return resolved
+        return None
+
+    def collect(path: Path, depth: int) -> None:
+        if depth > max_depth or path in visited:
+            return
+        visited.add(path)
+        result.append(path)
+        try:
+            stripped_text = read_cached_text_stripped(path)
+        except (OSError, UnicodeError):
+            return
+        for match in _INCLUDE_INPUT_RE.finditer(stripped_text):
+            if match.group(1) is not None:
+                include_dir, reference = path.parent, match.group(1)
+            else:
+                include_dir = path.parent / match.group(2).strip()
+                reference = match.group(3)
+            included = resolve_include(include_dir, reference)
+            if included is not None:
+                collect(included, depth + 1)
+
+    collect(root, 0)
+    return result
 
 
 def get_output_directory(root_file: str | Path, output_dir: str | Path | None = None) -> Path:
@@ -274,6 +375,9 @@ __all__ = [
     "collect_included_files",
     "expected_pdf_path",
     "get_output_directory",
+    "invalidate_cached_text",
+    "read_cached_text",
+    "read_cached_text_stripped",
     "resolve_project_root",
     "resolve_relative_path",
 ]

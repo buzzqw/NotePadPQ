@@ -1094,7 +1094,7 @@ class BuildManager(QObject):
     def detect_bibliography_backend(root_file: Path,
                                    current_content: str = "") -> str:
         """Rileva il backend bibliografico usato da un progetto LaTeX."""
-        from editor.latex_support import strip_latex_comments
+        from core.latex_parser import strip_latex_comments
 
         texts = [current_content]
         try:

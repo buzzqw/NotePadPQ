@@ -2261,9 +2261,12 @@ class MainWindow(QMainWindow):
                     if is_paged_tab else ""
                 )
 
-        # Aggiorna dock anteprima se visibile
-        # Aggiorna SEMPRE il dock anteprima, indipendentemente dalla visibilità di Qt
-        if hasattr(self, "_preview_panel_dock"):
+        # La preview nascosta non deve copiare/renderizzare documenti durante il
+        # ripristino della sessione. Quando il dock viene mostrato, il relativo
+        # handler ricollega l'editor corrente.
+        if (hasattr(self, "_preview_panel_dock") and
+                getattr(self, "_preview_dock", None) is not None and
+                self._preview_dock.isVisible()):
             self._preview_panel_dock.set_editor(editor)
 
         # Aggiorna pannello JSON/XML
@@ -2785,6 +2788,8 @@ class MainWindow(QMainWindow):
             dlg.close()
             paged_doc.path = target
             paged_doc.apply_save_result(new_start, new_end)
+            from core.latex_project import invalidate_cached_text
+            invalidate_cached_text(target.resolve())
             editor.file_path = target
             editor.mark_saved()
             self._on_tab_modified(editor, False)

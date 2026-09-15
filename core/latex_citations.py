@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import bisect
+
 from core.latex_parser import (
+    LatexOccurrence,
     is_latex_escaped,
     mask_latex_comments,
     read_latex_group,
@@ -26,10 +29,11 @@ _scan = mask_latex_comments
 _group = read_latex_group
 
 
-def extract_latex_citation_occurrences(text: str) -> list[dict]:
+def extract_latex_citation_occurrences(text: str) -> list[LatexOccurrence]:
     """Return citation key spans while preserving original source offsets."""
     scanned = _scan(text)
-    occurrences: list[dict] = []
+    occurrences: list[LatexOccurrence] = []
+    newline_positions = [index for index, char in enumerate(text) if char == "\n"]
     index = 0
     while index < len(scanned):
         if scanned[index] != "\\" or _escaped(scanned, index):
@@ -87,12 +91,14 @@ def extract_latex_citation_occurrences(text: str) -> list[dict]:
             while key_end > key_start and scanned[key_end - 1].isspace():
                 key_end -= 1
             if key_start < key_end:
+                line = bisect.bisect_left(newline_positions, key_start)
+                previous_newline = newline_positions[line - 1] if line else -1
                 occurrences.append({
                     "kind": "citation", "key": text[key_start:key_end],
                     "start": key_start, "end": key_end,
                     "command_start": command_start,
-                    "line": text.count("\n", 0, key_start),
-                    "column": key_start - text.rfind("\n", 0, key_start) - 1,
+                    "line": line,
+                    "column": key_start if previous_newline < 0 else key_start - previous_newline - 1,
                 })
             part_start = position + 1
         index = group[1] + 1

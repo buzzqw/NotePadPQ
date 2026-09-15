@@ -128,7 +128,20 @@ def _results_stylesheet() -> str:
         background-color: {c['hdr_bg']}; color: {c['hdr_fg']};
         padding: 4px; border: 1px solid {c['border']}; font-weight: bold;
     }}
-"""
+    """
+
+
+def _nearest_result_index(result_lines: list[int], cursor_line: int) -> int | None:
+    """Return the result nearest to ``cursor_line``, preferring forward ties."""
+    if not result_lines:
+        return None
+    return min(
+        range(len(result_lines)),
+        key=lambda index: (
+            abs(result_lines[index] - cursor_line),
+            0 if result_lines[index] >= cursor_line else 1,
+        ),
+    )
 
 
 # ─── FindInFiles Worker (thread background) ─────────────────────────────────
@@ -344,6 +357,7 @@ class FindReplaceDialog(QWidget):
         self._fif_rif_mw2: Optional[ManagedWorker] = None
         self._fif_total_matches = 0
         self._observed_editor = None
+        self._find_anchor_line: int | None = None
         self._find_results_refresh_timer = QTimer(self)
         self._find_results_refresh_timer.setSingleShot(True)
         self._find_results_refresh_timer.setInterval(250)
@@ -1117,6 +1131,7 @@ ESEMPI
             pass
         self._cancel_find_in_files()
         self._find_results_refresh_timer.stop()
+        self._find_anchor_line = None
         if self._fif_rif_mw is not None:
             self._fif_rif_mw.worker.cancel()
             self._fif_rif_mw.stop()
@@ -1145,13 +1160,17 @@ ESEMPI
             self._clear_find_highlights(editor)
             self._find_occurrences.clear()
             self._lbl_status.setText("")
+            self._find_anchor_line = None
             return
         flags = self._get_flags()
         forward = self._radio_fwd.isChecked()
+        if self._find_anchor_line is None:
+            self._find_anchor_line, _ = editor.getCursorPosition()
+        cursor_line = self._find_anchor_line
         editor.clear_indicator(INDICATOR_FIND_LINE)
         self._do_find(self._find_edit, forward=forward, highlight_all=True)
         if len(text) >= 2:
-            self._populate_occurrences(editor, text, flags)
+            self._populate_occurrences(editor, text, flags, cursor_line=cursor_line)
 
     def _on_auto_refresh_toggled(self, checked: bool) -> None:
         from config.settings import Settings
@@ -1201,12 +1220,18 @@ ESEMPI
                 else self._find_edit2.currentText())
         if editor is None or not text:
             return
+        if self._find_anchor_line is None:
+            self._find_anchor_line, _ = editor.getCursorPosition()
+        cursor_line = self._find_anchor_line
         if tab_index == 0:
             flags = self._get_flags()
             self._do_find(self._find_edit, forward=self._radio_fwd.isChecked(),
                           flags=flags)
             if len(text) >= 2:
-                self._populate_occurrences(editor, text, flags, publish_panel=False)
+                self._populate_occurrences(
+                    editor, text, flags, publish_panel=False,
+                    cursor_line=cursor_line,
+                )
             else:
                 self._find_occurrences.clear()
         else:
@@ -1290,7 +1315,8 @@ ESEMPI
         return label
 
     def _populate_occurrences(self, editor, pattern_text: str, flags: dict,
-                              publish_panel: bool = True) -> None:
+                               publish_panel: bool = True,
+                               cursor_line: int | None = None) -> None:
         """Popola la lista occorrenze nel tab Cerca."""
         self._find_occurrences.clear()
         if not pattern_text:
@@ -1304,6 +1330,10 @@ ESEMPI
             return
 
         _ROLE = Qt.ItemDataRole.UserRole
+        if cursor_line is None:
+            cursor_line = self._find_anchor_line
+            if cursor_line is None:
+                cursor_line, _ = editor.getCursorPosition()
         lines = editor.text().split("\n")
         count = 0
         panel_results = []
@@ -1344,6 +1374,15 @@ ESEMPI
             self._find_occurrences.addTopLevelItem(item)
             self._find_occurrences.setItemWidget(item, 1, label)
         self._find_occurrences.setUpdatesEnabled(True)
+        nearest_index = _nearest_result_index(
+            [item.data(0, _ROLE)["line"] - 1 for item, _ in items_to_add],
+            cursor_line,
+        )
+        if nearest_index is not None:
+            nearest_item = items_to_add[nearest_index][0]
+            self._find_occurrences.setCurrentItem(nearest_item)
+            nearest_item.setSelected(True)
+            self._find_occurrences.scrollToItem(nearest_item)
 
         if count:
             msg = tr("msg.occurrences_n", count=count)
@@ -2214,6 +2253,10 @@ ESEMPI
     def show_find(cls, main_window: "MainWindow") -> None:
         dlg = cls._get_or_create(main_window)
         dlg._tabs.setCurrentIndex(0)
+        editor = main_window._current_editor()
+        dlg._find_anchor_line = (
+            editor.getCursorPosition()[0] if editor is not None else None
+        )
         sel = cls._get_selected_text(main_window)
         if sel:
             dlg._find_edit.setCurrentText(sel)

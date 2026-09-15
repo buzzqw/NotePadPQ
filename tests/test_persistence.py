@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QApplication
 
 from config.themes import ThemeManager
 from core.file_manager import FileManager
+from core.latex_project import read_cached_text
 from core.macro import MacroManager
 from core.persistence import atomic_write_json, atomic_write_text, load_json
 from core.recent_files import RecentFiles
@@ -137,6 +138,16 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(backup.read_bytes(), payload)
             self.assertEqual(sorted(entry.name for entry in Path(directory).iterdir()),
                              ["document.txt", "document.txt.bak"])
+
+    def test_file_manager_write_invalidates_latex_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "document.tex"
+            path.write_text("old", encoding="utf-8")
+            self.assertEqual(read_cached_text(path), "old")
+
+            FileManager.write(path, "new", "UTF-8")
+
+            self.assertEqual(read_cached_text(path), "new")
 
 
 if __name__ == "__main__":

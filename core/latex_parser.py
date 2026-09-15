@@ -9,6 +9,24 @@ from __future__ import annotations
 
 import bisect
 import re
+from typing import TypedDict
+
+
+class LatexToken(TypedDict):
+    """Source span produced by one of the LaTeX token scanners."""
+
+    kind: str
+    key: str
+    start: int
+    end: int
+    command_start: int
+
+
+class LatexOccurrence(LatexToken):
+    """LaTeX token enriched with zero-based line and column information."""
+
+    line: int
+    column: int
 
 
 def is_latex_escaped(text: str, position: int) -> bool:
@@ -183,8 +201,8 @@ def _split_reference_argument(
     start: int,
     end: int,
     command_start: int,
-) -> list[dict]:
-    tokens: list[dict] = []
+) -> list[LatexToken]:
+    tokens: list[LatexToken] = []
     part_start = start
     for position in range(start, end + 1):
         if position != end and text[position] != ",":
@@ -204,9 +222,9 @@ def _split_reference_argument(
     return tokens
 
 
-def label_reference_tokens(text: str) -> list[dict]:
+def label_reference_tokens(text: str) -> list[LatexToken]:
     """Scan exact label/reference commands outside comments and string content."""
-    tokens: list[dict] = []
+    tokens: list[LatexToken] = []
     index = 0
     while index < len(text):
         if text[index] == "%" and not is_latex_escaped(text, index):
@@ -294,12 +312,16 @@ def label_reference_tokens(text: str) -> list[dict]:
     return tokens
 
 
-def extract_label_reference_occurrences(text: str) -> list[dict]:
+def extract_label_reference_occurrences(text: str) -> list[LatexOccurrence]:
     """Return label/reference tokens with zero-based line and column."""
-    occurrences: list[dict] = []
+    occurrences: list[LatexOccurrence] = []
     newline_positions = [match.start() for match in re.finditer("\n", text)]
     for token in label_reference_tokens(text):
-        occurrence = dict(token)
+        occurrence: LatexOccurrence = {
+            **token,
+            "line": 0,
+            "column": 0,
+        }
         position = occurrence["start"]
         line = bisect.bisect_left(newline_positions, position)
         occurrence["line"] = line
@@ -335,6 +357,8 @@ __all__ = [
     "extract_sections",
     "is_latex_escaped",
     "label_reference_tokens",
+    "LatexOccurrence",
+    "LatexToken",
     "mask_latex_comments",
     "read_latex_group",
     "strip_latex_comments",

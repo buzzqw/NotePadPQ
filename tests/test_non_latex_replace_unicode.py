@@ -6,10 +6,16 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QLabel, QTreeWidget
 
 from editor.editor_widget import INDICATOR_SPELL, EditorWidget
-from ui.find_replace import _ReplaceInFilesWorker, _ReplaceWriterWorker
+from ui.find_replace import (
+    FindReplaceDialog,
+    _nearest_result_index,
+    _ReplaceInFilesWorker,
+    _ReplaceWriterWorker,
+)
 from ui.incremental_search import IncrementalSearchBar, _IncrementalSearchWorker
 from ui.spell_check_dialog import SpellCheckDialog
 
@@ -62,6 +68,48 @@ class ReplaceInFilesSafetyTest(unittest.TestCase):
 
             self.assertEqual(path.read_text(encoding="utf-8"), "changed\n")
             self.assertTrue(errors)
+
+    def test_result_list_starts_at_match_nearest_to_cursor_line(self):
+        self.assertEqual(_nearest_result_index([2, 8, 14], 9), 1)
+        self.assertEqual(_nearest_result_index([2, 8, 14], 11), 2)
+        self.assertEqual(_nearest_result_index([2, 8, 14], 5), 1)
+        self.assertIsNone(_nearest_result_index([], 5))
+
+
+class FindReplaceSelectionTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_occurrence_list_selects_result_nearest_to_saved_cursor_line(self):
+        dialog = FindReplaceDialog.__new__(FindReplaceDialog)
+        dialog._mw = None
+        dialog._find_occurrences = QTreeWidget()
+        dialog._lbl_status = QLabel()
+        dialog._find_anchor_line = 9
+
+        class Editor:
+            file_path = None
+
+            def text(self):
+                lines = [""] * 15
+                for line in (2, 8, 14):
+                    lines[line] = "needle"
+                return "\n".join(lines)
+
+        dialog._populate_occurrences(
+            Editor(), "needle", {
+                "case_sensitive": False,
+                "whole_word": False,
+                "regex": False,
+            },
+            publish_panel=False,
+        )
+
+        selected = dialog._find_occurrences.currentItem()
+        self.assertIsNotNone(selected)
+        self.assertEqual(selected.data(0, Qt.ItemDataRole.UserRole)["line"], 9)
+        dialog._find_occurrences.deleteLater()
 
 
 class UnicodeCoordinateTest(unittest.TestCase):

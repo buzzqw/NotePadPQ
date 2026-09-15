@@ -13,21 +13,17 @@ Gestisce lettura e scrittura file con:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, QFileSystemWatcher, pyqtSignal
+from PyQt6.QtCore import QFileSystemWatcher, QObject, pyqtSignal
 
-from editor.editor_widget import LineEnding
-from core.persistence import atomic_write_bytes
 from core.diagnostics import operation
+from core.persistence import atomic_write_bytes
+from editor.editor_widget import LineEnding
 
 try:
     import chardet as _chardet
 except ImportError:
     _chardet = None
-
-if TYPE_CHECKING:
-    from editor.editor_widget import EditorWidget
 
 # ─── Costanti encoding ────────────────────────────────────────────────────────
 
@@ -136,9 +132,11 @@ class FileManager:
             payload = bom + content.encode(enc_clean)
             details["size_bytes"] = len(payload)
             atomic_write_bytes(path, payload)
+            from core.latex_project import invalidate_cached_text
+            invalidate_cached_text(path.resolve())
 
     @staticmethod
-    def _detect_bom(raw: bytes) -> tuple[Optional[str], int]:
+    def _detect_bom(raw: bytes) -> tuple[str | None, int]:
         """Rileva BOM all'inizio del file. Restituisce (encoding, bom_len)."""
         for bom, enc in _BOM_MAP:
             if raw.startswith(bom):
@@ -146,7 +144,7 @@ class FileManager:
         return None, 0
 
     @staticmethod
-    def _chardet_detect(raw: bytes) -> Optional[str]:
+    def _chardet_detect(raw: bytes) -> str | None:
         """Usa chardet per rilevare l'encoding. Restituisce None se non disponibile."""
         if _chardet is None:
             return None
@@ -176,7 +174,7 @@ class FileWatcher(QObject):
     file_changed  = pyqtSignal(str)   # path stringa
     file_deleted  = pyqtSignal(str)
 
-    _instance: Optional["FileWatcher"] = None
+    _instance: FileWatcher | None = None
 
     def __init__(self):
         super().__init__()
@@ -185,7 +183,7 @@ class FileWatcher(QObject):
         self._watched: set[str] = set()
 
     @classmethod
-    def instance(cls) -> "FileWatcher":
+    def instance(cls) -> FileWatcher:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -204,7 +202,10 @@ class FileWatcher(QObject):
 
     def _on_file_changed(self, path: str) -> None:
         from pathlib import Path as P
-        if P(path).exists():
+        changed_path = P(path).resolve()
+        from core.latex_project import invalidate_cached_text
+        invalidate_cached_text(changed_path)
+        if changed_path.exists():
             self.file_changed.emit(path)
             # Re-aggiunge il file (alcuni OS rimuovono il watch dopo modifica)
             self._watcher.addPath(path)

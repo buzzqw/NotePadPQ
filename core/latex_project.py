@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import re
 import threading
+from collections import OrderedDict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
+from typing import TypeAlias
 
 from core.latex_parser import strip_latex_comments
 
@@ -33,12 +35,12 @@ _INCLUDE_INPUT_RE = re.compile(
 )
 
 _MAX_CACHE_SIZE = 128
+_MAX_STABLE_READ_ATTEMPTS = 3
+FileSignature: TypeAlias = tuple[int, int, int]
 _file_cache_lock = threading.Lock()
-_file_cache: dict[Path, tuple[float, str]] = {}
-_cache_keys: list[Path] = []
+_file_cache: OrderedDict[Path, tuple[FileSignature, str]] = OrderedDict()
 _stripped_cache_lock = threading.Lock()
-_stripped_cache: dict[Path, tuple[float, str]] = {}
-_stripped_cache_keys: list[Path] = []
+_stripped_cache: OrderedDict[Path, tuple[FileSignature, str]] = OrderedDict()
 
 
 def _resolved(path: str | Path) -> Path:
@@ -64,60 +66,77 @@ def _read_text(path: Path) -> str:
         return ""
 
 
+def _file_signature(path: Path) -> FileSignature:
+    stat = path.stat()
+    return stat.st_mtime_ns, stat.st_size, getattr(stat, "st_ino", 0)
+
+
+def _read_stable_text(path: Path) -> tuple[str, FileSignature | None]:
+    """Read text only when the file signature stays stable during the read."""
+    text = ""
+    for _ in range(_MAX_STABLE_READ_ATTEMPTS):
+        before = _file_signature(path)
+        text = path.read_text(encoding="utf-8", errors="replace")
+        after = _file_signature(path)
+        if before == after:
+            return text, after
+    return text, None
+
+
 def read_cached_text(path: Path) -> str:
     """Read a source file through the shared bounded LRU cache."""
-    mtime = path.stat().st_mtime
+    path = _resolved(path)
+    signature = _file_signature(path)
     with _file_cache_lock:
         cached = _file_cache.get(path)
-        if cached is not None and cached[0] == mtime:
-            if path in _cache_keys:
-                _cache_keys.remove(path)
-            _cache_keys.append(path)
+        if cached is not None and cached[0] == signature:
+            _file_cache.move_to_end(path)
             return cached[1]
-        while len(_cache_keys) >= _MAX_CACHE_SIZE:
-            old = _cache_keys.pop(0)
-            _file_cache.pop(old, None)
-    text = path.read_text(encoding="utf-8", errors="replace")
-    with _file_cache_lock:
-        _file_cache[path] = (mtime, text)
-        if path in _cache_keys:
-            _cache_keys.remove(path)
-        _cache_keys.append(path)
+    text, signature = _read_stable_text(path)
+    if signature is not None:
+        with _file_cache_lock:
+            _file_cache[path] = (signature, text)
+            _file_cache.move_to_end(path)
+            if len(_file_cache) > _MAX_CACHE_SIZE:
+                _file_cache.popitem(last=False)
     return text
 
 
 def read_cached_text_stripped(path: Path) -> str:
     """Read a source file with comments removed through the shared cache."""
-    mtime = path.stat().st_mtime
+    path = _resolved(path)
+    signature = _file_signature(path)
     with _stripped_cache_lock:
         cached = _stripped_cache.get(path)
-        if cached is not None and cached[0] == mtime:
-            if path in _stripped_cache_keys:
-                _stripped_cache_keys.remove(path)
-            _stripped_cache_keys.append(path)
+        if cached is not None and cached[0] == signature:
+            _stripped_cache.move_to_end(path)
             return cached[1]
-        while len(_stripped_cache_keys) >= _MAX_CACHE_SIZE:
-            old = _stripped_cache_keys.pop(0)
-            _stripped_cache.pop(old, None)
-    stripped = strip_latex_comments(read_cached_text(path))
-    with _stripped_cache_lock:
-        _stripped_cache[path] = (mtime, stripped)
-        if path in _stripped_cache_keys:
-            _stripped_cache_keys.remove(path)
-        _stripped_cache_keys.append(path)
+    for _ in range(_MAX_STABLE_READ_ATTEMPTS):
+        before = _file_signature(path)
+        stripped = strip_latex_comments(read_cached_text(path))
+        after = _file_signature(path)
+        if before != after:
+            continue
+        with _stripped_cache_lock:
+            _stripped_cache[path] = (after, stripped)
+            _stripped_cache.move_to_end(path)
+            if len(_stripped_cache) > _MAX_CACHE_SIZE:
+                _stripped_cache.popitem(last=False)
+        return stripped
     return stripped
 
 
 def invalidate_cached_text(path: Path) -> None:
     """Invalidate both cached representations of ``path``."""
+    global _root_cache_generation
+    path = _resolved(path)
     with _stripped_cache_lock:
         _stripped_cache.pop(path, None)
-        if path in _stripped_cache_keys:
-            _stripped_cache_keys.remove(path)
     with _file_cache_lock:
         _file_cache.pop(path, None)
-        if path in _cache_keys:
-            _cache_keys.remove(path)
+    with _root_cache_lock:
+        _root_cache_generation += 1
+        _ROOT_FALLBACK_CACHE.clear()
 
 
 def _tex_candidate(base_dir: Path, reference: str | Path) -> Path:
@@ -163,6 +182,8 @@ def _is_document_root(path: Path) -> bool:
 _NOT_FOUND = object()
 _ROOT_FALLBACK_CACHE: dict[Path, object] = {}
 _ROOT_FALLBACK_CACHE_MAX = 256
+_root_cache_lock = threading.Lock()
+_root_cache_generation = 0
 
 
 def _find_root_by_scanning(start_dir: Path) -> Path | None:
@@ -175,9 +196,11 @@ def _find_root_by_scanning(start_dir: Path) -> Path | None:
     ogni parola scritta dopo ``\\`` in un file LaTeX). Cachato per directory
     di partenza: il progetto non cambia struttura tra un tasto e l'altro.
     """
-    cached = _ROOT_FALLBACK_CACHE.get(start_dir, _NOT_FOUND)
-    if cached is not _NOT_FOUND:
-        return cached  # type: ignore[return-value]
+    with _root_cache_lock:
+        generation = _root_cache_generation
+        cached = _ROOT_FALLBACK_CACHE.get(start_dir, _NOT_FOUND)
+        if cached is not _NOT_FOUND:
+            return cached  # type: ignore[return-value]
 
     result: Path | None = None
     for directory in _ancestor_directories_bounded(start_dir):
@@ -192,9 +215,11 @@ def _find_root_by_scanning(start_dir: Path) -> Path | None:
         if result is not None:
             break
 
-    if len(_ROOT_FALLBACK_CACHE) >= _ROOT_FALLBACK_CACHE_MAX:
-        _ROOT_FALLBACK_CACHE.clear()
-    _ROOT_FALLBACK_CACHE[start_dir] = result
+    with _root_cache_lock:
+        if generation == _root_cache_generation:
+            if len(_ROOT_FALLBACK_CACHE) >= _ROOT_FALLBACK_CACHE_MAX:
+                _ROOT_FALLBACK_CACHE.clear()
+            _ROOT_FALLBACK_CACHE[start_dir] = result
     return result
 
 

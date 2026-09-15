@@ -1624,7 +1624,10 @@ class PreviewPanel(QWidget):
     # ── Aggiornamento contenuto ───────────────────────────────────────────────
 
     def _schedule_update(self) -> None:
-        self._timer.start(300)   # delay iniziale (era 100, troppo aggressivo)
+        if self.isVisible():
+            self._timer.start(300)   # delay iniziale (era 100, troppo aggressivo)
+        else:
+            self._needs_refresh = True
 
     @pyqtSlot()
     @profile_operation("preview.update")

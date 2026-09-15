@@ -3,6 +3,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -110,6 +111,70 @@ class FindReplaceSelectionTest(unittest.TestCase):
         self.assertIsNotNone(selected)
         self.assertEqual(selected.data(0, Qt.ItemDataRole.UserRole)["line"], 9)
         dialog._find_occurrences.deleteLater()
+
+    def test_auto_refresh_restores_editor_position_after_find(self):
+        class Check:
+            def isChecked(self):
+                return True
+
+        class Tabs:
+            def currentIndex(self):
+                return 0
+
+        class Edit:
+            def currentText(self):
+                return "needle"
+
+        class Editor:
+            def __init__(self):
+                self.position = (4, 7)
+                self.selection = None
+
+            def getCursorPosition(self):
+                return self.position
+
+            def hasSelectedText(self):
+                return self.selection is not None
+
+            def getSelection(self):
+                return self.selection
+
+            def setCursorPosition(self, line, column):
+                self.position = (line, column)
+
+            def clearSelection(self):
+                self.selection = None
+
+            def setSelection(self, line, column, end_line, end_column):
+                self.selection = (line, column, end_line, end_column)
+
+        editor = Editor()
+        dialog = SimpleNamespace(
+            _tabs=Tabs(),
+            _chk_auto_refresh=Check(),
+            _find_edit=Edit(),
+            _find_anchor_line=None,
+            _current_editor=lambda: editor,
+            _get_flags=lambda: {
+                "case_sensitive": False,
+                "whole_word": False,
+                "regex": False,
+            },
+            _radio_fwd=SimpleNamespace(isChecked=lambda: True),
+            _find_occurrences=SimpleNamespace(clear=lambda: None),
+            isVisible=lambda: True,
+        )
+
+        def move_to_match(*_args, **_kwargs):
+            editor.setSelection(12, 0, 12, 6)
+
+        dialog._do_find = move_to_match
+        dialog._populate_occurrences = lambda *_args, **_kwargs: None
+
+        FindReplaceDialog._refresh_find_results(dialog)
+
+        self.assertEqual(editor.position, (4, 7))
+        self.assertIsNone(editor.selection)
 
 
 class UnicodeCoordinateTest(unittest.TestCase):

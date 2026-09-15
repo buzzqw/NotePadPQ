@@ -1225,15 +1225,27 @@ ESEMPI
         cursor_line = self._find_anchor_line
         if tab_index == 0:
             flags = self._get_flags()
-            self._do_find(self._find_edit, forward=self._radio_fwd.isChecked(),
-                          flags=flags)
-            if len(text) >= 2:
-                self._populate_occurrences(
-                    editor, text, flags, publish_panel=False,
-                    cursor_line=cursor_line,
-                )
-            else:
-                self._find_occurrences.clear()
+            anchor_line = cursor_line
+            cursor_line, cursor_col = editor.getCursorPosition()
+            selection = editor.getSelection() if editor.hasSelectedText() else None
+            try:
+                self._do_find(self._find_edit, forward=self._radio_fwd.isChecked(),
+                              flags=flags)
+                if len(text) >= 2:
+                    self._populate_occurrences(
+                        editor, text, flags, publish_panel=False,
+                        cursor_line=anchor_line,
+                    )
+                else:
+                    self._find_occurrences.clear()
+            finally:
+                # Auto-refresh may update highlights, but must not hijack the
+                # cursor while the user is editing the document.
+                if selection is None:
+                    editor.clearSelection()
+                    editor.setCursorPosition(cursor_line, cursor_col)
+                else:
+                    editor.setSelection(*selection)
         else:
             self._populate_replace_occurrences(
                 editor, text, self._get_flags_replace())

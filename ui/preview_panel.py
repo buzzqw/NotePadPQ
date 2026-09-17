@@ -280,6 +280,8 @@ class _MarkdownWorker(QThread):
         try:
             import re as _re
             preprocessed, anchor_lines = _inject_md_line_anchors(self._text)
+            from core.markdown_features import expand_wikilinks_for_preview
+            preprocessed = expand_wikilinks_for_preview(preprocessed)
             markdown_lib = _get_markdown()
             if markdown_lib is not None:
                 # Inject markdown="1" into <div> tags that lack it so that
@@ -795,7 +797,8 @@ class PreviewPanel(QWidget):
 
         # Pagina 0 — QTextBrowser per MD/RST/testo (sempre presente, istantaneo)
         self._web_fallback = QTextBrowser()
-        self._web_fallback.setOpenExternalLinks(True)
+        self._web_fallback.setOpenExternalLinks(False)
+        self._web_fallback.anchorClicked.connect(self._on_preview_link_clicked)
         self._stack.addWidget(self._web_fallback)    # indice 0 FISSO
 
         # QWebEngineView lazy: creato solo alla prima richiesta per HTML puro.
@@ -1963,6 +1966,20 @@ class PreviewPanel(QWidget):
             else:
                 hi = mid - 1
         return result
+
+    def _on_preview_link_clicked(self, url) -> None:
+        """Handle external links and the private ``npq-wikilink:`` scheme."""
+        from urllib.parse import unquote
+
+        scheme = url.scheme().casefold()
+        if scheme == "npq-wikilink":
+            target = unquote(url.toString().split(":", 1)[1])
+            handler = getattr(self.window(), "open_markdown_wikilink", None)
+            if handler is not None:
+                handler(target)
+            return
+        if scheme in {"http", "https", "ftp", "mailto", "file"}:
+            _open_url(url)
 
     def eventFilter(self, obj, event) -> bool:
         """Backward sync: click nell'anteprima Markdown → salta alla riga nell'editor."""

@@ -17,6 +17,7 @@ NON gestisce: logica I/O file (→ core/file_manager.py),
 import sys
 import threading
 import hashlib
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Callable
@@ -68,6 +69,8 @@ _ICON_MAP: dict[str, str] = {
     "delete": "trash-2.svg", "select_all": "check-square.svg",
     "copy_path": "link.svg", "copy_filename": "file.svg",
     "insert_date": "calendar.svg", "word_count": "type.svg",
+    "markdown_toc": "list-tree.svg", "markdown_wikilink": "link.svg",
+    "markdown_backlinks": "external-link.svg",
     "word_frequency": "bar-chart-2.svg", "sort_lines_menu": "arrow-up-down.svg",
     # Testo
     "join_lines": "git-merge.svg", "line_break": "corner-down-left.svg",
@@ -1705,6 +1708,16 @@ class MainWindow(QMainWindow):
         _act_tc.setToolTip(tr("tooltip.toggle_checklist"))
         m.addAction(_act_tc)
         self._sep(m)
+        m.addAction(self._act(
+            "markdown_toc", "Ctrl+Shift+U", self.action_markdown_toc
+        ))
+        m.addAction(self._act(
+            "markdown_wikilink", "", self.action_insert_markdown_wikilink
+        ))
+        m.addAction(self._act(
+            "markdown_backlinks", "", self.action_show_markdown_backlinks
+        ))
+        self._sep(m)
         m.addAction(self._act("word_count",     "", self.action_word_count))
         m.addAction(self._act("word_frequency", "", self.action_word_frequency))
         self._sep(m)
@@ -2311,6 +2324,10 @@ class MainWindow(QMainWindow):
             except (RuntimeError, TypeError, AttributeError):
                 pass
             try:
+                prev.markdown_image_drop_requested.disconnect()
+            except (RuntimeError, TypeError, AttributeError):
+                pass
+            try:
                 old_refs_handler = getattr(prev, "_mw_latex_refs_handler", None)
                 if old_refs_handler is not None:
                     prev.textChanged.disconnect(old_refs_handler)
@@ -2354,6 +2371,9 @@ class MainWindow(QMainWindow):
         )
         editor.latex_image_drop_requested.connect(
             lambda path, ed=editor: self._insert_dropped_latex_image(ed, path)
+        )
+        editor.markdown_image_drop_requested.connect(
+            lambda path, ed=editor: self._insert_dropped_markdown_image(ed, path)
         )
         if hasattr(self, "_latex_references_panel"):
             handler = lambda _ed=editor: self._schedule_latex_references_scan()
@@ -2488,6 +2508,159 @@ class MainWindow(QMainWindow):
 
     def _current_editor(self) -> Optional[EditorWidget]:
         return self._tab_manager.current_editor()
+
+    # ── Funzioni Markdown avanzate ────────────────────────────────────────────
+
+    @staticmethod
+    def _markdown_editor(editor: Optional[EditorWidget]) -> bool:
+        if editor is None:
+            return False
+        return (
+            (editor.file_path is not None and editor.file_path.suffix.lower() in {
+                ".md", ".markdown", ".mdown", ".mkdn", ".mdwn", ".rmd",
+            })
+            or "markdown" in getattr(editor, "_current_language", "").lower()
+        )
+
+    def action_markdown_toc(self) -> None:
+        """Insert or update the marked Markdown table of contents."""
+        editor = self._current_editor()
+        if not self._markdown_editor(editor):
+            return
+        from core.markdown_features import insert_or_update_toc
+
+        line, column = editor.getCursorPosition()
+        cursor = editor.positionFromLineIndex(line, column)
+        result = insert_or_update_toc(editor.text(), cursor=cursor)
+        editor.beginUndoAction()
+        last_line = max(0, editor.lines() - 1)
+        editor.setSelection(0, 0, last_line, len(editor.text(last_line)))
+        editor.replaceSelectedText(result.text)
+        new_line, new_col = editor.lineIndexFromPosition(result.cursor)
+        editor.setCursorPosition(new_line, new_col)
+        editor.endUndoAction()
+        editor.setFocus()
+        self.statusBar().showMessage(
+            tr(
+                "msg.markdown_toc_updated" if result.updated else "msg.markdown_toc_inserted",
+                default=("Indice Markdown aggiornato ({count} titoli)" if result.updated
+                         else "Indice Markdown inserito ({count} titoli)"),
+                count=result.heading_count,
+            ),
+            3000,
+        )
+
+    @staticmethod
+    def _markdown_workspace_root(editor: Optional[EditorWidget]) -> Path | None:
+        if editor is None or editor.file_path is None:
+            return None
+        project_manager = getattr(editor.window(), "_project_manager", None)
+        project_path = getattr(project_manager, "_project_path", None)
+        if project_path is not None:
+            return Path(project_path).parent
+        return editor.file_path.parent
+
+    def action_insert_markdown_wikilink(self) -> None:
+        """Choose a Markdown file and insert a workspace-relative wikilink."""
+        editor = self._current_editor()
+        if not self._markdown_editor(editor):
+            return
+
+        root = self._markdown_workspace_root(editor) or Path.cwd()
+        start_dir = str(root if root.is_dir() else Path.cwd())
+        selected_path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("action.markdown_wikilink", default="Seleziona documento Markdown"),
+            start_dir,
+            tr(
+                "dialog.markdown_wikilink_filter",
+                default="Documenti Markdown (*.md *.markdown);;Tutti i file (*)",
+            ),
+        )
+        if not selected_path:
+            return
+
+        target_path = Path(selected_path).resolve()
+        base_dir = editor.file_path.parent.resolve() if editor.file_path else root.resolve()
+        try:
+            target = target_path.relative_to(base_dir).as_posix()
+        except ValueError:
+            # È comunque possibile collegare un file esterno al progetto; il
+            # resolver gestisce correttamente il percorso assoluto.
+            target = target_path.as_posix()
+        if target_path.suffix.casefold() in {".md", ".markdown"}:
+            target = target_path.with_suffix("").as_posix() if target.startswith("/") else str(
+                Path(target).with_suffix("").as_posix()
+            )
+
+        label = editor.selectedText().strip() if editor.hasSelectedText() else ""
+        snippet = f"[[{target}|{label}]]" if label else f"[[{target}]]"
+        if editor.hasSelectedText():
+            editor.replaceSelectedText(snippet)
+        else:
+            editor.insert(snippet)
+        editor.setFocus()
+
+    def open_markdown_wikilink(self, target: str) -> None:
+        """Resolve and open a wikilink from the current Markdown document."""
+        editor = self._current_editor()
+        if editor is None:
+            return
+        from core.markdown_features import resolve_wikilink_target
+
+        current = editor.file_path
+        root = self._markdown_workspace_root(editor)
+        path = resolve_wikilink_target(target, current, root)
+        if path is None:
+            QMessageBox.information(
+                self,
+                tr("action.markdown_wikilink", default="Wikilink Markdown"),
+                tr("msg.markdown_wikilink_not_found", default="Documento non trovato: {target}", target=target),
+            )
+            return
+        self.open_files([path])
+
+    def action_show_markdown_backlinks(self) -> None:
+        editor = self._current_editor()
+        if editor is None or editor.file_path is None or not self._markdown_editor(editor):
+            return
+        from ui.markdown_links import MarkdownBacklinksDialog
+
+        MarkdownBacklinksDialog(
+            self,
+            editor.file_path,
+            self._markdown_workspace_root(editor),
+        ).exec()
+
+    def _insert_dropped_markdown_image(self, editor: EditorWidget, source: Path) -> None:
+        """Copy a dropped image into ``assets`` and insert a relative Markdown link."""
+        if not source.is_file() or not self._markdown_editor(editor):
+            return
+        base_dir = editor.file_path.parent if editor.file_path else Path.cwd()
+        assets_dir = base_dir / "assets"
+        try:
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            destination = assets_dir / f"{source.stem}-{uuid4().hex[:8]}{source.suffix.lower()}"
+            shutil.copy2(source, destination)
+            relative = destination.relative_to(base_dir).as_posix()
+            snippet = f"![{source.stem}]({relative})"
+            editor.beginUndoAction()
+            if editor.hasSelectedText():
+                editor.replaceSelectedText(snippet)
+            else:
+                editor.insert(snippet)
+            editor.endUndoAction()
+            editor.setFocus()
+            self.statusBar().showMessage(
+                tr("msg.markdown_image_copied", default="Immagine copiata in {path}", path=relative),
+                3000,
+            )
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                tr("action.lang_toolbar_image", default="Immagine Markdown"),
+                tr("msg.markdown_image_copy_failed", default="Impossibile copiare l'immagine: {error}", error=exc),
+            )
 
     # ── Azioni File ───────────────────────────────────────────────────────────
 

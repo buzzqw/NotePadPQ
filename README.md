@@ -60,6 +60,10 @@ are added through integrated panels and optional plugins.
 - Markup shortcuts for both Markdown and LaTeX, table alignment, environment
   and tag wrapping, LaTeX environment pairing and synchronized environment
   renaming.
+- Markdown productivity tools: generated/updated table of contents, workspace
+  wikilinks (with file selector) and backlinks, smart URL/image paste, image drop into `assets/`,
+  and Mermaid templates with offline lightweight validation. The contextual
+  Markdown toolbar exposes TOC, Mermaid, Wikilink and Backlinks buttons.
 - Encoding and line-ending detection, external modification handling, backup,
   autosave and recovery of unsaved buffers.
 

@@ -54,6 +54,10 @@ _MD_ICON_FILES: dict[str, str] = {
     "md_export_pdf":  "file-pdf.svg",
     "md_export_html": "file-code.svg",
     "md_structure":   "list-tree.svg",
+    "md_toc":         "list-tree.svg",
+    "md_mermaid":     "git-branch.svg",
+    "md_wikilink":    "link.svg",
+    "md_backlinks":   "external-link.svg",
     "latex_env":      "braces.svg",
     "latex_align_l":  "align-left.svg",
     "latex_align_c":  "align-center.svg",
@@ -579,6 +583,25 @@ class _LanguageToolbarWidget(QWidget):
         btn_img.clicked.connect(self._insert_md_image)
         self._add_separator()
 
+        # Strumenti per documenti Markdown: indice, diagrammi e collegamenti.
+        btn_toc = self._add_icon_btn(
+            "md_toc", "☷",
+            tr("action.markdown_toc", default="Inserisci/aggiorna indice Markdown"),
+        )
+        btn_toc.clicked.connect(self._mw.action_markdown_toc)
+        self._add_mermaid_menu_btn()
+        btn_wiki = self._add_icon_btn(
+            "md_wikilink", "[[ ]]",
+            tr("action.markdown_wikilink", default="Inserisci wikilink"),
+        )
+        btn_wiki.clicked.connect(self._mw.action_insert_markdown_wikilink)
+        btn_backlinks = self._add_icon_btn(
+            "md_backlinks", "↗",
+            tr("action.markdown_backlinks", default="Mostra backlink Markdown"),
+        )
+        btn_backlinks.clicked.connect(self._mw.action_show_markdown_backlinks)
+        self._add_separator()
+
         # Allineamento (HTML div)
         for key, fallback, tr_key, default, align in [
             ("md_align_left",   "▬▬▬", "action.lang_toolbar_align_left",   "Allinea a sinistra", "left"),
@@ -603,6 +626,74 @@ class _LanguageToolbarWidget(QWidget):
         tip = tr("action.lang_toolbar_export_html", default="Esporta come HTML")
         btn_html = self._add_icon_btn("md_export_html", "HTML", tip)
         btn_html.clicked.connect(self._export_html)
+
+    def _add_mermaid_menu_btn(self) -> Optional[QToolButton]:
+        """Add Mermaid template insertion and lightweight validation actions."""
+        btn = self._add_icon_btn(
+            "md_mermaid", "M",
+            tr("action.markdown_mermaid", default="Inserisci diagramma Mermaid"),
+        )
+        menu = QMenu(btn)
+        templates = {
+            "flowchart": "Flowchart",
+            "sequence": "Sequence",
+            "class": "Class diagram",
+            "state": "State diagram",
+            "er": "Entity relationship",
+            "gantt": "Gantt",
+        }
+        for key, label in templates.items():
+            action = menu.addAction(label)
+            action.triggered.connect(lambda _checked=False, k=key: self._insert_mermaid_template(k))
+        menu.addSeparator()
+        validate = menu.addAction(
+            tr("action.markdown_mermaid_validate", default="Valida diagrammi Mermaid")
+        )
+        validate.triggered.connect(self._validate_mermaid)
+        btn.setMenu(menu)
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        btn.clicked.connect(lambda: self._insert_mermaid_template("flowchart"))
+        return btn
+
+    def _insert_mermaid_template(self, kind: str) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        from core.markdown_features import MERMAID_TEMPLATES
+        snippet = MERMAID_TEMPLATES.get(kind)
+        if not snippet:
+            return
+        editor.beginUndoAction()
+        if editor.hasSelectedText():
+            editor.replaceSelectedText(snippet)
+        else:
+            editor.insert(snippet)
+        editor.endUndoAction()
+        editor.setFocus()
+
+    def _validate_mermaid(self) -> None:
+        editor = self._mw._tab_manager.current_editor()
+        if not editor:
+            return
+        from PyQt6.QtWidgets import QMessageBox
+        from core.markdown_features import extract_mermaid_blocks, validate_mermaid
+        errors = validate_mermaid(editor.text())
+        if errors:
+            QMessageBox.warning(
+                self._mw,
+                tr("action.markdown_mermaid_validate", default="Validazione Mermaid"),
+                "\n".join(errors),
+            )
+        else:
+            QMessageBox.information(
+                self._mw,
+                tr("action.markdown_mermaid_validate", default="Validazione Mermaid"),
+                tr(
+                    "msg.markdown_mermaid_valid",
+                    default="Validazione completata: {count} blocchi Mermaid validi.",
+                    count=len(extract_mermaid_blocks(editor.text())),
+                ),
+            )
 
     # ── LaTeX ─────────────────────────────────────────────────────────────────
 

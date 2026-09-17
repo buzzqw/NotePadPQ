@@ -385,6 +385,7 @@ class EditorWidget(QsciScintilla):
     context_menu_requested = pyqtSignal(object)  # QMenu — plugin possono aggiungere voci
     paste_clipboard_image_requested = pyqtSignal()  # incolla immagine clipboard come LaTeX
     latex_image_drop_requested = pyqtSignal(object)  # file immagine trascinato su LaTeX
+    markdown_image_drop_requested = pyqtSignal(object)  # file immagine trascinato su Markdown
     vim_mode_changed = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -1701,7 +1702,7 @@ class EditorWidget(QsciScintilla):
         super().dragEnterEvent(event)
 
     def dropEvent(self, event: QDropEvent) -> None:
-        """Passa file immagine locali all'assistente LaTeX senza aprirli come tab."""
+        """Passa immagini locali agli assistenti LaTeX/Markdown senza aprirle come tab."""
         is_latex = (
             (self.file_path and self.file_path.suffix.lower() in {".tex", ".ltx", ".latex"})
             or getattr(self, "_current_language", "").lower() == "latex"
@@ -1714,6 +1715,15 @@ class EditorWidget(QsciScintilla):
         if is_latex and paths:
             for path in paths:
                 self.latex_image_drop_requested.emit(path)
+            event.acceptProposedAction()
+            return
+        is_markdown = (
+            (self.file_path and self.file_path.suffix.lower() in {".md", ".markdown", ".mdown", ".mkdn", ".mdwn", ".rmd"})
+            or "markdown" in getattr(self, "_current_language", "").lower()
+        )
+        if is_markdown and paths:
+            for path in paths:
+                self.markdown_image_drop_requested.emit(path)
             event.acceptProposedAction()
             return
         if event.mimeData().hasUrls():
@@ -1773,6 +1783,29 @@ class EditorWidget(QsciScintilla):
             if _is_latex and not QApplication.clipboard().image().isNull():
                 self.paste_clipboard_image_requested.emit()
                 return
+
+            _is_markdown = (
+                (self.file_path and self.file_path.suffix.lower() in {".md", ".markdown", ".mdown", ".mkdn", ".mdwn", ".rmd"})
+                or "markdown" in getattr(self, "_current_language", "").lower()
+            )
+            if _is_markdown:
+                from core.markdown_features import smart_paste_markdown
+                replacement = smart_paste_markdown(
+                    QApplication.clipboard().text(),
+                    self.selectedText() if self.hasSelectedText() else "",
+                )
+                if replacement is not None:
+                    self._in_paste = True
+                    try:
+                        self.beginUndoAction()
+                        if self.hasSelectedText():
+                            self.replaceSelectedText(replacement)
+                        else:
+                            self.insert(replacement)
+                        self.endUndoAction()
+                    finally:
+                        self._in_paste = False
+                    return
 
         # Auto-indent su incolla (Ctrl+V)
         if (self._auto_indent_paste
@@ -1860,6 +1893,18 @@ class EditorWidget(QsciScintilla):
                 QsciScintilla.SCI_POSITIONFROMPOINTCLOSE,
                 int(event.position().x()), int(event.position().y()),
             )
+            if position != -1 and "markdown" in getattr(self, "_current_language", "").lower():
+                from core.markdown_features import wikilink_at
+                click_line, click_col = self.lineIndexFromPosition(position)
+                prefix = "\n".join(self.text(i) for i in range(click_line))
+                char_position = len(prefix) + (1 if click_line else 0) + click_col
+                wiki = wikilink_at(self.text(), char_position)
+                if wiki is not None:
+                    handler = getattr(self.window(), "open_markdown_wikilink", None)
+                    if handler is not None:
+                        handler(wiki.target)
+                        event.accept()
+                        return
             token = self._latex_semantic_at_position(position)
             if token is not None and self._navigate_latex_semantic(token):
                 event.accept()
@@ -2246,6 +2291,20 @@ class EditorWidget(QsciScintilla):
                 lambda _checked, l=click_line, c=click_col: self._context_go_to_matching(l, c)
             )
             menu.addSeparator()
+
+            if "markdown" in getattr(self, "_current_language", "").lower():
+                from core.markdown_features import wikilink_at
+                line_prefix = "\n".join(self.text(i) for i in range(click_line))
+                char_pos = len(line_prefix) + (1 if click_line else 0) + click_col
+                wiki = wikilink_at(self.text(), char_pos)
+                if wiki is not None:
+                    open_wiki = menu.addAction(f"Apri wikilink: [[{wiki.target}]]")
+                    open_wiki.triggered.connect(
+                        lambda _checked, target=wiki.target: getattr(
+                            self.window(), "open_markdown_wikilink", lambda _target: None
+                        )(target)
+                    )
+                    menu.addSeparator()
 
             semantic = self._latex_semantic_at_position(click_pos)
             if semantic is not None:

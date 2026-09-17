@@ -513,16 +513,38 @@ Una toolbar contestuale che appare automaticamente quando il file aperto è **Ma
 | Blocchi | Citazione, Codice inline, Blocco codice |
 | Liste | Lista puntata, Lista numerata, Lista task, Separatore (`---`) |
 | Elementi | Tabella, Link, Immagine |
+| Strumenti documento | Indice, Mermaid, Wikilink, Backlink |
 | Allineamento | Sinistra, Centro, Destra |
+
+Gli strumenti aggiuntivi permettono di inserire o aggiornare l'indice Markdown
+(`<!-- TOC -->`), creare wikilink `[[documento]]`, visualizzare i backlink del
+documento corrente e inserire template Mermaid. I pulsanti **Indice**, **Mermaid**,
+**Wikilink** e **Backlink** sono disponibili nella toolbar contestuale Markdown;
+il pulsante Mermaid contiene anche la validazione leggera offline. Trascinando un'immagine locale
+su un documento Markdown viene copiata nella cartella `assets/` e viene inserito
+automaticamente il riferimento relativo. Incollando un URL con testo selezionato
+viene creato un link Markdown; incollando un URL immagine senza selezione viene
+creato automaticamente `![](URL)`.
 
 Tutti i pulsanti operano sulla selezione corrente o inseriscono il segnaposto nella posizione del cursore. La toolbar si aggiorna automaticamente quando si apre un nuovo file o si salva un file con estensione `.md`.
 
 **LaTeX** — mostra i pulsanti per gli ambienti più comuni (begin/end, align, equazione, lista, tabella, etc.) contestualmente al cursore.
 
+L'indice può essere richiamato anche da **Documento → Inserisci/aggiorna indice
+Markdown** o con `Ctrl+Shift+U`. I backlink scansionano la radice del progetto
+quando è aperto un progetto `.npqproj`; in caso contrario scansionano la cartella
+del documento corrente. Il pulsante **Wikilink** apre un selettore di file
+Markdown e inserisce automaticamente il percorso relativo; se c'è una selezione
+di testo, la usa come etichetta (`[[percorso|etichetta]]`). Per aprire un
+wikilink è sufficiente usare `Ctrl+click` sul riferimento nel testo.
+
 ### Anteprima (`F12`)
 Apre il pannello Anteprima affiancato all'editor. Supporta:
 
 - **Markdown**: rendering HTML in background, non blocca l'editor durante la digitazione. Supporta formule matematiche LaTeX (`$...$`, `$$...$$`) tramite MathJax e diagrammi Mermaid (blocchi ` ```mermaid `) tramite Mermaid.js — entrambi richiedono connessione internet e vengono caricati automaticamente se presenti nel documento. Il rendering Mermaid è attivabile/disattivabile da **Preferenze → Anteprima**.
+- I wikilink `[[documento]]` vengono mostrati nell'anteprima come link con il
+  testo del documento (o l'etichetta dopo `|`) e possono essere aperti con un
+  click; il formato `[[...]]` resta invariato nel sorgente.
 - **HTML**: preview diretta nel widget web integrato
 - **LaTeX**: albero della struttura navigabile (sezioni, label, figure, tabelle)
 - **reStructuredText**: rendering via docutils

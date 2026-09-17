@@ -504,16 +504,37 @@ A context-sensitive toolbar that appears automatically when the open file is **M
 | Blocks | Blockquote, Inline code, Code block |
 | Lists | Bullet list, Numbered list, Task list, Horizontal rule (`---`) |
 | Elements | Table, Link, Image |
+| Document tools | TOC, Mermaid, Wikilink, Backlinks |
 | Alignment | Left, Center, Right |
+
+Additional Markdown tools insert or update a generated table of contents
+(`<!-- TOC -->`), create `[[document]]` wikilinks, show backlinks for the
+current document, and insert Mermaid templates. The **TOC**, **Mermaid**,
+**Wikilink**, and **Backlinks** buttons are available in the contextual Markdown
+toolbar; the Mermaid button also contains lightweight offline validation.
+Dropping a local image onto a
+Markdown document copies it into the `assets/` folder and inserts a relative
+reference. Pasting a URL over selected text creates a Markdown link; pasting
+an image URL without a selection creates `![](URL)` automatically.
 
 All buttons operate on the current selection or insert a placeholder at the cursor. The toolbar updates automatically when a new file is opened or saved with the `.md` extension.
 
 **LaTeX** — shows buttons for common environments (begin/end, align, equation, lists, tables, etc.) contextually.
 
+The table of contents is also available from **Document → Insert/update Markdown
+table of contents** or with `Ctrl+Shift+U`. Backlinks scan the project root when
+a `.npqproj` project is open; otherwise they scan the current document folder.
+The **Wikilink** button opens a Markdown file selector and inserts the relative
+path automatically; if text is selected, it is used as the label
+(`[[path|label]]`). Use `Ctrl+click` on a wikilink to open its target.
+
 ### Preview (`F12`)
 Opens the Preview panel alongside the editor. Supports:
 
 - **Markdown**: HTML rendering in background, does not block the editor during typing. Supports LaTeX math formulas (`$...$`, `$$...$$`) via MathJax and Mermaid diagrams (` ```mermaid ` blocks) via Mermaid.js — both require an internet connection and are loaded automatically when present in the document. Mermaid rendering can be toggled in **Preferences → Preview**.
+- Wikilinks such as `[[document]]` are displayed in the preview as links using
+  the document name (or the label after `|`); the `[[...]]` syntax remains
+  unchanged in the source.
 - **HTML**: direct preview in the integrated web widget
 - **LaTeX**: navigable structure tree (sections, labels, figures, tables)
 - **reStructuredText**: rendering via docutils

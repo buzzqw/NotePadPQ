@@ -23,6 +23,7 @@ senza compilatore resta disponibile l'albero della struttura.
 from __future__ import annotations
 
 import bisect
+import json
 import re
 from pathlib import Path
 from typing import Optional
@@ -246,10 +247,12 @@ def _inject_md_line_anchors(text: str):
     for i, line in enumerate(lines):
         stripped = line.strip()
         is_empty = not stripped
-        if stripped.startswith('```') or stripped.startswith('~~~'):
-            in_fence = not in_fence
+        is_fence = stripped.startswith('```') or stripped.startswith('~~~')
+        # L'ancora va inserita prima di aggiornare in_fence: in questo modo
+        # anche l'apertura di un blocco Mermaid/code viene associata alla sua
+        # prima riga. Le righe interne e la chiusura restano senza ancore.
         if not is_empty and not in_fence:
-            if prev_empty or stripped.startswith('#'):
+            if prev_empty or stripped.startswith('#') or is_fence:
                 lineno = i + 1
                 if not prev_empty:
                     result.append('')   # riga vuota prima dell'ancora se non c'è già
@@ -257,6 +260,8 @@ def _inject_md_line_anchors(text: str):
                 result.append('')       # riga vuota dopo l'ancora per separare il blocco
                 anchor_lines.append(lineno)
         result.append(line)
+        if is_fence:
+            in_fence = not in_fence
         prev_empty = is_empty
 
     return '\n'.join(result), anchor_lines
@@ -750,6 +755,10 @@ class PreviewPanel(QWidget):
         self._needs_refresh: bool = False  # aggiornamento pendente mentre nascosto
         self._md_anchor_lines: list = []   # righe sorgente con ancoraggio (1-based, ordinata)
         self._md_anchor_pos_map: list = [] # [(doc_pos, line_no), ...] per backward sync
+        # QWebEngineView carica setHtml() in modo asincrono. Conserviamo l'ultima
+        # riga richiesta così la sincronizzazione del cursore può essere
+        # applicata anche quando il nuovo documento Mermaid non è ancora pronto.
+        self._pending_web_scroll_anchor: Optional[str] = None
 
         self._build_ui()
         # Default: scroll continuo, così la scrollbar naviga tra tutte le
@@ -1053,8 +1062,16 @@ class PreviewPanel(QWidget):
                 # da dipingere di bianco durante il caricamento.
                 from PyQt6.QtGui import QColor as _QColor
                 self._web.page().setBackgroundColor(_QColor("#1e1e1e"))
+                self._web.loadFinished.connect(self._on_web_load_finished)
                 self._stack.addWidget(self._web)
         return self._web
+
+    def _on_web_load_finished(self, ok: bool) -> None:
+        """Ripristina la posizione del cursore dopo un caricamento WebEngine."""
+        if (ok and self._mode == "markdown"
+                and self._stack.currentWidget() is self._web
+                and self._pending_web_scroll_anchor):
+            self._scroll_web_to_anchor(self._pending_web_scroll_anchor)
 
     # ── Collegamento editor ───────────────────────────────────────────────────
 
@@ -1331,6 +1348,8 @@ class PreviewPanel(QWidget):
             self._pdf_doc = None
             self._pdf_path = None
         self._mode = mode if mode in _SUPPORTED_MODES else "text"
+        if self._mode != "markdown":
+            self._pending_web_scroll_anchor = None
         labels = {
             "markdown": "Markdown",
             "html":     "HTML",
@@ -1668,7 +1687,11 @@ class PreviewPanel(QWidget):
     def _render_markdown(self, text: str) -> None:
         """Rendering MD in un QThread separato per non bloccare l'UI."""
         if not text.strip():
+            self._md_anchor_lines = []
+            self._md_anchor_pos_map = []
+            self._pending_web_scroll_anchor = None
             self._web_fallback.setPlainText("")
+            self._stack.setCurrentIndex(0)
             return
 
         if self._md_worker is not None:
@@ -1714,9 +1737,24 @@ class PreviewPanel(QWidget):
             file_path = getattr(self._editor, "file_path", None) if self._editor else None
             base_url = QUrl.fromLocalFile(str(file_path.parent) + "/") if file_path else QUrl()
             # MathJax e Mermaid richiedono WebEngine (JS); QTextBrowser non esegue JS
-            self._show_html(html, force_webengine=needs_js, base_url=base_url)
-            if not needs_js:
+            uses_webengine = self._show_html(
+                html, force_webengine=needs_js, base_url=base_url
+            )
+            if not uses_webengine:
                 self._build_anchor_pos_map()
+
+            # Dopo una modifica il segnale cursorPositionChanged può essere
+            # soppresso (correttamente) per evitare una sync costosa a ogni
+            # carattere. Riporta comunque la preview sul cursore corrente
+            # appena il nuovo documento è stato renderizzato.
+            if self._sync_cursor and self._editor is not None:
+                try:
+                    line, col = self._editor.getCursorPosition()
+                    self._cursor_sync_line = line
+                    self._cursor_sync_col = col
+                    self._scroll_preview_to_line(line + 1)
+                except Exception:
+                    pass
 
    
 
@@ -1832,12 +1870,14 @@ class PreviewPanel(QWidget):
 
     # ── Helpers visualizzazione ───────────────────────────────────────────────
 
-    def _show_html(self, html: str, force_webengine: bool = False, base_url=None) -> None:
+    def _show_html(self, html: str, force_webengine: bool = False, base_url=None) -> bool:
         """
         Mostra HTML nel viewer appropriato.
         Stack fisso: 0=QTextBrowser, 1=LaTeX tree, 2=testo grezzo, 3=PDF, 4+=WebEngine
         - force_webengine=True  → WebEngine (indice dinamico, solo HTML puro)
         - force_webengine=False → QTextBrowser all'indice 0 (istantaneo)
+
+        Restituisce True se il contenuto è stato mostrato nel WebEngine.
         """
         from PyQt6.QtCore import QUrl
         if base_url is None:
@@ -1848,7 +1888,7 @@ class PreviewPanel(QWidget):
                 idx = self._stack.indexOf(view)
                 self._stack.setCurrentIndex(idx)
                 view.setHtml(html, base_url)
-                return
+                return True
         # QTextBrowser è sempre all'indice 0
         # PyQt6 6.11+: setHtml non accetta più base_url come argomento;
         # si imposta la base URL sul documento prima.
@@ -1856,6 +1896,7 @@ class PreviewPanel(QWidget):
             self._web_fallback.document().setBaseUrl(base_url)
         self._web_fallback.setHtml(html)
         self._stack.setCurrentIndex(0)
+        return False
 
     def _highlight_tree_item(self, line: int) -> None:
         """Evidenzia nell'albero la sezione più vicina alla riga corrente."""
@@ -1923,7 +1964,31 @@ class PreviewPanel(QWidget):
             return
         idx = bisect.bisect_right(self._md_anchor_lines, line_1based) - 1
         if idx >= 0:
-            self._web_fallback.scrollToAnchor(f"line-{self._md_anchor_lines[idx]}")
+            anchor = f"line-{self._md_anchor_lines[idx]}"
+            if self._stack.currentWidget() is self._web and self._web is not None:
+                self._pending_web_scroll_anchor = anchor
+                self._scroll_web_to_anchor(anchor)
+            else:
+                self._web_fallback.scrollToAnchor(anchor)
+
+    def _scroll_web_to_anchor(self, anchor: str) -> None:
+        """Scorri QWebEngineView all'ancora del blocco Markdown corrente."""
+        if self._web is None:
+            return
+        # L'ancora deriva dal numero di riga, ma serializzarla come JSON evita
+        # comunque di interpolare testo non previsto nello script JavaScript.
+        script = (
+            "(() => {"
+            f"const anchor = document.getElementsByName({json.dumps(anchor)})[0];"
+            "if (!anchor) return false;"
+            "anchor.scrollIntoView({block: 'start', inline: 'nearest'});"
+            "return true;"
+            "})()"
+        )
+        try:
+            self._web.page().runJavaScript(script)
+        except Exception:
+            pass
 
     def _build_anchor_pos_map(self) -> None:
         """

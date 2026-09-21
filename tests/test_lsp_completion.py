@@ -6,8 +6,8 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtCore import QObject, pyqtSignal, Qt, QEvent
+from PyQt6.QtGui import QAction, QKeySequence, QKeyEvent
 from PyQt6.QtWidgets import QApplication
 from PyQt6.Qsci import QsciScintilla
 
@@ -135,6 +135,32 @@ class LSPCompletionTest(unittest.TestCase):
             self.editor.showUserList(30, ["print"])
         self.editor._hide_user_list_popup()
         self.app.processEvents()
+
+    def test_user_list_does_not_steal_editing_keys(self):
+        self.editor.setText("ab")
+        self.editor.setCursorPosition(0, 2)
+        self.editor.showUserList(30, ["abc", "abd"])
+        self.app.processEvents()
+
+        # An active QMenu receives the real key event before the editor.  The
+        # editor filter must forward ordinary editing keys to QScintilla.
+        popup = self.editor._user_list_popup
+        QApplication.sendEvent(
+            popup,
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_C,
+                      Qt.KeyboardModifier.NoModifier, "c"),
+        )
+        self.assertEqual(self.editor.text(), "abc")
+        self.editor.showUserList(30, ["abc", "abd"])
+        popup = self.editor._user_list_popup
+        QApplication.sendEvent(
+            popup,
+            QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Backspace,
+                      Qt.KeyboardModifier.NoModifier, ""),
+        )
+        self.app.processEvents()
+
+        self.assertEqual(self.editor.text(), "ab")
 
     def test_char_added_debounces_and_coalesces_completion_requests(self):
         # Senza debounce, digitare N caratteri genera N richieste JSON-RPC,

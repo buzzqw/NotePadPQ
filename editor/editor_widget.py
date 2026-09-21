@@ -26,8 +26,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QPoint
-from PyQt6.QtGui import QColor, QFont, QKeySequence, QDragEnterEvent, QDropEvent
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QPoint, QEvent
+from PyQt6.QtGui import QColor, QFont, QKeySequence, QKeyEvent, QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import QWidget, QApplication, QMenu
 
 from PyQt6.Qsci import (
@@ -1924,6 +1924,7 @@ class EditorWidget(QsciScintilla):
             )
         )
         self._user_list_popup = menu
+        menu.installEventFilter(self)
 
         # Position below the current Scintilla caret.  Avoid showing a top-level
         # popup when the editor has no screen yet (e.g. during lazy startup).
@@ -1951,6 +1952,52 @@ class EditorWidget(QsciScintilla):
     def _clear_user_list_popup(self, popup: QMenu) -> None:
         if self._user_list_popup is popup:
             self._user_list_popup = None
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
+        """Keep normal editor keys working while the completion menu is open.
+
+        ``QMenu.popup()`` becomes Qt's active popup and consequently receives
+        keyboard events before the editor, even when the editor still owns the
+        focus.  The native QScintilla list did not have this behaviour.  Let
+        the menu keep navigation/selection keys, but send editing keys back to
+        the editor so typing and deletion continue to work while suggestions
+        are visible.
+        """
+        popup = self._user_list_popup
+        if (
+            popup is not None
+            and watched is popup
+            and event.type() == QEvent.Type.KeyPress
+        ):
+            navigation_keys = {
+                Qt.Key.Key_Up,
+                Qt.Key.Key_Down,
+                Qt.Key.Key_PageUp,
+                Qt.Key.Key_PageDown,
+                Qt.Key.Key_Home,
+                Qt.Key.Key_End,
+                Qt.Key.Key_Left,
+                Qt.Key.Key_Right,
+                Qt.Key.Key_Return,
+                Qt.Key.Key_Enter,
+                Qt.Key.Key_Escape,
+                Qt.Key.Key_Tab,
+            }
+            if event.key() not in navigation_keys:
+                self._hide_user_list_popup()
+                self.setFocus(Qt.FocusReason.OtherFocusReason)
+                forwarded = QKeyEvent(
+                    QEvent.Type.KeyPress,
+                    event.key(),
+                    event.modifiers(),
+                    event.text(),
+                    event.isAutoRepeat(),
+                    event.count(),
+                )
+                QApplication.sendEvent(self, forwarded)
+                return True
+
+        return super().eventFilter(watched, event)
 
     def _hide_user_list_popup(self) -> None:
         popup = self._user_list_popup

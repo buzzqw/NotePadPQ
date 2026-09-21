@@ -3,7 +3,7 @@ editor/autocomplete.py — Motore autocompletamento multilivello
 NotePadPQ
 
 Livelli di autocompletamento:
-  1. Parole nel documento corrente      (sempre attivo, QScintilla nativo)
+  1. Parole nel documento corrente      (sempre attivo)
   2. Parole in tutti i tab aperti       (opzionale)
   3. Snippet per linguaggio             (opzionale, → editor/snippets.py)
   4. Dizionari API statici per linguaggio (opzionale)
@@ -725,6 +725,17 @@ class AutoCompleteManager(QObject):
         self._shutting_down = False
         self._cross_tab_connected = False
         self._local_completion_keys: set[str] = set()
+        self._local_completion_terms: list[str] = []
+        self._custom_popup_open = False
+        self._custom_popup_items: dict[str, str] = {}
+        self._completion_list_id = 30
+        try:
+            from config.settings import Settings
+            self._completion_threshold = max(
+                1, int(Settings.instance().get("autocomplete/threshold", 2))
+            )
+        except (TypeError, ValueError):
+            self._completion_threshold = 2
         self._lsp_client = None
         self._lsp_signal_client = None
         self._lsp_request_id: Optional[int] = None
@@ -767,7 +778,12 @@ class AutoCompleteManager(QObject):
 
         self._setup_base()
         editor.SCN_CHARADDED.connect(self._on_char_added_for_lsp)
+        # Il popup API nativo di QScintilla può dereferenziare un QScreen nullo
+        # su alcune combinazioni Qt/X11. La user-list ha lo stesso aspetto e
+        # la stessa navigazione, ma non passa da startAutoCompletion().
+        editor.SCN_CHARADDED.connect(self._on_char_added_for_popup)
         editor.userListActivated.connect(self._on_lsp_user_list_selection)
+        editor.userListActivated.connect(self._on_custom_user_list_selection)
         editor.destroyed.connect(self.shutdown)
 
         try:
@@ -793,7 +809,11 @@ class AutoCompleteManager(QObject):
         """Configurazione base QScintilla per autocompletamento."""
         ed = self._editor
         ed.setAutoCompletionSource(QsciScintilla.AutoCompletionSource.AcsAll)
-        ed.setAutoCompletionThreshold(2)
+        # Non aprire automaticamente il popup QScintilla mentre l'utente
+        # digita: in alcune combinazioni Qt 6/QScintilla il posizionamento del
+        # popup usa un QScreen nullo e termina il processo con SIGSEGV.
+        # Ctrl+Spazio continua a invocare il completamento manuale.
+        ed.setAutoCompletionThreshold(0)
         ed.setAutoCompletionCaseSensitivity(False)
         ed.setAutoCompletionReplaceWord(False)
         ed.setAutoCompletionUseSingle(
@@ -920,6 +940,7 @@ class AutoCompleteManager(QObject):
             self._completion_key(term.split("?", 1)[0]) for term in terms
             if term.split("?", 1)[0].strip()
         } if self._levels & AutoCompleteLevel.API_DICT else set())
+        self._local_completion_terms = list(terms)
         if not terms:
             return
         api = QsciAPIs(lexer)
@@ -977,6 +998,7 @@ class AutoCompleteManager(QObject):
             self._completion_key(term.split("?", 1)[0]) for term in terms
             if term.split("?", 1)[0].strip()
         } if self._levels & AutoCompleteLevel.API_DICT else set())
+        self._local_completion_terms = list(terms)
         self._api_worker = None
         lexer = self._editor.lexer()
         if lexer is None:
@@ -1033,7 +1055,96 @@ class AutoCompleteManager(QObject):
         """Forza la visualizzazione del popup (Ctrl+Space)."""
         self._enable_cwl_for_completion()
         self._request_lsp_completions(force=True)
-        self._editor.autoCompleteFromAll()
+        self._show_custom_completion(force=True)
+
+    @staticmethod
+    def _completion_label(term: str) -> str:
+        """Rimuove tipo e descrizione dal formato interno delle API."""
+        return str(term).split("?", 1)[0].split("\n", 1)[0].strip()
+
+    def _document_completion_terms(self) -> list[str]:
+        if not (self._levels & AutoCompleteLevel.DOCUMENT):
+            return []
+        try:
+            return re.findall(r"(?u)[\w\\]{2,}", self._editor.text())
+        except Exception:
+            return []
+
+    def _show_custom_completion(self, force: bool = False) -> None:
+        """Mostra il completamento ordinario senza il popup API nativo."""
+        if self._shutting_down:
+            return
+        line, col = self._editor.getCursorPosition()
+        prefix = self._completion_prefix(line, col)
+        threshold = 1 if force else self._completion_threshold
+        if len(prefix) < threshold:
+            self._cancel_custom_popup()
+            return
+
+        terms = list(self._local_completion_terms)
+        if self._levels & AutoCompleteLevel.API_DICT:
+            # Il worker aggiorna la lista completa in modo asincrono; usare
+            # subito il dizionario statico evita che il primo popup dopo
+            # l'apertura resti vuoto mentre il worker non ha ancora finito.
+            terms.extend(_LANGUAGE_APIS.get(self._language, []))
+        terms.extend(self._document_completion_terms())
+        if self._levels & AutoCompleteLevel.ALL_DOCS:
+            terms.extend(self._collect_all_docs_words())
+
+        seen: set[str] = set()
+        labels: list[str] = []
+        for term in terms:
+            label = self._completion_label(term)
+            key = label.casefold()
+            if (
+                not label
+                or key in seen
+                or key == prefix.casefold()
+                or not key.startswith(prefix.casefold())
+            ):
+                continue
+            seen.add(key)
+            labels.append(label)
+            if len(labels) >= 80:
+                break
+
+        if not labels:
+            self._cancel_custom_popup()
+            return
+        self._custom_popup_items = {label: label for label in labels}
+        try:
+            # SCI_AUTOCCANCEL chiude anche un eventuale popup precedente, ma
+            # non invoca il percorso startAutoCompletion che causa il crash.
+            self._editor.SendScintilla(QsciScintilla.SCI_AUTOCCANCEL)
+            self._editor.showUserList(self._completion_list_id, labels)
+            self._custom_popup_open = True
+        except Exception:
+            self._custom_popup_items.clear()
+            self._custom_popup_open = False
+
+    def _on_char_added_for_popup(self, _char: int) -> None:
+        self._show_custom_completion()
+
+    def _cancel_custom_popup(self) -> None:
+        if not self._custom_popup_open:
+            return
+        try:
+            self._editor.SendScintilla(QsciScintilla.SCI_AUTOCCANCEL)
+        except Exception:
+            pass
+        self._custom_popup_open = False
+        self._custom_popup_items.clear()
+
+    def _on_custom_user_list_selection(self, list_id: int, label: str) -> None:
+        if list_id != self._completion_list_id:
+            return
+        value = self._custom_popup_items.pop(label, label)
+        self._custom_popup_open = False
+        line, col = self._editor.getCursorPosition()
+        prefix = self._completion_prefix(line, col)
+        if prefix:
+            self._editor.setSelection(line, col - len(prefix), line, col)
+        self._editor.replaceSelectedText(value)
 
     # ── Completamento LSP ─────────────────────────────────────────────────────
 
@@ -1731,7 +1842,10 @@ class AutoCompleteManager(QObject):
 
     def set_threshold(self, chars: int) -> None:
         """Numero minimo di caratteri per attivare il popup automatico."""
-        self._editor.setAutoCompletionThreshold(chars)
+        self._completion_threshold = max(1, int(chars))
+        # Manteniamo a zero la soglia nativa: il popup sicuro viene aperto dalla
+        # user-list gestita da _on_char_added_for_popup().
+        self._editor.setAutoCompletionThreshold(0)
 
     def set_case_sensitive(self, sensitive: bool) -> None:
         self._editor.setAutoCompletionCaseSensitivity(sensitive)

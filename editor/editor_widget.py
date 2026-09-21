@@ -547,8 +547,14 @@ class EditorWidget(QsciScintilla):
         # Scroll beyond last line
         self.SendScintilla(QsciScintilla.SCI_SETENDATLASTLINE, False)
 
-        # Autocompletamento (configurato da autocomplete.py)
-        self.setAutoCompletionThreshold(2)
+        # Autocompletamento (configurato da autocomplete.py).
+        # Il popup automatico di QScintilla può dereferenziare uno schermo
+        # nullo durante la digitazione (Qt 6/QScintilla su alcune sessioni
+        # X11), causando un SIGSEGV nativo in QScreen::availableGeometry().
+        # Lasciamo disponibile il completamento esplicito (Ctrl+Spazio), ma
+        # disabilitiamo l'apertura automatica del popup nativo: il manager usa
+        # una user-list QScintilla più sicura.
+        self.setAutoCompletionThreshold(0)
         self.setAutoCompletionCaseSensitivity(False)
         self.setAutoCompletionReplaceWord(False)
         self.setAutoCompletionUseSingle(

@@ -9,6 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import QApplication
+from PyQt6.Qsci import QsciScintilla
 
 from core.session import restore_cursor_after_load
 from editor.autocomplete import AutoCompleteLevel, AutoCompleteManager
@@ -122,6 +123,18 @@ class LSPCompletionTest(unittest.TestCase):
         self.assertEqual(self.manager._lsp_items["result"]["insertText"], "result_value")
         self.manager._on_lsp_user_list_selection(20, "result")
         self.assertEqual(self.editor.text(), "result_value")
+
+    def test_user_list_avoids_qscintilla_native_popup(self):
+        # QScintilla's implementation can dereference a null QScreen on X11.
+        # The EditorWidget override must never fall back to that implementation.
+        with mock.patch.object(
+            QsciScintilla,
+            "showUserList",
+            side_effect=AssertionError("native popup must not be used"),
+        ):
+            self.editor.showUserList(30, ["print"])
+        self.editor._hide_user_list_popup()
+        self.app.processEvents()
 
     def test_char_added_debounces_and_coalesces_completion_requests(self):
         # Senza debounce, digitare N caratteri genera N richieste JSON-RPC,

@@ -779,11 +779,11 @@ class AutoCompleteManager(QObject):
         self._setup_base()
         editor.SCN_CHARADDED.connect(self._on_char_added_for_lsp)
         # Il popup API nativo di QScintilla può dereferenziare un QScreen nullo
-        # su alcune combinazioni Qt/X11. La user-list ha lo stesso aspetto e
-        # la stessa navigazione, ma non passa da startAutoCompletion().
+        # su alcune combinazioni Qt/X11. Il popup sicuro dell'EditorWidget usa
+        # un menu Qt standard e non passa da startAutoCompletion()/showUserList().
         editor.SCN_CHARADDED.connect(self._on_char_added_for_popup)
-        editor.userListActivated.connect(self._on_lsp_user_list_selection)
-        editor.userListActivated.connect(self._on_custom_user_list_selection)
+        editor.user_list_activated.connect(self._on_lsp_user_list_selection)
+        editor.user_list_activated.connect(self._on_custom_user_list_selection)
         editor.destroyed.connect(self.shutdown)
 
         try:
@@ -1113,8 +1113,8 @@ class AutoCompleteManager(QObject):
             return
         self._custom_popup_items = {label: label for label in labels}
         try:
-            # SCI_AUTOCCANCEL chiude anche un eventuale popup precedente, ma
-            # non invoca il percorso startAutoCompletion che causa il crash.
+            # SCI_AUTOCCANCEL chiude un eventuale popup nativo precedente. Il
+            # popup ordinario viene sempre creato dal menu Qt dell'editor.
             self._editor.SendScintilla(QsciScintilla.SCI_AUTOCCANCEL)
             self._editor.showUserList(self._completion_list_id, labels)
             self._custom_popup_open = True
@@ -1126,12 +1126,13 @@ class AutoCompleteManager(QObject):
         self._show_custom_completion()
 
     def _cancel_custom_popup(self) -> None:
-        if not self._custom_popup_open:
-            return
         try:
             self._editor.SendScintilla(QsciScintilla.SCI_AUTOCCANCEL)
         except Exception:
             pass
+        hide_popup = getattr(self._editor, "_hide_user_list_popup", None)
+        if callable(hide_popup):
+            hide_popup()
         self._custom_popup_open = False
         self._custom_popup_items.clear()
 
@@ -1277,13 +1278,13 @@ class AutoCompleteManager(QObject):
             labels.append(label)
 
         if not labels:
-            # Se il server ha restituito solo voci già locali, lascia aperto il
-            # popup nativo: la sorgente locale deve restare utilizzabile.
+            # Se il server ha restituito solo voci già locali, lascia disponibile
+            # il completamento locale.
             self._cancel_lsp_popup()
             return
         self._cancel_lsp_popup()
         try:
-            # QScintilla non può accodare una user-list al popup API già aperto.
+            # Chiudi un eventuale popup precedente prima di mostrare le voci LSP.
             self._editor.SendScintilla(QsciScintilla.SCI_AUTOCCANCEL)
             self._editor.showUserList(20, labels)
             self._lsp_popup_open = True
@@ -1295,6 +1296,9 @@ class AutoCompleteManager(QObject):
             self._editor.SendScintilla(QsciScintilla.SCI_AUTOCCANCEL)
         except Exception:
             pass
+        hide_popup = getattr(self._editor, "_hide_user_list_popup", None)
+        if callable(hide_popup):
+            hide_popup()
         self._lsp_popup_open = False
 
     def _on_lsp_user_list_selection(self, list_id: int, label: str) -> None:

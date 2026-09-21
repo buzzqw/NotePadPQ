@@ -26,7 +26,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QPoint
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QDragEnterEvent, QDropEvent
 from PyQt6.QtWidgets import QWidget, QApplication, QMenu
 
@@ -383,6 +383,9 @@ class EditorWidget(QsciScintilla):
     language_changed   = pyqtSignal(str)         # es. "Python", "LaTeX"
     lsp_hover_requested  = pyqtSignal(int, int)  # line, col (0-based) — per hover LSP
     context_menu_requested = pyqtSignal(object)  # QMenu — plugin possono aggiungere voci
+    # QScintilla's showUserList() can dereference a null QScreen on Qt/X11.
+    # Completion clients use this Qt-only signal instead of the native signal.
+    user_list_activated = pyqtSignal(int, str)
     paste_clipboard_image_requested = pyqtSignal()  # incolla immagine clipboard come LaTeX
     latex_image_drop_requested = pyqtSignal(object)  # file immagine trascinato su LaTeX
     markdown_image_drop_requested = pyqtSignal(object)  # file immagine trascinato su Markdown
@@ -466,6 +469,11 @@ class EditorWidget(QsciScintilla):
         self._hover_popup_timer.setSingleShot(True)
         self._hover_popup_timer.setInterval(8000)
         self._hover_popup_timer.timeout.connect(self._hide_hover_popup)
+
+        # Do not use QScintilla's native user-list popup.  It is created lazily
+        # by the methods below and is deliberately kept separate from the
+        # editor's hover popup state.
+        self._user_list_popup: Optional[QMenu] = None
 
         # Multi-cursore (Ctrl+D, Ctrl+Shift+D, Ctrl+Alt+↑/↓, …)
         from editor.multicursor import MultiCursorManager
@@ -748,6 +756,7 @@ class EditorWidget(QsciScintilla):
         )
 
         self.userListActivated.connect(self._on_user_list_selection)
+        self.user_list_activated.connect(self._on_user_list_selection)
 
         # --- INIZIO HOVER IMMAGINI ---
         try:
@@ -1889,6 +1898,66 @@ class EditorWidget(QsciScintilla):
                 return
 
         super().keyPressEvent(event)
+
+    def showUserList(self, list_id: int, strings) -> None:  # noqa: N802 - QScintilla API
+        """Show completion entries without QScintilla's native popup.
+
+        QScintilla 2.14.1 calls ``QScreen::availableGeometry()`` without
+        checking the result of its screen lookup.  On X11 this can terminate
+        the whole Python process while typing, and Python cannot catch it.
+        A regular Qt menu provides the same keyboard/mouse selection flow but
+        does not enter that QScintilla code path.
+        """
+        self._hide_user_list_popup()
+        labels = [str(value) for value in strings if str(value)]
+        if not labels:
+            return
+
+        menu = QMenu(self)
+        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        menu.setToolTipsVisible(False)
+        for label in labels:
+            menu.addAction(label)
+        menu.triggered.connect(
+            lambda action, ident=int(list_id): self.user_list_activated.emit(
+                ident, action.text()
+            )
+        )
+        self._user_list_popup = menu
+
+        # Position below the current Scintilla caret.  Avoid showing a top-level
+        # popup when the editor has no screen yet (e.g. during lazy startup).
+        try:
+            position = self.SendScintilla(QsciScintilla.SCI_GETCURRENTPOS)
+            x = self.SendScintilla(
+                QsciScintilla.SCI_POINTXFROMPOSITION, 0, position
+            )
+            y = self.SendScintilla(
+                QsciScintilla.SCI_POINTYFROMPOSITION, 0, position
+            )
+            global_pos = self.mapToGlobal(QPoint(int(x), int(y) + 20))
+            if self.screen() is None and QApplication.screenAt(global_pos) is None:
+                menu.deleteLater()
+                self._user_list_popup = None
+                return
+            menu.aboutToHide.connect(
+                lambda popup=menu: self._clear_user_list_popup(popup)
+            )
+            menu.popup(global_pos)
+        except (RuntimeError, TypeError, ValueError):
+            menu.deleteLater()
+            self._user_list_popup = None
+
+    def _clear_user_list_popup(self, popup: QMenu) -> None:
+        if self._user_list_popup is popup:
+            self._user_list_popup = None
+
+    def _hide_user_list_popup(self) -> None:
+        popup = self._user_list_popup
+        if popup is not None:
+            self._user_list_popup = None
+            popup.close()
+            popup.deleteLater()
 
     def mousePressEvent(self, event) -> None:
         """Un click nell'editor chiude sempre il popup di hover."""

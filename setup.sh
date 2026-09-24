@@ -1,6 +1,6 @@
 #!/bin/bash
 # setup.sh — NotePadPQ setup
-# Valido su: Debian/Ubuntu, Fedora, Arch Linux, macOS, Windows, FreeBSD
+# Valido su: Debian/Ubuntu, Fedora, Arch Linux, openSUSE, macOS, Windows, FreeBSD
 set -euo pipefail
 
 PROJECT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -324,6 +324,29 @@ Linux)
         sudo dnf install -y $DNF 2>/dev/null || true
 
         # Pacchetti NON disponibili via dnf → uv (venv eredita i pacchetti dnf)
+        echo "   Installazione pacchetti rimanenti via uv..."
+        _ensure_uv && _uv_venv_install "$INSTALL_TARGET" "dipendenze Python" "--system-site-packages"
+
+    elif command -v zypper &>/dev/null; then
+        # ─── openSUSE ─────────────────────────────────────────────────────────
+        echo "==> openSUSE: installazione via zypper + uv"
+
+        # openSUSE usa pacchetti Python versionati (es. python313-PyQt6)
+        PYVER=$($PYTHON -c "import sys; print(f'{sys.version_info.major}{sys.version_info.minor}')")
+
+        ZYP="python${PYVER} python${PYVER}-PyQt6 python${PYVER}-PyQt6-QScintilla"
+        ZYP="$ZYP python${PYVER}-PyQt6-WebEngine python${PYVER}-chardet"
+        ZYP="$ZYP python${PYVER}-Markdown python${PYVER}-docutils"
+        ZYP="$ZYP python${PYVER}-Pygments python${PYVER}-psutil"
+        ZYP="$ZYP python${PYVER}-pip python${PYVER}-virtualenv"
+
+        $IL && ZYP="$ZYP python${PYVER}-matplotlib python${PYVER}-sympy"
+        $IS && ZYP="$ZYP python${PYVER}-openpyxl python${PYVER}-xlrd python${PYVER}-odfpy"
+        $IF && ZYP="$ZYP python${PYVER}-black"
+
+        sudo zypper install -y $ZYP 2>/dev/null || true
+
+        # Il venv eredita i pacchetti zypper e riceve i mancanti via uv
         echo "   Installazione pacchetti rimanenti via uv..."
         _ensure_uv && _uv_venv_install "$INSTALL_TARGET" "dipendenze Python" "--system-site-packages"
 

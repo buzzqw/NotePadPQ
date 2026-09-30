@@ -14,6 +14,7 @@ import html
 import hashlib
 import os
 import fnmatch
+import itertools
 import re
 import threading
 from pathlib import Path
@@ -54,7 +55,7 @@ _MAX_REPLACE_FILE_BYTES = 50 * 1024 * 1024
 def _source_file_for_replace(path: Path) -> tuple[str, str, bool, bytes]:
     """Read source text without normalizing its encoding or line endings."""
     raw = path.read_bytes()
-    text, encoding, _line_ending = FileManager.read(path)
+    text, encoding, _line_ending = FileManager.decode_bytes(raw)
     has_bom = raw.startswith((
         b"\xef\xbb\xbf", b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff",
         b"\xff\xfe", b"\xfe\xff",
@@ -1761,7 +1762,11 @@ ESEMPI
         compiled = self._build_pattern(pattern, flags)
         if compiled is None:
             return 0
-        matches = list(compiled.finditer(text))
+        # Non materializzare migliaia/milioni di Match: la UI visualizza al
+        # massimo _MAX occorrenze, quindi è sufficiente rilevare anche il solo
+        # elemento successivo per mostrare lo stato "truncated".
+        _MAX = 10_000
+        matches = list(itertools.islice(compiled.finditer(text), _MAX + 1))
         if not matches:
             return 0
 
@@ -1778,8 +1783,6 @@ ESEMPI
             col_bytes = len(text[ls:char_off].encode("utf-8"))
             return line, col_bytes
 
-        # Cap: non evidenziare più di 10 000 occorrenze per non bloccare l'UI
-        _MAX = 10_000
         truncated = len(matches) > _MAX
         for m in matches[:_MAX]:
             ls, cs = char_to_line_bytecol(m.start())

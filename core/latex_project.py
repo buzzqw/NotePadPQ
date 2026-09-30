@@ -9,6 +9,7 @@ circolari.
 from __future__ import annotations
 
 import re
+import sys
 import threading
 from collections import OrderedDict
 from collections.abc import Iterable
@@ -34,13 +35,36 @@ _INCLUDE_INPUT_RE = re.compile(
     r'\{([^}]*)\}\s*\{([^}]+)\}'
 )
 
-_MAX_CACHE_SIZE = 128
+_MAX_CACHE_SIZE = 128  # legacy item guard; byte budget is the real limit
+_MAX_CACHE_BYTES = 32 * 1024 * 1024
 _MAX_STABLE_READ_ATTEMPTS = 3
 FileSignature: TypeAlias = tuple[int, int, int]
 _file_cache_lock = threading.Lock()
 _file_cache: OrderedDict[Path, tuple[FileSignature, str]] = OrderedDict()
+_file_cache_bytes = 0
 _stripped_cache_lock = threading.Lock()
 _stripped_cache: OrderedDict[Path, tuple[FileSignature, str]] = OrderedDict()
+_stripped_cache_bytes = 0
+
+
+def _text_memory(text: str) -> int:
+    return sys.getsizeof(text)
+
+
+def _cache_put(cache: OrderedDict, path: Path, value: tuple[FileSignature, str],
+               current_bytes: int) -> int:
+    old = cache.pop(path, None)
+    if old is not None:
+        current_bytes -= _text_memory(old[1])
+    size = _text_memory(value[1])
+    if size > _MAX_CACHE_BYTES:
+        return max(0, current_bytes)
+    cache[path] = value
+    current_bytes += size
+    while cache and (len(cache) > _MAX_CACHE_SIZE or current_bytes > _MAX_CACHE_BYTES):
+        _, removed = cache.popitem(last=False)
+        current_bytes -= _text_memory(removed[1])
+    return max(0, current_bytes)
 
 
 def _resolved(path: str | Path) -> Path:
@@ -94,11 +118,11 @@ def read_cached_text(path: Path) -> str:
             return cached[1]
     text, signature = _read_stable_text(path)
     if signature is not None:
+        global _file_cache_bytes
         with _file_cache_lock:
-            _file_cache[path] = (signature, text)
-            _file_cache.move_to_end(path)
-            if len(_file_cache) > _MAX_CACHE_SIZE:
-                _file_cache.popitem(last=False)
+            _file_cache_bytes = _cache_put(
+                _file_cache, path, (signature, text), _file_cache_bytes
+            )
     return text
 
 
@@ -117,11 +141,11 @@ def read_cached_text_stripped(path: Path) -> str:
         after = _file_signature(path)
         if before != after:
             continue
+        global _stripped_cache_bytes
         with _stripped_cache_lock:
-            _stripped_cache[path] = (after, stripped)
-            _stripped_cache.move_to_end(path)
-            if len(_stripped_cache) > _MAX_CACHE_SIZE:
-                _stripped_cache.popitem(last=False)
+            _stripped_cache_bytes = _cache_put(
+                _stripped_cache, path, (after, stripped), _stripped_cache_bytes
+            )
         return stripped
     return stripped
 
@@ -130,10 +154,15 @@ def invalidate_cached_text(path: Path) -> None:
     """Invalidate both cached representations of ``path``."""
     global _root_cache_generation
     path = _resolved(path)
+    global _file_cache_bytes, _stripped_cache_bytes
     with _stripped_cache_lock:
-        _stripped_cache.pop(path, None)
+        removed = _stripped_cache.pop(path, None)
+        if removed is not None:
+            _stripped_cache_bytes = max(0, _stripped_cache_bytes - _text_memory(removed[1]))
     with _file_cache_lock:
-        _file_cache.pop(path, None)
+        removed = _file_cache.pop(path, None)
+        if removed is not None:
+            _file_cache_bytes = max(0, _file_cache_bytes - _text_memory(removed[1]))
     with _root_cache_lock:
         _root_cache_generation += 1
         _ROOT_FALLBACK_CACHE.clear()

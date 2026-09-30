@@ -13,6 +13,7 @@ LaTeX:    B I S | Table WrapEnv AlignTable | AlignL C R | Begin End | Compile Ru
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -210,16 +211,30 @@ def _make_math_icon(mw: "MainWindow") -> QIcon:
     return QIcon(pm)
 
 
+_SVG_ICON_CACHE: OrderedDict[tuple[str, str], QPixmap] = OrderedDict()
+_SVG_ICON_CACHE_LIMIT = 128
+
+
 def render_svg_icon(icon_path: Path, color: str) -> QPixmap:
     """Renders an SVG icon replacing currentColor with color.
     For Lucide-style icons (stroke-only, fill=none) boosts stroke-width 2→2.5
     so thin outlines are clearly visible at toolbar size."""
+    key = (str(icon_path), color)
+    cached = _SVG_ICON_CACHE.get(key)
+    if cached is not None:
+        _SVG_ICON_CACHE.move_to_end(key)
+        return cached
     raw = icon_path.read_bytes()
     svg_data = raw.replace(b"currentColor", color.encode())
     if b'stroke-width="2"' in raw and b'fill="none"' in raw:
         svg_data = svg_data.replace(b'stroke-width="2"', b'stroke-width="2.5"')
     pm = QPixmap()
     pm.loadFromData(svg_data, "SVG")
+    if not pm.isNull():
+        _SVG_ICON_CACHE[key] = pm
+        _SVG_ICON_CACHE.move_to_end(key)
+        while len(_SVG_ICON_CACHE) > _SVG_ICON_CACHE_LIMIT:
+            _SVG_ICON_CACHE.popitem(last=False)
     return pm
 
 

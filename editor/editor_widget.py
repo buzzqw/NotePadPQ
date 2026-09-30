@@ -374,6 +374,8 @@ class EditorWidget(QsciScintilla):
 
     # ── Segnali ──────────────────────────────────────────────────────────────
     modified_changed   = pyqtSignal(bool)        # documento modificato/salvato
+    save_finished      = pyqtSignal(bool, str)   # ok, error message
+    document_revision_changed = pyqtSignal(int)
     cursor_changed     = pyqtSignal(int, int)    # riga, colonna (1-based)
     encoding_changed   = pyqtSignal(str)         # es. "UTF-8"
     line_ending_changed = pyqtSignal(str)        # "LF" / "CRLF" / "CR"
@@ -404,6 +406,8 @@ class EditorWidget(QsciScintilla):
         )
         self._line_ending: LineEnding = LineEnding.LF
         self._file_path: Optional[Path] = None
+        self._document_revision: int = 0
+        self._save_in_progress: bool = False
         self._read_only_forced: bool = False
         self._zoom_level: int  = 0
         self._overwrite: bool  = False
@@ -456,6 +460,7 @@ class EditorWidget(QsciScintilla):
         self._spell_marked_range: tuple[int, int] | None = None
         self._old_spell_workers: set = set()
         self.textChanged.connect(self._on_spell_text_changed)
+        self.textChanged.connect(self._on_document_changed)
         self.verticalScrollBar().valueChanged.connect(
             lambda _value: self._spell_timer.start() if self._spell_checker else None
         )
@@ -772,6 +777,15 @@ class EditorWidget(QsciScintilla):
 
     def _on_modification_changed(self, modified: bool) -> None:
         self.modified_changed.emit(modified)
+
+    def _on_document_changed(self) -> None:
+        """Incrementa una revisione economica, senza ricopiare il documento."""
+        self._document_revision += 1
+        self.document_revision_changed.emit(self._document_revision)
+
+    @property
+    def document_revision(self) -> int:
+        return self._document_revision
 
     def _on_cursor_position_changed(self, line: int, col: int) -> None:
         """Slot unico per tutti gli handler legati al movimento del cursore.
@@ -1164,6 +1178,7 @@ class EditorWidget(QsciScintilla):
 
         self._encoding = encoding
         self._line_ending = line_ending
+        self._document_revision += 1
 
         self.setEolMode(line_ending.to_qsci())
 
@@ -1187,6 +1202,7 @@ class EditorWidget(QsciScintilla):
 
         self.encoding_changed.emit(encoding)
         self.line_ending_changed.emit(line_ending.label())
+        self.document_revision_changed.emit(self._document_revision)
         self._update_line_number_margin()
 
         # setText() ha i segnali bloccati: il lexer custom non ha ricevuto

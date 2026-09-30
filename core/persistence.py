@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import json
 import os
 import shutil
@@ -52,11 +53,74 @@ def atomic_write_bytes(path: Path, data: bytes, *, mode: int | None = None) -> N
             temporary.unlink(missing_ok=True)
 
 
+def _atomic_temp_path(path: Path) -> tuple[int, Path]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+    )
+    return fd, Path(temporary_name)
+
+
+def _replace_temporary(path: Path, temporary: Path, *, mode: int | None = None) -> None:
+    if mode is not None:
+        os.chmod(temporary, mode)
+    elif path.exists():
+        os.chmod(temporary, stat.S_IMODE(path.stat().st_mode))
+    os.replace(temporary, path)
+    _fsync_directory(path.parent)
+
+
 def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8",
-                      errors: str | None = None) -> None:
-    """Atomically write text without changing its requested encoding."""
-    encode_kwargs = {"errors": errors} if errors is not None else {}
-    atomic_write_bytes(path, text.encode(encoding, **encode_kwargs))
+                      errors: str | None = None, prefix: bytes = b"",
+                      return_size: bool = False) -> int | None:
+    """Atomically write text without materializing an encoded byte copy.
+
+    The old implementation called ``text.encode()`` first.  For a large open
+    document that temporarily kept both the Python string and a second full
+    bytes object alive.  Incremental encoding preserves the same atomicity while
+    keeping peak memory close to the size of the text itself.
+    """
+    temporary: Path | None = None
+    fd, temporary = _atomic_temp_path(path)
+    try:
+        encode_errors = errors or "strict"
+        encoder = codecs.getincrementalencoder(encoding)(errors=encode_errors)
+        written = len(prefix)
+        with os.fdopen(fd, "wb") as output:
+            if prefix:
+                output.write(prefix)
+            chunk_chars = 1024 * 1024
+            for start in range(0, len(text), chunk_chars):
+                encoded = encoder.encode(text[start:start + chunk_chars], final=False)
+                output.write(encoded)
+                written += len(encoded)
+            encoded = encoder.encode("", final=True)
+            output.write(encoded)
+            written += len(encoded)
+            output.flush()
+            os.fsync(output.fileno())
+        _replace_temporary(path, temporary)
+        temporary = None
+        return written if return_size else None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def atomic_copy_file(source: Path, destination: Path) -> None:
+    """Copy a file atomically using bounded memory."""
+    temporary: Path | None = None
+    fd, temporary = _atomic_temp_path(destination)
+    try:
+        with source.open("rb") as input_file, os.fdopen(fd, "wb") as output:
+            shutil.copyfileobj(input_file, output, length=1024 * 1024)
+            output.flush()
+            os.fsync(output.fileno())
+        _replace_temporary(destination, temporary)
+        temporary = None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def atomic_write_json(path: Path, data: Any, *, indent: int = 2) -> None:

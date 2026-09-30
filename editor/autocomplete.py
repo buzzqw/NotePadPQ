@@ -726,6 +726,10 @@ class AutoCompleteManager(QObject):
         self._cross_tab_connected = False
         self._local_completion_keys: set[str] = set()
         self._local_completion_terms: list[str] = []
+        self._snapshot_revision: int | None = None
+        self._snapshot_text: str | None = None
+        self._all_docs_words_key: tuple = ()
+        self._all_docs_words_cache: list[str] = []
         self._custom_popup_open = False
         self._custom_popup_items: dict[str, str] = {}
         self._completion_list_id = 30
@@ -965,8 +969,15 @@ class AutoCompleteManager(QObject):
             w for w in self._old_api_workers if w.isRunning()
         ]
 
-        # Snapshot sul main thread (QScintilla non è thread-safe)
-        text = self._editor.text()
+        # Snapshot sul main thread (QScintilla non è thread-safe). Riutilizza
+        # quello precedente se il documento non è cambiato.
+        revision = getattr(self._editor, "document_revision", None)
+        if revision is not None and revision == self._snapshot_revision:
+            text = self._snapshot_text or ""
+        else:
+            text = self._editor.text()
+            self._snapshot_revision = revision
+            self._snapshot_text = text
         fp   = getattr(self._editor, "file_path", None)
         all_docs_words = self._collect_all_docs_words()
 
@@ -1024,6 +1035,15 @@ class AutoCompleteManager(QObject):
         """Estrae le parole da tutti gli altri tab (main thread, snapshot)."""
         if not (self._levels & AutoCompleteLevel.ALL_DOCS) or not self._tab_manager_ref:
             return []
+        revisions = tuple(
+            (id(editor), getattr(editor, "document_revision", None),
+             getattr(editor, "lines", lambda: -1)())
+            for editor in self._tab_manager_ref.all_editors()
+            if editor is not self._editor
+        )
+        can_cache = all(revision[1] is not None for revision in revisions)
+        if can_cache and revisions == self._all_docs_words_key:
+            return list(self._all_docs_words_cache)
         seen:  set[str]  = set()
         words: list[str] = []
         for editor in self._tab_manager_ref.all_editors():
@@ -1033,6 +1053,9 @@ class AutoCompleteManager(QObject):
                 if w not in seen:
                     seen.add(w)
                     words.append(w)
+        if can_cache:
+            self._all_docs_words_key = revisions
+            self._all_docs_words_cache = words
         return words
 
     # ── Cross-tab ─────────────────────────────────────────────────────────────

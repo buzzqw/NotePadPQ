@@ -270,6 +270,36 @@ class _ExportAsWorker(QThread):
         self.completed.emit(err, self._cancelled)
 
 
+class _EditorSaveWorker(QThread):
+    """Scrive uno snapshot dell'editor senza bloccare il thread GUI."""
+
+    completed = pyqtSignal(bool, str)
+
+    def __init__(self, path: Path, content: str, encoding: str,
+                 write_bom: bool, backup: bool):
+        super().__init__()
+        self._path = path
+        self._content = content
+        self._encoding = encoding
+        self._write_bom = write_bom
+        self._backup = backup
+
+    def run(self) -> None:
+        try:
+            from core.file_manager import FileManager
+            FileManager.write(
+                self._path,
+                self._content,
+                self._encoding,
+                write_bom=self._write_bom,
+                backup=self._backup,
+            )
+        except Exception as exc:
+            self.completed.emit(False, str(exc))
+        else:
+            self.completed.emit(True, "")
+
+
 class MainWindow(QMainWindow):
 
     APP_NAME    = "NotePadPQ"
@@ -320,6 +350,7 @@ class MainWindow(QMainWindow):
         # Loader in corso per file grandi (lazy/paged), tenuti vivi qui
         # per poterli cancellare se il tab viene chiuso durante il caricamento.
         self._lazy_loaders: dict[EditorWidget, "LazyLoader"] = {}
+        self._save_workers: set[_EditorSaveWorker] = set()
 
         self.setAcceptDrops(True)
 
@@ -757,6 +788,7 @@ class MainWindow(QMainWindow):
         except (RuntimeError, TypeError):
             pass
         editor._lsp_text_changed_handler = None
+        editor._lsp_last_synced_revision = None
         timer = getattr(editor, "_lsp_sync_timer", None)
         if timer is not None:
             timer.stop()
@@ -911,6 +943,7 @@ class MainWindow(QMainWindow):
                 t.start()
 
         editor._lsp_text_changed_handler = _on_changed
+        editor._lsp_last_synced_revision = None
         editor.textChanged.connect(_on_changed)
 
     def _lsp_flush_content_sync(self, editor, client, force: bool = False) -> None:
@@ -934,8 +967,13 @@ class MainWindow(QMainWindow):
     def _lsp_sync_content(editor, client) -> None:
         if not getattr(editor, "file_path", None):
             return
+        revision = getattr(editor, "document_revision", None)
+        if (revision is not None
+                and revision == getattr(editor, "_lsp_last_synced_revision", None)):
+            return
         version = client.next_document_version(editor.file_path)
         client.update_file(editor.file_path, editor.text(), version)
+        editor._lsp_last_synced_revision = revision
 
     def _lsp_request_hover(self, editor, client, line: int, col: int) -> None:
         self._lsp_hover_pos = (line, col)
@@ -2992,6 +3030,25 @@ class MainWindow(QMainWindow):
     def _save_editor(self, editor: EditorWidget, path: Path) -> bool:
         from core.file_manager import FileManager
         from PyQt6.QtCore import QTimer
+        # Un salvataggio già in corso possiede già uno snapshot valido.  Non
+        # avviare un secondo worker (che potrebbe terminare fuori ordine): i
+        # chiamanti che devono attendere ascoltano save_finished.
+        if getattr(editor, "_save_in_progress", False):
+            current_path = getattr(editor, "file_path", None)
+            try:
+                same_path = bool(current_path) and current_path.resolve() == path.resolve()
+            except (OSError, RuntimeError, AttributeError):
+                same_path = current_path == path
+            if same_path:
+                return True
+            # Save As durante una scrittura in corso non può essere accodato
+            # senza introdurre una gara tra snapshot. Lascia il documento
+            # aperto e consente di riprovare quando il worker è terminato.
+            self.statusBar().showMessage(
+                tr("msg.file_save_in_progress", default="Salvataggio in corso…"),
+                3000,
+            )
+            return False
         watched: list[str] = []
         try:
             # 1. Flag di sicurezza: avvisa il sistema che stiamo salvando noi
@@ -3010,9 +3067,94 @@ class MainWindow(QMainWindow):
                 settings.get("file/trim_trailing", False),
                 settings.get("file/add_newline_eof", True),
             )
+            content = editor.get_content()
+            save_revision = getattr(editor, "document_revision", 0)
+            old_lang = getattr(editor, "_current_language", "")
+            old_path = editor.file_path
+
+            # Cattura lo snapshot sul main thread, ma sposta encoding, backup,
+            # scrittura e fsync fuori dal thread GUI per documenti grandi.
+            if len(content) >= 8 * 1024 * 1024:
+                def _restore_async_watcher() -> None:
+                    try:
+                        if hasattr(editor, "_watcher"):
+                            try:
+                                current = editor._watcher.files()
+                                for watched_path in watched:
+                                    if watched_path not in current:
+                                        editor._watcher.addPath(watched_path)
+                                if str(path) not in current:
+                                    editor._watcher.addPath(str(path))
+                            except (RuntimeError, OSError):
+                                # L'editor può essere stato distrutto dopo la
+                                # chiusura del tab mentre il timer era pendente.
+                                pass
+                    finally:
+                        editor._is_saving = False
+
+                worker = _EditorSaveWorker(
+                    path, content, editor.encoding,
+                    getattr(editor, "_write_bom", False),
+                    settings.get("file/backup_on_save", False),
+                )
+                editor._save_in_progress = True
+                if not hasattr(self, "_save_workers"):
+                    self._save_workers = set()
+                self._save_workers.add(worker)
+
+                def _async_done(ok: bool, error: str, *, _worker=worker) -> None:
+                    self._save_workers.discard(_worker)
+                    editor._save_in_progress = False
+                    if ok:
+                        # Replica la parte post-scrittura del percorso sincrono.
+                        old_ext = old_path.suffix.lower() if old_path else ""
+                        new_ext = path.suffix.lower()
+                        editor.file_path = path
+                        if new_ext != old_ext:
+                            try:
+                                from editor.lexers import set_lexer_by_path
+                                set_lexer_by_path(editor, path)
+                            except Exception:
+                                pass
+                            if getattr(editor, "_current_language", "") != old_lang:
+                                if hasattr(self, "_statusbar"):
+                                    self._statusbar._update_lang(editor)
+                        if old_path != path and hasattr(self, "_preview_panel_dock"):
+                            self._preview_panel_dock.set_editor(editor)
+                        self._lsp_connect_editor(editor)
+                        if getattr(editor, "document_revision", save_revision) == save_revision:
+                            editor.mark_saved()
+                            self._on_tab_modified(editor, False)
+                        else:
+                            self._on_tab_modified(editor, True)
+                        self._update_recent(path)
+                        self._notify_plugins_file_saved(path)
+                        self._autosave_file_to_backup(editor)
+                        if settings.get("build/trigger_on_save", False):
+                            QTimer.singleShot(50, lambda: self._trigger_build_on_save(editor))
+                        if getattr(editor, "_ftp_remote_path", None):
+                            self._ftp_sync_after_save(editor)
+                        editor.save_finished.emit(True, "")
+                    else:
+                        editor._is_saving = False
+                        editor.save_finished.emit(False, error)
+                        QMessageBox.critical(
+                            self, self.APP_NAME,
+                            tr("msg.file_write_error", path=str(path), error=error),
+                        )
+                    if hasattr(editor, "_watcher"):
+                        QTimer.singleShot(1000, _restore_async_watcher)
+                    else:
+                        editor._is_saving = False
+
+                worker.completed.connect(_async_done)
+                worker.finished.connect(worker.deleteLater)
+                worker.start()
+                return True
+
             FileManager.write(
                 path,
-                editor.get_content(),
+                content,
                 editor.encoding,
                 write_bom=getattr(editor, "_write_bom", False),
                 backup=settings.get("file/backup_on_save", False),
@@ -3075,11 +3217,12 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(1000, restore_watcher)
             else:
                 editor._is_saving = False
-                
+            editor.save_finished.emit(True, "")
             return True
             
         except Exception as e:
             editor._is_saving = False
+            editor._save_in_progress = False
             if hasattr(editor, "_watcher"):
                 try:
                     for watched_path in watched:
@@ -3091,6 +3234,7 @@ class MainWindow(QMainWindow):
                 self, self.APP_NAME,
                 tr("msg.file_write_error", path=str(path), error=str(e))
             )
+            editor.save_finished.emit(False, str(e))
             return False
 
     def _ftp_sync_after_save(self, editor) -> None:
@@ -5229,6 +5373,14 @@ class MainWindow(QMainWindow):
             self._allow_close_after_save = False
             event.accept()
             return
+        if any(getattr(ed, "_save_in_progress", False)
+               for ed in self._tab_manager.all_editors()):
+            event.ignore()
+            self.statusBar().showMessage(
+                tr("msg.file_save_in_progress", default="Salvataggio in corso…"),
+                3000,
+            )
+            return
         modified = [ed for ed in self._tab_manager.all_editors()
                      if ed.is_modified()]
         custom_tabs = [
@@ -5307,6 +5459,48 @@ class MainWindow(QMainWindow):
                 on_error=lambda _error: finish_one(False),
             )
 
+        def wait_for_editor(editor) -> None:
+            """Attendere anche i salvataggi normali diventati asincroni."""
+            pending["count"] += 1
+            signal = getattr(editor, "save_finished", None)
+            if signal is None:
+                pending["failed"] = True
+                finish_one(False)
+                return
+            completed = {"value": False}
+
+            def on_finished(ok: bool, *_args) -> None:
+                completed["value"] = True
+                try:
+                    signal.disconnect(on_finished)
+                except (TypeError, RuntimeError):
+                    pass
+                # save_finished conferma lo snapshot scritto, non
+                # necessariamente il contenuto attuale: l'utente può aver
+                # digitato mentre il worker era in esecuzione.
+                if ok and editor.is_modified():
+                    ok = False
+                finish_one(ok)
+
+            signal.connect(on_finished)
+            try:
+                ok = self._save_editor(editor, editor.file_path)
+            except Exception:
+                ok = False
+            if not ok and not completed["value"]:
+                try:
+                    signal.disconnect(on_finished)
+                except (TypeError, RuntimeError):
+                    pass
+                finish_one(False)
+            elif (not getattr(editor, "_save_in_progress", False)
+                  and not completed["value"]):
+                try:
+                    signal.disconnect(on_finished)
+                except (TypeError, RuntimeError):
+                    pass
+                finish_one(True)
+
         def wait_for_custom(widget, signal) -> None:
             pending["count"] += 1
             completed = {"value": False}
@@ -5353,8 +5547,7 @@ class MainWindow(QMainWindow):
             if getattr(editor, "_paged_doc", None) is not None:
                 wait_for_paged(editor)
             elif editor.file_path:
-                if not self._save_editor(editor, editor.file_path):
-                    pending["failed"] = True
+                wait_for_editor(editor)
             else:
                 self._tab_manager.set_current_editor(editor)
                 if not self.action_save_as():

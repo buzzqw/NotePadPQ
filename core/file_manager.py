@@ -17,7 +17,7 @@ from pathlib import Path
 from PyQt6.QtCore import QFileSystemWatcher, QObject, pyqtSignal
 
 from core.diagnostics import operation
-from core.persistence import atomic_write_bytes
+from core.persistence import atomic_copy_file, atomic_write_text
 from editor.editor_widget import LineEnding
 
 try:
@@ -57,45 +57,45 @@ class FileManager:
         with operation("file.read", path=path) as details:
             raw = path.read_bytes()
             details["size_bytes"] = len(raw)
+            return FileManager.decode_bytes(raw)
 
-            # Rilevamento BOM
-            encoding, bom_len = FileManager._detect_bom(raw)
-            if encoding:
-                content_bytes = raw[bom_len:]
-                try:
-                    text = content_bytes.decode(encoding)
-                    le = LineEnding.detect(text)
-                    return text, encoding.upper().replace("-SIG", " BOM"), le
-                except UnicodeDecodeError:
-                    pass
+    @staticmethod
+    def decode_bytes(raw: bytes) -> tuple[str, str, LineEnding]:
+        """Decode bytes already read by the caller without a second disk read."""
 
-            # UTF-8 strict: se i byte sono UTF-8 validi, è definitivamente UTF-8.
-            # chardet può sbagliare su file con lunga intestazione ASCII + pochi
-            # caratteri estesi, quindi viene usato solo se UTF-8 fallisce.
+        # Rilevamento BOM
+        encoding, bom_len = FileManager._detect_bom(raw)
+        if encoding:
+            content_bytes = raw[bom_len:]
             try:
-                text = raw.decode("utf-8")
+                text = content_bytes.decode(encoding)
                 le = LineEnding.detect(text)
-                return text, "UTF-8", le
+                return text, encoding.upper().replace("-SIG", " BOM"), le
             except UnicodeDecodeError:
                 pass
 
-            # chardet (raggiunto solo se il file non è UTF-8 valido)
-            detected_enc = FileManager._chardet_detect(raw)
-
-            # Tentativo con encoding rilevato poi fallback
-            for enc in ([detected_enc] if detected_enc else []) + _FALLBACK_ENCODINGS:
-                try:
-                    text = raw.decode(enc)
-                    le = LineEnding.detect(text)
-                    display_enc = enc.upper()
-                    return text, display_enc, le
-                except (UnicodeDecodeError, LookupError):
-                    continue
-
-            # Ultimo fallback: latin-1 non fallisce mai
-            text = raw.decode("latin-1", errors="replace")
+        # UTF-8 strict: se i byte sono UTF-8 validi, è definitivamente UTF-8.
+        try:
+            text = raw.decode("utf-8")
             le = LineEnding.detect(text)
-            return text, "Latin-1", le
+            return text, "UTF-8", le
+        except UnicodeDecodeError:
+            pass
+
+        detected_enc = FileManager._chardet_detect(raw)
+
+        for enc in ([detected_enc] if detected_enc else []) + _FALLBACK_ENCODINGS:
+            try:
+                text = raw.decode(enc)
+                le = LineEnding.detect(text)
+                display_enc = enc.upper()
+                return text, display_enc, le
+            except (UnicodeDecodeError, LookupError):
+                continue
+
+        text = raw.decode("latin-1", errors="replace")
+        le = LineEnding.detect(text)
+        return text, "Latin-1", le
 
     @staticmethod
     def write(path: Path, content: str, encoding: str,
@@ -129,9 +129,11 @@ class FileManager:
 
             # The shared writer fsyncs a sibling temporary file before replacing
             # the destination, preserving content if interrupted mid-save.
-            payload = bom + content.encode(enc_clean)
-            details["size_bytes"] = len(payload)
-            atomic_write_bytes(path, payload)
+            # Avoid encoding the whole document a second time only for a log
+            # field.  The exact byte size is not needed for correctness.
+            details["size_bytes"] = atomic_write_text(
+                path, content, encoding=enc_clean, prefix=bom, return_size=True
+            )
             from core.latex_project import invalidate_cached_text
             invalidate_cached_text(path.resolve())
 
@@ -160,7 +162,7 @@ class FileManager:
     def _make_backup(path: Path) -> None:
         """Create a byte-for-byte backup without exposing a partial .bak file."""
         backup_path = path.with_suffix(path.suffix + ".bak")
-        atomic_write_bytes(backup_path, path.read_bytes())
+        atomic_copy_file(path, backup_path)
 
 
 # ─── FileWatcher ─────────────────────────────────────────────────────────────

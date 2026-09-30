@@ -131,6 +131,7 @@ class TabManager(QTabWidget):
         self._custom_tabs: dict[QWidget, Optional[Path]] = {}
         # Chiusure in attesa dell'esito di un salvataggio asincrono.
         self._pending_custom_closes: dict[QWidget, object] = {}
+        self._pending_editor_closes: dict[EditorWidget, object] = {}
         # Preview panel attivo
         self._preview_enabled = False
         # Ordine di ultimo utilizzo dei tab (widget container), usato dal
@@ -396,6 +397,39 @@ class TabManager(QTabWidget):
             except (TypeError, RuntimeError):
                 pass
 
+    def _defer_editor_close(self, editor: EditorWidget) -> bool:
+        """Attende il salvataggio asincrono prima di rimuovere il tab."""
+        if editor in self._pending_editor_closes:
+            return True
+        signal = getattr(editor, "save_finished", None)
+        if signal is None:
+            return False
+
+        def _on_saved(ok: bool, *_args) -> None:
+            self._pending_editor_closes.pop(editor, None)
+            try:
+                signal.disconnect(_on_saved)
+            except (TypeError, RuntimeError):
+                pass
+            if ok:
+                index = self.index_of_editor(editor)
+                if index >= 0:
+                    # Il worker salva uno snapshot. Se nel frattempo l'utente
+                    # ha modificato il documento, non chiudere perdendo quelle
+                    # modifiche: riapri il normale flusso Save/Discard/Cancel.
+                    if editor.is_modified():
+                        self._on_close_requested(index)
+                    else:
+                        self._close_tab_at(index)
+
+        signal.connect(_on_saved)
+        self._pending_editor_closes[editor] = _on_saved
+        return True
+
+    def index_of_editor(self, editor: EditorWidget) -> int:
+        container = self._containers.get(editor)
+        return self.indexOf(container) if container is not None else -1
+
     def _on_close_requested(self, index: int) -> bool:
         """Request a tab close, returning False only when it was cancelled."""
         if index < 0 or index >= self.count():
@@ -453,6 +487,10 @@ class TabManager(QTabWidget):
 
     def _close_tab_at(self, index: int) -> None:
         container = self.widget(index)
+        editor = self._editors.get(container)
+        if editor is not None and getattr(editor, "_save_in_progress", False):
+            self._defer_editor_close(editor)
+            return
         saving = getattr(container, "is_save_in_progress", None)
         if (
             container in self._custom_tabs
@@ -472,6 +510,7 @@ class TabManager(QTabWidget):
                 for p in watcher.files():
                     watcher.removePath(p)
             self.tab_closed.emit(editor)
+            self._pending_editor_closes.pop(editor, None)
         # Pulizia tab custom
         is_custom = container in self._custom_tabs
         self._cancel_deferred_custom_close(container)

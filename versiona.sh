@@ -28,6 +28,23 @@ git rev-parse --git-dir &>/dev/null || err "Non sei in un repository git."
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# Se il proxy MITM locale e' attivo, usalo per tutte le chiamate esterne
+# effettuate da curl, gh e git.
+configure_external_proxy() {
+    if (exec 3<>/dev/tcp/127.0.0.1/8088) 2>/dev/null; then
+        exec 3>&-
+        exec 3<&-
+        local proxy="http://127.0.0.1:8088"
+        export http_proxy="$proxy"
+        export https_proxy="$proxy"
+        export HTTP_PROXY="$proxy"
+        export HTTPS_PROXY="$proxy"
+        info "Uso il proxy MITM locale ${proxy}."
+    fi
+}
+
+configure_external_proxy
+
 # ── Carica config locale (.versiona.conf) ─────────────────────────────────────
 RELEASE_LANG=""
 MAIN_BRANCH=""

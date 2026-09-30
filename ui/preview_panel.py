@@ -671,7 +671,8 @@ class PreviewPanel(QWidget):
         self._timer.setObjectName("preview_update")
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._update_preview)
-        self._last_hash: int = 0   # evita re-render se il testo non è cambiato
+        self._last_revision: int = -1  # evita snapshot completi inutili
+        self._last_hash: int = 0       # fallback per editor compatibili
 
         self._latex_compile_timer = QTimer(self)
         self._latex_compile_timer.setObjectName("preview_latex_compile")
@@ -1103,6 +1104,7 @@ class PreviewPanel(QWidget):
         self._pdf_tex_path = None
 
         # FIX: Forza il re-render invalidando la memoria dell'ultimo testo
+        self._last_revision = -1
         self._last_hash = 0
         
         if editor is None:
@@ -1656,21 +1658,30 @@ class PreviewPanel(QWidget):
     def _update_preview(self) -> None:
         if self._editor is None:
             return
-            
+
+        # Un PDF viene letto dal disco e non dipende dal contenuto del buffer:
+        # non copiare inutilmente l'intero documento LaTeX prima del render.
+        if self._mode == "pdf":
+            self._render_pdf()
+            return
+
+        revision = getattr(self._editor, "document_revision", None)
+        if revision is not None and revision == self._last_revision:
+            return
+
         try:
             text = self._editor.text()
         except Exception:
             return
-            
-        # Skip se il testo non è cambiato dall'ultimo render
-        h = hash(text)
-        if h == self._last_hash and self._mode not in ("pdf",):
-            return
-        self._last_hash = h
 
-        if self._mode == "pdf":
-            self._render_pdf()
-            return
+        # Skip se il testo non è cambiato dall'ultimo render
+        if revision is None:
+            h = hash(text)
+            if h == self._last_hash:
+                return
+            self._last_hash = h
+        else:
+            self._last_revision = revision
         if self._mode == "markdown":
             self._render_markdown(text)
         elif self._mode == "html":

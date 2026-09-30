@@ -130,6 +130,17 @@ _RE_SPECIAL_BYTES = re.compile(rb'[%\\${}[\]]')
 # in micro-step da ~10ms invece di un blocco unico da 1-2 secondi.
 _MAX_STYLE_BYTES = 8000  # ~100 righe × 80 char
 
+# Quando l'utente trascina la scrollbar su un documento grande, il primo
+# intervallo richiesto da Scintilla può essere molto lontano dall'ultimo
+# intervallo già colorato. Ricostruire lo stato LaTeX esatto dall'inizio del
+# documento blocca il thread GUI (su 50.000 righe può richiedere secondi).
+# Per l'accesso casuale usiamo quindi un contesto limitato: la colorazione
+# della viewport resta immediata e, quando possibile, conserva lo stato dei
+# costrutti iniziati poco prima. I documenti piccoli continuano a usare la
+# scansione esatta completa.
+_LARGE_DOCUMENT_BYTES = 1 * 1024 * 1024
+_MAX_RANDOM_ACCESS_CONTEXT = 64 * 1024
+
 
 class LaTeXLexer(QsciLexerCustom):
     """Custom LaTeX lexer con highlighting stile TeXstudio."""
@@ -183,7 +194,15 @@ class LaTeXLexer(QsciLexerCustom):
 
     def _cache_state(self, pos: int, mode: str, envs: tuple) -> None:
         if pos not in self._state_cache:
-            bisect.insort(self._state_cache_order, pos)
+            # Le scansioni del lexer avanzano sempre in avanti: usare insort
+            # per ogni riga trasformerebbe la costruzione della cache in O(n²),
+            # perché ogni inserimento dovrebbe spostare tutta la lista.
+            # Manteniamo comunque il fallback per eventuali chiamate fuori
+            # ordine (utile anche per test e recuperi incrementali).
+            if not self._state_cache_order or pos > self._state_cache_order[-1]:
+                self._state_cache_order.append(pos)
+            else:
+                bisect.insort(self._state_cache_order, pos)
         self._state_cache[pos] = (mode, envs)
 
     def invalidate_cache(self) -> None:
@@ -233,10 +252,12 @@ class LaTeXLexer(QsciLexerCustom):
         return i, text_b[pos + 1:i].decode('ascii')
 
     @classmethod
-    def _verbatim_environment_token(cls, text_b: bytes, pos: int):
+    def _verbatim_environment_token(cls, text_b: bytes, pos: int,
+                                    command=None):
         """Come _math_environment_token ma per \\begin/\\end di un ambiente
         verbatim-like (contenuto letterale, non interpretato)."""
-        command = cls._command(text_b, pos)
+        if command is None:
+            command = cls._command(text_b, pos)
         if command is None or command[1] not in ('begin', 'end'):
             return None
         end, kind = command
@@ -276,8 +297,10 @@ class LaTeXLexer(QsciLexerCustom):
         return (close + 1) if close >= 0 else limit
 
     @classmethod
-    def _math_environment_token(cls, text_b: bytes, pos: int):
-        command = cls._command(text_b, pos)
+    def _math_environment_token(cls, text_b: bytes, pos: int,
+                                command=None):
+        if command is None:
+            command = cls._command(text_b, pos)
         if command is None or command[1] not in ('begin', 'end'):
             return None
         end, kind = command
@@ -305,12 +328,52 @@ class LaTeXLexer(QsciLexerCustom):
         idx = bisect.bisect_right(self._state_cache_order, offset) - 1
         checkpoint = self._state_cache_order[idx] if idx >= 0 else 0
         mode, envs = self._state_cache[checkpoint]
+        return self._scan_state(text_b, checkpoint, offset, mode, envs, True)
+
+    def _state_for_style(self, text_b: bytes, offset: int):
+        """Restituisce lo stato per una richiesta di colorazione della viewport.
+
+        ``styleText`` viene chiamato anche per un salto molto lontano nel
+        documento. In quel caso non è opportuno fare una scansione completa
+        dall'inizio sul thread GUI. Si parte da una finestra locale in stato
+        neutro e si evita di memorizzare checkpoint approssimati: così un
+        accesso casuale non avvelena la cache usata per la scansione esatta.
+        """
+        if len(text_b) < _LARGE_DOCUMENT_BYTES:
+            return (*self._state_at(text_b, offset), True)
+
+        if len(self._state_cache_order) != len(self._state_cache):
+            self._state_cache_order = sorted(self._state_cache)
+        idx = bisect.bisect_right(self._state_cache_order, offset) - 1
+        checkpoint = self._state_cache_order[idx] if idx >= 0 else 0
+
+        if offset - checkpoint <= _MAX_RANDOM_ACCESS_CONTEXT:
+            mode, envs = self._state_cache[checkpoint]
+            return (*self._scan_state(text_b, checkpoint, offset, mode, envs, True), True)
+
+        context_start = max(0, offset - _MAX_RANDOM_ACCESS_CONTEXT)
+        newline = text_b.rfind(b'\n', 0, context_start)
+        context_start = 0 if newline < 0 else newline + 1
+        mode, envs = self._scan_state(
+            text_b, context_start, offset, "default", (), False
+        )
+        return mode, envs, False
+
+    def _scan_state(self, text_b: bytes, checkpoint: int, offset: int,
+                    mode: str, envs: tuple[str, ...], cache_states: bool):
+        """Scansiona lo stato tra due offset.
+
+        Separare la scansione dal lookup permette a ``_state_for_style`` di
+        fare un recupero locale senza inserire nella cache stati ottenuti con
+        un contesto iniziale necessariamente approssimato.
+        """
         envs = list(envs)
         i = checkpoint
         while i < offset:
             if text_b[i] == _B_NEWLINE:
                 i += 1
-                self._cache_state(i, mode, tuple(envs))
+                if cache_states:
+                    self._cache_state(i, mode, tuple(envs))
                 continue
             if text_b[i] == _B_PERCENT and mode != 'verbatim' and not self._is_escaped(text_b, i):
                 newline = text_b.find(b'\n', i, offset)
@@ -326,22 +389,25 @@ class LaTeXLexer(QsciLexerCustom):
                     mode = 'paren' if text_b[i + 1] == ord('(') else 'bracket'
                     i += 2
                     continue
-                token = self._math_environment_token(text_b, i)
-                if token is not None and token[1] == 'begin':
-                    mode = 'environment'
-                    envs.append(token[2])
-                    i = token[0]
-                    continue
-                vtoken = self._verbatim_environment_token(text_b, i)
-                if vtoken is not None and vtoken[1] == 'begin':
-                    mode = 'verbatim'
-                    envs.append(vtoken[2])
-                    i = vtoken[0]
-                    continue
-                verb_end = self._verb_inline_span(text_b, i)
-                if verb_end is not None:
-                    i = verb_end
-                    continue
+                if text_b[i] == _B_BACKSLASH:
+                    command = self._command(text_b, i)
+                    token = self._math_environment_token(text_b, i, command)
+                    if token is not None and token[1] == 'begin':
+                        mode = 'environment'
+                        envs.append(token[2])
+                        i = token[0]
+                        continue
+                    vtoken = self._verbatim_environment_token(text_b, i, command)
+                    if vtoken is not None and vtoken[1] == 'begin':
+                        mode = 'verbatim'
+                        envs.append(vtoken[2])
+                        i = vtoken[0]
+                        continue
+                    if command is not None and command[1] in ('verb', 'verb*'):
+                        verb_end = self._verb_inline_span(text_b, i)
+                        if verb_end is not None:
+                            i = verb_end
+                            continue
                 i += 2 if text_b[i] == _B_BACKSLASH and i + 1 < offset else 1
                 continue
             if mode == 'dollar' and text_b[i] == _B_DOLLAR and not self._is_escaped(text_b, i):
@@ -361,7 +427,8 @@ class LaTeXLexer(QsciLexerCustom):
                 i += 2
                 continue
             if mode == 'environment' and text_b[i] == _B_BACKSLASH:
-                token = self._math_environment_token(text_b, i)
+                command = self._command(text_b, i)
+                token = self._math_environment_token(text_b, i, command)
                 if token is not None:
                     if token[1] == 'begin':
                         envs.append(token[2])
@@ -379,7 +446,8 @@ class LaTeXLexer(QsciLexerCustom):
                 if stop > i:
                     i = stop
                     continue
-                vtoken = self._verbatim_environment_token(text_b, i)
+                command = self._command(text_b, i)
+                vtoken = self._verbatim_environment_token(text_b, i, command)
                 if vtoken is not None and vtoken[1] == 'end' and envs and envs[-1] == vtoken[2]:
                     envs.pop()
                     if not envs:
@@ -399,7 +467,7 @@ class LaTeXLexer(QsciLexerCustom):
         if safe >= end:
             return
         styles = bytearray(end - safe)
-        mode, envs = self._state_at(text_b, safe)
+        mode, envs, cache_states = self._state_for_style(text_b, safe)
         envs = list(envs)
         last_cmd = ''
 
@@ -413,7 +481,8 @@ class LaTeXLexer(QsciLexerCustom):
         while pos < end:
             b = text_b[pos]
             if b == _B_NEWLINE:
-                self._cache_state(pos + 1, mode, tuple(envs))
+                if cache_states:
+                    self._cache_state(pos + 1, mode, tuple(envs))
                 pos += 1
                 last_cmd = ''
                 continue
@@ -437,22 +506,26 @@ class LaTeXLexer(QsciLexerCustom):
                     pos += 2
                     continue
                 if b == _B_BACKSLASH:
-                    token = self._math_environment_token(text_b, pos)
                     command = self._command(text_b, pos)
+                    token = self._math_environment_token(text_b, pos, command)
                     if token is not None and token[1] == 'begin':
                         paint(pos, token[0], S_MATH)
                         mode = 'environment'
                         envs.append(token[2])
                         pos = token[0]
                         continue
-                    vtoken = self._verbatim_environment_token(text_b, pos)
+                    vtoken = self._verbatim_environment_token(text_b, pos, command)
                     if vtoken is not None and vtoken[1] == 'begin':
                         paint(pos, vtoken[0], S_STRUCTURE)
                         mode = 'verbatim'
                         envs.append(vtoken[2])
                         pos = vtoken[0]
                         continue
-                    verb_end = self._verb_inline_span(text_b, pos)
+                    verb_end = (
+                        self._verb_inline_span(text_b, pos)
+                        if command is not None and command[1] in ('verb', 'verb*')
+                        else None
+                    )
                     if verb_end is not None:
                         paint(pos, verb_end, S_COMMAND)
                         pos = verb_end
@@ -515,7 +588,8 @@ class LaTeXLexer(QsciLexerCustom):
                 continue
 
             if mode == 'environment' and b == _B_BACKSLASH:
-                token = self._math_environment_token(text_b, pos)
+                command = self._command(text_b, pos)
+                token = self._math_environment_token(text_b, pos, command)
                 if token is not None:
                     paint(pos, token[0], S_MATH)
                     if token[1] == 'begin':
@@ -534,7 +608,8 @@ class LaTeXLexer(QsciLexerCustom):
                 if stop > pos:
                     pos = stop
                     continue
-                vtoken = self._verbatim_environment_token(text_b, pos)
+                command = self._command(text_b, pos)
+                vtoken = self._verbatim_environment_token(text_b, pos, command)
                 if vtoken is not None and vtoken[1] == 'end' and envs and envs[-1] == vtoken[2]:
                     paint(pos, vtoken[0], S_STRUCTURE)
                     envs.pop()
@@ -572,6 +647,17 @@ class LaTeXLexer(QsciLexerCustom):
                 pos += 1
 
         self.startStyling(safe)
+        parent = self.parent()
+        if parent is not None:
+            # L'intero blocco è già disponibile come bytearray: una singola
+            # chiamata evita un passaggio Python→C per ogni cambio di stile.
+            parent.SendScintilla(
+                parent.SCI_SETSTYLINGEX, len(styles), bytes(styles)
+            )
+            return
+
+        # Fallback per lexer usati senza un editor QScintilla padre (e per i
+        # test che sostituiscono startStyling/setStyling con mock).
         i = 0
         while i < len(styles):
             style = styles[i]

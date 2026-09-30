@@ -434,6 +434,25 @@ class LaTeXLexerIncrementalCacheTest(unittest.TestCase):
             "da una riscansione completa: dopo l'edit la cache contiene stato stantio",
         )
 
+    def test_large_random_style_does_not_scan_from_document_start(self):
+        """Un salto lontano deve colorare la viewport senza bloccare la GUI."""
+        text = "".join(
+            f"Testo della riga {line_no} con \\section{{Sezione}} e $x$\n"
+            for line_no in range(50_000)
+        ).encode("ascii")
+        lexer = LaTeXLexer()
+        lexer.startStyling = mock.Mock()
+        lexer.setStyling = mock.Mock()
+
+        target = text.index(b"\n", 0)
+        for _ in range(20_000):
+            target = text.index(b"\n", target + 1)
+        lexer._style_with_state(target, target + 8_000, text)
+
+        # Un recupero locale non deve riempire la cache con checkpoint di tutte
+        # le righe precedenti, che è il segnale del vecchio scan sincrono.
+        self.assertEqual(lexer._state_cache_order, [0])
+
 
 class LaTeXLexerVerbatimTest(unittest.TestCase):
     """Copre il trattamento come testo letterale di verbatim/lstlisting/

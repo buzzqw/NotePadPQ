@@ -1,16 +1,15 @@
 [project]
 name = "notepadpq"
-version = "2.1.0"
+version = "2.1.1"
 description = "One editor. Every language. Every workflow — a modern cross-platform text editor built with Python and PyQt6"
 readme = "README.md"
-license = {text = "EUPL-1.2"}
+license = "EUPL-1.2"
 authors = [{name = "buzzqw"}]
 requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: X11 Applications :: Qt",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: European Union Public Licence 1.2 (EUPL 1.2)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",

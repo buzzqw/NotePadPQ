@@ -287,6 +287,57 @@ def scan_bibliography_references(code: str) -> list[str]:
 _BIB_ENTRY_RE = re.compile(r"@[A-Za-z][\w-]*\s*[({]\s*([^,\s]+)\s*,")
 
 
+def scan_used_packages(code: str) -> set[str]:
+    """Return packages loaded with ``\\usepackage``/``\\RequirePackage``.
+
+    Unlike :func:`scan_packages` this excludes ``\\documentclass`` (the class
+    name is not a package).
+    """
+    packages: set[str] = set()
+    for _name, _start, _optionals, mandatories in iter_command_calls(
+            code, {"usepackage", "RequirePackage"}, n_optional=1, n_mandatory=1):
+        if not mandatories:
+            continue
+        content_start, content_end = mandatories[0]
+        packages.update(
+            package.strip()
+            for package in code[content_start:content_end].split(",")
+            if package.strip()
+        )
+    return packages
+
+
+def scan_package_options(code: str) -> dict[str, set[str]]:
+    """Return ``{package: {option}}`` for classes and packages, TeXstudio-style.
+
+    Only the option name (the part before ``=``) is kept.
+    """
+    options: dict[str, set[str]] = {}
+    for _name, _start, optionals, mandatories in iter_command_calls(
+            code, {"usepackage", "RequirePackage", "documentclass"},
+            n_optional=1, n_mandatory=1):
+        if not optionals or not mandatories:
+            continue
+        option_start, option_end = optionals[0]
+        raw_options = code[option_start:option_end]
+        if not raw_options:
+            continue
+        package_start, package_end = mandatories[0]
+        package_names = (
+            package.strip().casefold()
+            for package in code[package_start:package_end].split(",")
+            if package.strip()
+        )
+        option_names = {
+            option.strip().casefold().split("=", 1)[0]
+            for option in raw_options.split(",")
+            if option.strip()
+        }
+        for package in package_names:
+            options.setdefault(package, set()).update(option_names)
+    return options
+
+
 def scan_bib_entries(code: str) -> set[str]:
     """Return BibTeX entry keys from a ``.bib`` source."""
     return set(_BIB_ENTRY_RE.findall(code))
@@ -316,7 +367,9 @@ __all__ = [
     "scan_custom_environments",
     "scan_document",
     "scan_hypertargets",
+    "scan_package_options",
     "scan_packages",
     "scan_sections",
+    "scan_used_packages",
     "skip_space",
 ]

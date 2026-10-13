@@ -24,11 +24,13 @@ from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtCore import QTimer
 
+from core.latex_commands import MATH_ENVIRONMENTS
 from core.latex_parser import (
     extract_label_reference_occurrences,
     extract_sections,
     is_latex_escaped as _is_escaped,
     label_reference_tokens as _label_reference_tokens,
+    mask_latex_comments,
     read_latex_group,
     strip_latex_comments,
 )
@@ -38,6 +40,15 @@ from core.latex_project import (
     read_cached_text,
     read_cached_text_stripped,
 )
+from core.latex_tokenizer import (
+    scan_bibliography_references,
+    scan_bib_entries,
+    scan_custom_command_definitions,
+    scan_custom_environments,
+    scan_hypertargets,
+    scan_package_options,
+    scan_used_packages,
+)
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -46,20 +57,7 @@ if TYPE_CHECKING:
 # ─── Regex compilate a livello modulo (usa frequente: ~100-10k chiamate/sessione)
 
 _RE_BEGIN_END       = re.compile(r'\\(begin|end)\{([^}]+)\}')
-_PACKAGE_OPTIONS_RE = re.compile(
-    r'\\(?:usepackage|RequirePackage|documentclass)'
-    r'(?:\[([^\]]*)\])?\s*\{([^}]+)\}'
-)
-_CUSTOM_COMMAND_DEFINITION_RE = re.compile(
-    r"\\(?:new|renew|provide)command\*?\s*"
-    r"(?:\{(?P<braced>\\[A-Za-z@]+)\}|(?P<plain>\\[A-Za-z@]+))\s*"
-    r"(?:\[(?P<arguments>\d+)\])?"
-    r"(?:\[(?P<default>[^]]*)\])?"
-)
-_MATH_ENV_NAMES = frozenset({
-    "equation", "align", "gather", "multline", "math", "displaymath",
-    "split", "cases", "alignat", "flalign", "subequations",
-})
+_MATH_ENV_NAMES = MATH_ENVIRONMENTS
 
 _cached_read_text = read_cached_text
 _cached_read_text_stripped = read_cached_text_stripped
@@ -1389,51 +1387,6 @@ class LaTeXSupport:
 
     # ── Estrazione struttura documento ───────────────────────────────────────
 
-    # ── Mappe per rilevamento tipo label ─────────────────────────────────────
-    _LABEL_PREFIX_MAP: dict[str, str] = {
-        "fig": "figura",    "figure": "figura",
-        "tab": "tabella",   "tbl": "tabella",   "table": "tabella",
-        "eq":  "equazione", "eqn": "equazione",
-        "sec": "sezione",   "sect": "sezione",  "section": "sezione",
-        "sub": "sottosezione", "subsec": "sottosezione",
-        "ch":  "capitolo",  "chap": "capitolo",
-        "alg": "algoritmo", "algo": "algoritmo",
-        "lst": "codice",    "listing": "codice", "code": "codice",
-        "thm": "teorema",   "theorem": "teorema",
-        "lem": "lemma",
-        "prop": "proposizione",
-        "cor": "corollario",
-        "def": "definizione",
-        "app": "appendice",
-    }
-
-    _ENV_TYPE_MAP: dict[str, str] = {
-        "figure": "figura",     "figure*": "figura",    "subfigure": "figura",
-        "table":  "tabella",    "table*": "tabella",
-        "equation": "equazione","equation*": "equazione",
-        "align":    "equazione","align*": "equazione",
-        "gather":   "equazione","gather*": "equazione",
-        "eqnarray": "equazione","eqnarray*": "equazione",
-        "multline": "equazione","multline*": "equazione",
-        "flalign":  "equazione","flalign*": "equazione",
-        "algorithm": "algoritmo", "algorithm2e": "algoritmo",
-        "lstlisting": "codice", "verbatim": "codice", "minted": "codice",
-        "theorem": "teorema",   "thm": "teorema",
-        "lemma":   "lemma",     "lem": "lemma",
-        "proposition": "proposizione",
-        "corollary": "corollario",
-        "definition": "definizione", "defn": "definizione",
-        "proof": "dimostrazione",
-        "frame": "slide",
-    }
-
-    _SECTION_CMD_MAP: dict[str, str] = {
-        "part": "parte",            "chapter": "capitolo",
-        "section": "sezione",       "subsection": "sottosezione",
-        "subsubsection": "sottosottosezione",
-        "paragraph": "paragrafo",   "subparagraph": "sottoparagrafo",
-    }
-
     @staticmethod
     def extract_label_reference_occurrences(text: str) -> list[dict]:
         """Return exact label/ref occurrences outside comments and strings."""
@@ -1573,56 +1526,18 @@ class LaTeXSupport:
     def extract_labels_with_context(text: str) -> list[tuple[str, str]]:
         """Restituisce [(chiave_label, tipo_rilevato), ...].
 
-        Il tipo viene rilevato:
-        1. Dal prefisso della chiave (fig:, tab:, eq:, sec:, ...)
-        2. Scansionando l'ambiente o il comando di sezionamento più vicino
-           nei ~600 caratteri precedenti la \\label.
+        Il tipo viene rilevato dal prefisso della chiave oppure dall'ambiente /
+        comando di sezionamento più vicino prima della \\label.  Condivide
+        l'implementazione con l'indice (``core.latex_labels``).
         """
-        pm  = LaTeXSupport._LABEL_PREFIX_MAP
-        em  = LaTeXSupport._ENV_TYPE_MAP
-        sm  = LaTeXSupport._SECTION_CMD_MAP
-        sec_re = re.compile(
-            r'\\(' + '|'.join(re.escape(k) for k in sm) + r')\*?(?:\[.*?\])?\{',
-            re.DOTALL,
-        )
-        results: list[tuple[str, str]] = []
-        seen: set[str] = set()
+        from core.latex_labels import SourceText, label_contexts
 
-        for token in _label_reference_tokens(text):
-            if token["kind"] != "label":
-                continue
-            key = token["key"]
-            if key in seen:
-                continue
-            seen.add(key)
-
-            # 1. Prefisso
-            prefix = key.split(":")[0].lower() if ":" in key else ""
-            if prefix in pm:
-                results.append((key, pm[prefix]))
-                continue
-
-            # 2. Contesto
-            context = strip_latex_comments(
-                text[max(0, token["command_start"] - 600): token["command_start"]]
-            )
-            type_hint = ""
-
-            sec_m = list(sec_re.finditer(context))
-            env_m = list(re.finditer(r'\\begin\{([^}]+)\}', context))
-
-            sec_pos = sec_m[-1].start() if sec_m else -1
-            env_pos = env_m[-1].start() if env_m else -1
-
-            if sec_pos >= env_pos and sec_m:
-                type_hint = sm.get(sec_m[-1].group(1), "sezione")
-            elif env_m:
-                env_name = env_m[-1].group(1).lower().rstrip("*")
-                type_hint = em.get(env_name, "")
-
-            results.append((key, type_hint or "label"))
-
-        return sorted(results, key=lambda x: x[0])
+        code = mask_latex_comments(text)
+        definitions = [
+            dict(token) for token in _label_reference_tokens(code)
+            if token["kind"] == "label"
+        ]
+        return label_contexts(definitions, [SourceText(None, text)])
 
     @staticmethod
     def extract_labels_with_context_multifile(
@@ -1669,7 +1584,7 @@ class LaTeXSupport:
     @staticmethod
     def extract_hypertargets(text: str) -> list[str]:
         """Estrae i nomi definiti con \\hypertarget{nome}{...}."""
-        return sorted(set(re.findall(r'\\hypertarget\{([^}]+)\}', strip_latex_comments(text))))
+        return sorted(scan_hypertargets(mask_latex_comments(text)))
 
     @staticmethod
     def extract_hypertargets_multifile(tex_path: Optional[Path]) -> list[str]:
@@ -1689,25 +1604,14 @@ class LaTeXSupport:
         """
         Estrae le chiavi BibTeX dal testo corrente e dai file .bib referenziati.
         """
-        code = strip_latex_comments(text)
-        entry_re = re.compile(r'@[A-Za-z][\w-]*\s*[({]\s*([^,\s]+)\s*,')
-        keys: set[str] = set(entry_re.findall(code))
+        code = mask_latex_comments(text)
+        keys: set[str] = set(scan_bib_entries(code))
 
-        # Trova i file .bib referenziati
-        bib_files: set[str] = set()
-        for m in re.finditer(
-            r'\\(?:bibliography|addbibresource)\s*(?:\[[^]]*\])?\s*\{([^}]+)\}',
-            code,
-        ):
-            for f in m.group(1).split(","):
-                if f.strip():
-                    bib_files.add(f.strip())
-
-        if not bib_files or tex_path is None:
+        if tex_path is None:
             return sorted(keys)
 
         base_dir = Path(tex_path).parent
-        for bib_name in bib_files:
+        for bib_name in scan_bibliography_references(code):
             bib_path = base_dir / bib_name
             candidates = [bib_path]
             if bib_path.suffix.lower() != ".bib":
@@ -1717,7 +1621,7 @@ class LaTeXSupport:
                 if not candidate.exists():
                     continue
                 try:
-                    keys.update(entry_re.findall(_cached_read_text(candidate)))
+                    keys.update(scan_bib_entries(_cached_read_text(candidate)))
                 except Exception:
                     pass
                 break
@@ -1730,46 +1634,28 @@ class LaTeXSupport:
         Estrae i comandi definiti con \\newcommand, \\renewcommand,
         \\DeclareMathOperator nel documento.
         """
-        cmds: list[str] = []
-        text = strip_latex_comments(text)
-        patterns = [
-            r'\\(?:new|renew|provide)command\*?\{(\\[a-zA-Z]+)\}',
-            r'\\DeclareMathOperator\*?\{(\\[a-zA-Z]+)\}',
-            r'\\def\s*(\\[a-zA-Z]+)',
-            r'\\let\s*(\\[a-zA-Z]+)',
-        ]
-        for pat in patterns:
-            cmds.extend(re.findall(pat, text))
-        return sorted(set(cmds))
+        return sorted({
+            definition.name for definition in scan_custom_command_definitions(
+                mask_latex_comments(text))
+        })
 
     @staticmethod
     def extract_custom_command_completions(text: str) -> list[str]:
         """Estrae le macro custom nel formato API usato da QScintilla."""
-        stripped = strip_latex_comments(text)
         completions: dict[str, str] = {}
-        for match in _CUSTOM_COMMAND_DEFINITION_RE.finditer(stripped):
-            command = match.group("braced") or match.group("plain")
-            count = match.group("arguments")
-            if count is None:
+        for definition in scan_custom_command_definitions(mask_latex_comments(text)):
+            command = definition.name
+            if definition.arguments is None:
                 completions.setdefault(command, command)
                 continue
-
-            argument_count = int(count)
-            has_optional = match.group("default") is not None
-            suffix = "[]" if has_optional else ""
-            suffix += "{}" * (argument_count - int(has_optional))
+            suffix = "[]" if definition.has_default else ""
+            suffix += "{}" * (definition.arguments - int(definition.has_default))
             completions.setdefault(command, f"{command}{suffix}?1")
-
-        # Le altre definizioni non espongono una firma di argomenti.
-        for command in LaTeXSupport.extract_custom_commands(stripped):
-            completions.setdefault(command, command)
         return sorted(completions.values())
 
     @staticmethod
     def _custom_environments_from_stripped(stripped_text: str) -> set[str]:
-        return set(re.findall(
-            r'\\(?:new|renew)environment\*?\{([^}]+)\}', stripped_text
-        ))
+        return scan_custom_environments(stripped_text)
 
     @staticmethod
     def extract_custom_environments(text: str) -> list[str]:
@@ -1792,12 +1678,7 @@ class LaTeXSupport:
 
     @staticmethod
     def _used_packages_from_stripped(stripped_text: str) -> set[str]:
-        pkgs: set[str] = set()
-        for m in re.finditer(
-                r'\\usepackage(?:\[[^\]]*\])?\{([^}]+)\}', stripped_text):
-            for p in m.group(1).split(","):
-                pkgs.add(p.strip())
-        return pkgs
+        return scan_used_packages(stripped_text)
 
     @staticmethod
     def extract_used_packages(text: str) -> list[str]:
@@ -1833,22 +1714,8 @@ class LaTeXSupport:
                 text = _cached_read_text_stripped(fpath)
             except Exception:
                 continue
-            for match in _PACKAGE_OPTIONS_RE.finditer(text):
-                raw_options, raw_packages = match.groups()
-                if not raw_options:
-                    continue
-                package_names = (
-                    name.strip().casefold()
-                    for name in raw_packages.split(",")
-                    if name.strip()
-                )
-                option_names = {
-                    option.strip().casefold().split("=", 1)[0]
-                    for option in raw_options.split(",")
-                    if option.strip()
-                }
-                for package in package_names:
-                    options.setdefault(package, set()).update(option_names)
+            for package, names in scan_package_options(text).items():
+                options.setdefault(package, set()).update(names)
         return options
 
     @staticmethod

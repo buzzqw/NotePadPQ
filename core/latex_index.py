@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Optional
 
 from core.latex_checks import environment_balance, format_balance_issue
-from core.latex_parser import label_reference_tokens, mask_latex_comments, strip_latex_comments
+from core.latex_labels import label_contexts
+from core.latex_parser import label_reference_tokens, mask_latex_comments
 from core.latex_project import (
     collect_included_files,
     read_cached_text,
@@ -38,15 +39,6 @@ _SECTION_LEVELS = {
     "subsubsection": 5,
     "paragraph": 6,
     "subparagraph": 7,
-}
-_SECTION_TYPES = {
-    "part": "parte",
-    "chapter": "capitolo",
-    "section": "sezione",
-    "subsection": "sottosezione",
-    "subsubsection": "sottosottosezione",
-    "paragraph": "paragrafo",
-    "subparagraph": "sottoparagrafo",
 }
 _SECTION_ICONS = {
     "part": "📚",
@@ -274,72 +266,7 @@ class LatexIndex:
                 break
 
     def _label_contexts(self) -> list[tuple[str, str]]:
-        prefix_types = {
-            "fig": "figura", "figure": "figura",
-            "tab": "tabella", "tbl": "tabella", "table": "tabella",
-            "eq": "equazione", "eqn": "equazione",
-            "sec": "sezione", "sect": "sezione", "section": "sezione",
-            "sub": "sottosezione", "subsec": "sottosezione",
-            "ch": "capitolo", "chap": "capitolo",
-            "alg": "algoritmo", "algo": "algoritmo",
-            "lst": "codice", "listing": "codice", "code": "codice",
-            "thm": "teorema", "theorem": "teorema", "lem": "lemma",
-            "prop": "proposizione", "cor": "corollario",
-            "def": "definizione", "app": "appendice",
-        }
-        environment_types = {
-            "figure": "figura", "figure*": "figura", "subfigure": "figura",
-            "table": "tabella", "table*": "tabella",
-            "equation": "equazione", "equation*": "equazione",
-            "align": "equazione", "align*": "equazione",
-            "gather": "equazione", "gather*": "equazione",
-            "eqnarray": "equazione", "eqnarray*": "equazione",
-            "multline": "equazione", "multline*": "equazione",
-            "flalign": "equazione", "flalign*": "equazione",
-            "algorithm": "algoritmo", "algorithm2e": "algoritmo",
-            "lstlisting": "codice", "verbatim": "codice", "minted": "codice",
-            "theorem": "teorema", "thm": "teorema", "lemma": "lemma",
-            "lem": "lemma", "proposition": "proposizione",
-            "corollary": "corollario", "definition": "definizione",
-            "defn": "definizione", "proof": "dimostrazione", "frame": "slide",
-        }
-        seen: set[str] = set()
-        result: list[tuple[str, str]] = []
-        section_re = re.compile(
-            r"\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)"
-        )
-        env_re = re.compile(r"\\begin\{([^}]+)\}")
-        source_by_path = {source.path: source for source in self.sources}
-        for definition in self.definitions:
-            key = str(definition["key"])
-            if key in seen:
-                continue
-            seen.add(key)
-            prefix = key.split(":", 1)[0].casefold() if ":" in key else ""
-            if prefix in prefix_types:
-                result.append((key, prefix_types[prefix]))
-                continue
-            source = source_by_path.get(definition.get("file"))
-            if source is None:
-                source = next((item for item in self.sources if item.path is None), None)
-            context = ""
-            if source is not None:
-                start = int(definition.get("command_start", 0))
-                # Match the historical helper exactly: comment stripping is
-                # applied to the local context, not to the complete source
-                # followed by slicing (a comment may begin before the window).
-                context = strip_latex_comments(source.text[max(0, start - 600):start])
-            section_matches = list(section_re.finditer(context))
-            env_matches = list(env_re.finditer(context))
-            if section_matches and (
-                    not env_matches or section_matches[-1].start() >= env_matches[-1].start()):
-                result.append((key, _SECTION_TYPES.get(section_matches[-1].group(1), "sezione")))
-            elif env_matches:
-                env_name = env_matches[-1].group(1).casefold()
-                result.append((key, environment_types.get(env_name, "label")))
-            else:
-                result.append((key, "label"))
-        return sorted(result, key=lambda item: item[0])
+        return label_contexts(self.definitions, self.sources)
 
     def source_for(self, path: Path | None) -> IndexedSource | None:
         if path is None:

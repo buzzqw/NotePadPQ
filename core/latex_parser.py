@@ -370,22 +370,14 @@ def extract_label_reference_occurrences(text: str) -> list[LatexOccurrence]:
     return occurrences
 
 
-_SECTION_COMMANDS = (
-    "part", "chapter", "section", "subsection",
-    "subsubsection", "paragraph", "subparagraph",
-)
-_SECTION_RE = re.compile(
-    r'\\(' + "|".join(_SECTION_COMMANDS) + r')\*?(?:\[([^]]*)\])?\{([^}]*)\}'
-)
-
-
 def extract_sections(text: str) -> list[tuple[str, str, int]]:
     """Return ``(kind, title, zero_based_line)`` section entries."""
+    from core.latex_tokenizer import scan_sections
+
+    code = mask_latex_comments(text)
     sections: list[tuple[str, str, int]] = []
-    for line_number, line in enumerate(strip_latex_comments(text).split("\n")):
-        for match in _SECTION_RE.finditer(line):
-            title = match.group(2) if match.group(2) is not None else match.group(3)
-            sections.append((match.group(1), title, line_number))
+    for section in scan_sections(code):
+        sections.append((section.kind, section.name, code.count("\n", 0, section.offset)))
     return sections
 
 

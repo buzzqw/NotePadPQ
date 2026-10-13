@@ -25,36 +25,9 @@ from core.latex_project import (
     read_cached_text,
     resolve_project_root,
 )
+from core.latex_tokenizer import scan_bib_entries, scan_citation_keys, scan_document
 
 
-_SECTION_RE = re.compile(
-    r"\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)"
-    r"\*?(?:\[([^]]*)\])?\{([^}]*)\}"
-)
-_PACKAGE_RE = re.compile(
-    r"\\(?:usepackage|RequirePackage|documentclass)"
-    r"(?:\[[^]]*\])?\s*\{([^}]+)\}"
-)
-_CUSTOM_COMMAND_RE = re.compile(
-    r"\\(?:new|renew|provide)command\*?\s*"
-    r"(?:\{(?P<braced>\\[A-Za-z@]+)\}|(?P<plain>\\[A-Za-z@]+))\s*"
-    r"(?:\[(?P<arguments>\d+)\])?"
-    r"(?:\[(?P<default>[^]]*)\])?"
-)
-_OTHER_CUSTOM_COMMAND_RE = re.compile(
-    r"\\(?:DeclareMathOperator|def|let)\*?\s*"
-    r"(?:\{(?P<braced>\\[A-Za-z@]+)\}|(?P<plain>\\[A-Za-z@]+))"
-)
-_CUSTOM_ENV_RE = re.compile(r"\\(?:new|renew)environment\*?\{([^}]+)\}")
-_HYPERTARGET_RE = re.compile(r"\\hypertarget\{([^}]+)\}")
-_CITATION_RE = re.compile(
-    r"\\(?:cite[A-Za-z]*|parencite|footcite|textcite|autocite)"
-    r"\{([^}]+)\}"
-)
-_BIB_REFERENCE_RE = re.compile(
-    r"\\(?:bibliography|addbibresource)\s*(?:\[[^]]*\])?\s*\{([^}]+)\}"
-)
-_BIB_ENTRY_RE = re.compile(r"@[A-Za-z][\w-]*\s*[({]\s*([^,\s]+)\s*,")
 _WORD_RE = re.compile(r"(?u)[\w\\]{2,}")
 
 _SECTION_LEVELS = {
@@ -161,35 +134,23 @@ class LatexIndex:
                 else:
                     self.references.append(item)
 
-            self._scan_sections(source)
-            self.packages.update(
-                package.strip()
-                for match in _PACKAGE_RE.finditer(source.code)
-                for package in match.group(1).split(",")
-                if package.strip()
-            )
+            spans = scan_document(source.code)
+            self._scan_sections(source, spans)
+            self.packages.update(spans.packages)
             self.custom_environments.update(
-                match.group(1).strip()
-                for match in _CUSTOM_ENV_RE.finditer(source.code)
-                if match.group(1).strip()
-            )
-            self.hypertargets.update(_HYPERTARGET_RE.findall(source.code))
-            self.citation_references.update(
-                key.strip()
-                for match in _CITATION_RE.finditer(source.code)
-                for key in match.group(1).split(",")
-                if key.strip()
-            )
-            self._scan_custom_commands(source, command_completions)
+                environment.name for environment in spans.custom_environments)
+            self.hypertargets.update(spans.hypertargets)
+            self.citation_references.update(scan_citation_keys(source.code))
+            self._scan_custom_commands(source, spans, command_completions)
             # Le chiavi BibTeX servono sempre; le parole del documento invece
             # sono rimandate (vedi _compute_words): su un documento da 3 MB la
             # scansione di ogni parola costava centinaia di migliaia di .group().
-            self.bibtex_keys.update(_BIB_ENTRY_RE.findall(source.code))
+            self.bibtex_keys.update(scan_bib_entries(source.code))
+            if spans.bibliography_references:
+                self._scan_referenced_bibliographies(
+                    source, spans.bibliography_references)
 
-        self._scan_referenced_bibliographies()
-        self.custom_commands = sorted({
-            command for command in command_completions
-        })
+        self.custom_commands = sorted(command_completions)
         self.custom_command_completions = sorted(command_completions)
 
         by_key: dict[str, list[dict]] = {}
@@ -230,53 +191,41 @@ class LatexIndex:
             self._compute_words()
         return self._current_words
 
-    def _scan_sections(self, source: IndexedSource) -> None:
-        for line_number, line in enumerate(source.code.splitlines()):
-            for match in _SECTION_RE.finditer(line):
-                kind = match.group(1)
-                self.sections.append({
-                    "kind": kind,
-                    "name": match.group(2) if match.group(2) is not None else match.group(3),
-                    "line": line_number,
-                    "level": _SECTION_LEVELS[kind],
-                    "signature": line.strip()[:80],
-                    "icon": _SECTION_ICONS[kind],
-                    "file": source.path,
-                })
-
-    def _scan_custom_commands(self, source: IndexedSource,
-                              completions: set[str]) -> None:
-        for match in _CUSTOM_COMMAND_RE.finditer(source.code):
-            command = match.group("braced") or match.group("plain")
-            if not command:
-                continue
-            self.custom_declarations.append({
-                "name": command, "kind": "command", "line": source.line_for_offset(match.start()),
+    def _scan_sections(self, source: IndexedSource, spans) -> None:
+        for section in spans.sections:
+            line_number = source.line_for_offset(section.offset)
+            self.sections.append({
+                "kind": section.kind,
+                "name": section.name,
+                "line": line_number,
+                "level": _SECTION_LEVELS[section.kind],
+                "signature": source.line_text(line_number).strip()[:80],
+                "icon": _SECTION_ICONS[section.kind],
                 "file": source.path,
-                "signature": source.line_text(source.line_for_offset(match.start())).strip()[:80],
             })
-            arguments = match.group("arguments")
-            if arguments is None:
+
+    def _scan_custom_commands(self, source: IndexedSource, spans,
+                              completions: set[str]) -> None:
+        for definition in spans.custom_commands:
+            command = definition.name
+            line = source.line_for_offset(definition.offset)
+            self.custom_declarations.append({
+                "name": command, "kind": "command", "line": line,
+                "file": source.path,
+                "signature": source.line_text(line).strip()[:80],
+            })
+            if definition.arguments is None:
                 completions.add(command)
                 continue
-            count = int(arguments)
-            suffix = "[]" if match.group("default") is not None else ""
-            suffix += "{}" * (count - int(match.group("default") is not None))
+            suffix = "[]" if definition.has_default else ""
+            suffix += "{}" * (definition.arguments - int(definition.has_default))
             completions.add(f"{command}{suffix}?1")
-        for match in _OTHER_CUSTOM_COMMAND_RE.finditer(source.code):
-            command = match.group("braced") or match.group("plain")
-            if command:
-                completions.add(command)
-                self.custom_declarations.append({
-                    "name": command, "kind": "command", "line": source.line_for_offset(match.start()),
-                    "file": source.path,
-                    "signature": source.line_text(source.line_for_offset(match.start())).strip()[:80],
-                })
-        for match in _CUSTOM_ENV_RE.finditer(source.code):
+        for environment in spans.custom_environments:
+            line = source.line_for_offset(environment.offset)
             self.custom_declarations.append({
-                "name": match.group(1), "kind": "environment",
-                "line": source.line_for_offset(match.start()), "file": source.path,
-                "signature": source.line_text(source.line_for_offset(match.start())).strip()[:80],
+                "name": environment.name, "kind": "environment",
+                "line": line, "file": source.path,
+                "signature": source.line_text(line).strip()[:80],
             })
 
     def _compute_balance(self) -> list[dict]:
@@ -302,31 +251,27 @@ class LatexIndex:
             self._balance_issues = tuple(self._compute_balance())
         return self._balance_issues
 
-    def _scan_referenced_bibliographies(self) -> None:
-        for source in self.sources:
-            if source.path is None:
-                continue
-            base = source.path.parent
-            for match in _BIB_REFERENCE_RE.finditer(source.code):
-                for raw_name in match.group(1).split(","):
-                    name = raw_name.strip()
-                    if not name:
-                        continue
-                    candidate = base / name
-                    candidates = [candidate]
-                    if candidate.suffix.lower() != ".bib":
-                        candidates.extend((candidate.with_suffix(candidate.suffix + ".bib"),
-                                           candidate.with_suffix(".bib")))
-                    for bib_path in candidates:
-                        if not bib_path.is_file():
-                            continue
-                        try:
-                            self.bibtex_keys.update(
-                                _BIB_ENTRY_RE.findall(read_cached_text(bib_path))
-                            )
-                        except OSError:
-                            pass
-                        break
+    def _scan_referenced_bibliographies(self, source: IndexedSource,
+                                        references) -> None:
+        if source.path is None:
+            return
+        base = source.path.parent
+        for name in references:
+            candidate = base / name
+            candidates = [candidate]
+            if candidate.suffix.lower() != ".bib":
+                candidates.extend((candidate.with_suffix(candidate.suffix + ".bib"),
+                                   candidate.with_suffix(".bib")))
+            for bib_path in candidates:
+                if not bib_path.is_file():
+                    continue
+                try:
+                    self.bibtex_keys.update(
+                        scan_bib_entries(read_cached_text(bib_path))
+                    )
+                except OSError:
+                    pass
+                break
 
     def _label_contexts(self) -> list[tuple[str, str]]:
         prefix_types = {

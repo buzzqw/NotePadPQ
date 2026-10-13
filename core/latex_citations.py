@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import bisect
+import re
 
 from core.latex_parser import (
     LatexOccurrence,
@@ -28,54 +28,72 @@ _escaped = is_latex_escaped
 _scan = mask_latex_comments
 _group = read_latex_group
 
+# Unico passaggio sui soli caratteri speciali ('%' e '\\'), in C, invece del
+# vecchio ciclo per-carattere in Python: su un documento da 3 MB costava
+# ~400 ms. ``skip_until`` ignora i match interni alle parti già consumate.
+_SPECIAL_RE = re.compile(r"[%\\]")
+
 
 def extract_latex_citation_occurrences(text: str) -> list[LatexOccurrence]:
     """Return citation key spans while preserving original source offsets."""
     scanned = _scan(text)
     occurrences: list[LatexOccurrence] = []
-    newline_positions = [index for index, char in enumerate(text) if char == "\n"]
-    index = 0
-    while index < len(scanned):
-        if scanned[index] != "\\" or _escaped(scanned, index):
-            index += 1
+    length = len(scanned)
+    skip_until = 0
+    for match in _SPECIAL_RE.finditer(scanned):
+        index = match.start()
+        if index < skip_until:
             continue
+        if scanned[index] == "%":
+            if _escaped(scanned, index):
+                continue
+            newline = scanned.find("\n", index)
+            skip_until = length if newline < 0 else newline + 1
+            continue
+
+        # Una barra escapata ("\\") non apre un comando: il primo dei due
+        # match produce un nome vuoto, il secondo va ignorato.
+        if _escaped(scanned, index):
+            continue
+
         command_start = index
         index += 1
         name_start = index
-        while index < len(scanned) and (scanned[index].isalpha() or scanned[index] == "@"):
+        while index < length and (scanned[index].isalpha() or scanned[index] == "@"):
             index += 1
         name = scanned[name_start:index]
+
         if name in _OPAQUE_COMMANDS:
-            while index < len(scanned) and scanned[index].isspace():
+            while index < length and scanned[index].isspace():
                 index += 1
-            if index < len(scanned) and scanned[index] == "*":
+            if index < length and scanned[index] == "*":
                 index += 1
             group = _group(scanned, index)
-            index = len(scanned) if group is None else group[1] + 1
+            skip_until = length if group is None else group[1] + 1
             continue
         if name in _VERBATIM_COMMANDS:
-            while index < len(scanned) and scanned[index].isspace():
+            while index < length and scanned[index].isspace():
                 index += 1
-            if index < len(scanned):
+            if index < length:
                 delimiter = scanned[index]
                 end = scanned.find(delimiter, index + 1)
-                index = len(scanned) if end < 0 else end + 1
+                skip_until = length if end < 0 else end + 1
             continue
         if not name or (name not in _CITATION_COMMANDS and not name.lower().startswith("cite")):
             continue
-        if index < len(scanned) and scanned[index] == "*":
+        if index < length and scanned[index] == "*":
             index += 1
         for _ in range(2):
-            while index < len(scanned) and scanned[index].isspace():
+            while index < length and scanned[index].isspace():
                 index += 1
-            if index >= len(scanned) or scanned[index] != "[":
+            if index >= length or scanned[index] != "[":
                 break
             optional = _group(scanned, index, "[")
             if optional is None:
-                index = len(scanned)
+                index = length
                 break
             index = optional[1] + 1
-        while index < len(scanned) and scanned[index].isspace():
+        while index < length and scanned[index].isspace():
             index += 1
         group = _group(scanned, index)
         if group is None:
@@ -91,8 +109,8 @@ def extract_latex_citation_occurrences(text: str) -> list[LatexOccurrence]:
             while key_end > key_start and scanned[key_end - 1].isspace():
                 key_end -= 1
             if key_start < key_end:
-                line = bisect.bisect_left(newline_positions, key_start)
-                previous_newline = newline_positions[line - 1] if line else -1
+                line = text.count("\n", 0, key_start)
+                previous_newline = text.rfind("\n", 0, key_start)
                 occurrences.append({
                     "kind": "citation", "key": text[key_start:key_end],
                     "start": key_start, "end": key_end,
@@ -101,7 +119,7 @@ def extract_latex_citation_occurrences(text: str) -> list[LatexOccurrence]:
                     "column": key_start if previous_newline < 0 else key_start - previous_newline - 1,
                 })
             part_start = position + 1
-        index = group[1] + 1
+        skip_until = group[1] + 1
     return occurrences
 
 

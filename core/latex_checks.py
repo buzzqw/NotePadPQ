@@ -103,7 +103,6 @@ _TABULAR_ENVS = frozenset({
 
 _RE_BEGIN_ENV = re.compile(r"\\begin\{([^}]+)\}")
 _RE_END_ENV = re.compile(r"\\end\{([^}]+)\}")
-_RE_BEGIN_END = re.compile(r"\\(begin|end)\{([^}]+)\}")
 _RE_RULE = re.compile(r"^\s*\\(?:hline|toprule|midrule|bottomrule|cline)\b")
 _ROW_SPECIAL_RE = re.compile(r"[\\{}&]")
 
@@ -336,7 +335,7 @@ def tabular_column_issues(
                 return issues
             scan = lines[row_index] if already_stripped else strip_latex_comments(lines[row_index])
             if "\\begin" in scan or "\\end" in scan:
-                for match in _RE_BEGIN_END.finditer(scan):
+                for match in _BEGIN_END_RE.finditer(scan):
                     depth += 1 if match.group(1) == "begin" else -1
                     if depth <= 0:
                         end_line = row_index
@@ -429,7 +428,7 @@ def tikz_semicolon_issues(
 
     code = text if already_stripped else strip_latex_comments(text)
     events = []
-    for match in _RE_BEGIN_END.finditer(code):
+    for match in _BEGIN_END_RE.finditer(code):
         if match.group(2).strip().rstrip("*") == "tikzpicture":
             events.append((match.start(),
                            "end" if match.group(1) == "end" else "begin"))

@@ -18,7 +18,6 @@ Uso:
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
@@ -34,6 +33,7 @@ from core.latex_checks import (
     count_row_cols,
     count_tabular_cols,
 )
+from core.latex_citations import extract_latex_citation_occurrences
 from core.latex_index import get_latex_index
 from core.latex_parser import strip_latex_comments
 
@@ -47,8 +47,6 @@ _MARKER_WARNING = 23
 # Simbolo nel margine: cerchio rosso per errori, triangolo giallo per warning
 _MARKER_ERROR_SYM   = QsciScintilla.MarkerSymbol.Circle
 _MARKER_WARNING_SYM = QsciScintilla.MarkerSymbol.RightTriangle
-
-_RE_CITE     = re.compile(r'\\(?:cite[a-zA-Z]*|parencite|footcite|textcite|autocite)\{([^}]+)\}')
 
 # Full-project checks are too expensive to repeat after every pause while
 # editing a large source. They are still run on initial load and on demand.
@@ -252,18 +250,19 @@ class _CheckWorker(QThread):
             if self._index is not None and fp else None
         )
         code = source.code if source is not None else strip_latex_comments(self._text)
-        for lineno, line in enumerate(code.split("\n")):
+        # One group-aware parser shared with the index: unlike the old
+        # ``_RE_CITE`` regex it also sees ``\citep[see]{key}`` and the
+        # biblatex plural variants (``\cites``, ``\parencites`` ...).
+        for occurrence in extract_latex_citation_occurrences(code):
             if self._cancelled:
                 return []
-            for m in _RE_CITE.finditer(line):
-                for key in m.group(1).split(","):
-                    key = key.strip()
-                    if key and key not in known:
-                        issues.append({
-                            "line":     lineno,
-                            "severity": "warning",
-                            "msg":      f"BibTeX key not found: '{key}'",
-                        })
+            key = occurrence["key"]
+            if key and key != "*" and key not in known:
+                issues.append({
+                    "line":     occurrence["line"],
+                    "severity": "warning",
+                    "msg":      f"BibTeX key not found: '{key}'",
+                })
         return issues
 
     def _check_tabular_columns(self) -> list[dict]:

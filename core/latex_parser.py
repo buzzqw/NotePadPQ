@@ -95,6 +95,14 @@ def read_latex_group(
     length = len(text)
     if start >= length or text[start] != opening:
         return None
+    # Fast path (C-level): when the group up to the first closing delimiter has
+    # no nested opener, backslash or comment, that delimiter closes it.  Most
+    # groups seen by the scanners are simple, so this skips the Python loop.
+    end = text.find(closing, start + 1)
+    if end >= 0:
+        inner = text[start + 1:end]
+        if opening not in inner and "\\" not in inner and "%" not in inner:
+            return start + 1, end
     depth = 1
     index = start + 1
     while index < length:

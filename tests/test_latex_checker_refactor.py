@@ -99,6 +99,27 @@ class LatexCheckerRefactorTest(unittest.TestCase):
 
         analysis.assert_called_once()
 
+    def test_undefined_citations_see_optional_arguments_and_skip_comments(self):
+        text = (
+            "\\citep[see][p. 3]{missing, known}\n"
+            "\\textcite*{alsomissing}\n"
+            "% \\citep{nope}\n"
+            "\\nocite{*}\n"
+        )
+        worker = _CheckWorker(text, None, 1)
+
+        with mock.patch.object(
+                LaTeXSupport, "extract_bibtex_keys", return_value={"known"}):
+            issues = worker._check_undefined_citations()
+
+        self.assertEqual(
+            [(issue["line"], issue["msg"]) for issue in issues],
+            [
+                (0, "BibTeX key not found: 'missing'"),
+                (1, "BibTeX key not found: 'alsomissing'"),
+            ],
+        )
+
     def test_rename_label_updates_reachable_files_only_and_exact_tokens(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

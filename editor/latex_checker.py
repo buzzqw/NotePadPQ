@@ -341,6 +341,11 @@ class _CheckWorker(QThread):
             if self._cancelled:
                 return issues
             stripped = lines[i] if already_stripped else strip_latex_comments(lines[i])
+            # Pre-check di sottostringa (necessario ma economico): evita una
+            # regex su ogni riga del documento quando '\begin' non c'è.
+            if "\\begin" not in stripped:
+                i += 1
+                continue
             bm = _RE_BEGIN_ENV.search(stripped)
             if not bm or bm.group(1) not in _TABULAR_ENVS:
                 i += 1
@@ -362,11 +367,12 @@ class _CheckWorker(QThread):
                 if self._cancelled:
                     return issues
                 s = lines[j] if already_stripped else strip_latex_comments(lines[j])
-                for match in _RE_BEGIN_END.finditer(s):
-                    depth += 1 if match.group(1) == "begin" else -1
-                    if depth <= 0:
-                        end_line = j
-                        break
+                if "\\begin" in s or "\\end" in s:
+                    for match in _RE_BEGIN_END.finditer(s):
+                        depth += 1 if match.group(1) == "begin" else -1
+                        if depth <= 0:
+                            end_line = j
+                            break
                 if end_line == j:
                     break
             else:
@@ -383,7 +389,8 @@ class _CheckWorker(QThread):
                     continue
                 if re.match(r'^\s*\\(?:hline|toprule|midrule|bottomrule|cline)\b', rs):
                     continue
-                if _RE_BEGIN_ENV.search(rs) or _RE_END_ENV.search(rs):
+                if ("\\begin" in rs or "\\end" in rs) and (
+                        _RE_BEGIN_ENV.search(rs) or _RE_END_ENV.search(rs)):
                     continue
                 if '&' not in rs and not any(c in _COL_CHARS for c in rs):
                     continue
@@ -588,24 +595,34 @@ class _CheckWorker(QThread):
         positions = _CheckWorker._separator_positions(row)
         return positions[n - 1] if 0 < n <= len(positions) else -1
 
+    _ROW_SPECIAL_RE = re.compile(r"[\\{}&]")
+
     @staticmethod
     def _separator_positions(row: str) -> list[int]:
-        """Return unescaped, top-level column separators in a table row."""
+        """Return unescaped, top-level column separators in a table row.
+
+        Scandisce i soli caratteri speciali ('\\', '{', '}', '&') in un unico
+        passaggio regex (in C) invece di iterare ogni carattere in Python.
+        """
         positions: list[int] = []
         depth = 0
-        i = 0
-        while i < len(row):
+        skip_until = -1
+        for match in _CheckWorker._ROW_SPECIAL_RE.finditer(row):
+            i = match.start()
+            if i < skip_until:
+                continue
             ch = row[i]
-            if ch == "\\" and i + 1 < len(row):
-                i += 2
+            if ch == "\\":
+                # Il carattere successivo è "escapato": va ignorato.
+                skip_until = i + 2
                 continue
             if ch == "{":
                 depth += 1
-            elif ch == "}" and depth:
-                depth -= 1
+            elif ch == "}":
+                if depth:
+                    depth -= 1
             elif ch == "&" and depth == 0:
                 positions.append(i)
-            i += 1
         return positions
 
     @staticmethod

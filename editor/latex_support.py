@@ -2154,41 +2154,17 @@ class LaTeXSupport:
         Controlla il bilanciamento \\begin{}...\\end{}.
         Restituisce lista di {line, env, msg} per ambienti sbilanciati.
         """
-        errors: list[dict] = []
-        stack: list[tuple[str, int]] = []  # (env_name, lineno)
-
-        for lineno, line in enumerate(text.split("\n")):
-            stripped = strip_latex_comments(line)
-            for m in _RE_BEGIN_END.finditer(stripped):
-                kind, env_name = m.group(1), m.group(2)
-                if kind == "begin":
-                    stack.append((env_name, lineno))
-                    continue
-                if not stack:
-                    errors.append({
-                        "line": lineno, "env": env_name,
-                        "msg": f"\\end{{{env_name}}} without matching \\begin",
-                    })
-                else:
-                    top_env, top_line = stack[-1]
-                    if top_env == env_name:
-                        stack.pop()
-                    else:
-                        errors.append({
-                            "line": lineno, "env": env_name,
-                            "msg": (
-                                f"\\end{{{env_name}}} closes '{top_env}' "
-                                f"opened at line {top_line + 1}"
-                            ),
-                        })
-
-        for env_name, lineno in stack:
-            errors.append({
-                "line": lineno, "env": env_name,
-                "msg": f"\\begin{{{env_name}}} not closed",
-            })
-
-        return errors
+        from core.latex_checks import environment_balance, format_balance_issue
+        code = strip_latex_comments(text)
+        issues: list[dict] = []
+        for balance in environment_balance(code):
+            open_line = (
+                code.count("\n", 0, balance.open_offset)
+                if balance.open_offset is not None else None
+            )
+            issues.append(format_balance_issue(
+                balance, code.count("\n", 0, balance.offset), open_line))
+        return issues
 
     @staticmethod
     def find_environment_match(text: str, line: int, col: int) -> Optional[tuple[int, int]]:

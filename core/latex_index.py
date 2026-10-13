@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from core.latex_checks import environment_balance, format_balance_issue
 from core.latex_parser import label_reference_tokens, mask_latex_comments, strip_latex_comments
 from core.latex_project import (
     collect_included_files,
@@ -26,7 +27,6 @@ from core.latex_project import (
 )
 
 
-_BEGIN_END_RE = re.compile(r"\\(begin|end)\{([^}]+)\}")
 _SECTION_RE = re.compile(
     r"\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)"
     r"\*?(?:\[([^]]*)\])?\{([^}]*)\}"
@@ -280,46 +280,17 @@ class LatexIndex:
             })
 
     def _compute_balance(self) -> list[dict]:
+        """Balance problems from the shared, Qt-free checker."""
         issues: list[dict] = []
         for source in self.sources:
-            stack: list[tuple[str, int]] = []
-            for match in _BEGIN_END_RE.finditer(source.code):
-                kind, environment = match.groups()
-                line = source.line_for_offset(match.start())
-                if kind == "begin":
-                    stack.append((environment, line))
-                    continue
-                if not stack:
-                    issue = {
-                        "line": line,
-                        "env": environment,
-                        "severity": "error",
-                        "msg": f"\\end{{{environment}}} without matching \\begin",
-                    }
-                else:
-                    top_environment, top_line = stack[-1]
-                    if top_environment == environment:
-                        stack.pop()
-                        continue
-                    issue = {
-                        "line": line,
-                        "env": environment,
-                        "severity": "error",
-                        "msg": (
-                            f"Mismatched environment: \\end{{{environment}}} "
-                            f"closes \\begin{{{top_environment}}}"
-                        ),
-                    }
-                if source.path is not None:
-                    issue["file"] = source.path
-                issues.append(issue)
-            for environment, line in reversed(stack):
-                issue = {
-                    "line": line,
-                    "env": environment,
-                    "severity": "error",
-                    "msg": f"\\begin{{{environment}}} without matching \\end",
-                }
+            for balance in environment_balance(source.code):
+                open_line = (
+                    source.line_for_offset(balance.open_offset)
+                    if balance.open_offset is not None else None
+                )
+                issue = format_balance_issue(
+                    balance, source.line_for_offset(balance.offset), open_line,
+                )
                 if source.path is not None:
                     issue["file"] = source.path
                 issues.append(issue)

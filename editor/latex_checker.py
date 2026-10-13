@@ -26,8 +26,16 @@ from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.Qsci import QsciScintilla
 from core.diagnostics import profile_operation
+from core.latex_checks import (
+    environment_balance,
+    format_balance_issue,
+    tabular_column_issues,
+    tikz_semicolon_issues,
+    count_row_cols,
+    count_tabular_cols,
+)
 from core.latex_index import get_latex_index
-from editor.latex_support import strip_latex_comments
+from core.latex_parser import strip_latex_comments
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -40,22 +48,7 @@ _MARKER_WARNING = 23
 _MARKER_ERROR_SYM   = QsciScintilla.MarkerSymbol.Circle
 _MARKER_WARNING_SYM = QsciScintilla.MarkerSymbol.RightTriangle
 
-_RE_REF      = re.compile(r'\\(?:ref|eqref|pageref|cref|Cref|autoref|nameref|vref)\{([^}]+)\}')
 _RE_CITE     = re.compile(r'\\(?:cite[a-zA-Z]*|parencite|footcite|textcite|autocite)\{([^}]+)\}')
-_RE_BEGIN_ENV = re.compile(r'\\begin\{([^}]+)\}')
-_RE_END_ENV   = re.compile(r'\\end\{([^}]+)\}')
-_RE_BEGIN_END  = re.compile(r'\\(begin|end)\{([^}]+)\}')
-_RE_TIKZ_COMMAND = re.compile(
-    r'\\(?:draw|path|fill|filldraw|shade|shadedraw|clip|useasboundingbox|'
-    r'node|coordinate|matrix|graph|pic|foreach)\b'
-)
-_COL_CHARS    = frozenset("lcrpLCRX")
-
-# Ambienti tabellari LaTeX con specifica colonne
-_TABULAR_ENVS = frozenset({
-    "tabular", "tabular*", "tabularx", "tabulary",
-    "array", "longtable", "supertabular", "xltabular",
-})
 
 # Full-project checks are too expensive to repeat after every pause while
 # editing a large source. They are still run on initial load and on demand.
@@ -140,53 +133,20 @@ class _CheckWorker(QThread):
         return self._sources
 
     def _check_balance(self) -> list[dict]:
-        from editor.latex_support import LaTeXSupport
+        # The shared index owns the balance snapshot; the fallback path scans
+        # only when an unusual project could not be indexed.
         if self._index is not None:
-            issues = []
-            # Preserve the old checker wording while using the indexed
-            # begin/end events and line map.
-            for source in self._index.sources:
-                stack: list[tuple[str, int]] = []
-                for match in _RE_BEGIN_END.finditer(source.code):
-                    kind, env_name = match.group(1), match.group(2)
-                    lineno = source.line_for_offset(match.start())
-                    if kind == "begin":
-                        stack.append((env_name, lineno))
-                        continue
-                    if not stack:
-                        error = {
-                            "line": lineno, "env": env_name,
-                            "msg": f"\\end{{{env_name}}} without matching \\begin",
-                        }
-                    else:
-                        top_env, top_line = stack[-1]
-                        if top_env == env_name:
-                            stack.pop()
-                            continue
-                        error = {
-                            "line": lineno, "env": env_name,
-                            "msg": (
-                                f"\\end{{{env_name}}} closes '{top_env}' "
-                                f"opened at line {top_line + 1}"
-                            ),
-                        }
-                    if source.path is not None:
-                        error["file"] = source.path
-                    issues.append(error)
-                for env_name, lineno in stack:
-                    error = {
-                        "line": lineno, "env": env_name,
-                        "msg": f"\\begin{{{env_name}}} not closed",
-                    }
-                    if source.path is not None:
-                        error["file"] = source.path
-                    issues.append(error)
-            return issues
+            return [dict(issue) for issue in self._index.balance_issues]
         issues = []
         for path, source in self._project_sources():
-            for error in LaTeXSupport.check_environment_balance(source):
-                issue = {"line": error["line"], "severity": "error",
-                         "msg": error["msg"]}
+            code = strip_latex_comments(source)
+            for balance in environment_balance(code):
+                open_line = (
+                    code.count("\n", 0, balance.open_offset)
+                    if balance.open_offset is not None else None
+                )
+                issue = format_balance_issue(
+                    balance, code.count("\n", 0, balance.offset), open_line)
                 if path is not None:
                     issue["file"] = path
                 issues.append(issue)
@@ -307,408 +267,61 @@ class _CheckWorker(QThread):
         return issues
 
     def _check_tabular_columns(self) -> list[dict]:
+        """Warn when table rows disagree with the declared column count."""
         if self._index is not None:
             issues = []
             for source in self._index.sources:
-                worker = _CheckWorker(
-                    source.code, source.path, self._generation, include_project=False
-                )
-                worker._cancelled = self._cancelled
-                for issue in worker._check_tabular_columns_single(already_stripped=True):
+                for issue in tabular_column_issues(
+                        source.code, already_stripped=True,
+                        cancelled=lambda: self._cancelled):
                     if source.path is not None:
                         issue["file"] = source.path
                     issues.append(issue)
             return issues
-        if not self._file_path or not self._include_project:
-            return self._check_tabular_columns_single()
+        sources = (self._project_sources()
+                   if self._file_path and self._include_project
+                   else [(None, self._text)])
         issues = []
-        for path, source in self._project_sources():
-            worker = _CheckWorker(source, path, self._generation, include_project=False)
-            worker._cancelled = self._cancelled
-            for issue in worker._check_tabular_columns_single():
+        for path, source in sources:
+            for issue in tabular_column_issues(
+                    source, cancelled=lambda: self._cancelled):
                 if path is not None:
                     issue["file"] = path
                 issues.append(issue)
-        return issues
-
-    def _check_tabular_columns_single(self, already_stripped: bool = False) -> list[dict]:
-        """Controlla che le righe del corpo tabella abbiano lo stesso numero
-        di colonne dichiarato nella specifica colonne (es. {llX})."""
-        issues: list[dict] = []
-        lines = self._text.split("\n")
-        i = 0
-        while i < len(lines):
-            if self._cancelled:
-                return issues
-            stripped = lines[i] if already_stripped else strip_latex_comments(lines[i])
-            # Pre-check di sottostringa (necessario ma economico): evita una
-            # regex su ogni riga del documento quando '\begin' non c'è.
-            if "\\begin" not in stripped:
-                i += 1
-                continue
-            bm = _RE_BEGIN_ENV.search(stripped)
-            if not bm or bm.group(1) not in _TABULAR_ENVS:
-                i += 1
-                continue
-
-            env_name = bm.group(1)
-            after_begin = stripped[bm.end():]
-            col_spec, spec_start, spec_end = self._extract_col_spec(
-                after_begin, bm.end(), env_name)
-            if col_spec is None:
-                i += 1
-                continue
-            declared = self._count_tabular_cols(col_spec)
-
-            # Cerca il corrispondente \end{env}
-            depth = 1
-            end_line = i
-            for j in range(i + 1, len(lines)):
-                if self._cancelled:
-                    return issues
-                s = lines[j] if already_stripped else strip_latex_comments(lines[j])
-                if "\\begin" in s or "\\end" in s:
-                    for match in _RE_BEGIN_END.finditer(s):
-                        depth += 1 if match.group(1) == "begin" else -1
-                        if depth <= 0:
-                            end_line = j
-                            break
-                if end_line == j:
-                    break
-            else:
-                end_line = len(lines) - 1
-
-            any_mismatch = False
-            max_actual = 0
-            row_issues: list[dict] = []
-            for row in range(i + 1, end_line):
-                if self._cancelled:
-                    return issues
-                rs = lines[row] if already_stripped else strip_latex_comments(lines[row])
-                if not rs.strip():
-                    continue
-                if re.match(r'^\s*\\(?:hline|toprule|midrule|bottomrule|cline)\b', rs):
-                    continue
-                if ("\\begin" in rs or "\\end" in rs) and (
-                        _RE_BEGIN_ENV.search(rs) or _RE_END_ENV.search(rs)):
-                    continue
-                if '&' not in rs and not any(c in _COL_CHARS for c in rs):
-                    continue
-                actual = self._count_row_cols(rs)
-                if actual > max_actual:
-                    max_actual = actual
-                if actual > 0 and actual != declared:
-                    any_mismatch = True
-                    # Se la riga ha più colonne del dichiarato, evidenzia
-                    # da dopo la colonna declared-esima (l'& di troppo + resto)
-                    hl_start = -1
-                    if actual > declared:
-                        amp_pos = self._nth_ampersand_pos(rs, declared)
-                        if amp_pos >= 0:
-                            hl_start = amp_pos  # posizione dell'& di troppo
-                    row_issues.append({
-                        "line":     row,
-                        "severity": "warning",
-                        "msg":      f"Colonne: {actual} nella riga, {declared} dichiarate "
-                                    f"in \\begin{{{env_name}}}{{{col_spec}}}",
-                        "col_line": i,
-                        "col_start": spec_start,
-                        "col_end":   spec_end,
-                        "highlight_start": hl_start,
-                        "highlight_end": len(rs) if hl_start >= 0 else -1,
-                    })
-
-            if any_mismatch:
-                if declared > max_actual > 0:
-                    # Troppe colonne dichiarate (nessuna riga usa così tante
-                    # colonne): evidenzia solo le X/l/c in eccesso nella
-                    # colspec, senza marcare ogni singola riga del corpo.
-                    excess = self._excess_col_positions(
-                        col_spec, spec_start + 1,
-                        excess_count=declared - max_actual)
-                    issue_msg = (f"Scheda colonne '{col_spec}' ({declared} col) ha "
-                                 f"{declared - max_actual} colonna/e di troppo "
-                                 f"(le righe ne usano al massimo {max_actual})")
-                else:
-                    # Righe con colonne in eccesso rispetto al dichiarato:
-                    # marca ogni riga incoerente (già evidenzia solo la
-                    # parte in eccesso, dall'& di troppo in poi).
-                    issues.extend(row_issues)
-                    excess = []
-                    issue_msg = (f"Scheda colonne '{col_spec}' ({declared} col) "
-                                 f"non corrisponde alle righe della tabella")
-                issues.append({
-                    "line":     i,
-                    "severity": "warning",
-                    "msg":      issue_msg,
-                    "col_line": i,
-                    "col_start": spec_start,
-                    "col_end":   spec_end,
-                    "excess_positions": excess,
-                })
-
-            i = end_line + 1
-
         return issues
 
     def _check_tikz_semicolons(self) -> list[dict]:
         """Warn when a TikZ drawing command is not terminated by ``;``."""
         if self._index is not None:
-            issues: list[dict] = []
+            issues = []
             for source in self._index.sources:
-                for issue in self._check_tikz_semicolons_single(
+                for issue in tikz_semicolon_issues(
                         source.code, already_stripped=True):
                     if source.path is not None:
                         issue["file"] = source.path
                     issues.append(issue)
             return issues
-        sources = self._project_sources() if self._file_path else [(None, self._text)]
-        issues: list[dict] = []
+        sources = (self._project_sources() if self._file_path
+                   else [(None, self._text)])
+        issues = []
         for path, source in sources:
-            if self._cancelled:
-                return issues
-            for issue in self._check_tikz_semicolons_single(source):
+            for issue in tikz_semicolon_issues(source):
                 if path is not None:
                     issue["file"] = path
                 issues.append(issue)
         return issues
 
+    # ── Pure helpers re-exported for callers and tests ──────────────────────
+    # The algorithms live in core.latex_checks (Qt-free and worker-safe); these
+    # aliases are kept so the existing call sites and tests keep working.
     @staticmethod
-    def _check_tikz_semicolons_single(
-            text: str, already_stripped: bool = False) -> list[dict]:
-        code = text if already_stripped else strip_latex_comments(text)
-        events = []
-        for match in _RE_BEGIN_END.finditer(code):
-            if match.group(2).strip().rstrip("*") == "tikzpicture":
-                events.append((match.start(), "end" if match.group(1) == "end" else "begin"))
-        events.extend((match.start(),
-                       "foreach" if match.group(0).startswith(r"\foreach") else "command")
-                      for match in _RE_TIKZ_COMMAND.finditer(code))
-        events.sort(key=lambda event: event[0])
+    def _check_tabular_columns_single(text: str,
+                                      already_stripped: bool = False) -> list[dict]:
+        return tabular_column_issues(text, already_stripped=already_stripped)
 
-        # For each event, retain the next command boundary.  The old nested
-        # search made this check O(number_of_events²) in large TikZ drawings.
-        next_boundaries = [len(code)] * len(events)
-        next_boundary = len(code)
-        for event_index in range(len(events) - 1, -1, -1):
-            next_boundaries[event_index] = next_boundary
-            if events[event_index][1] in {"command", "foreach", "end"}:
-                next_boundary = events[event_index][0]
-
-        issues: list[dict] = []
-        tikz_depth = 0
-        for index, (position, event_type) in enumerate(events):
-            if event_type == "begin":
-                tikz_depth += 1
-                continue
-            if event_type == "end":
-                tikz_depth = max(0, tikz_depth - 1)
-                continue
-            if event_type == "foreach":
-                continue
-            if tikz_depth <= 0:
-                continue
-
-            boundary = next_boundaries[index]
-            if code.find(";", position, boundary) >= 0:
-                continue
-            issues.append({
-                "line": code.count("\n", 0, position),
-                "severity": "warning",
-                "msg": "TikZ command is missing a terminating ';'",
-            })
-        return issues
-
-    _RE_LENGTH_MACRO = re.compile(r'^\\[A-Za-z]+$')
-    _RE_LENGTH_UNIT  = re.compile(
-        r'^[0-9]+(\.[0-9]+)?\s*(pt|mm|cm|in|em|ex|bp|sp|pc|dd|cc|mu|\\[A-Za-z]+)$')
-    _RE_LENGTH_FRAC  = re.compile(r'^[0-9.]+\\[A-Za-z]+$')
-
-    @classmethod
-    def _looks_like_length(cls, spec: str) -> bool:
-        """True se 'spec' sembra un argomento di larghezza (es. \\linewidth,
-        0.5\\textwidth, 5cm) piuttosto che una column spec."""
-        s = spec.strip()
-        return bool(
-            cls._RE_LENGTH_MACRO.match(s)
-            or cls._RE_LENGTH_UNIT.match(s)
-            or cls._RE_LENGTH_FRAC.match(s)
-        )
-
-    @classmethod
-    def _extract_col_spec(cls, after_begin: str, offset: int, env_name: str = ""):
-        """Estrae la specifica colonne dal testo dopo \\begin{env}.
-        Per tabular*/tabularx/tabulary il secondo gruppo e' la column spec
-        (il primo e' la width); per gli altri ambienti e' il primo. Se il
-        gruppo atteso sembra invece un argomento di larghezza (es. quando
-        \\tabular viene usato per errore con due gruppi), si usa l'altro
-        gruppo disponibile. Ritorna (col_spec, start, end) oppure (None, -1, -1)."""
-        _TWO_ARG = frozenset({"tabular*", "tabularx", "tabulary", "xltabular"})
-
-        brace_depth = 0
-        groups_found = 0
-        start = -1
-        groups: list[tuple[str, int, int]] = []
-        for idx, ch in enumerate(after_begin):
-            if ch == '{':
-                if brace_depth == 0:
-                    groups_found += 1
-                    start = idx
-                brace_depth += 1
-            elif ch == '}':
-                brace_depth -= 1
-                if brace_depth == 0:
-                    spec = after_begin[start + 1:idx]
-                    groups.append((spec, offset + start, offset + idx + 1))
-                    if groups_found == 2:
-                        break
-
-        if not groups:
-            return None, -1, -1
-        if len(groups) == 1:
-            return groups[0]
-
-        preferred_idx = 1 if env_name in _TWO_ARG else 0
-        other_idx = 0 if preferred_idx == 1 else 1
-        preferred_is_length = cls._looks_like_length(groups[preferred_idx][0])
-        other_is_length = cls._looks_like_length(groups[other_idx][0])
-        if preferred_is_length and not other_is_length:
-            return groups[other_idx]
-        return groups[preferred_idx]
-
-    @staticmethod
-    def _excess_col_positions(col_spec: str, line_offset: int, excess_count: int = 0):
-        """Ritorna le posizioni assolute dei caratteri colonna in eccesso.
-        Se excess_count è 0, calcola le posizioni di TUTTI i caratteri colonna."""
-        positions = []
-        for c_idx, c in enumerate(col_spec):
-            if c in _COL_CHARS:
-                positions.append(line_offset + c_idx)
-        if excess_count > 0 and len(positions) > excess_count:
-            return positions[-excess_count:]  # ultimi N
-        return positions
-
-    @staticmethod
-    def _nth_ampersand_pos(row: str, n: int) -> int:
-        """Posizione (offset caratteri) dell'n-esimo & (1-based) in una riga
-        tabella. Ritorna -1 se non trovato."""
-        positions = _CheckWorker._separator_positions(row)
-        return positions[n - 1] if 0 < n <= len(positions) else -1
-
-    _ROW_SPECIAL_RE = re.compile(r"[\\{}&]")
-
-    @staticmethod
-    def _separator_positions(row: str) -> list[int]:
-        """Return unescaped, top-level column separators in a table row.
-
-        Scandisce i soli caratteri speciali ('\\', '{', '}', '&') in un unico
-        passaggio regex (in C) invece di iterare ogni carattere in Python.
-        """
-        positions: list[int] = []
-        depth = 0
-        skip_until = -1
-        for match in _CheckWorker._ROW_SPECIAL_RE.finditer(row):
-            i = match.start()
-            if i < skip_until:
-                continue
-            ch = row[i]
-            if ch == "\\":
-                # Il carattere successivo è "escapato": va ignorato.
-                skip_until = i + 2
-                continue
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                if depth:
-                    depth -= 1
-            elif ch == "&" and depth == 0:
-                positions.append(i)
-        return positions
-
-    @staticmethod
-    def _read_group(text: str, start: int) -> tuple[str, int] | None:
-        if start >= len(text) or text[start] != "{":
-            return None
-        depth = 1
-        i = start + 1
-        while i < len(text):
-            if text[i] == "\\" and i + 1 < len(text):
-                i += 2
-                continue
-            if text[i] == "{":
-                depth += 1
-            elif text[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    return text[start + 1:i], i + 1
-            i += 1
-        return None
-
-    @classmethod
-    def _multicolumn_counts(cls, row: str) -> list[int]:
-        counts: list[int] = []
-        for match in re.finditer(r"\\multicolumn\s*\{", row):
-            group = cls._read_group(row, match.end() - 1)
-            if group is None:
-                continue
-            try:
-                counts.append(int(group[0].strip()))
-            except ValueError:
-                pass
-        return counts
-
-    @staticmethod
-    def _count_tabular_cols(col_spec: str) -> int:
-        """Conta le colonne in una specifica tabellare. Es. '|l|c|r|' → 3."""
-        def count_spec(spec: str) -> int:
-            count = 0
-            i = 0
-            while i < len(spec):
-                ch = spec[i]
-                if ch == "\\":
-                    i += 1
-                    while i < len(spec) and (spec[i].isalpha() or spec[i] == "@"):
-                        i += 1
-                    continue
-                if ch == "*":
-                    j = i + 1
-                    while j < len(spec) and spec[j].isspace():
-                        j += 1
-                    number = _CheckWorker._read_group(spec, j)
-                    if number is not None:
-                        k = number[1]
-                        repeated = _CheckWorker._read_group(spec, k)
-                        if repeated is not None:
-                            try:
-                                count += int(number[0].strip()) * count_spec(repeated[0])
-                                i = repeated[1]
-                                continue
-                            except ValueError:
-                                pass
-                if ch in _COL_CHARS:
-                    count += 1
-                    i += 1
-                    if ch in "pmb" and i < len(spec) and spec[i] == "{":
-                        group = _CheckWorker._read_group(spec, i)
-                        if group is not None:
-                            i = group[1]
-                    continue
-                if ch in "><!@" and i + 1 < len(spec):
-                    group = _CheckWorker._read_group(spec, i + 1)
-                    if group is not None:
-                        i = group[1]
-                        continue
-                i += 1
-            return count
-
-        return max(1, count_spec(col_spec))
-
-    @staticmethod
-    def _count_row_cols(row: str) -> int:
-        """Conta le colonne effettive di una riga tabella, tenendo conto
-        che \\multicolumn{N}{...}{...} occupa N colonne ma conta come 1 entry."""
-        extra_cols = sum(max(0, n - 1) for n in _CheckWorker._multicolumn_counts(row))
-        return max(1, len(_CheckWorker._separator_positions(row)) + 1 + extra_cols)
+    _check_tikz_semicolons_single = staticmethod(tikz_semicolon_issues)
+    _count_row_cols = staticmethod(count_row_cols)
+    _count_tabular_cols = staticmethod(count_tabular_cols)
 
 
 # Workers that outlive their editor must remain referenced until QThread emits

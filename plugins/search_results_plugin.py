@@ -215,10 +215,23 @@ class _FileSearchWorker(QThread):
 
                 files_scanned += 1
                 try:
+                    # Salta i file binari: decodificarli e scansionarli riga per
+                    # riga è lavoro sprecato (in un albero con asset può essere
+                    # metà del tempo). Un byte NUL nelle prime 8 KB è l'euristica
+                    # usata da git/grep.
+                    with path.open("rb") as _bf:
+                        if b"\x00" in _bf.read(8192):
+                            continue
                     with path.open("r", encoding="utf-8", errors="replace") as handle:
+                        checks = 0
                         for line_idx, raw_line in enumerate(handle):
-                            if self._cancelled.is_set():
-                                break
+                            # Il controllo di annullamento non serve a ogni riga:
+                            # farlo ogni ~512 righe evita un costo per riga.
+                            checks += 1
+                            if checks >= 512:
+                                checks = 0
+                                if self._cancelled.is_set():
+                                    break
                             line_text = raw_line.rstrip("\r\n")
                             if smart_mode:
                                 if not all(p.search(line_text) for p in must_pats):
@@ -296,6 +309,10 @@ class _FileReplaceWorker(QThread):
             try:
                 if path.is_symlink() or not path.is_file():
                     raise OSError("not a regular file")
+                # Difesa in profondità: non riscrivere mai un file binario.
+                with path.open("rb") as _bf:
+                    if b"\x00" in _bf.read(8192):
+                        raise OSError("binary file (NUL byte) — saltato")
                 before = path.stat()
                 if before.st_size > _FILE_REPLACE_MAX_BYTES:
                     raise OSError(

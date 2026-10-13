@@ -14,6 +14,7 @@ NON gestisce: logica I/O file (→ core/file_manager.py),
               find/replace (→ ui/find_replace.py)
 """
 
+import os
 import sys
 import threading
 import hashlib
@@ -350,8 +351,6 @@ class MainWindow(QMainWindow):
         # per poterli cancellare se il tab viene chiuso durante il caricamento.
         self._lazy_loaders: dict[EditorWidget, "LazyLoader"] = {}
         self._save_workers: set[_EditorSaveWorker] = set()
-
-        self.setAcceptDrops(True)
 
     # ── Stampante (lazy) ──────────────────────────────────────────────────────
 
@@ -6016,10 +6015,31 @@ class MainWindow(QMainWindow):
         self._clock_label.installEventFilter(self._clock_arc_filter)
         # ---------------------------
 
+        # La QLocale viene ricostruita solo quando cambia la lingua, non a ogni tick.
+        self._clock_locale = None
+        self._clock_locale_lang: Optional[str] = None
+
+        # Il testo mostra solo i minuti (HH:mm): un aggiornamento al minuto basta.
+        # Un timer singolo-shot riallineato al confine del minuto evita i 59
+        # wake-up su 60 dell'ex 1 Hz e mantiene il valore esatto anche dopo una
+        # sospensione del sistema.
         self._clock_timer = QTimer(self)
-        self._clock_timer.timeout.connect(self._update_clock)
-        self._clock_timer.start(1000)
+        self._clock_timer.setSingleShot(True)
+        self._clock_timer.timeout.connect(self._on_clock_tick)
         self._update_clock()
+        self._schedule_clock()
+
+    def _schedule_clock(self) -> None:
+        """Riallinea il prossimo aggiornamento dell'orologio al cambio minuto."""
+        from PyQt6.QtCore import QDateTime
+        now = QDateTime.currentDateTime()
+        ms_into_minute = now.time().second() * 1000 + now.time().msec()
+        # +150 ms di margine: al risveglio il minuto visualizzato è già quello nuovo.
+        self._clock_timer.start(max(1000, 60000 - ms_into_minute + 150))
+
+    def _on_clock_tick(self) -> None:
+        self._update_clock()
+        self._schedule_clock()
 
     def _launch_arcade(self):
         """Apre la finestra segreta dell'Arcade."""
@@ -6030,26 +6050,25 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.statusBar().showMessage(tr("msg.arcade_launch_error", error=str(e)), 5000)
 
-    def _update_clock(self):        
+    def _update_clock(self):
         from PyQt6.QtCore import QDateTime, QLocale
         from i18n.i18n import I18n
 
-        # 1. Leggiamo quale lingua stai usando in NotePadPQ in questo momento (es. "it", "en", "es")
+        # 1. Lingua corrente di NotePadPQ (es. "it", "en", "es")
         lingua_corrente = I18n.instance().current_language()
-        
-        # 2. Diciamo a Qt di preparare il "traduttore di date" per quella lingua specifica
-        locale = QLocale(lingua_corrente)
-        
-        # 3. Prendiamo la data e l'ora esatte di questo istante
+
+        # 2. Cache: il "traduttore di date" viene ricostruito solo al cambio lingua.
+        if self._clock_locale is None or lingua_corrente != self._clock_locale_lang:
+            self._clock_locale = QLocale(lingua_corrente)
+            self._clock_locale_lang = lingua_corrente
+
+        # 3. Data e ora esatte di questo istante.
         adesso = QDateTime.currentDateTime()
-        
-        # 4. Formattiamo il testo. 
-        # Il codice segreto "dddd" dice a Qt di scrivere il nome del giorno per intero tradotto!
-        testo = locale.toString(adesso, "yyyy-MM-dd dddd HH:mm")
-        
-        # 5. In alcune lingue (come francese o spagnolo) i giorni si scrivono in minuscolo (es: "jeudi").
-        # Usando .title() forziamo elegantemente la prima lettera in Maiuscolo (diventa "Jeudi").
-        self._clock_label.setText(testo.title()) 
+
+        # 4. Formattazione. "dddd" scrive il nome del giorno per intero tradotto;
+        # 5. .title() capitalizza i giorni che in alcune lingue sono minuscoli ("jeudi" → "Jeudi").
+        testo = self._clock_locale.toString(adesso, "yyyy-MM-dd dddd HH:mm")
+        self._clock_label.setText(testo.title())
         
     def _apply_markup(self, style: str):
         """Applica grassetto, corsivo o barrato in base al linguaggio (MD o LaTeX)."""
@@ -6514,13 +6533,15 @@ class MainWindow(QMainWindow):
 
         try:
             import psutil
-            import os
+            # Riferimento tenuto da parte: evita di rieseguire l'import a ogni tick.
+            self._psutil = psutil
             self._process = psutil.Process(os.getpid())
             self._cpu_count = psutil.cpu_count() or 1
             # Prima chiamata: inizializza il delta per cpu_percent
             self._process.cpu_percent(interval=None)
             psutil.cpu_percent(interval=None)
         except ImportError:
+            self._psutil = None
             self._process = None
             self._resource_label.setText(" [Installa 'psutil' per RAM/CPU] ")
             self._resource_label.setToolTip("Da terminale esegui: pip install psutil")
@@ -6529,8 +6550,12 @@ class MainWindow(QMainWindow):
         """Calcola e aggiorna i valori di RAM e CPU nella statusbar."""
         if not getattr(self, "_process", None):
             return
+        # Se la finestra è nascosta o minimizzata i valori non sono visibili:
+        # inutile leggere /proc ogni 2 s. Al ripristino il prossimo tick aggiorna.
+        if not self.isVisible() or self.isMinimized():
+            return
         try:
-            import psutil
+            psutil = self._psutil
 
             # RAM: app / sistema usata / sistema totale
             app_mb  = self._process.memory_info().rss / (1024 ** 2)

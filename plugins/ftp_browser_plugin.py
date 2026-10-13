@@ -1400,11 +1400,12 @@ class FtpBrowserPlugin(BasePlugin):
 
     def on_load(self, main_window: "MainWindow") -> None:
         super().on_load(main_window)
-        self._panel = _FtpPanel(main_window)
+        # Pannello costruito pigramente alla prima apertura del dock (nascosto
+        # all'avvio): vedi _ensure_panel().
+        self._panel = None
 
         self._dock = QDockWidget(tr("plugin.ftp_browser.dock_title"), main_window)
         self._dock.setObjectName("FtpBrowserDock")
-        self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(260)
         self._dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         self._dock.setFeatures(
@@ -1414,6 +1415,7 @@ class FtpBrowserPlugin(BasePlugin):
         )
         main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dock)
         self._dock.hide()
+        self._dock.visibilityChanged.connect(self._on_dock_visibility)
 
         self.add_menu_action(main_window, "plugins",
                              tr("plugin.ftp_browser.menu"),
@@ -1421,10 +1423,23 @@ class FtpBrowserPlugin(BasePlugin):
                              icon_key="plugin_ftp")
         main_window._menus["plugins"].menuAction().setVisible(True)
 
+    def _ensure_panel(self):
+        """Crea il pannello FTP/SFTP alla prima apertura del dock (lazy)."""
+        if self._panel is None:
+            self._panel = _FtpPanel(self._mw)
+            self._dock.setWidget(self._panel)
+        return self._panel
+
+    def _on_dock_visibility(self, visible: bool) -> None:
+        # Copre anche il ripristino del layout di sessione.
+        if visible:
+            self._ensure_panel()
+
     def on_unload(self) -> None:
-        if hasattr(self, "_panel"):
+        if self._panel is not None:
             self._panel.shutdown()
-        if hasattr(self, "_dock"):
-            self._dock.setParent(None)
-            self._dock.deleteLater()
+        dock = getattr(self, "_dock", None)
+        if dock is not None:
+            dock.setParent(None)
+            dock.deleteLater()
         super().on_unload()

@@ -341,11 +341,12 @@ class HexViewerPlugin(BasePlugin):
 
     def on_load(self, main_window: "MainWindow") -> None:
         super().on_load(main_window)
-        self._panel = _HexPanel(main_window)
+        # Pannello costruito pigramente alla prima apertura del dock (nascosto
+        # all'avvio): vedi _ensure_panel().
+        self._panel = None
 
         self._dock = QDockWidget(tr("hex_viewer.dock_title"), main_window)
         self._dock.setObjectName("HexViewerDock")
-        self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(600)
         self._dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         self._dock.setFeatures(
@@ -355,6 +356,7 @@ class HexViewerPlugin(BasePlugin):
         )
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._dock)
         self._dock.hide()
+        self._dock.visibilityChanged.connect(self._on_dock_visibility)
 
         self.add_menu_action(
             main_window, "plugins",
@@ -365,25 +367,39 @@ class HexViewerPlugin(BasePlugin):
         )
         main_window._menus["plugins"].menuAction().setVisible(True)
 
+    def _ensure_panel(self):
+        """Crea il pannello Hex alla prima apertura del dock (lazy)."""
+        if self._panel is None:
+            self._panel = _HexPanel(self._mw)
+            self._dock.setWidget(self._panel)
+        return self._panel
+
+    def _on_dock_visibility(self, visible: bool) -> None:
+        # Copre anche il ripristino del layout di sessione.
+        if visible and self._panel is not None:
+            self._panel.load_current()
+
     def _toggle(self) -> None:
         if self._dock.isVisible():
             self._dock.hide()
         else:
+            self._ensure_panel()
             self._dock.show()
             self._panel.load_current()
 
     def on_editor_changed(self, editor) -> None:
-        if hasattr(self, "_dock") and self._dock.isVisible():
+        if self._panel is not None and self._dock.isVisible():
             self._panel.load_current()
 
     def on_file_opened(self, path) -> None:
-        if hasattr(self, "_dock") and self._dock.isVisible():
+        if self._panel is not None and self._dock.isVisible():
             self._panel.load_current()
 
     def on_unload(self) -> None:
-        if hasattr(self, "_panel"):
+        if self._panel is not None:
             self._panel.close_source()
-        if hasattr(self, "_dock"):
-            self._dock.setParent(None)
-            self._dock.deleteLater()
+        dock = getattr(self, "_dock", None)
+        if dock is not None:
+            dock.setParent(None)
+            dock.deleteLater()
         super().on_unload()

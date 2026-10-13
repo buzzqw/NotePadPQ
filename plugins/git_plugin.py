@@ -508,8 +508,8 @@ class _GitPanel(QWidget):
         self._refresh_config()
 
     def _auto_refresh(self) -> None:
-        """Refresh periodico silenzioso."""
-        if self._git:
+        """Refresh periodico silenzioso (solo quando il pannello è visibile)."""
+        if self._git and self.isVisible():
             self._refresh_status()
 
     def _refresh_status(self) -> None:
@@ -875,12 +875,14 @@ class GitPlugin(BasePlugin):
 
     def on_load(self, main_window: "MainWindow") -> None:
         super().on_load(main_window)
-        self._panel = _GitPanel(main_window)
+        # Pannello costruito pigramente alla prima apertura del dock (nascosto
+        # all'avvio): così non parte nemmeno il polling `git status` interno
+        # finché non serve. Vedi _ensure_panel() e _GitPanel._auto_refresh.
+        self._panel = None
         self._last_editor = None
 
         self._dock = QDockWidget("Git", main_window)
         self._dock.setObjectName("GitDock")
-        self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(300)
         self._dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         self._dock.setFeatures(
@@ -891,7 +893,8 @@ class GitPlugin(BasePlugin):
         main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._dock)
         self._dock.hide()
 
-        # Quando il dock diventa visibile, aggiorna subito con l'editor corrente
+        # Quando il dock diventa visibile, crea il pannello e aggiorna subito
+        # con l'editor corrente
         self._dock.visibilityChanged.connect(self._on_dock_visibility)
 
         # Una sola voce nel menu Plugin
@@ -901,28 +904,36 @@ class GitPlugin(BasePlugin):
                              icon_key="plugin_git")
         main_window._menus["plugins"].menuAction().setVisible(True)
 
+    def _ensure_panel(self):
+        """Crea il pannello Git alla prima apertura del dock (lazy)."""
+        if self._panel is None:
+            self._panel = _GitPanel(self._mw)
+            self._dock.setWidget(self._panel)
+        return self._panel
+
     def _on_dock_visibility(self, visible: bool) -> None:
-        if visible and hasattr(self, "_panel") and self._last_editor is not None:
-            self._panel.set_editor(self._last_editor)
+        if visible:
+            self._ensure_panel()
+            if self._last_editor is not None:
+                self._panel.set_editor(self._last_editor)
 
     def on_editor_changed(self, editor) -> None:
-        if hasattr(self, "_panel"):
-            self._last_editor = editor
-            if self._dock.isVisible():
-                self._panel.set_editor(editor)
+        self._last_editor = editor
+        if self._panel is not None and self._dock.isVisible():
+            self._panel.set_editor(editor)
 
     def on_file_opened(self, path) -> None:
-        if hasattr(self, "_panel"):
-            editor = self._mw._tab_manager.current_editor()
-            if editor:
-                self._last_editor = editor
-                if self._dock.isVisible():
-                    self._panel.set_editor(editor)
+        editor = self._mw._tab_manager.current_editor()
+        if editor:
+            self._last_editor = editor
+            if self._panel is not None and self._dock.isVisible():
+                self._panel.set_editor(editor)
 
     def on_unload(self) -> None:
-        if hasattr(self, "_panel"):
+        if self._panel is not None:
             self._panel.shutdown()
-        if hasattr(self, "_dock"):
-            self._dock.setParent(None)
-            self._dock.deleteLater()
+        dock = getattr(self, "_dock", None)
+        if dock is not None:
+            dock.setParent(None)
+            dock.deleteLater()
         super().on_unload()

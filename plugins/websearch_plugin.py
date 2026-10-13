@@ -292,13 +292,13 @@ class WebSearchPlugin(BasePlugin):
         super().on_load(main_window)
         self._last_editor = None
 
-        # pannello Wikipedia
-        self._panel = _WikiPanel(main_window)
-        self._panel.search_requested.connect(self._on_panel_search)
+        # Il pannello Wikipedia contiene un QWebEngineView (renderer Chromium,
+        # ~70 MB di RAM + GPU): viene costruito solo alla prima apertura del dock,
+        # nascosto all'avvio. Vedi _ensure_panel().
+        self._panel = None
 
         self._dock = QDockWidget(tr("websearch.panel_title"), main_window)
         self._dock.setObjectName("WebSearchDock")
-        self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(280)
         self._dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         self._dock.setFeatures(
@@ -307,7 +307,10 @@ class WebSearchPlugin(BasePlugin):
             | QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
         main_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._dock)
+        # Nascondi prima di collegare visibilityChanged: addDockWidget può rendere
+        # visibile il dock e non vogliamo materializzare subito il QWebEngineView.
         self._dock.hide()
+        self._dock.visibilityChanged.connect(self._on_dock_visibility)
 
         from PyQt6.QtGui import QAction
         from PyQt6.QtWidgets import QMenu
@@ -328,8 +331,22 @@ class WebSearchPlugin(BasePlugin):
         if cur:
             self._on_editor_changed(cur)
 
+    def _ensure_panel(self):
+        """Crea il pannello Wikipedia (con QWebEngineView) alla prima apertura."""
+        if self._panel is None:
+            self._panel = _WikiPanel(self._mw)
+            self._panel.search_requested.connect(self._on_panel_search)
+            self._dock.setWidget(self._panel)
+        return self._panel
+
+    def _on_dock_visibility(self, visible: bool) -> None:
+        # Copre anche il ripristino del layout di sessione, che può rendere
+        # visibile il dock senza passare da _toggle.
+        if visible:
+            self._ensure_panel()
+
     def on_unload(self) -> None:
-        if hasattr(self, "_dock") and self._dock:
+        if getattr(self, "_dock", None) is not None:
             self._dock.deleteLater()
         super().on_unload()
 
@@ -396,6 +413,7 @@ class WebSearchPlugin(BasePlugin):
 
     def _search_wiki(self, query: str) -> None:
         lang = Settings.instance().get("i18n/language", "it")
+        self._ensure_panel()
         self._dock.show()
         self._dock.raise_()
         self._panel.search(query, lang)
@@ -407,6 +425,7 @@ class WebSearchPlugin(BasePlugin):
     def _open_url(self, query: str, url_tmpl: str) -> None:
         encoded = urllib.parse.quote_plus(query)
         url = url_tmpl.replace("{query}", encoded)
+        self._ensure_panel()
         self._dock.show()
         self._dock.raise_()
         self._panel.load_url(url)
@@ -415,6 +434,7 @@ class WebSearchPlugin(BasePlugin):
         if self._dock.isVisible():
             self._dock.hide()
         else:
+            self._ensure_panel()
             self._dock.show()
             self._dock.raise_()
 

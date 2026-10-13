@@ -8,6 +8,7 @@ circolari.
 
 from __future__ import annotations
 
+import codecs
 import re
 import sys
 import threading
@@ -79,9 +80,50 @@ def resolve_relative_path(base_dir: str | Path, reference: str | Path) -> Path:
     return _resolved(ref if ref.is_absolute() else Path(base_dir) / ref)
 
 
+_ENCODING_MARKER_RE = re.compile(r"coding[:=]\s*([-\w.]+)")
+_TEX_ENCODING_RE = re.compile(r"%\s*!TEX\s+encoding\s*=\s*([-\w.]+)", re.IGNORECASE)
+_ENCODING_ALIASES = {
+    "utf8": "utf-8",
+    "latin1": "latin-1",
+    "iso8859-1": "latin-1",
+    "iso-8859-1": "latin-1",
+    "ansi": "cp1252",
+}
+
+
+def detect_source_encoding(path: Path) -> str:
+    """Pick a source encoding from a BOM or an in-file coding marker.
+
+    LaTeX documents are not always UTF-8; ``% !TeX encoding = latin1`` (or an
+    Emacs ``-*- coding: ... -*-`` marker, or a UTF BOM) is respected.  Anything
+    unrecognised falls back to UTF-8 with replacement characters.
+    """
+    try:
+        with path.open("rb") as handle:
+            prefix = handle.read(4096)
+    except OSError:
+        return "utf-8"
+    if prefix.startswith(b"\xef\xbb\xbf"):
+        return "utf-8-sig"
+    if prefix.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return "utf-16"
+    marker = (_TEX_ENCODING_RE.search(prefix.decode("ascii", "ignore"))
+              or _ENCODING_MARKER_RE.search(prefix.decode("ascii", "ignore")))
+    if marker is None:
+        return "utf-8"
+    name = _ENCODING_ALIASES.get(marker.group(1).strip().lower(),
+                                marker.group(1).strip().lower())
+    try:
+        codecs.lookup(name)
+    except LookupError:
+        return "utf-8"
+    return name
+
+
 def _read_text(path: Path) -> str:
     try:
-        return path.read_text(encoding="utf-8", errors="replace")
+        return path.read_text(encoding=detect_source_encoding(path),
+                              errors="replace")
     except OSError:
         return ""
 
@@ -93,10 +135,11 @@ def _file_signature(path: Path) -> FileSignature:
 
 def _read_stable_text(path: Path) -> tuple[str, FileSignature | None]:
     """Read text only when the file signature stays stable during the read."""
+    encoding = detect_source_encoding(path)
     text = ""
     for _ in range(_MAX_STABLE_READ_ATTEMPTS):
         before = _file_signature(path)
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = path.read_text(encoding=encoding, errors="replace")
         after = _file_signature(path)
         if before == after:
             return text, after
@@ -465,6 +508,7 @@ __all__ = [
     "LatexProjectContext",
     "LatexSourceCache",
     "collect_included_files",
+    "detect_source_encoding",
     "expected_pdf_path",
     "get_output_directory",
     "invalidate_cached_text",

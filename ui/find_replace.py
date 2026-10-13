@@ -2061,6 +2061,10 @@ ESEMPI
 
     def _on_rif_file_written(self, fpath: str, new_text: str) -> None:
         for editor in self._mw._tab_manager.all_editors():
+            # Tab di sessione non ancora caricati: il file su disco è appena
+            # stato riscritto, basterà caricarlo fresco alla prima attivazione.
+            if getattr(editor, "_deferred_load", False):
+                continue
             if editor.file_path and str(editor.file_path.resolve()) == fpath:
                 cursor = editor.getCursorPosition()
                 editor.beginUndoAction()
@@ -2196,6 +2200,9 @@ ESEMPI
     def _update_open_editor(self, fpath: Path, new_content: str) -> None:
         """Aggiorna l'editor in memoria se il file è già aperto."""
         for editor in self._mw._tab_manager.all_editors():
+            # I tab differiti verranno caricati freschi dal disco all'attivazione.
+            if getattr(editor, "_deferred_load", False):
+                continue
             if editor.file_path and editor.file_path.resolve() == fpath.resolve():
                 cursor = editor.getCursorPosition()
                 editor.beginUndoAction()
@@ -2238,6 +2245,10 @@ ESEMPI
         _ROLE = Qt.ItemDataRole.UserRole
         total_matches = 0
         skipped_paged = 0
+
+        # Materializza i tab di sessione non ancora caricati: text() sarebbe
+        # altrimenti vuoto e la ricerca salterebbe i loro contenuti.
+        self._mw._ensure_all_loaded()
 
         for editor in self._mw._tab_manager.all_editors():
             if getattr(editor, "_paged_doc", None) is not None:
@@ -2301,6 +2312,8 @@ ESEMPI
 
         replacements = []
         skipped_paged = 0
+        # Materializza i tab di sessione non ancora caricati prima di sostituire.
+        self._mw._ensure_all_loaded()
         for editor in self._mw._tab_manager.all_editors():
             if getattr(editor, "_paged_doc", None) is not None:
                 # editor.text() è solo la pagina caricata su un tab paginato

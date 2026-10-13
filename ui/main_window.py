@@ -2230,6 +2230,13 @@ class MainWindow(QMainWindow):
     @pyqtSlot(object)
     def _on_editor_changed(self, editor: Optional[EditorWidget]) -> None:
         """Aggiorna titolo finestra e statusbar quando cambia il tab attivo."""
+        # Caricamento differito: se è uno scheletro di sessione, carica ora il
+        # contenuto (sincrono sotto la soglia lazy) prima che gli altri handler
+        # di current_editor_changed leggano il documento.
+        if (editor is not None
+                and getattr(editor, "_deferred_load", False)
+                and not getattr(self, "_restoring_session", False)):
+            self._load_deferred(editor)
         if editor is None:
             if self._prev_editor is not None:
                 self._detach_latex_autobuild(self._prev_editor)
@@ -2858,48 +2865,106 @@ class MainWindow(QMainWindow):
                 self._tab_manager.set_current_index(existing)
                 continue
             try:
-                from core.lazy_loader import LazyLoader
                 tab = self._tab_manager.new_tab(path=path)
-                loader = LazyLoader(path, tab, self)
-                self._lazy_loaders[tab] = loader
-
-                def _on_finished(tab=tab, path=path, loader=loader) -> None:
-                    self._lazy_loaders.pop(tab, None)
-                    self._autosave_file_to_backup(tab)
-                    # Notifica plugin: file aperto
-                    self._notify_plugins_file_opened(path)
-                    # Se il lexer non è stato rilevato dall'estensione,
-                    # tenta il rilevamento dal contenuto (shebang, magic numbers).
-                    # Usa length() invece di text() per non forzare in memoria
-                    # l'intero contenuto di file enormi solo per il test di verità.
-                    if tab.lexer() is None and tab.length() > 0:
-                        try:
-                            from editor.lexers import set_lexer_by_path
-                            set_lexer_by_path(tab, path)
-                        except Exception:
-                            pass
-                    # Aggiorna statusbar con il linguaggio rilevato
-                    if hasattr(self, "_statusbar"):
-                        self._statusbar._update_lang(tab)
-                    # Il caricamento lazy blocca textChanged: riallinea il
-                    # documento già aperto nel server LSP con il contenuto reale.
-                    self._lsp_connect_editor(tab, sync_content=True)
-
-                def _on_error(msg: str, tab=tab, path=path) -> None:
-                    self._lazy_loaders.pop(tab, None)
-                    QMessageBox.critical(
-                        self, self.APP_NAME,
-                        tr("msg.file_read_error", path=str(path), error=msg)
-                    )
-
-                loader.load_finished.connect(_on_finished)
-                loader.load_error.connect(_on_error)
-                loader.start()
+                self._start_load_into(tab, path)
             except Exception as e:
                 QMessageBox.critical(
                     self, self.APP_NAME,
                     tr("msg.file_read_error", path=str(path), error=str(e))
                 )
+
+    def _start_load_into(self, tab, path: Path) -> None:
+        """Avvia il caricamento di `path` nell'editor `tab` esistente.
+
+        Usato sia da open_files (tab appena creato) sia dal caricamento
+        differito dei tab di sessione (vedi _load_deferred).
+        """
+        from core.lazy_loader import LazyLoader
+        loader = LazyLoader(path, tab, self)
+        self._lazy_loaders[tab] = loader
+
+        def _on_finished(tab=tab, path=path) -> None:
+            self._after_open(tab, path)
+
+        def _on_error(msg: str, tab=tab, path=path) -> None:
+            self._lazy_loaders.pop(tab, None)
+            QMessageBox.critical(
+                self, self.APP_NAME,
+                tr("msg.file_read_error", path=str(path), error=msg)
+            )
+
+        loader.load_finished.connect(_on_finished)
+        loader.load_error.connect(_on_error)
+        loader.start()
+
+    def _after_open(self, tab, path: Path) -> None:
+        """Post-caricamento comune a un nuovo tab e a un tab differito."""
+        self._lazy_loaders.pop(tab, None)
+        tab._deferred_load = False
+        self._autosave_file_to_backup(tab)
+        # Notifica plugin: file aperto
+        self._notify_plugins_file_opened(path)
+        # Se il lexer non è stato rilevato dall'estensione, tenta il rilevamento
+        # dal contenuto (shebang, magic numbers). Usa length() invece di text()
+        # per non forzare in memoria l'intero contenuto di file enormi.
+        if tab.lexer() is None and tab.length() > 0:
+            try:
+                from editor.lexers import set_lexer_by_path
+                set_lexer_by_path(tab, path)
+            except Exception:
+                pass
+        # Aggiorna statusbar con il linguaggio rilevato
+        if hasattr(self, "_statusbar"):
+            self._statusbar._update_lang(tab)
+        # Il caricamento lazy blocca textChanged: riallinea il documento già
+        # aperto nel server LSP con il contenuto reale.
+        self._lsp_connect_editor(tab, sync_content=True)
+        # Cursore differito (ripristino sessione).
+        pc = getattr(tab, "_pending_cursor", None)
+        if pc is not None:
+            tab._pending_cursor = None
+            try:
+                tab.setCursorPosition(max(0, pc[0] - 1), max(0, pc[1] - 1))
+                tab.ensureLineVisible(max(0, pc[0] - 1))
+            except Exception:
+                pass
+
+    def _load_deferred(self, editor) -> None:
+        """Carica il contenuto di un tab differito alla prima attivazione."""
+        path = getattr(editor, "file_path", None)
+        if path is None or not getattr(editor, "_deferred_load", False):
+            return
+        editor._deferred_load = False
+        try:
+            self._start_load_into(editor, Path(path))
+        except Exception as e:
+            QMessageBox.critical(
+                self, self.APP_NAME,
+                tr("msg.file_read_error", path=str(path), error=str(e))
+            )
+
+    def _ensure_all_loaded(self) -> None:
+        """Carica sincronicamente i tab differiti rimasti non caricati.
+
+        Usato dalle operazioni bulk (Trova/Sostituisci in tutti i file) che
+        leggono editor.text() di ogni tab: senza questo i tab non ancora
+        attivati apparirebbero vuoti. I file differiti sono sotto la soglia
+        lazy, quindi la lettura sincrona è rapida.
+        """
+        from core.file_manager import FileManager
+        for ed in list(self._tab_manager.all_editors()):
+            if not getattr(ed, "_deferred_load", False):
+                continue
+            path = getattr(ed, "file_path", None)
+            ed._deferred_load = False
+            if path is None:
+                continue
+            try:
+                content, encoding, le = FileManager.read(path)
+                ed.load_content(content, encoding, le)
+            except Exception:
+                continue
+            self._after_open(ed, path)
 
     def action_save(self) -> bool:
         editor = self._current_editor()

@@ -685,7 +685,8 @@ class LazyLoader(QObject):
 
     def _restore_editor_wrap(self) -> None:
         if self._editor_wrap_restore is not None:
-            self._editor.setWrapMode(self._editor_wrap_restore)
+            # Differito se l'editor non è visibile: vedi EditorWidget._restore_word_wrap.
+            self._editor._restore_word_wrap(self._editor_wrap_restore)
             self._editor_wrap_restore = None
 
     # ── Entry point statico ───────────────────────────────────────────────────

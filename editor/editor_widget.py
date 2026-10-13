@@ -447,6 +447,14 @@ class EditorWidget(QsciScintilla):
         self._smart_hl_word: str = ""           # cache: evita regex se parola invariata
         self._smart_hl_text_len: int = 0         # lunghezza testo all'ultimo highlight
         self._smart_hl_range: tuple[int, int] | None = None
+        # Caricamento differito (ripristino sessione): il tab esiste con il suo
+        # file_path ma il contenuto non è ancora stato letto dal disco. Viene
+        # caricato alla prima attivazione del tab (o on-demand dalle operazioni
+        # bulk come Trova in tutti i file). Vedi MainWindow._load_deferred.
+        self._deferred_load: bool = False
+        self._pending_cursor: tuple[int, int] | None = None
+        # Wrap da riapplicare alla prima visualizzazione (editor nascosto).
+        self._pending_wrap_restore = None
         self._smart_hl_timer: QTimer = QTimer(self)
         self._smart_hl_timer.setSingleShot(True)
         self._smart_hl_timer.setInterval(600)    # 600ms: bilancia reattività e costo CPU
@@ -1225,7 +1233,7 @@ class EditorWidget(QsciScintilla):
                 self.blockSignals(False)
 
         if restore_wrap:
-            self.setWrapMode(saved_wrap)
+            self._restore_word_wrap(saved_wrap)
 
         # Posiziona il cursore all'inizio
         self.setCursorPosition(0, 0)
@@ -1374,6 +1382,28 @@ class EditorWidget(QsciScintilla):
                 if enabled else
                 QsciScintilla.WrapMode.WrapNone)
         self.setWrapMode(mode)
+
+    def _restore_word_wrap(self, mode) -> None:
+        """Riattiva il wrap dopo un caricamento, differendolo se non visibile.
+
+        Con il wrap attivo Scintilla riflowa l'intero documento: riattivarlo su
+        un editor nascosto (tab non attivo) riflowa subito un documento che
+        nessuno guarda — su 1 MB passano da ~10 ms a ~500 ms per tab. In quel
+        caso lo si applica alla prima visualizzazione (vedi showEvent).
+        """
+        if mode == QsciScintilla.WrapMode.WrapNone:
+            return
+        if self.isVisible():
+            self.setWrapMode(mode)
+        else:
+            self._pending_wrap_restore = mode
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        pending = self._pending_wrap_restore
+        if pending is not None:
+            self._pending_wrap_restore = None
+            self.setWrapMode(pending)
 
     def set_show_indentation_guides(self, visible: bool) -> None:
         self.setIndentationGuides(visible)

@@ -194,19 +194,44 @@ class Session:
         tabs = data.get("tabs", [])
         opened = 0
 
+        try:
+            from core.lazy_loader import THRESHOLD_LAZY
+        except Exception:
+            THRESHOLD_LAZY = 4 * 1024 * 1024
+
+        # Durante il ripristino i nuovi tab diventano correnti uno dopo l'altro
+        # (new_tab chiama setCurrentIndex); il flag sospende il caricamento
+        # differito, così non si materializzano tutti i documenti. Lo si carica
+        # solo per il tab attivo, alla fine.
+        main_window._restoring_session = True
         # Sopprime il ridisegno durante il caricamento batch: evita N repaint
         main_window.setUpdatesEnabled(False)
         try:
             for tab in tabs:
                 p = Path(tab.get("path", ""))
-                if p.exists():
+                if not p.exists():
+                    continue
+                try:
+                    size = p.stat().st_size
+                except OSError:
+                    continue
+                if size < THRESHOLD_LAZY:
+                    # Scheletro: crea il tab (con file_path e lexer) ma rimanda
+                    # la lettura del contenuto alla prima attivazione. Con molte
+                    # schede aperte questo evita di caricare tutto in RAM.
+                    editor = main_window._tab_manager.new_tab(path=p)
+                    editor._deferred_load = True
+                    editor._pending_cursor = (tab.get("line", 1), tab.get("col", 1))
+                else:
+                    # File grandi: già asincrono/paginato, si carica come prima.
                     main_window.open_files([p])
                     restore_cursor_after_load(
                         main_window, p, tab.get("line", 1), tab.get("col", 1),
                     )
-                    opened += 1
+                opened += 1
         finally:
             main_window.setUpdatesEnabled(True)
+            main_window._restoring_session = False
 
         # Ripristina fogli di calcolo
         plugin = getattr(main_window, "_spreadsheet_plugin", None)

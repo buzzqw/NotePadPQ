@@ -8,12 +8,18 @@
 
 import sys
 import os
+import glob
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
 # ── Modalità onefile (singolo .exe, estrae in %TEMP% all'avvio) ───────────────
 ONEFILE = os.environ.get('NOTEPADPQ_ONEFILE', '0') == '1'
+native_hiddenimports = (
+    ['core._latex_native']
+    if glob.glob(os.path.join(SPECPATH, '..', 'core', '_latex_native*'))
+    else []
+)
 
 # ── Dati non-Python da includere ─────────────────────────────────────────────
 datas = [
@@ -41,6 +47,7 @@ hiddenimports = (
         'PyQt6.QtWebEngineWidgets',
         'PyQt6.QtWebEngineCore',
         'PyQt6.Qsci',
+        *native_hiddenimports,
         # Core obbligatori
         'chardet',
         'psutil',

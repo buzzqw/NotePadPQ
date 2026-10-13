@@ -8,12 +8,18 @@ Output:
     dist/notepadpq/   (--onedir bundle, then wrapped by make-appdir.sh)
 """
 import os
+import glob
 
 block_cipher = None
 
 # SPECPATH è la directory dello spec (packaging/appimage/).
 # La root del progetto è due livelli sopra.
 ROOT = os.path.abspath(os.path.join(SPECPATH, '..', '..'))
+native_hidden_imports = (
+    ['core._latex_native']
+    if glob.glob(os.path.join(ROOT, 'core', '_latex_native*'))
+    else []
+)
 
 def R(*parts):
     """Percorso assoluto relativo alla root del progetto."""
@@ -39,6 +45,7 @@ hidden_imports = [
     # Core utilities importate lazy inside functions
     'core.webengine',
     'core.external_open',
+    *native_hidden_imports,
     # Plugins — discovered at runtime by plugin_manager via importlib
     'plugins.ai_plugin',
     'plugins.base_plugin',

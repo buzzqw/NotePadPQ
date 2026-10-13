@@ -42,6 +42,24 @@ are added through integrated panels and optional plugins.
 
 ### Core editor
 
+For LaTeX documents, the package builds an optional native C++ scanner during
+installation when a C++ compiler is available. It keeps the existing PyQt6
+lexer API while moving the hot syntax-highlighting loop out of Python; systems
+that cannot build extensions transparently use the compatible Python fallback.
+
+Large LaTeX documents also use a shared, debounced analysis snapshot for the
+checker, autocomplete and Function List. The snapshot is rebuilt only after
+the user pauses, not on every keystroke, and is cached by document revision
+and project-file signatures so all three services can reuse it.
+
+> **Performance work — measured on a real large document**
+>
+> The native C++ LaTeX scanner was benchmarked on `OBSSv2.tex` (about 3.0 MB
+> and 44,929 lines). Full-document syntax scanning took **625.1 ms** with the
+> Python fallback and **47.5 ms** with the C++ accelerator: approximately
+> **13.2× faster**, with identical styles verified on the first 256 KB block.
+> The benchmark used the production chunk sizes (8 KB Python, 256 KB C++).
+
 - Syntax highlighting for native QScintilla languages including Python,
   JavaScript, TypeScript, C/C++, Java, C#, Bash, SQL, LaTeX, Markdown, HTML,
   CSS, XML, JSON and YAML, plus Pygments-backed modes such as Go, Rust, PHP,
@@ -388,6 +406,10 @@ Le aree principali sono:
   sessione;
 - workflow LaTeX completo con root project, `latexmk`, BibTeX/Biber, Function
   List gerarchica, template, diagnostica, PDF preview e SyncTeX bidirezionale;
+- investimento specifico sulle prestazioni dei file LaTeX grandi: su `OBSSv2.tex`
+  (circa 3,0 MB e 44.929 righe) lo scanner C++ ha ridotto il tempo di scansione
+  da **625,1 ms** a **47,5 ms**, circa **13,2× più veloce** del fallback Python,
+  con stili verificati equivalenti;
 - Build Panel con 11 profili built-in, profili personalizzati, variabili,
   pipeline, task discovery, PTY, build concorrenti e lista errori cliccabile;
 - anteprima live Markdown/HTML/reStructuredText, visualizzatore PDF, hover di

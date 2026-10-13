@@ -589,7 +589,8 @@ class _ApiRebuildWorker(QThread):
     eseguiti qui; solo api.prepare() rimane sul main thread."""
 
     done        = pyqtSignal(list)         # list[str] — termini autocomplete
-    latex_cache = pyqtSignal(list, list, list, list)  # (labels, bibtex, hypertargets, environments)
+    latex_cache = pyqtSignal(list, list, list, list)  # labels, bibtex, hypertargets, environments
+    latex_document_words = pyqtSignal(list, int)
 
     def __init__(self, language: str, levels, text: str, file_path,
                  all_docs_words: list, generation: int, cwl_enabled: bool = False):
@@ -633,16 +634,24 @@ class _ApiRebuildWorker(QThread):
         if self._cancelled:
             return
 
-        # I/O su disco — parte lenta (legge tutti i file \input{} collegati)
+        latex_index = None
+        # Build the shared snapshot once.  The index cache makes this result
+        # reusable by the checker and Function List for the same revision.
         if self._language in ("latex", "bibtex"):
             try:
+                from core.latex_index import get_latex_index
+                latex_index = get_latex_index(self._text, self._file_path, True)
+                terms.extend(latex_index.custom_command_completions)
+                for environment in sorted(latex_index.custom_environments):
+                    terms.append(f"\\begin{{{environment}}}")
+                    terms.append(f"\\end{{{environment}}}")
                 from editor.latex_support import LaTeXSupport
-                dynamic = LaTeXSupport.build_dynamic_api(
-                    self._text, self._file_path, include_cwl=self._cwl_enabled
-                )
-                terms.extend(dynamic)
+                terms.extend(LaTeXSupport.get_package_commands(
+                    sorted(latex_index.packages), self._file_path,
+                    include_cwl=self._cwl_enabled,
+                ))
             except Exception:
-                pass
+                latex_index = None
 
         if self._cancelled:
             return
@@ -651,41 +660,42 @@ class _ApiRebuildWorker(QThread):
         # su '{' sono istantanei (usano la cache invece di fare I/O sul main thread).
         if self._language == "latex":
             labels = bibtex = hypertargets = environments = []
-            try:
-                from editor.latex_support import LaTeXSupport
-                if self._file_path:
-                    labels = LaTeXSupport.extract_labels_with_context_multifile(self._file_path)
-                    labels = sorted(set(labels) | set(
-                        LaTeXSupport.extract_labels_with_context(self._text)))
-                else:
+            if latex_index is not None:
+                labels = list(latex_index.label_contexts)
+                bibtex = sorted(latex_index.bibtex_keys)
+                hypertargets = sorted(latex_index.hypertargets)
+                try:
+                    from editor.latex_support import (
+                        PACKAGE_ENVIRONMENTS, STANDARD_ENVIRONMENTS,
+                        LaTeXSupport,
+                    )
+                    envs = set(STANDARD_ENVIRONMENTS)
+                    envs.update(latex_index.custom_environments)
+                    for package in latex_index.packages:
+                        envs.update(PACKAGE_ENVIRONMENTS.get(package.lower(), []))
+                    try:
+                        cwl = LaTeXSupport.get_cwl_model(self._file_path)
+                        envs.update(
+                            environment.name
+                            for environment in cwl.environments_for(
+                                sorted(latex_index.packages)
+                            )
+                        )
+                    except Exception:
+                        pass
+                    environments = sorted(envs)
+                except Exception:
+                    environments = []
+                self.latex_document_words.emit(
+                    list(latex_index.current_document_words), self._gen
+                )
+            else:
+                # Fallback conservativo per file/progetti non indicizzabili.
+                try:
+                    from editor.latex_support import LaTeXSupport
                     labels = LaTeXSupport.extract_labels_with_context(self._text)
-            except Exception:
-                pass
-            if not self._cancelled:
-                try:
-                    from editor.latex_support import LaTeXSupport
-                    if self._file_path:
-                        bibtex = LaTeXSupport.extract_bibtex_keys_multifile(self._file_path)
-                        bibtex = sorted(set(bibtex) | set(
-                            LaTeXSupport.extract_bibtex_keys(self._text, self._file_path)))
-                    else:
-                        bibtex = LaTeXSupport.extract_bibtex_keys(self._text, None)
-                except Exception:
-                    pass
-            if not self._cancelled:
-                try:
-                    from editor.latex_support import LaTeXSupport
-                    if self._file_path:
-                        hypertargets = LaTeXSupport.extract_hypertargets_multifile(self._file_path)
-                        hypertargets = sorted(set(hypertargets) | set(
-                            LaTeXSupport.extract_hypertargets(self._text)))
-                    else:
-                        hypertargets = LaTeXSupport.extract_hypertargets(self._text)
-                except Exception:
-                    pass
-            if not self._cancelled:
-                try:
-                    from editor.latex_support import LaTeXSupport
+                    bibtex = LaTeXSupport.extract_bibtex_keys(self._text, self._file_path)
+                    hypertargets = LaTeXSupport.extract_hypertargets(self._text)
                     environments = LaTeXSupport.get_all_environments(
                         self._text, self._file_path
                     )
@@ -756,6 +766,7 @@ class AutoCompleteManager(QObject):
         self._hypertargets_cache: list = []
         self._env_cache:         list = []   # cache ambienti per refresh_env_popup
         self._available_envs:    list = []   # popolata dal worker LaTeX
+        self._document_words_cache: list[str] = []
         self._env_popup_needs_brace: bool = False  # True se il popup e' partito da \begin/\end senza { ancora digitata
 
         # Timer per aggiornamento cross-tab (evita refresh ad ogni keystroke)
@@ -917,6 +928,7 @@ class AutoCompleteManager(QObject):
             self._bibtex_cache = []
             self._hypertargets_cache = []
             self._available_envs = []
+            self._document_words_cache = []
         else:
             self._doc_change_timer.setInterval(2000)
         # Aggiorna subito la sorgente QScintilla (AcsAPIs per LaTeX, AcsAll per gli altri).
@@ -996,6 +1008,7 @@ class AutoCompleteManager(QObject):
         worker.latex_cache.connect(
             lambda lbl, bib, ht, envs, g=gen: self._on_latex_cache(lbl, bib, ht, envs, g)
         )
+        worker.latex_document_words.connect(self._on_latex_document_words)
         self._api_worker = worker
         self._old_api_workers.append(worker)
         worker.start()
@@ -1030,6 +1043,10 @@ class AutoCompleteManager(QObject):
         self._bibtex_cache       = bibtex
         self._hypertargets_cache = hypertargets
         self._available_envs      = environments
+
+    def _on_latex_document_words(self, words: list, gen: int) -> None:
+        if gen == self._api_gen:
+            self._document_words_cache = list(words)
 
     def _collect_all_docs_words(self) -> list:
         """Estrae le parole da tutti gli altri tab (main thread, snapshot)."""
@@ -1088,6 +1105,8 @@ class AutoCompleteManager(QObject):
     def _document_completion_terms(self) -> list[str]:
         if not (self._levels & AutoCompleteLevel.DOCUMENT):
             return []
+        if self._language in ("latex", "bibtex") and self._document_words_cache:
+            return list(self._document_words_cache)
         try:
             return re.findall(r"(?u)[\w\\]{2,}", self._editor.text())
         except Exception:

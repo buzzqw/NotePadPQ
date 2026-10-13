@@ -28,6 +28,13 @@ import string
 
 from PyQt6.Qsci import QsciLexerCustom, QsciScintilla
 
+try:
+    # Optional compiled accelerator.  Source checkouts and platforms without a
+    # C++ build tool continue to use the compatible Python implementation.
+    from core import _latex_native
+except (ImportError, OSError):
+    _latex_native = None
+
 # ── Numeri di stile ───────────────────────────────────────────────────────────
 
 S_DEFAULT   = 0
@@ -129,6 +136,11 @@ _RE_SPECIAL_BYTES = re.compile(rb'[%\\${}[\]]')
 # Limitando ogni chiamata a _MAX_STYLE_BYTES, il lavoro idle si distribuisce
 # in micro-step da ~10ms invece di un blocco unico da 1-2 secondi.
 _MAX_STYLE_BYTES = 8000  # ~100 righe × 80 char
+# The native scanner is fast enough to process larger idle chunks.  Keeping a
+# larger bound only for it avoids thousands of Python/C++ event-loop turns on a
+# large document while retaining the old ~10 ms responsiveness budget for the
+# Python fallback.
+_NATIVE_MAX_STYLE_BYTES = 256 * 1024
 
 # Quando l'utente trascina la scrollbar su un documento grande, il primo
 # intervallo richiesto da Scintilla può essere molto lontano dall'ultimo
@@ -153,6 +165,7 @@ class LaTeXLexer(QsciLexerCustom):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._native_enabled = _latex_native is not None
         self._bytes_cache: bytes | None = None
         self._state_cache: dict[int, tuple[str, tuple[str, ...]]] = {
             0: ("default", ())
@@ -211,6 +224,20 @@ class LaTeXLexer(QsciLexerCustom):
         self._bytes_cache = None
         self._state_cache = {0: ("default", ())}
         self._state_cache_order = [0]
+
+    def _native_state(self, text_b: bytes, checkpoint: int, offset: int,
+                      mode: str, envs: tuple[str, ...]) -> tuple[str, tuple[str, ...]]:
+        """Compute a long prefix in native code when the accelerator exists."""
+        if not self._native_enabled or self.parent() is None:
+            return self._scan_state(text_b, checkpoint, offset, mode, envs, True)
+        native_mode, native_envs = _latex_native.state(
+            text_b, checkpoint, offset, mode, envs
+        )
+        return native_mode, tuple(native_envs)
+
+    def _native_style(self, safe: int, end: int, text_b: bytes,
+                      mode: str, envs: tuple[str, ...]):
+        return _latex_native.style(text_b, safe, end, mode, envs)
 
     def recolor(self) -> None:
         """Invalida la cache e forza Scintilla a ristilizzare il documento."""
@@ -339,7 +366,8 @@ class LaTeXLexer(QsciLexerCustom):
         neutro e si evita di memorizzare checkpoint approssimati: così un
         accesso casuale non avvelena la cache usata per la scansione esatta.
         """
-        if len(text_b) < _LARGE_DOCUMENT_BYTES:
+        native_active = self._native_enabled and self.parent() is not None
+        if len(text_b) < _LARGE_DOCUMENT_BYTES and not native_active:
             return (*self._state_at(text_b, offset), True)
 
         if len(self._state_cache_order) != len(self._state_cache):
@@ -347,9 +375,9 @@ class LaTeXLexer(QsciLexerCustom):
         idx = bisect.bisect_right(self._state_cache_order, offset) - 1
         checkpoint = self._state_cache_order[idx] if idx >= 0 else 0
 
-        if offset - checkpoint <= _MAX_RANDOM_ACCESS_CONTEXT:
+        if offset - checkpoint <= _MAX_RANDOM_ACCESS_CONTEXT or native_active:
             mode, envs = self._state_cache[checkpoint]
-            return (*self._scan_state(text_b, checkpoint, offset, mode, envs, True), True)
+            return (*self._native_state(text_b, checkpoint, offset, mode, envs), True)
 
         context_start = max(0, offset - _MAX_RANDOM_ACCESS_CONTEXT)
         newline = text_b.rfind(b'\n', 0, context_start)
@@ -463,9 +491,34 @@ class LaTeXLexer(QsciLexerCustom):
         tlen = len(text_b)
         nl = text_b.rfind(b'\n', 0, start)
         safe = 0 if nl < 0 else nl + 1
-        end = min(end, tlen, safe + _MAX_STYLE_BYTES)
+        max_style_bytes = (
+            _NATIVE_MAX_STYLE_BYTES
+            if self._native_enabled and self.parent() is not None
+            else _MAX_STYLE_BYTES
+        )
+        end = min(end, tlen, safe + max_style_bytes)
         if safe >= end:
             return
+
+        if self._native_enabled and self.parent() is not None:
+            mode, envs, _cache_states = self._state_for_style(text_b, safe)
+            native_safe, native_styles, checkpoints = self._native_style(
+                safe, end, text_b, mode, envs
+            )
+            # The native scanner applies the same line-state checkpoints as the
+            # Python implementation.  They are deliberately copied into the
+            # existing cache so navigation and edits retain identical semantics.
+            for checkpoint, checkpoint_mode, checkpoint_envs in checkpoints:
+                self._cache_state(
+                    int(checkpoint), str(checkpoint_mode), tuple(checkpoint_envs)
+                )
+            self.startStyling(int(native_safe))
+            parent = self.parent()
+            parent.SendScintilla(
+                parent.SCI_SETSTYLINGEX, len(native_styles), native_styles
+            )
+            return
+
         styles = bytearray(end - safe)
         mode, envs, cache_states = self._state_for_style(text_b, safe)
         envs = list(envs)

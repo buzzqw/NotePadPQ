@@ -99,6 +99,9 @@ jobs:
           with open('windowsbuild/version_info.txt', 'w', encoding='utf-8') as f:
               f.write(content)
 
+      - name: Compila acceleratore nativo LaTeX
+        run: python setup.py build_ext --inplace
+
       - name: Build Full con PyInstaller
         shell: cmd
         working-directory: windowsbuild

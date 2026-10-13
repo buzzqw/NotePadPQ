@@ -26,6 +26,7 @@ from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, Qt
 from PyQt6.QtGui import QColor
 from PyQt6.Qsci import QsciScintilla
 from core.diagnostics import profile_operation
+from core.latex_index import get_latex_index
 from editor.latex_support import strip_latex_comments
 
 if TYPE_CHECKING:
@@ -75,6 +76,7 @@ class _CheckWorker(QThread):
         self._cancelled  = False
         self._sources = None
         self._label_analysis = None
+        self._index = None
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -84,6 +86,17 @@ class _CheckWorker(QThread):
         issues: list[dict] = []
         if self._cancelled:
             return
+        # One immutable snapshot is shared by all checks in this worker.  The
+        # cache also lets autocomplete and Function List reuse it when their
+        # debounced workers analyze the same revision.
+        try:
+            self._index = get_latex_index(
+                self._text, self._file_path, self._include_project
+            )
+        except Exception:
+            # Keep the established Python fallbacks available if an unusual
+            # project/file cannot be indexed.
+            self._index = None
         issues.extend(self._check_balance())
         if self._cancelled:
             return
@@ -107,6 +120,9 @@ class _CheckWorker(QThread):
         """Restituisce i sorgenti del progetto con il testo corrente in memoria."""
         if self._sources is not None:
             return self._sources
+        if self._index is not None:
+            self._sources = [(source.path, source.text) for source in self._index.sources]
+            return self._sources
         if not self._file_path or not self._include_project:
             self._sources = [(None, self._text)]
             return self._sources
@@ -125,6 +141,47 @@ class _CheckWorker(QThread):
 
     def _check_balance(self) -> list[dict]:
         from editor.latex_support import LaTeXSupport
+        if self._index is not None:
+            issues = []
+            # Preserve the old checker wording while using the indexed
+            # begin/end events and line map.
+            for source in self._index.sources:
+                stack: list[tuple[str, int]] = []
+                for match in _RE_BEGIN_END.finditer(source.code):
+                    kind, env_name = match.group(1), match.group(2)
+                    lineno = source.line_for_offset(match.start())
+                    if kind == "begin":
+                        stack.append((env_name, lineno))
+                        continue
+                    if not stack:
+                        error = {
+                            "line": lineno, "env": env_name,
+                            "msg": f"\\end{{{env_name}}} without matching \\begin",
+                        }
+                    else:
+                        top_env, top_line = stack[-1]
+                        if top_env == env_name:
+                            stack.pop()
+                            continue
+                        error = {
+                            "line": lineno, "env": env_name,
+                            "msg": (
+                                f"\\end{{{env_name}}} closes '{top_env}' "
+                                f"opened at line {top_line + 1}"
+                            ),
+                        }
+                    if source.path is not None:
+                        error["file"] = source.path
+                    issues.append(error)
+                for env_name, lineno in stack:
+                    error = {
+                        "line": lineno, "env": env_name,
+                        "msg": f"\\begin{{{env_name}}} not closed",
+                    }
+                    if source.path is not None:
+                        error["file"] = source.path
+                    issues.append(error)
+            return issues
         issues = []
         for path, source in self._project_sources():
             for error in LaTeXSupport.check_environment_balance(source):
@@ -139,10 +196,20 @@ class _CheckWorker(QThread):
         from editor.latex_support import LaTeXSupport
         analysis = self._get_label_analysis()
         defined = {item["key"] for item in analysis["definitions"]}
-        defined.update(LaTeXSupport.extract_labels(self._text))
+        if self._index is None:
+            defined.update(LaTeXSupport.extract_labels(self._text))
 
         issues: list[dict] = []
-        for occurrence in LaTeXSupport.extract_label_reference_occurrences(self._text):
+        if self._index is not None:
+            current_path = self._index.current_path
+            occurrences = [
+                item for item in self._index.references
+                if item.get("file") == current_path
+                or (current_path is None and item.get("file") is None)
+            ]
+        else:
+            occurrences = LaTeXSupport.extract_label_reference_occurrences(self._text)
+        for occurrence in occurrences:
             if self._cancelled:
                 return []
             if occurrence["kind"] != "reference":
@@ -189,6 +256,15 @@ class _CheckWorker(QThread):
 
     def _get_label_analysis(self) -> dict:
         if self._label_analysis is None:
+            if self._index is not None:
+                self._label_analysis = {
+                    "definitions": list(self._index.definitions),
+                    "references": list(self._index.references),
+                    "duplicates": list(self._index.duplicates),
+                    "unused": list(self._index.unused),
+                    "undefined": list(self._index.undefined),
+                }
+                return self._label_analysis
             from editor.latex_support import LaTeXSupport
             self._label_analysis = LaTeXSupport.analyze_label_references(
                 self._text, self._file_path if self._include_project else None,
@@ -198,7 +274,9 @@ class _CheckWorker(QThread):
     def _check_undefined_citations(self) -> list[dict]:
         from editor.latex_support import LaTeXSupport
         fp = self._file_path
-        if fp:
+        if self._index is not None:
+            known = set(self._index.bibtex_keys)
+        elif fp:
             known = (set(LaTeXSupport.extract_bibtex_keys_multifile(fp))
                      if self._include_project else set())
             known.update(LaTeXSupport.extract_bibtex_keys(self._text, fp))
@@ -209,11 +287,15 @@ class _CheckWorker(QThread):
             return []
 
         issues: list[dict] = []
-        for lineno, line in enumerate(self._text.split("\n")):
+        source = (
+            self._index.source_for(Path(fp).resolve())
+            if self._index is not None and fp else None
+        )
+        code = source.code if source is not None else strip_latex_comments(self._text)
+        for lineno, line in enumerate(code.split("\n")):
             if self._cancelled:
                 return []
-            stripped = strip_latex_comments(line)
-            for m in _RE_CITE.finditer(stripped):
+            for m in _RE_CITE.finditer(line):
                 for key in m.group(1).split(","):
                     key = key.strip()
                     if key and key not in known:
@@ -225,6 +307,18 @@ class _CheckWorker(QThread):
         return issues
 
     def _check_tabular_columns(self) -> list[dict]:
+        if self._index is not None:
+            issues = []
+            for source in self._index.sources:
+                worker = _CheckWorker(
+                    source.code, source.path, self._generation, include_project=False
+                )
+                worker._cancelled = self._cancelled
+                for issue in worker._check_tabular_columns_single(already_stripped=True):
+                    if source.path is not None:
+                        issue["file"] = source.path
+                    issues.append(issue)
+            return issues
         if not self._file_path or not self._include_project:
             return self._check_tabular_columns_single()
         issues = []
@@ -237,7 +331,7 @@ class _CheckWorker(QThread):
                 issues.append(issue)
         return issues
 
-    def _check_tabular_columns_single(self) -> list[dict]:
+    def _check_tabular_columns_single(self, already_stripped: bool = False) -> list[dict]:
         """Controlla che le righe del corpo tabella abbiano lo stesso numero
         di colonne dichiarato nella specifica colonne (es. {llX})."""
         issues: list[dict] = []
@@ -246,7 +340,7 @@ class _CheckWorker(QThread):
         while i < len(lines):
             if self._cancelled:
                 return issues
-            stripped = strip_latex_comments(lines[i])
+            stripped = lines[i] if already_stripped else strip_latex_comments(lines[i])
             bm = _RE_BEGIN_ENV.search(stripped)
             if not bm or bm.group(1) not in _TABULAR_ENVS:
                 i += 1
@@ -267,7 +361,7 @@ class _CheckWorker(QThread):
             for j in range(i + 1, len(lines)):
                 if self._cancelled:
                     return issues
-                s = strip_latex_comments(lines[j])
+                s = lines[j] if already_stripped else strip_latex_comments(lines[j])
                 for match in _RE_BEGIN_END.finditer(s):
                     depth += 1 if match.group(1) == "begin" else -1
                     if depth <= 0:
@@ -284,7 +378,7 @@ class _CheckWorker(QThread):
             for row in range(i + 1, end_line):
                 if self._cancelled:
                     return issues
-                rs = strip_latex_comments(lines[row])
+                rs = lines[row] if already_stripped else strip_latex_comments(lines[row])
                 if not rs.strip():
                     continue
                 if re.match(r'^\s*\\(?:hline|toprule|midrule|bottomrule|cline)\b', rs):
@@ -352,6 +446,15 @@ class _CheckWorker(QThread):
 
     def _check_tikz_semicolons(self) -> list[dict]:
         """Warn when a TikZ drawing command is not terminated by ``;``."""
+        if self._index is not None:
+            issues: list[dict] = []
+            for source in self._index.sources:
+                for issue in self._check_tikz_semicolons_single(
+                        source.code, already_stripped=True):
+                    if source.path is not None:
+                        issue["file"] = source.path
+                    issues.append(issue)
+            return issues
         sources = self._project_sources() if self._file_path else [(None, self._text)]
         issues: list[dict] = []
         for path, source in sources:
@@ -364,8 +467,9 @@ class _CheckWorker(QThread):
         return issues
 
     @staticmethod
-    def _check_tikz_semicolons_single(text: str) -> list[dict]:
-        code = strip_latex_comments(text)
+    def _check_tikz_semicolons_single(
+            text: str, already_stripped: bool = False) -> list[dict]:
+        code = text if already_stripped else strip_latex_comments(text)
         events = []
         for match in _RE_BEGIN_END.finditer(code):
             if match.group(2).strip().rstrip("*") == "tikzpicture":
@@ -374,6 +478,15 @@ class _CheckWorker(QThread):
                        "foreach" if match.group(0).startswith(r"\foreach") else "command")
                       for match in _RE_TIKZ_COMMAND.finditer(code))
         events.sort(key=lambda event: event[0])
+
+        # For each event, retain the next command boundary.  The old nested
+        # search made this check O(number_of_events²) in large TikZ drawings.
+        next_boundaries = [len(code)] * len(events)
+        next_boundary = len(code)
+        for event_index in range(len(events) - 1, -1, -1):
+            next_boundaries[event_index] = next_boundary
+            if events[event_index][1] in {"command", "foreach", "end"}:
+                next_boundary = events[event_index][0]
 
         issues: list[dict] = []
         tikz_depth = 0
@@ -389,11 +502,7 @@ class _CheckWorker(QThread):
             if tikz_depth <= 0:
                 continue
 
-            boundary = len(code)
-            for next_position, next_type in events[index + 1:]:
-                if next_type in {"command", "foreach", "end"}:
-                    boundary = next_position
-                    break
+            boundary = next_boundaries[index]
             if code.find(";", position, boundary) >= 0:
                 continue
             issues.append({

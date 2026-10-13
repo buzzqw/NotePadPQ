@@ -496,6 +496,51 @@ class _ProjectLaTeXParseWorker(_ParseWorker):
         self._current_path = current_path
 
     def run(self) -> None:
+        if isinstance(self._parser, _LaTeXParser):
+            try:
+                from config.settings import Settings as _S
+                from core.latex_index import get_latex_index
+                index = get_latex_index(self._text, self._current_path, True)
+                hidden = set(
+                    k.strip() for k in
+                    (_S.instance().get("function_list/latex_hidden_kinds") or "").split(",")
+                    if k.strip()
+                )
+                symbols: list[FuncSymbol] = []
+                for section in index.sections:
+                    if section["kind"] in hidden:
+                        continue
+                    symbols.append(FuncSymbol(
+                        name=section["name"], kind=section["kind"],
+                        line=int(section["line"]) + 1,
+                        signature=section["signature"], icon=section["icon"],
+                        level=int(section["level"]), file_path=section.get("file"),
+                    ))
+                for declaration in index.custom_declarations:
+                    if declaration["kind"] in hidden:
+                        continue
+                    symbols.append(FuncSymbol(
+                        name=declaration["name"], kind=declaration["kind"],
+                        line=int(declaration["line"]) + 1,
+                        signature=declaration["signature"], icon=(
+                            "⌘" if declaration["kind"] == "command" else "⬜"
+                        ), level=0, file_path=declaration.get("file"),
+                    ))
+                source_order = {
+                    source.path: position
+                    for position, source in enumerate(index.sources)
+                }
+                symbols.sort(key=lambda symbol: (
+                    source_order.get(symbol.file_path, -1), symbol.line,
+                    0 if symbol.level else 1,
+                ))
+                if not self._cancelled:
+                    self.done.emit(symbols, self._generation, self._is_hier)
+                return
+            except Exception:
+                # Keep the established parser/project fallback for malformed
+                # or inaccessible projects.
+                pass
         try:
             from core.latex_project import LatexProjectContext
             context = LatexProjectContext(self._current_path, self._text)
@@ -645,6 +690,13 @@ class _FunctionListPanel(QWidget):
 
     def _on_text_changed(self) -> None:
         if self.isVisible():
+            # Large LaTeX files should not trigger a full symbol refresh after
+            # every short pause while the user is typing.  The worker remains
+            # asynchronous; this only coalesces more edits before scheduling it.
+            if self._editor and getattr(self._editor, "length", lambda: 0)() > 1_000_000:
+                self._timer.setInterval(1500)
+            else:
+                self._timer.setInterval(700)
             self._timer.start()
         else:
             self._needs_refresh = True

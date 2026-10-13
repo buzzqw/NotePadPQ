@@ -121,6 +121,36 @@ _verify_module() {
     fi
 }
 
+# ─── Compilazione acceleratore nativo LaTeX ────────────────────────────────────
+
+_build_latex_accelerator() {
+    local pybin="$PYTHON"
+    if [[ -x "${VENV_DIR}/bin/python" ]]; then
+        pybin="${VENV_DIR}/bin/python"
+    elif [[ -x "${VENV_DIR}/Scripts/python.exe" ]]; then
+        pybin="${VENV_DIR}/Scripts/python.exe"
+    fi
+
+    if [[ ! -f "${PROJECT_DIR}/native/latex_native.cpp" || ! -f "${PROJECT_DIR}/setup.py" ]]; then
+        echo "   Sorgente acceleratore LaTeX non presente: uso il fallback Python"
+        return 0
+    fi
+
+    echo
+    echo "=== Compilazione acceleratore LaTeX C++ ==="
+    # setup.py rende la compilazione opzionale: se mancano compilatore o header
+    # Python la procedura continua e il lexer usa automaticamente il fallback.
+    if (cd "${PROJECT_DIR}" && "$pybin" setup.py build_ext --inplace); then
+        if (cd "${PROJECT_DIR}" && "$pybin" -c 'import core._latex_native'); then
+            echo "   Acceleratore LaTeX C++: OK"
+        else
+            echo "   Acceleratore non caricabile: uso il fallback Python"
+        fi
+    else
+        echo "   Compilazione acceleratore fallita: uso il fallback Python"
+    fi
+}
+
 # ─── Menù componenti opzionali ────────────────────────────────────────────────
 
 _choose_optional() {
@@ -156,6 +186,15 @@ _choose_optional() {
     local st_encrypt;     st_encrypt=$(_check_group "$OPT_ENCRYPT")
     local st_git;         st_git=$(_check_group "$OPT_GIT")
     local st_restclient;  st_restclient=$(_check_group "$OPT_RESTCLIENT")
+    local native_py="$PYTHON" st_native="none"
+    if [[ -x "${VENV_DIR}/bin/python" ]]; then
+        native_py="${VENV_DIR}/bin/python"
+    elif [[ -x "${VENV_DIR}/Scripts/python.exe" ]]; then
+        native_py="${VENV_DIR}/Scripts/python.exe"
+    fi
+    if (cd "${PROJECT_DIR}" && "$native_py" -c 'import core._latex_native' &>/dev/null); then
+        st_native="all"
+    fi
 
     _label() {
         case "$1" in all) echo "✓ già installato";; partial) echo "~ parziale";; *) echo "✗ mancante";; esac
@@ -174,17 +213,23 @@ _choose_optional() {
     printf "║  [7] Crittografia (cryptography)                        %s║\n" "$(_label "$st_encrypt")"
     printf "║  [8] GitHub/GitLab e keyring                            %s║\n" "$(_label "$st_git")"
     printf "║  [9] REST client (requests)                             %s║\n" "$(_label "$st_restclient")"
+    printf "║ [10] Acceleratore LaTeX C++                         %s║\n" "$(_label "$st_native")"
     echo "║  [a] Tutti                                                ║"
     echo "║  [n] Nessuno (solo dipendenze base)                       ║"
     echo "╚══════════════════════════════════════════════════════════════════╝"
-    echo -n "Scelta (es. 1 2 3 4, a, n): "
+    echo -n "Scelta (es. 1 2 3 4 10, a, n): "
     read -r CHOICE
 
-    IL=false; IS=false; IR=false; IF=false; IDB=false; IFTP=false; IENC=false; IGIT=false; IREST=false
+    IL=false; IS=false; IR=false; IF=false; IDB=false; IFTP=false; IENC=false; IGIT=false; IREST=false; IACC=false
     case "$CHOICE" in
-        a|A) IL=true; IS=true; IR=true; IF=true; IDB=true; IFTP=true; IENC=true; IGIT=true; IREST=true ;;
+        a|A) IL=true; IS=true; IR=true; IF=true; IDB=true; IFTP=true; IENC=true; IGIT=true; IREST=true; IACC=true ;;
         n|N|'') ;;
         *)
+            # Supporta sia "1 2 10" sia la forma compatta storica "123".
+            if [[ "$CHOICE" == *10* ]]; then
+                IACC=true
+                CHOICE="${CHOICE//10/}"
+            fi
             [[ "$CHOICE" == *1* ]] && IL=true
             [[ "$CHOICE" == *2* ]] && IS=true
             [[ "$CHOICE" == *3* ]] && IR=true
@@ -199,6 +244,9 @@ _choose_optional() {
     # Nota: anche se i pacchetti risultano già installati nel sistema,
     # li installiamo comunque nel venv (uv gestisce i duplicati).
     # Lo stato mostrato è solo informativo.
+    # Le condizioni opzionali sopra possono risultare false per la scelta 10;
+    # con set -e la funzione deve comunque terminare correttamente.
+    return 0
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -209,6 +257,24 @@ echo "=== NotePadPQ Setup ==="
 echo
 
 _choose_optional
+
+# L'acceleratore è anche un'operazione autonoma: selezionando soltanto 10 non
+# è necessario reinstallare o verificare tutte le dipendenze dell'applicazione.
+if [[ "${IACC}" == true && "${IL}" == false && "${IS}" == false \
+        && "${IR}" == false && "${IF}" == false && "${IDB}" == false \
+        && "${IFTP}" == false && "${IENC}" == false && "${IGIT}" == false \
+        && "${IREST}" == false ]]; then
+    _build_latex_accelerator
+    echo
+    if "$PYTHON" -c 'import core._latex_native' &>/dev/null 2>&1 \
+            || ([[ -x "${VENV_DIR}/bin/python" ]] && "${VENV_DIR}/bin/python" -c 'import core._latex_native' &>/dev/null 2>&1) \
+            || ([[ -x "${VENV_DIR}/Scripts/python.exe" ]] && "${VENV_DIR}/Scripts/python.exe" -c 'import core._latex_native' &>/dev/null 2>&1); then
+        echo "Acceleratore LaTeX C++ disponibile."
+    else
+        echo "Acceleratore non disponibile: verrà usato il fallback Python."
+    fi
+    exit 0
+fi
 
 echo
 echo "=== Installazione dipendenze ==="
@@ -364,12 +430,24 @@ Linux)
     ;;
 esac
 
+if [[ "${IACC:-false}" == true ]]; then
+    _build_latex_accelerator
+else
+    echo
+    echo "=== Acceleratore LaTeX C++ ==="
+    echo "   Saltato (seleziona l'opzione 10 per compilarlo)"
+fi
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # VERIFICA FINALE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 VERIFY_PY="$PYTHON"
-[[ -x "${VENV_DIR}/bin/python" ]] && VERIFY_PY="${VENV_DIR}/bin/python"
+if [[ -x "${VENV_DIR}/bin/python" ]]; then
+    VERIFY_PY="${VENV_DIR}/bin/python"
+elif [[ -x "${VENV_DIR}/Scripts/python.exe" ]]; then
+    VERIFY_PY="${VENV_DIR}/Scripts/python.exe"
+fi
 
 echo
 echo "=== Verifica dipendenze ==="
@@ -416,6 +494,11 @@ echo "--- LaTeX avanzato (opzionale) ---"
 _verify_module "$VERIFY_PY" "fitz"       "PyMuPDF"    "pip install pymupdf"
 _verify_module "$VERIFY_PY" "matplotlib" "matplotlib" "pip install matplotlib"
 _verify_module "$VERIFY_PY" "sympy"      "sympy"      "pip install sympy"
+if "$VERIFY_PY" -c 'import core._latex_native' &>/dev/null 2>&1; then
+    echo "   latex_native C++     OK"
+else
+    echo "   latex_native C++     fallback Python"
+fi
 command -v synctex &>/dev/null && echo "   synctex             OK" || echo "   synctex             non installato (incluso in TeX Live)"
 
 echo

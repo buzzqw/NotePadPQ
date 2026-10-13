@@ -243,7 +243,42 @@ class LatexMenuManager:
             ("Esegui nomencl", "nomencl"),
         ]:
             self._act(aux, label, lambda k=kind: self._mw._run_latex_auxiliary_tool(k))
+
+        # Voce informativa non interattiva: rende immediatamente visibile quale
+        # backend sta usando il lexer LaTeX del processo corrente.
+        s.addSeparator()
+        if self._native_latex_accelerator_available():
+            backend_label = tr(
+                "latex_menu.native_backend_cpp",
+                default="✓ Acceleratore C++ LaTeX attivo",
+            )
+            backend_tip = tr(
+                "latex_menu.native_backend_cpp_tip",
+                default="Syntax highlighting LaTeX: scanner nativo C++",
+            )
+        else:
+            backend_label = tr(
+                "latex_menu.native_backend_python",
+                default="○ Fallback Python LaTeX attivo",
+            )
+            backend_tip = tr(
+                "latex_menu.native_backend_python_tip",
+                default="Syntax highlighting LaTeX: scanner Python",
+            )
+        backend_action = QAction(backend_label, s)
+        backend_action.setEnabled(False)
+        backend_action.setToolTip(backend_tip)
+        s.addAction(backend_action)
         return s
+
+    @staticmethod
+    def _native_latex_accelerator_available() -> bool:
+        """Return whether the optional scanner is importable in this process."""
+        try:
+            from core import _latex_native
+            return _latex_native is not None
+        except (ImportError, OSError):
+            return False
 
     def _open_symbol_palette(self) -> None:
         ed = self._ed()

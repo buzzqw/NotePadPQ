@@ -99,6 +99,9 @@ jobs:
           # PyInstaller
           pip install "pyinstaller>=6.3" pyinstaller-hooks-contrib
 
+      - name: Compile native LaTeX accelerator
+        run: python setup.py build_ext --inplace
+
       # ── Build PyInstaller ─────────────────────────────────────────────────
       - name: Build with PyInstaller
         run: |

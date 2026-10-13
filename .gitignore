@@ -70,6 +70,7 @@ tests/*
 !tests/test_lsp_completion.py
 !tests/test_latex_project.py
 !tests/test_latex_checker_refactor.py
+!tests/test_latex_index.py
 !tests/test_latex_templates.py
 !tests/test_bibtex_wizard_validation.py
 !tests/test_function_list_multifile.py

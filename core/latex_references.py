@@ -20,11 +20,11 @@ from core.latex_parser import (
     mask_latex_comments,
     strip_latex_comments,
 )
-from core.latex_tokenizer import iter_command_calls
 from core.latex_project import (
     collect_included_files,
     read_cached_text,
 )
+from core.latex_tokenizer import iter_command_calls
 
 _BIBITEM_RE = re.compile(r"\\bibitem(?:\[[^]]*\])?\s*\{([^}]+)\}")
 _COMMAND_RE = re.compile(r"\\([A-Za-z@]+)")

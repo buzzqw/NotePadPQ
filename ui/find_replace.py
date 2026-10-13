@@ -2225,6 +2225,26 @@ ESEMPI
 
     # ── Find in All Docs ──────────────────────────────────────────────────────
 
+    @staticmethod
+    def _search_text_for_editor(editor) -> Optional[str]:
+        """Testo su cui cercare: buffer in memoria, oppure disco se differito.
+
+        I tab di sessione non ancora caricati hanno il buffer vuoto; se ne legge
+        il file dal disco (stessa normalizzazione a LF usata da Scintilla) per
+        non doverli materializzare in RAM. Restituisce None se il file non è
+        leggibile.
+        """
+        if not getattr(editor, "_deferred_load", False):
+            return editor.text()
+        path = getattr(editor, "file_path", None)
+        if path is None:
+            return ""
+        try:
+            content, _encoding, _le = FileManager.read(path)
+        except Exception:
+            return None
+        return content.replace("\r\n", "\n").replace("\r", "\n")
+
     def _do_find_all_docs(self) -> None:
         query = self._all_find.text().strip()
         if not query:
@@ -2246,10 +2266,6 @@ ESEMPI
         total_matches = 0
         skipped_paged = 0
 
-        # Materializza i tab di sessione non ancora caricati: text() sarebbe
-        # altrimenti vuoto e la ricerca salterebbe i loro contenuti.
-        self._mw._ensure_all_loaded()
-
         for editor in self._mw._tab_manager.all_editors():
             if getattr(editor, "_paged_doc", None) is not None:
                 # editor.text() vedrebbe solo la pagina caricata: includerlo
@@ -2257,7 +2273,13 @@ ESEMPI
                 # sull'intero file, quindi si esclude e si segnala.
                 skipped_paged += 1
                 continue
-            text = editor.text()
+            # I tab di sessione non ancora caricati (differiti) si leggono dal
+            # disco, senza materializzarli in RAM: il contenuto è identico a
+            # quello che l'editor caricherebbe. Alla navigazione il tab si attiva
+            # e viene caricato (set_current_editor → _load_deferred).
+            text = self._search_text_for_editor(editor)
+            if text is None:
+                continue
             name = editor.file_path.name if editor.file_path else tr("label.untitled")
             matches = []
             for i, line in enumerate(text.split("\n")):

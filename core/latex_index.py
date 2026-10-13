@@ -125,7 +125,9 @@ class LatexIndex:
         self.hypertargets: set[str] = set()
         self.citation_references: set[str] = set()
         self.bibtex_keys: set[str] = set()
-        self.balance_issues: list[dict] = []
+        # Calcolato su richiesta: nessun consumatore attuale legge balance_issues
+        # durante il build (il checker riscansiona per conto proprio).
+        self._balance_issues: tuple[dict, ...] | None = None
         # Le parole del documento sono calcolate su richiesta (servono solo
         # all'autocomplete): vedi le property document_words/current_document_words.
         self._all_words: tuple[str, ...] | None = None
@@ -137,8 +139,7 @@ class LatexIndex:
         # never observe partially updated lists or sets.
         for name in (
                 "sources", "definitions", "references", "sections",
-                "custom_declarations", "balance_issues",
-                "custom_command_completions",
+                "custom_declarations", "custom_command_completions",
                 "label_contexts", "duplicates", "unused", "undefined"):
             setattr(self, name, tuple(getattr(self, name)))
         for name in (
@@ -180,7 +181,6 @@ class LatexIndex:
                 if key.strip()
             )
             self._scan_custom_commands(source, command_completions)
-            self._scan_balance(source)
             # Le chiavi BibTeX servono sempre; le parole del documento invece
             # sono rimandate (vedi _compute_words): su un documento da 3 MB la
             # scansione di ogni parola costava centinaia di migliaia di .group().
@@ -279,48 +279,57 @@ class LatexIndex:
                 "signature": source.line_text(source.line_for_offset(match.start())).strip()[:80],
             })
 
-    def _scan_balance(self, source: IndexedSource) -> None:
-        stack: list[tuple[str, int]] = []
-        for match in _BEGIN_END_RE.finditer(source.code):
-            kind, environment = match.groups()
-            line = source.line_for_offset(match.start())
-            if kind == "begin":
-                stack.append((environment, line))
-                continue
-            if not stack:
-                issue = {
-                    "line": line,
-                    "env": environment,
-                    "severity": "error",
-                    "msg": f"\\end{{{environment}}} without matching \\begin",
-                }
-            else:
-                top_environment, top_line = stack[-1]
-                if top_environment == environment:
-                    stack.pop()
+    def _compute_balance(self) -> list[dict]:
+        issues: list[dict] = []
+        for source in self.sources:
+            stack: list[tuple[str, int]] = []
+            for match in _BEGIN_END_RE.finditer(source.code):
+                kind, environment = match.groups()
+                line = source.line_for_offset(match.start())
+                if kind == "begin":
+                    stack.append((environment, line))
                     continue
+                if not stack:
+                    issue = {
+                        "line": line,
+                        "env": environment,
+                        "severity": "error",
+                        "msg": f"\\end{{{environment}}} without matching \\begin",
+                    }
+                else:
+                    top_environment, top_line = stack[-1]
+                    if top_environment == environment:
+                        stack.pop()
+                        continue
+                    issue = {
+                        "line": line,
+                        "env": environment,
+                        "severity": "error",
+                        "msg": (
+                            f"Mismatched environment: \\end{{{environment}}} "
+                            f"closes \\begin{{{top_environment}}}"
+                        ),
+                    }
+                if source.path is not None:
+                    issue["file"] = source.path
+                issues.append(issue)
+            for environment, line in reversed(stack):
                 issue = {
                     "line": line,
                     "env": environment,
                     "severity": "error",
-                    "msg": (
-                        f"Mismatched environment: \\end{{{environment}}} "
-                        f"closes \\begin{{{top_environment}}}"
-                    ),
+                    "msg": f"\\begin{{{environment}}} without matching \\end",
                 }
-            if source.path is not None:
-                issue["file"] = source.path
-            self.balance_issues.append(issue)
-        for environment, line in reversed(stack):
-            issue = {
-                "line": line,
-                "env": environment,
-                "severity": "error",
-                "msg": f"\\begin{{{environment}}} without matching \\end",
-            }
-            if source.path is not None:
-                issue["file"] = source.path
-            self.balance_issues.append(issue)
+                if source.path is not None:
+                    issue["file"] = source.path
+                issues.append(issue)
+        return issues
+
+    @property
+    def balance_issues(self) -> tuple[dict, ...]:
+        if self._balance_issues is None:
+            self._balance_issues = tuple(self._compute_balance())
+        return self._balance_issues
 
     def _scan_referenced_bibliographies(self) -> None:
         for source in self.sources:

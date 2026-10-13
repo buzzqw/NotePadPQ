@@ -3080,10 +3080,12 @@ class AIAssistantPlugin(BasePlugin):
 
     def on_load(self, main_window: "MainWindow") -> None:
         super().on_load(main_window)
-        self._panel = _AIPanel(main_window)
+        # Il pannello è costruito pigramente alla prima apertura del dock (vedi
+        # _ensure_panel): crearlo all'avvio costa ~0.3s — costruzione UI più
+        # lookup del portachiavi e prefetch dei modelli — per un dock nascosto.
+        self._panel = None
         self._dock  = QDockWidget("AI Assistant", main_window)
         self._dock.setObjectName("AIDock")
-        self._dock.setWidget(self._panel)
         self._dock.setMinimumWidth(320)
         self._dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         self._dock.setFeatures(
@@ -3092,16 +3094,34 @@ class AIAssistantPlugin(BasePlugin):
             QDockWidget.DockWidgetFeature.DockWidgetFloatable
         )
         main_window.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._dock)
+        # Nascondi prima di collegare visibilityChanged: addDockWidget può
+        # rendere visibile il dock e non vogliamo materializzare subito il
+        # pannello (il collegamento scatta al primo show reale).
         self._dock.hide()
+        self._dock.visibilityChanged.connect(self._on_dock_visibility)
         self.add_menu_action(main_window, "plugins", "AI Assistant", self._toggle, "Ctrl+Alt+A", icon_key="plugin_ai")
 
         # Aggancia il menu contestuale dell'editor
         main_window._tab_manager.current_editor_changed.connect(self._on_editor_changed)
 
+    def _ensure_panel(self):
+        """Crea il pannello AI alla prima apertura del dock (lazy)."""
+        if self._panel is None:
+            self._panel = _AIPanel(self._mw)
+            self._dock.setWidget(self._panel)
+        return self._panel
+
+    def _on_dock_visibility(self, visible: bool) -> None:
+        # Copre anche il ripristino del layout di sessione, che può rendere
+        # visibile il dock senza passare da _toggle.
+        if visible:
+            self._ensure_panel()
+
     def _toggle(self) -> None:
         if self._dock.isVisible():
             self._dock.hide()
         else:
+            self._ensure_panel()
             self._dock.show()
             self._panel._input.setFocus()
 
@@ -3123,19 +3143,24 @@ class AIAssistantPlugin(BasePlugin):
         """Aggiunge le voci AI al menu contestuale dell'editor (tasto destro)."""
         from PyQt6.QtWidgets import QMenu
         ai_menu = menu.addMenu(tr("action.context_ai"))
-        ai_menu.addAction(tr("action.context_ai_ask_file"), self._panel._ask_about_file)
-        ai_menu.addAction(tr("action.context_ai_ask_sel"),  self._panel._ask_about_selection)
+        ai_menu.addAction(tr("action.context_ai_ask_file"),
+                          lambda *_: self._ensure_panel()._ask_about_file())
+        ai_menu.addAction(tr("action.context_ai_ask_sel"),
+                          lambda *_: self._ensure_panel()._ask_about_selection())
         ai_menu.addSeparator()
         for label, prompt in CONTEXT_ACTIONS[:5]:
             ai_menu.addAction(tr(label), lambda p=prompt: self._run_and_show(p))
 
     def _run_and_show(self, prompt: str) -> None:
+        self._ensure_panel()
         self._dock.show()
         self._panel._context_action(prompt)
 
     def on_unload(self) -> None:
-        if hasattr(self, "_panel"):
+        if self._panel is not None:
             self._panel.shutdown()
-        self._dock.close()
-        self._dock.deleteLater()
+        dock = getattr(self, "_dock", None)
+        if dock is not None:
+            dock.close()
+            dock.deleteLater()
         super().on_unload()

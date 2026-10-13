@@ -3156,12 +3156,17 @@ class RestClientPlugin(BasePlugin):
     def on_load(self, main_window: "MainWindow") -> None:
         super().on_load(main_window)
 
-        self._panel = _RestPanel(main_window=main_window)
+        # Il pannello è pesante (~0.3s: costruzione UI + ~60 setStyleSheet) e
+        # serve solo quando l'utente apre il dock, nascosto all'avvio. Lo si
+        # crea alla prima visualizzazione: vedi _ensure_panel().
+        self._panel = None
         self._dock  = QDockWidget("REST Client", main_window)
         self._dock.setObjectName("RestClientDock")
-        self._dock.setWidget(self._panel)
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self._dock)
+        # Nascondi prima di collegare visibilityChanged, così addDockWidget non
+        # fa scattare la creazione immediata del pannello.
         self._dock.hide()
+        self._dock.visibilityChanged.connect(self._on_dock_visibility)
 
         self.add_menu_action(
             main_window, "plugins",
@@ -3171,13 +3176,30 @@ class RestClientPlugin(BasePlugin):
             icon_key="plugin_rest",
         )
 
+    def _ensure_panel(self) -> "_RestPanel":
+        """Crea il pannello REST alla prima apertura del dock (lazy)."""
+        if self._panel is None:
+            self._panel = _RestPanel(main_window=self._mw)
+            self._dock.setWidget(self._panel)
+        return self._panel
+
+    def _on_dock_visibility(self, visible: bool) -> None:
+        # Copre anche il ripristino del layout di sessione, che può rendere
+        # visibile il dock senza passare da _toggle_dock.
+        if visible:
+            self._ensure_panel()
+
     def _toggle_dock(self):
-        self._dock.setVisible(not self._dock.isVisible())
+        visible = not self._dock.isVisible()
+        if visible:
+            self._ensure_panel()
+        self._dock.setVisible(visible)
 
     def on_unload(self) -> None:
-        if hasattr(self, "_panel"):
+        if self._panel is not None:
             self._panel.shutdown()
-        if hasattr(self, "_dock"):
-            self._dock.setParent(None)
-            self._dock.deleteLater()
+        dock = getattr(self, "_dock", None)
+        if dock is not None:
+            dock.setParent(None)
+            dock.deleteLater()
         super().on_unload()

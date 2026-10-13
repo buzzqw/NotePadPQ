@@ -319,12 +319,11 @@ class MainWindow(QMainWindow):
         self._sentence_focus_timer.setSingleShot(True)
         self._sentence_focus_timer.setInterval(120)
         self._sentence_focus_timer.timeout.connect(self._apply_sentence_focus)
-        
-        # Usa ScreenResolution per far coincidere i DPI di QScintilla con quelli di stampa
-        self._printer: QPrinter = QPrinter(QPrinter.PrinterMode.ScreenResolution)
-        
-        # (Opzionale ma consigliato) Imposta l'A4 come default per un'anteprima corretta
-        self._printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+
+        # QPrinter è creato pigramente (vedi la property `_printer` più sotto):
+        # istanziarlo costa ~1s su sistemi con CUPS perché enumera le stampanti,
+        # e serve soltanto per setup pagina / stampa / anteprima. Tenerlo fuori
+        # dal percorso di avvio rende la finestra visibile circa un secondo prima.
 
         self._setup_window()
         self._setup_menu()
@@ -353,6 +352,30 @@ class MainWindow(QMainWindow):
         self._save_workers: set[_EditorSaveWorker] = set()
 
         self.setAcceptDrops(True)
+
+    # ── Stampante (lazy) ──────────────────────────────────────────────────────
+
+    @property
+    def _printer(self) -> QPrinter:
+        """QPrinter condiviso, creato solo alla prima operazione di stampa.
+
+        La costruzione di QPrinter è sorprendentemente costosa (~1s in ambiente
+        CUPS perché enumera le stampanti di sistema) ma serve soltanto a setup
+        pagina, stampa e anteprima. Crearlo su richiesta toglie quel costo dal
+        percorso di avvio; il primo uso paga il prezzo una sola volta.
+        """
+        printer = getattr(self, "_printer_obj", None)
+        if printer is None:
+            # ScreenResolution fa coincidere i DPI di QScintilla con quelli di stampa
+            printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
+            # A4 come default per un'anteprima corretta
+            printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+            self._printer_obj = printer
+        return printer
+
+    @_printer.setter
+    def _printer(self, value: QPrinter) -> None:
+        self._printer_obj = value
 
     # ── Setup ─────────────────────────────────────────────────────────────────
 

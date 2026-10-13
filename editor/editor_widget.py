@@ -1200,6 +1200,15 @@ class EditorWidget(QsciScintilla):
 
         self.setEolMode(line_ending.to_qsci())
 
+        # Con il word wrap attivo Scintilla riflowa l'intero documento dentro
+        # setText(): un file da 1 MB passa da ~7 ms a ~480 ms (~60x). Si carica
+        # sempre senza wrap e lo si ripristina subito dopo: riattivarlo è quasi
+        # gratis perché Scintilla riflowa in modo lazy al paint.
+        saved_wrap = self.wrapMode()
+        restore_wrap = saved_wrap != QsciScintilla.WrapMode.WrapNone
+        if restore_wrap:
+            self.setWrapMode(QsciScintilla.WrapMode.WrapNone)
+
         # Blocca i segnali durante il caricamento per evitare falsi "modified"
         with operation("editor.set_text", chars=len(normalized)):
             self.blockSignals(True)
@@ -1214,6 +1223,9 @@ class EditorWidget(QsciScintilla):
             finally:
                 self.SendScintilla(self.SCI_SETUNDOCOLLECTION, 1)
                 self.blockSignals(False)
+
+        if restore_wrap:
+            self.setWrapMode(saved_wrap)
 
         # Posiziona il cursore all'inizio
         self.setCursorPosition(0, 0)

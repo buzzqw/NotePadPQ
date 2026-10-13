@@ -666,8 +666,27 @@ class LazyLoader(QObject):
         self._paged_view: Optional[PagedDocument] = None
         self._pager_widget: Optional[QWidget] = None
         self._editor_load_active = False
+        self._editor_wrap_restore = None
         self._last_progress_pct = -1
         self._last_progress_time = 0.0
+
+    def _disable_editor_wrap(self) -> None:
+        """Sospende il word wrap durante il caricamento a chunk.
+
+        Con il wrap attivo ogni append() riflowa il documento già cresciuto:
+        su file da centinaia di MB diventa quadratico. Si ripristina a fine
+        caricamento (riattivarlo è quasi gratis, Scintilla riflowa al paint).
+        """
+        if self._editor_wrap_restore is None:
+            mode = self._editor.wrapMode()
+            if mode != QsciScintilla.WrapMode.WrapNone:
+                self._editor.setWrapMode(QsciScintilla.WrapMode.WrapNone)
+                self._editor_wrap_restore = mode
+
+    def _restore_editor_wrap(self) -> None:
+        if self._editor_wrap_restore is not None:
+            self._editor.setWrapMode(self._editor_wrap_restore)
+            self._editor_wrap_restore = None
 
     # ── Entry point statico ───────────────────────────────────────────────────
 
@@ -759,6 +778,7 @@ class LazyLoader(QObject):
                 # documento e rende il caricamento piu lento.
                 self._editor.SendScintilla(QsciScintilla.SCI_SETUNDOCOLLECTION, 0)
                 self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
+                self._disable_editor_wrap()
                 self._editor_load_active = True
             else:
                 # Append al fondo del documento. load_content normalizza a LF solo
@@ -797,6 +817,7 @@ class LazyLoader(QObject):
             self._editor.setModified(False)
             self._editor.blockSignals(False)
             self._editor.setUpdatesEnabled(True)
+            self._restore_editor_wrap()
             self._editor_load_active = False
         # Riattiva i segnali bloccati durante i chunk (vedi _on_chunk_ready) e
         # rifà a mano gli aggiornamenti che sarebbero dovuti scattare da soli:
@@ -1001,6 +1022,7 @@ class LazyLoader(QObject):
             self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
             self._editor.blockSignals(False)
             self._editor.setUpdatesEnabled(True)
+            self._restore_editor_wrap()
             self._editor_load_active = False
         self._close_progress()
         self._remove_pager_ui()
@@ -1033,6 +1055,7 @@ class LazyLoader(QObject):
             self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
             self._editor.blockSignals(False)
             self._editor.setUpdatesEnabled(True)
+            self._restore_editor_wrap()
             self._editor_load_active = False
         self._close_progress()
         self.load_error.emit(msg)

@@ -34,12 +34,12 @@ except ImportError:
     _fitz = None
     FITZ_OK = False
 
-try:
-    from PyQt6.QtWebEngineWidgets import QWebEngineView
-    from PyQt6.QtWebEngineCore import QWebEngineSettings, QWebEnginePage
-    WEBENGINE_OK = True
-except ImportError:
-    WEBENGINE_OK = False
+# QtWebEngine è un fallback opzionale (usato solo se PyMuPDF non è disponibile).
+# Non lo importiamo a livello di modulo: così aprire un PDF con il renderer
+# nativo non carica il runtime Chromium (~31 MB). Presenza verificata con
+# find_spec; le classi si importano dove servono davvero.
+import importlib.util as _importlib_util
+WEBENGINE_OK = _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
 
 # Colori overlay link
 _LINK_BORDER = QColor(0, 100, 220, 200)
@@ -532,6 +532,7 @@ class PdfViewerWidget(QWidget):
 
         elif WEBENGINE_OK:
             from core.webengine import safe_webview
+            from PyQt6.QtWebEngineCore import QWebEngineSettings
             self._view = safe_webview(self)
             if self._view is not None:
                 self._view.settings().setAttribute(
@@ -1210,6 +1211,7 @@ class PdfWebTabWidget(QWidget):
 
         if WEBENGINE_OK:
             from core.webengine import safe_webview
+            from PyQt6.QtWebEngineCore import QWebEngineSettings
             self._view = safe_webview(self)
             if self._view is not None:
                 self._view.settings().setAttribute(
@@ -1253,6 +1255,7 @@ class PdfWebTabWidget(QWidget):
 
     def _find_prev(self) -> None:
         if self._view and self._find_edit and self._find_edit.text():
+            from PyQt6.QtWebEngineCore import QWebEnginePage
             self._view.findText(
                 self._find_edit.text(),
                 QWebEnginePage.FindFlag.FindBackward,

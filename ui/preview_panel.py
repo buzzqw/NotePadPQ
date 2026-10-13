@@ -42,13 +42,12 @@ from core.diagnostics import profile_operation
 from i18n.i18n import tr
 from config.settings import Settings
 
-# QWebEngineView è opzionale: se non installato si usa QTextBrowser come fallback
-try:
-    from PyQt6.QtWebEngineWidgets import QWebEngineView
-    from PyQt6.QtWebEngineCore import QWebEngineSettings
-    _HAS_WEBENGINE = True
-except ImportError:
-    _HAS_WEBENGINE = False
+# QWebEngineView è opzionale: se non installato si usa QTextBrowser come fallback.
+# Non importiamo QtWebEngine qui: caricarne il runtime costa ~31 MB di RAM anche
+# se l'utente non apre mai un'anteprima HTML. La presenza si verifica con
+# find_spec; le classi si importano solo quando serve creare davvero la view.
+import importlib.util as _importlib_util
+_HAS_WEBENGINE = _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
 
 # python-markdown opzionale — caricato solo al primo rendering Markdown
 _markdown_lib = None
@@ -1049,6 +1048,7 @@ class PreviewPanel(QWidget):
             from core.webengine import safe_webview
             self._web = safe_webview()
             if self._web is not None:
+                from PyQt6.QtWebEngineCore import QWebEngineSettings
                 self._web.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
                 self._web.settings().setAttribute(
                     QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True

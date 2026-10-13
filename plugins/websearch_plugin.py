@@ -13,7 +13,6 @@ from typing import Optional
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from core.external_open import open_url as _open_url
-from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialogButtonBox,

@@ -133,8 +133,13 @@ def check_dependencies() -> bool:
         missing.append("PyQt6  →  pip install PyQt6")
 
     try:
-        from PyQt6.QtWebEngineWidgets import QWebEngineView
-    except ImportError:
+        import importlib.util
+        # Non importiamo QtWebEngine qui: caricarne il runtime costa ~31 MB di
+        # RAM anche se l'utente non apre mai un pannello web. Basta verificarne
+        # la presenza; l'import avviene on demand alla prima view (core.webengine).
+        if importlib.util.find_spec("PyQt6.QtWebEngineWidgets") is None:
+            raise ImportError
+    except (ImportError, ValueError):
         missing.append(
             "PyQt6-WebEngine  →  Su Arch: sudo pacman -S qt6-webengine\n"
             "                    Altrimenti: pip install PyQt6-WebEngine"
@@ -199,7 +204,6 @@ def main():
 
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtGui import QIcon
-    from PyQt6.QtWebEngineWidgets import QWebEngineView
     from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
 
     def _qt_msg_handler(msg_type, context, message):
@@ -258,6 +262,12 @@ def main():
                     _fh.write(_conf)
         except Exception:
             pass
+
+    # QtWebEngine esige AA_ShareOpenGLContexts impostato PRIMA di QApplication.
+    # Lo impostiamo qui senza importare QtWebEngine: così il suo runtime (~31 MB)
+    # viene caricato solo alla prima apertura di un pannello web, non all'avvio.
+    from PyQt6.QtCore import Qt as _Qt
+    QApplication.setAttribute(_Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
 
     app_class = ProfilingApplication if profile_enabled else QApplication
     app = app_class(sys.argv)

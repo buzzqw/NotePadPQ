@@ -28,10 +28,24 @@ _escaped = is_latex_escaped
 _scan = mask_latex_comments
 _group = read_latex_group
 
-# Unico passaggio sui soli caratteri speciali ('%' e '\\'), in C, invece del
-# vecchio ciclo per-carattere in Python: su un documento da 3 MB costava
-# ~400 ms. ``skip_until`` ignora i match interni alle parti già consumate.
-_SPECIAL_RE = re.compile(r"[%\\]")
+# I comandi rilevanti si localizzano con un'unica regex (in C): su OBSSv2.tex
+# (~3 MB, ~57k backslash) scorrere tutti i comandi e leggerne il nome in Python
+# costava ~110 ms, quasi tutto speso a scartare i comandi non citazionali.
+# L'alternanza copre le citazioni (famiglia ``cite*`` più i nomi biblatex), i
+# comandi opachi e verbatim; il lookahead finale garantisce il nome completo
+# (`\verb` non deve catturare `\verbatim`). ``skip_until`` ignora i match dentro
+# argomenti opachi/verbatim già consumati. ``scanned`` è già mascherato, quindi
+# i '%' residui sono solo '\%' escapati e non serve scorciatoia per i commenti.
+_EXPLICIT_COMMANDS = tuple(sorted(
+    set(_OPAQUE_COMMANDS) | set(_VERBATIM_COMMANDS)
+    | {name for name in _CITATION_COMMANDS if not name.lower().startswith("cite")},
+    key=len, reverse=True,
+))
+_COMMAND_RE = re.compile(
+    r"\\(?P<name>(?i:cite[A-Za-z@]*)"
+    + "".join("|" + re.escape(name) for name in _EXPLICIT_COMMANDS)
+    + r")(?![A-Za-z@])"
+)
 
 
 def extract_latex_citation_occurrences(text: str) -> list[LatexOccurrence]:
@@ -40,28 +54,16 @@ def extract_latex_citation_occurrences(text: str) -> list[LatexOccurrence]:
     occurrences: list[LatexOccurrence] = []
     length = len(scanned)
     skip_until = 0
-    for match in _SPECIAL_RE.finditer(scanned):
+    for match in _COMMAND_RE.finditer(scanned):
         index = match.start()
-        if index < skip_until:
+        # Dentro un argomento opaco/verbatim già consumato, o se la barra è
+        # escapata ("\\"), non c'è un comando.
+        if index < skip_until or (
+                index > 0 and scanned[index - 1] == "\\" and _escaped(scanned, index)):
             continue
-        if scanned[index] == "%":
-            if _escaped(scanned, index):
-                continue
-            newline = scanned.find("\n", index)
-            skip_until = length if newline < 0 else newline + 1
-            continue
-
-        # Una barra escapata ("\\") non apre un comando: il primo dei due
-        # match produce un nome vuoto, il secondo va ignorato.
-        if _escaped(scanned, index):
-            continue
-
         command_start = index
-        index += 1
-        name_start = index
-        while index < length and (scanned[index].isalpha() or scanned[index] == "@"):
-            index += 1
-        name = scanned[name_start:index]
+        name = match.group("name")
+        index = match.end()
 
         if name in _OPAQUE_COMMANDS:
             while index < length and scanned[index].isspace():

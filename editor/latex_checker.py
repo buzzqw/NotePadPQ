@@ -244,16 +244,23 @@ class _CheckWorker(QThread):
         if not known:
             return []
 
+        # The index already parsed every citation once; reuse its occurrences
+        # for the current file instead of re-scanning the whole document. The
+        # fallback (index unavailable) still uses the shared group-aware parser
+        # so ``\citep[see]{key}`` and the biblatex plural forms are seen.
+        if self._index is not None:
+            current_path = self._index.current_path
+            occurrences = [
+                item for item in self._index.citation_occurrences
+                if item.get("file") == current_path
+                or (current_path is None and item.get("file") is None)
+            ]
+        else:
+            occurrences = extract_latex_citation_occurrences(
+                strip_latex_comments(self._text))
+
         issues: list[dict] = []
-        source = (
-            self._index.source_for(Path(fp).resolve())
-            if self._index is not None and fp else None
-        )
-        code = source.code if source is not None else strip_latex_comments(self._text)
-        # One group-aware parser shared with the index: unlike the old
-        # ``_RE_CITE`` regex it also sees ``\citep[see]{key}`` and the
-        # biblatex plural variants (``\cites``, ``\parencites`` ...).
-        for occurrence in extract_latex_citation_occurrences(code):
+        for occurrence in occurrences:
             if self._cancelled:
                 return []
             key = occurrence["key"]

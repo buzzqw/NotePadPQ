@@ -120,6 +120,31 @@ class LatexCheckerRefactorTest(unittest.TestCase):
             ],
         )
 
+    def test_undefined_citations_reuse_the_index_snapshot(self):
+        from core.latex_index import get_latex_index
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "main.tex"
+            (root / "refs.bib").write_text(
+                "@article{known, title={K}}", encoding="utf-8")
+            main.write_text(
+                "\\addbibresource{refs}\n"
+                "\\citep[see][p. 2]{missing} \\cite{known}\n",
+                encoding="utf-8",
+            )
+            worker = _CheckWorker(
+                main.read_text(encoding="utf-8"), main, 1, include_project=True)
+            worker._index = get_latex_index(worker._text, main, True)
+
+            issues = worker._check_undefined_citations()
+
+            self.assertEqual(len(worker._index.citation_occurrences), 2)
+            self.assertEqual(
+                [issue["msg"] for issue in issues],
+                ["BibTeX key not found: 'missing'"],
+            )
+
     def test_rename_label_updates_reachable_files_only_and_exact_tokens(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 from core.latex_checks import environment_balance, format_balance_issue
+from core.latex_citations import extract_latex_citation_occurrences
 from core.latex_labels import label_contexts
 from core.latex_parser import label_reference_tokens, mask_latex_comments
 from core.latex_project import (
@@ -26,7 +27,7 @@ from core.latex_project import (
     read_cached_text,
     resolve_project_root,
 )
-from core.latex_tokenizer import scan_bib_entries, scan_citation_keys, scan_document
+from core.latex_tokenizer import scan_bib_entries, scan_document
 
 
 _WORD_RE = re.compile(r"(?u)[\w\\]{2,}")
@@ -89,6 +90,10 @@ class LatexIndex:
         self.custom_declarations: list[dict] = []
         self.hypertargets: set[str] = set()
         self.citation_references: set[str] = set()
+        # Occorrenze (key + riga + file) condivise col checker: l'indice le
+        # calcola una volta durante il build, così il checker non ri-parsa le
+        # citazioni a ogni controllo.
+        self.citation_occurrences: list[dict] = []
         self.bibtex_keys: set[str] = set()
         # Calcolato su richiesta: nessun consumatore attuale legge balance_issues
         # durante il build (il checker riscansiona per conto proprio).
@@ -105,6 +110,7 @@ class LatexIndex:
         for name in (
                 "sources", "definitions", "references", "sections",
                 "custom_declarations", "custom_command_completions",
+                "citation_occurrences",
                 "label_contexts", "duplicates", "unused", "undefined"):
             setattr(self, name, tuple(getattr(self, name)))
         for name in (
@@ -132,7 +138,19 @@ class LatexIndex:
             self.custom_environments.update(
                 environment.name for environment in spans.custom_environments)
             self.hypertargets.update(spans.hypertargets)
-            self.citation_references.update(scan_citation_keys(source.code))
+            for occurrence in extract_latex_citation_occurrences(source.code):
+                key = occurrence["key"]
+                if not key or key == "*":
+                    continue
+                self.citation_references.add(key)
+                item = {
+                    "key": key,
+                    "line": source.line_for_offset(occurrence["start"]),
+                    "column": occurrence["column"],
+                }
+                if source.path is not None:
+                    item["file"] = source.path
+                self.citation_occurrences.append(item)
             self._scan_custom_commands(source, spans, command_completions)
             # Le chiavi BibTeX servono sempre; le parole del documento invece
             # sono rimandate (vedi _compute_words): su un documento da 3 MB la

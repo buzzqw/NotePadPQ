@@ -94,6 +94,24 @@ def _persist_personal_word(lang: str, word: str) -> None:
             f.write(word + "\n")
     except OSError:
         pass
+
+
+# Un solo dizionario per lingua, condiviso da tutti gli editor. Ogni
+# SpellChecker carica l'intero dizionario (~14 MB): istanziarne uno per tab
+# moltiplicava la RAM (5 tab ≈ +73 MB). Il dizionario base è usato in sola
+# lettura durante il controllo; le parole personali/ignorate restano per-editor
+# in `_spell_personal` e vengono filtrate da `_SpellWorker`, quindi non serve
+# scriverle nel dizionario condiviso.
+_SHARED_SPELL_CHECKERS: dict[str, object] = {}
+
+
+def _shared_spell_checker(lang: str):
+    checker = _SHARED_SPELL_CHECKERS.get(lang)
+    if checker is None:
+        from spellchecker import SpellChecker
+        checker = SpellChecker(language=lang)
+        _SHARED_SPELL_CHECKERS[lang] = checker
+    return checker
 _SPELL_MAX_SNAPSHOT_BYTES = 256 * 1024
 
 
@@ -2190,12 +2208,9 @@ class EditorWidget(QsciScintilla):
         """Attiva o disattiva il controllo ortografico per questo editor."""
         if enabled:
             try:
-                from spellchecker import SpellChecker
                 self._spell_lang = lang
-                self._spell_checker = SpellChecker(language=lang)
+                self._spell_checker = _shared_spell_checker(lang)
                 self._spell_personal |= _load_persisted_personal_words(lang)
-                if self._spell_personal:
-                    self._spell_checker.word_frequency.load_words(self._spell_personal)
                 self._spell_text_hash = 0
                 self._do_spell_check()
             except ImportError:
@@ -2219,12 +2234,9 @@ class EditorWidget(QsciScintilla):
         if self._spell_checker is None:
             return
         try:
-            from spellchecker import SpellChecker
             self._spell_lang = lang
-            self._spell_checker = SpellChecker(language=lang)
+            self._spell_checker = _shared_spell_checker(lang)
             self._spell_personal |= _load_persisted_personal_words(lang)
-            if self._spell_personal:
-                self._spell_checker.word_frequency.load_words(self._spell_personal)
             self._spell_text_hash = 0
             self._do_spell_check()
         except Exception:
@@ -2342,7 +2354,9 @@ class EditorWidget(QsciScintilla):
             result = self._spell_word_at_point(event.pos().x(), event.pos().y())
             if result is not None:
                 word, ls, cs, le, ce = result
-                if len(word) > 2 and not word.isupper() and self._spell_checker.unknown([word]):
+                if (len(word) > 2 and not word.isupper()
+                        and word.lower() not in self._spell_personal
+                        and self._spell_checker.unknown([word])):
                     candidates = self._spell_checker.candidates(word) or set()
                     suggestions = sorted(candidates - {word.lower()})[:8]
                     if suggestions:
@@ -2746,8 +2760,8 @@ class EditorWidget(QsciScintilla):
         persistito): usato da "Ignora tutto" nel menu contestuale."""
         w = word.lower()
         self._spell_personal.add(w)
-        if self._spell_checker:
-            self._spell_checker.word_frequency.load_words([w])
+        # Parola filtrata da _spell_personal (nel worker) e dal menu contestuale:
+        # non si scrive nel dizionario condiviso, per non "sporcare" gli altri tab.
         self._spell_text_hash = 0
         self._do_spell_check()
 

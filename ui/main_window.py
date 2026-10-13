@@ -435,13 +435,12 @@ class MainWindow(QMainWindow):
         self.setCorner(Qt.Corner.BottomRightCorner, Qt.DockWidgetArea.RightDockWidgetArea)
 
         # ── Dock sinistro: File Browser ───────────────────────────────────────
-        self._file_browser = FileBrowser(self)
-        self._file_browser.file_open_requested.connect(
-            lambda p: self.open_files([p])
-        )
+        # Il FileBrowser (e il suo QFileSystemModel, che inizia a osservare il
+        # filesystem) è costruito solo alla prima apertura del dock, nascosto
+        # all'avvio: vedi _ensure_file_browser().
+        self._file_browser = None
         self._file_browser_dock = QDockWidget(tr("dock.file_browser"), self)
         self._file_browser_dock.setObjectName("FileBrowserDock")
-        self._file_browser_dock.setWidget(self._file_browser)
         self._file_browser_dock.setMinimumWidth(180)
         self._file_browser_dock.setAllowedAreas(Qt.DockWidgetArea.AllDockWidgetAreas)
         self._file_browser_dock.setFeatures(
@@ -452,7 +451,7 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self._file_browser_dock)
         self._file_browser_dock.hide()
         self._file_browser_dock.visibilityChanged.connect(
-            lambda visible: self._on_dock_visibility_changed("view_file_browser", visible)
+            self._on_file_browser_visibility
         )
 
         # ── Dock sinistro: Gestione Progetti ─────────────────────────────────
@@ -4031,6 +4030,23 @@ class MainWindow(QMainWindow):
         else:
             self._bottom_tabs.setTabText(idx, base)
             bar.setTabTextColor(idx, bar.palette().color(QPalette.ColorRole.WindowText))
+
+    def _ensure_file_browser(self):
+        """Crea il FileBrowser alla prima apertura del dock (lazy)."""
+        if self._file_browser is None:
+            from ui.file_browser import FileBrowser
+            self._file_browser = FileBrowser(self)
+            self._file_browser.file_open_requested.connect(
+                lambda p: self.open_files([p])
+            )
+            self._file_browser_dock.setWidget(self._file_browser)
+        return self._file_browser
+
+    def _on_file_browser_visibility(self, visible: bool) -> None:
+        # Copre anche il ripristino del layout di sessione.
+        if visible:
+            self._ensure_file_browser()
+        self._on_dock_visibility_changed("view_file_browser", visible)
 
     def _toggle_file_browser(self, checked: bool) -> None:
         """Mostra/nasconde il pannello File Browser."""

@@ -88,6 +88,29 @@ def _fix_webengine_gpu() -> None:
 _fix_webengine_gpu()
 
 
+def _tune_webengine_memory() -> None:
+    """
+    Limita l'impronta di memoria dei renderer Chromium (QtWebEngine).
+
+    I pannelli embedded (terminale xterm, anteprima, PDF.js, editor rich text)
+    usano poco JavaScript: un tetto all'heap V8 e una cache HTTP su disco
+    limitata evitano che un renderer cresca senza freno. Non sono tocchi al
+    rendering: se l'utente ha già impostato QTWEBENGINE_CHROMIUM_FLAGS con la
+    stessa opzione, la sua scelta prevale.
+    """
+    flags = os.environ.get('QTWEBENGINE_CHROMIUM_FLAGS', '')
+    additions = []
+    if '--js-flags' not in flags:
+        additions.append('--js-flags=--max-old-space-size=256')
+    if '--disk-cache-size' not in flags:
+        additions.append('--disk-cache-size=104857600')  # 100 MB
+    if additions:
+        os.environ['QTWEBENGINE_CHROMIUM_FLAGS'] = (flags + ' ' + ' '.join(additions)).strip()
+
+
+_tune_webengine_memory()
+
+
 def _startup_language(settings, i18n) -> str:
     """Return the saved language, or a supported system language on first run."""
     lang = settings.get("i18n/language", None)

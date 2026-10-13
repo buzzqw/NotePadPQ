@@ -95,6 +95,34 @@ def _parse_diff(diff_output: str) -> tuple[set[int], set[int], set[int]]:
     return added, modified, deleted
 
 
+_REPO_CACHE: dict[str, bool] = {}
+
+
+def _is_git_repo(directory) -> bool:
+    """True se `directory` è dentro un repository git (esito memoizzato).
+
+    Evita di avviare un thread e un subprocess `git` a ogni pausa di
+    digitazione per file che non sono in un repository.
+    """
+    key = str(directory)
+    cached = _REPO_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            text=True,
+            cwd=key,
+            timeout=3,
+        )
+        inside = result.returncode == 0 and result.stdout.strip() == "true"
+    except Exception:
+        inside = False
+    _REPO_CACHE[key] = inside
+    return inside
+
+
 def _run_git_diff(file_path) -> Optional[str]:
     """Esegue 'git diff HEAD -- <file>' e restituisce l'output o None."""
     try:
@@ -186,6 +214,16 @@ class GitGutter(QObject):
             return
         editor = self._active_editor
         if not editor or not editor.file_path:
+            return
+
+        if not _is_git_repo(editor.file_path.parent):
+            # Fuori da un repository git: nessun diff da mostrare, nessun
+            # thread/subprocess da avviare a ogni modifica.
+            self._cancel_worker()
+            try:
+                editor.update_git_gutter(set(), set(), set())
+            except Exception:
+                pass
             return
 
         self._cancel_worker()

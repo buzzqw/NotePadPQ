@@ -189,6 +189,18 @@ class SplitViewManager(QWidget):
             result.extend(panel.tab_manager.all_custom_tabs())
         return result
 
+    def set_tab_deferred(self, editor, deferred: bool) -> None:
+        """Delega al TabManager che possiede l'editor.
+
+        Vedi TabManager.set_tab_deferred (indicatore visivo dei tab di
+        sessione non ancora caricati).
+        """
+        for panel in self._panels():
+            tm = panel.tab_manager
+            if tm.index_of_editor(editor) >= 0:
+                tm.set_tab_deferred(editor, deferred)
+                return
+
     def find_tab_by_path(self, path: Path) -> Optional[int]:
         idx = self._primary.tab_manager.find_tab_by_path(path)
         if idx is not None:

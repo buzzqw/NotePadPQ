@@ -259,6 +259,29 @@ class PreferencesDialog(QDialog):
 
         vl.addWidget(grp_save)
 
+        grp_session = QGroupBox(tr("pref.file.session_group", default="Sessione e memoria"))
+        ssl = QFormLayout(grp_session)
+
+        self._defer_session_tabs = QCheckBox(
+            tr("pref.file.defer_session_tabs",
+               default="Carica i documenti solo all'attivazione (risparmia RAM)"))
+        self._defer_session_tabs.setToolTip(tr(
+            "tooltip.pref_defer_session_tabs",
+            default="All'avvio ricrea i tab ma legge il file solo quando lo apri."))
+        ssl.addRow("", self._defer_session_tabs)
+
+        self._defer_tabs_threshold = QSpinBox()
+        self._defer_tabs_threshold.setRange(0, 64)
+        self._defer_tabs_threshold.setSuffix(" MB")
+        self._defer_tabs_threshold.setToolTip(tr(
+            "tooltip.pref_defer_tabs_threshold",
+            default="Differisce solo i file più piccoli di questa soglia; "
+                    "0 disattiva il differimento."))
+        ssl.addRow(tr("pref.file.defer_tabs_threshold",
+                      default="Differisci sotto:"), self._defer_tabs_threshold)
+
+        vl.addWidget(grp_session)
+
         grp_recent = QGroupBox(tr("pref.file.recent", default="File recenti"))
         rl = QFormLayout(grp_recent)
         self._recent_max = QSpinBox()
@@ -701,6 +724,8 @@ class PreferencesDialog(QDialog):
         self._add_newline_eof.setChecked(s.get("file/add_newline_eof", True))
         self._restore_session.setChecked(s.get("file/restore_session", True))
         self._restore_unsaved.setChecked(s.get("file/restore_unsaved", True))
+        self._defer_session_tabs.setChecked(s.get("file/defer_session_tabs", True))
+        self._defer_tabs_threshold.setValue(int(s.get("file/defer_tabs_threshold_mb", 4)))
         self._recent_max.setValue(s.get("file/recent_max", 20))
         self._autobackup_enabled.setChecked(s.get("file/autobackup_enabled", False))
         self._autosave_to_backup.setChecked(s.get("file/autosave_to_backup", False))
@@ -852,6 +877,8 @@ class PreferencesDialog(QDialog):
         s.set("file/add_newline_eof",    self._add_newline_eof.isChecked())
         s.set("file/restore_session",    self._restore_session.isChecked())
         s.set("file/restore_unsaved",    self._restore_unsaved.isChecked())
+        s.set("file/defer_session_tabs", self._defer_session_tabs.isChecked())
+        s.set("file/defer_tabs_threshold_mb", self._defer_tabs_threshold.value())
         s.set("file/recent_max",         self._recent_max.value())
         s.set("file/autobackup_enabled",     self._autobackup_enabled.isChecked())
         s.set("file/autosave_to_backup",     self._autosave_to_backup.isChecked())

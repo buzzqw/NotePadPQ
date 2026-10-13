@@ -195,9 +195,21 @@ class Session:
         opened = 0
 
         try:
-            from core.lazy_loader import THRESHOLD_LAZY
+            from config.settings import Settings as _Settings
+            _s = _Settings.instance()
+            defer_enabled = bool(_s.get("file/defer_session_tabs", True))
+            try:
+                threshold_mb = float(_s.get("file/defer_tabs_threshold_mb", 4))
+            except (TypeError, ValueError):
+                threshold_mb = 4.0
         except Exception:
-            THRESHOLD_LAZY = 4 * 1024 * 1024
+            defer_enabled, threshold_mb = True, 4.0
+
+        # Sotto questa soglia i tab vengono aperti come scheletri e caricati
+        # solo alla prima attivazione. Se il differimento è disattivato, si
+        # carica tutto come prima.
+        threshold_bytes = int(max(0.0, threshold_mb) * 1024 * 1024) if defer_enabled else 0
+        defer_any = False
 
         # Durante il ripristino i nuovi tab diventano correnti uno dopo l'altro
         # (new_tab chiama setCurrentIndex); il flag sospende il caricamento
@@ -215,13 +227,15 @@ class Session:
                     size = p.stat().st_size
                 except OSError:
                     continue
-                if size < THRESHOLD_LAZY:
+                if defer_enabled and size < threshold_bytes:
                     # Scheletro: crea il tab (con file_path e lexer) ma rimanda
                     # la lettura del contenuto alla prima attivazione. Con molte
                     # schede aperte questo evita di caricare tutto in RAM.
                     editor = main_window._tab_manager.new_tab(path=p)
                     editor._deferred_load = True
                     editor._pending_cursor = (tab.get("line", 1), tab.get("col", 1))
+                    main_window._tab_manager.set_tab_deferred(editor, True)
+                    defer_any = True
                 else:
                     # File grandi: già asincrono/paginato, si carica come prima.
                     main_window.open_files([p])
@@ -289,6 +303,14 @@ class Session:
         idx = data.get("current_index", 0)
         if 0 <= idx < main_window._tab_manager.count():
             main_window._tab_manager.set_current_index(idx)
+
+        # Prefetch in idle dei tab differiti rimasti (uno per volta, con pausa
+        # quando l'utente interagisce e budget RAM). Vedi MainWindow._prefetch_tick.
+        if defer_any:
+            try:
+                main_window._start_prefetch()
+            except Exception:
+                pass
 
         return opened > 0
 

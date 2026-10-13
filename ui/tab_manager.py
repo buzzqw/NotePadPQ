@@ -18,7 +18,7 @@ from typing import Optional, List
 from functools import partial
 
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QFileSystemWatcher
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QColor
 from PyQt6.QtWidgets import (
     QTabWidget, QTabBar, QWidget, QVBoxLayout,
     QSplitter, QMenu, QApplication, QMessageBox,
@@ -429,6 +429,30 @@ class TabManager(QTabWidget):
     def index_of_editor(self, editor: EditorWidget) -> int:
         container = self._containers.get(editor)
         return self.indexOf(container) if container is not None else -1
+
+    def set_tab_deferred(self, editor: EditorWidget, deferred: bool) -> None:
+        """Segnala che il contenuto del tab non è ancora stato caricato.
+
+        Usa un colore attenuato per il titolo (nessun prefisso testuale, che
+        collide con l'asterisco di "modificato") e un tooltip esplicativo.
+        """
+        idx = self.index_of_editor(editor)
+        if idx < 0:
+            return
+        path = getattr(editor, "file_path", None)
+        bar = self.tabBar()
+        if deferred:
+            bar.setTabTextColor(idx, QColor("#9a9a9a"))
+            if path:
+                self.setTabToolTip(
+                    idx,
+                    tr("tab.not_loaded_tooltip", path=str(path),
+                       default=f"{path}\n(Non caricato — clic per aprire)"),
+                )
+        else:
+            # Colore non valido = torna al colore predefinito del tema.
+            bar.setTabTextColor(idx, QColor())
+            self.setTabToolTip(idx, str(path) if path else "")
 
     def _on_close_requested(self, index: int) -> bool:
         """Request a tab close, returning False only when it was cancelled."""

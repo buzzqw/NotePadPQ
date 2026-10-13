@@ -16,6 +16,7 @@ NON gestisce: logica I/O file (→ core/file_manager.py),
 
 import os
 import sys
+import time
 import threading
 import hashlib
 import shutil
@@ -351,6 +352,9 @@ class MainWindow(QMainWindow):
         # per poterli cancellare se il tab viene chiuso durante il caricamento.
         self._lazy_loaders: dict[EditorWidget, "LazyLoader"] = {}
         self._save_workers: set[_EditorSaveWorker] = set()
+        # Prefetch in idle dei tab di sessione differiti (vedi _start_prefetch).
+        self._last_user_activity: float = 0.0
+        self._prefetch_timer: Optional[QTimer] = None
 
     # ── Stampante (lazy) ──────────────────────────────────────────────────────
 
@@ -2901,6 +2905,7 @@ class MainWindow(QMainWindow):
         """Post-caricamento comune a un nuovo tab e a un tab differito."""
         self._lazy_loaders.pop(tab, None)
         tab._deferred_load = False
+        self._tab_manager.set_tab_deferred(tab, False)
         self._autosave_file_to_backup(tab)
         # Notifica plugin: file aperto
         self._notify_plugins_file_opened(path)
@@ -2965,6 +2970,51 @@ class MainWindow(QMainWindow):
             except Exception:
                 continue
             self._after_open(ed, path)
+
+    # ── Prefetch in idle dei tab di sessione differiti ────────────────────────
+
+    def _start_prefetch(self, delay_ms: int = 900) -> None:
+        """Avvia il caricamento progressivo dei tab differiti rimasti.
+
+        Un tab per volta, in idle: si ferma quando l'utente interagisce, quando
+        c'è un dialogo modale aperto e quando si raggiunge il budget RAM
+        (`file/prefetch_budget_mb`). Vedi _prefetch_tick.
+        """
+        if self._prefetch_timer is None:
+            self._prefetch_timer = QTimer(self)
+            self._prefetch_timer.setSingleShot(True)
+            self._prefetch_timer.timeout.connect(self._prefetch_tick)
+        if not any(getattr(ed, "_deferred_load", False)
+                   for ed in self._tab_manager.all_editors()):
+            return
+        self._prefetch_timer.start(delay_ms)
+
+    def _prefetch_tick(self) -> None:
+        # Pausa mentre l'utente digita/interagisce o con un dialogo aperto.
+        if time.monotonic() - getattr(self, "_last_user_activity", 0.0) < 1.5:
+            self._prefetch_timer.start(1500)
+            return
+        if (QApplication.activeModalWidget() is not None
+                or QApplication.activePopupWidget() is not None):
+            self._prefetch_timer.start(1500)
+            return
+
+        try:
+            from config.settings import Settings
+            budget_mb = int(Settings.instance().get("file/prefetch_budget_mb", 256))
+        except Exception:
+            budget_mb = 256
+        if budget_mb > 0:
+            loaded = sum(ed.length() for ed in self._tab_manager.all_editors())
+            if loaded >= budget_mb * 1024 * 1024:
+                return  # budget raggiunto: stop al prefetch
+
+        nxt = next((ed for ed in self._tab_manager.all_editors()
+                    if getattr(ed, "_deferred_load", False)), None)
+        if nxt is None:
+            return
+        self._load_deferred(nxt)
+        self._prefetch_timer.start(300)
 
     def action_save(self) -> bool:
         editor = self._current_editor()
@@ -6680,6 +6730,11 @@ class MainWindow(QMainWindow):
 
     def eventFilter(self, obj, event) -> bool:
         et = event.type()
+        if et in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease,
+                  QEvent.Type.MouseButtonPress, QEvent.Type.Wheel):
+            # Tiene traccia dell'ultima attività per mettere in pausa il
+            # prefetch in idle dei tab differiti (vedi _prefetch_tick).
+            self._last_user_activity = time.monotonic()
         if et == QEvent.Type.KeyPress:
             if self._tab_switcher_key_press(event):
                 return True

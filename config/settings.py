@@ -43,6 +43,10 @@ _DEFAULTS: dict[str, Any] = {
     "file/add_newline_eof":    True,
     "file/restore_session":    True,
     "file/restore_unsaved":    True,
+    # Caricamento differito dei tab di sessione (load-on-activation).
+    "file/defer_session_tabs":      True,   # carica il contenuto solo all'attivazione
+    "file/defer_tabs_threshold_mb": 4,      # differisce i file sotto questa soglia
+    "file/prefetch_budget_mb":      256,    # budget RAM per il prefetch in idle
     "file/recent_max":         20,
     "search/auto_refresh_results": True,
     # Autocompletamento

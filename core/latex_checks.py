@@ -172,6 +172,8 @@ def separator_positions(row: str) -> list[int]:
 
 
 def multicolumn_counts(row: str) -> list[int]:
+    if "\\multicolumn" not in row:
+        return []
     counts: list[int] = []
     for match in _MULTICOLUMN_RE.finditer(row):
         group = read_group(row, match.end() - 1)

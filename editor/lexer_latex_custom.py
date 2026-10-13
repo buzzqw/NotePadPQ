@@ -73,34 +73,14 @@ STYLE_TOKEN = {
 }
 
 # ── Insiemi di comandi ────────────────────────────────────────────────────────
+# Unica fonte: core.latex_commands.  Il modulo nativo C++ deve restare
+# allineato; tests/test_latex_commands.py verifica la corrispondenza.
 
-_STRUCTURE_CMDS = frozenset([
-    'begin', 'end',
-    'chapter', 'section', 'subsection', 'subsubsection',
-    'paragraph', 'subparagraph', 'part',
-    'documentclass', 'usepackage', 'RequirePackage',
-    'input', 'include', 'subfile', 'import',
-    'newcommand', 'renewcommand', 'providecommand',
-    'newenvironment', 'renewenvironment',
-    'title', 'author', 'date', 'maketitle',
-    'appendix', 'frontmatter', 'mainmatter', 'backmatter',
-])
-
-_REFERENCE_CMDS = frozenset([
-    'label', 'ref', 'eqref', 'pageref', 'nameref', 'autoref',
-    'cref', 'Cref', 'vref', 'fullref', 'hyperref',
-    'cite', 'citep', 'citet', 'citealt', 'citealp', 'citenum',
-    'nocite', 'footcite', 'parencite', 'textcite',
-    'index', 'glossary', 'nomenclature',
-    'href', 'url', 'nolinkurl',
-    'footnote', 'footnotemark', 'footnotetext',
-])
-
-# Ambienti il cui contenuto è testo letterale: LaTeX non lo interpreta affatto
-# (comandi, $, % restano caratteri semplici) fino al \end corrispondente.
-_VERBATIM_ENVS = frozenset([
-    'verbatim', 'verbatim*', 'lstlisting', 'Verbatim', 'BVerbatim', 'minted',
-])
+from core.latex_commands import (
+    STRUCTURE_COMMANDS as _STRUCTURE_CMDS,
+    REFERENCE_COMMANDS as _REFERENCE_CMDS,
+    VERBATIM_ENVIRONMENTS as _VERBATIM_ENVS,
+)
 
 
 def _char_table(chars: str) -> bytes:

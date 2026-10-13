@@ -39,29 +39,25 @@ _MAX_CACHE_SIZE = 128  # legacy item guard; byte budget is the real limit
 _MAX_CACHE_BYTES = 32 * 1024 * 1024
 _MAX_STABLE_READ_ATTEMPTS = 3
 FileSignature: TypeAlias = tuple[int, int, int]
-_file_cache_lock = threading.Lock()
-_file_cache: OrderedDict[Path, tuple[FileSignature, str]] = OrderedDict()
-_file_cache_bytes = 0
-_stripped_cache_lock = threading.Lock()
-_stripped_cache: OrderedDict[Path, tuple[FileSignature, str]] = OrderedDict()
-_stripped_cache_bytes = 0
+_NOT_FOUND = object()
+_ROOT_FALLBACK_CACHE_MAX = 256
 
 
 def _text_memory(text: str) -> int:
     return sys.getsizeof(text)
 
 
-def _cache_put(cache: OrderedDict, path: Path, value: tuple[FileSignature, str],
-               current_bytes: int) -> int:
+def _cache_put(cache: OrderedDict, max_entries: int, max_bytes: int, path: Path,
+               value: tuple[FileSignature, str], current_bytes: int) -> int:
     old = cache.pop(path, None)
     if old is not None:
         current_bytes -= _text_memory(old[1])
     size = _text_memory(value[1])
-    if size > _MAX_CACHE_BYTES:
+    if size > max_bytes:
         return max(0, current_bytes)
     cache[path] = value
     current_bytes += size
-    while cache and (len(cache) > _MAX_CACHE_SIZE or current_bytes > _MAX_CACHE_BYTES):
+    while cache and (len(cache) > max_entries or current_bytes > max_bytes):
         _, removed = cache.popitem(last=False)
         current_bytes -= _text_memory(removed[1])
     return max(0, current_bytes)
@@ -107,65 +103,124 @@ def _read_stable_text(path: Path) -> tuple[str, FileSignature | None]:
     return text, None
 
 
+class LatexSourceCache:
+    """Bounded, thread-safe cache of raw and comment-stripped LaTeX sources.
+
+    Encapsulating the state (two LRUs with byte budgets plus the project-root
+    fallback) keeps it out of module globals, so tests and independent windows
+    neither share nor accidentally clear each other's data.
+    """
+
+    def __init__(self, max_entries: int = _MAX_CACHE_SIZE,
+                 max_bytes: int = _MAX_CACHE_BYTES) -> None:
+        self._max_entries = max_entries
+        self._max_bytes = max_bytes
+        self._file_lock = threading.Lock()
+        self._stripped_lock = threading.Lock()
+        self._root_lock = threading.Lock()
+        self._files: OrderedDict[Path, tuple[FileSignature, str]] = OrderedDict()
+        self._stripped: OrderedDict[Path, tuple[FileSignature, str]] = OrderedDict()
+        self._file_bytes = 0
+        self._stripped_bytes = 0
+        self._root_fallback: dict[Path, object] = {}
+        self._root_generation = 0
+
+    def read(self, path: Path) -> str:
+        path = _resolved(path)
+        signature = _file_signature(path)
+        with self._file_lock:
+            cached = self._files.get(path)
+            if cached is not None and cached[0] == signature:
+                self._files.move_to_end(path)
+                return cached[1]
+        text, signature = _read_stable_text(path)
+        if signature is not None:
+            with self._file_lock:
+                self._file_bytes = _cache_put(
+                    self._files, self._max_entries, self._max_bytes,
+                    path, (signature, text), self._file_bytes)
+        return text
+
+    def read_stripped(self, path: Path) -> str:
+        path = _resolved(path)
+        signature = _file_signature(path)
+        with self._stripped_lock:
+            cached = self._stripped.get(path)
+            if cached is not None and cached[0] == signature:
+                self._stripped.move_to_end(path)
+                return cached[1]
+        stripped = ""
+        for _ in range(_MAX_STABLE_READ_ATTEMPTS):
+            before = _file_signature(path)
+            stripped = strip_latex_comments(self.read(path))
+            after = _file_signature(path)
+            if before != after:
+                continue
+            with self._stripped_lock:
+                self._stripped_bytes = _cache_put(
+                    self._stripped, self._max_entries, self._max_bytes,
+                    path, (after, stripped), self._stripped_bytes)
+            return stripped
+        return stripped
+
+    def invalidate(self, path: Path) -> None:
+        """Drop both cached representations of ``path`` and the root cache."""
+        path = _resolved(path)
+        with self._stripped_lock:
+            removed = self._stripped.pop(path, None)
+            if removed is not None:
+                self._stripped_bytes = max(0, self._stripped_bytes - _text_memory(removed[1]))
+        with self._file_lock:
+            removed = self._files.pop(path, None)
+            if removed is not None:
+                self._file_bytes = max(0, self._file_bytes - _text_memory(removed[1]))
+        with self._root_lock:
+            self._root_generation += 1
+            self._root_fallback.clear()
+
+    def root_fallback(self, start_dir: Path, compute):
+        """Memoise ``compute()`` per starting directory until invalidation."""
+        with self._root_lock:
+            generation = self._root_generation
+            cached = self._root_fallback.get(start_dir, _NOT_FOUND)
+            if cached is not _NOT_FOUND:
+                return cached
+        result = compute()
+        with self._root_lock:
+            if generation == self._root_generation:
+                if len(self._root_fallback) >= _ROOT_FALLBACK_CACHE_MAX:
+                    self._root_fallback.clear()
+                self._root_fallback[start_dir] = result
+        return result
+
+    def clear(self) -> None:
+        with self._file_lock:
+            self._files.clear()
+            self._file_bytes = 0
+        with self._stripped_lock:
+            self._stripped.clear()
+            self._stripped_bytes = 0
+        with self._root_lock:
+            self._root_generation += 1
+            self._root_fallback.clear()
+
+
+_DEFAULT_SOURCE_CACHE = LatexSourceCache()
+
+
 def read_cached_text(path: Path) -> str:
     """Read a source file through the shared bounded LRU cache."""
-    path = _resolved(path)
-    signature = _file_signature(path)
-    with _file_cache_lock:
-        cached = _file_cache.get(path)
-        if cached is not None and cached[0] == signature:
-            _file_cache.move_to_end(path)
-            return cached[1]
-    text, signature = _read_stable_text(path)
-    if signature is not None:
-        global _file_cache_bytes
-        with _file_cache_lock:
-            _file_cache_bytes = _cache_put(
-                _file_cache, path, (signature, text), _file_cache_bytes
-            )
-    return text
+    return _DEFAULT_SOURCE_CACHE.read(path)
 
 
 def read_cached_text_stripped(path: Path) -> str:
     """Read a source file with comments removed through the shared cache."""
-    path = _resolved(path)
-    signature = _file_signature(path)
-    with _stripped_cache_lock:
-        cached = _stripped_cache.get(path)
-        if cached is not None and cached[0] == signature:
-            _stripped_cache.move_to_end(path)
-            return cached[1]
-    for _ in range(_MAX_STABLE_READ_ATTEMPTS):
-        before = _file_signature(path)
-        stripped = strip_latex_comments(read_cached_text(path))
-        after = _file_signature(path)
-        if before != after:
-            continue
-        global _stripped_cache_bytes
-        with _stripped_cache_lock:
-            _stripped_cache_bytes = _cache_put(
-                _stripped_cache, path, (after, stripped), _stripped_cache_bytes
-            )
-        return stripped
-    return stripped
+    return _DEFAULT_SOURCE_CACHE.read_stripped(path)
 
 
 def invalidate_cached_text(path: Path) -> None:
     """Invalidate both cached representations of ``path``."""
-    global _root_cache_generation
-    path = _resolved(path)
-    global _file_cache_bytes, _stripped_cache_bytes
-    with _stripped_cache_lock:
-        removed = _stripped_cache.pop(path, None)
-        if removed is not None:
-            _stripped_cache_bytes = max(0, _stripped_cache_bytes - _text_memory(removed[1]))
-    with _file_cache_lock:
-        removed = _file_cache.pop(path, None)
-        if removed is not None:
-            _file_cache_bytes = max(0, _file_cache_bytes - _text_memory(removed[1]))
-    with _root_cache_lock:
-        _root_cache_generation += 1
-        _ROOT_FALLBACK_CACHE.clear()
+    _DEFAULT_SOURCE_CACHE.invalidate(path)
 
 
 def _tex_candidate(base_dir: Path, reference: str | Path) -> Path:
@@ -208,30 +263,15 @@ def _is_document_root(path: Path) -> bool:
     return bool(_DOCUMENTCLASS_RE.search(stripped))
 
 
-_NOT_FOUND = object()
-_ROOT_FALLBACK_CACHE: dict[Path, object] = {}
-_ROOT_FALLBACK_CACHE_MAX = 256
-_root_cache_lock = threading.Lock()
-_root_cache_generation = 0
-
-
-def _find_root_by_scanning(start_dir: Path) -> Path | None:
+def _scan_root(start_dir: Path) -> Path | None:
     """Ultima spiaggia di ``resolve_project_root``: cerca tra gli antenati un
     file con ``\\documentclass``, leggendo e parsando ogni ``.tex`` trovato.
 
     È l'unico ramo di ``resolve_project_root`` che tocca il disco per file
     diversi da quello corrente, quindi è anche il più costoso — e viene
     invocato a ogni trigger del popup ambienti/pacchetti (praticamente a
-    ogni parola scritta dopo ``\\`` in un file LaTeX). Cachato per directory
-    di partenza: il progetto non cambia struttura tra un tasto e l'altro.
+    ogni parola scritta dopo ``\\`` in un file LaTeX).
     """
-    with _root_cache_lock:
-        generation = _root_cache_generation
-        cached = _ROOT_FALLBACK_CACHE.get(start_dir, _NOT_FOUND)
-        if cached is not _NOT_FOUND:
-            return cached  # type: ignore[return-value]
-
-    result: Path | None = None
     for directory in _ancestor_directories_bounded(start_dir):
         candidates = sorted(
             (path for extension in _TEX_EXTENSIONS for path in directory.glob(f"*{extension}")),
@@ -239,17 +279,14 @@ def _find_root_by_scanning(start_dir: Path) -> Path | None:
         )
         for candidate in candidates:
             if _is_document_root(candidate):
-                result = candidate.resolve()
-                break
-        if result is not None:
-            break
+                return candidate.resolve()
+    return None
 
-    with _root_cache_lock:
-        if generation == _root_cache_generation:
-            if len(_ROOT_FALLBACK_CACHE) >= _ROOT_FALLBACK_CACHE_MAX:
-                _ROOT_FALLBACK_CACHE.clear()
-            _ROOT_FALLBACK_CACHE[start_dir] = result
-    return result
+
+def _find_root_by_scanning(start_dir: Path) -> Path | None:
+    """Cached per starting directory: il progetto non cambia tra un tasto e
+    l'altro, ma il ramo è costoso, quindi va memoizzato fino a invalidazione."""
+    return _DEFAULT_SOURCE_CACHE.root_fallback(start_dir, lambda: _scan_root(start_dir))
 
 
 def resolve_project_root(current_file: str | Path, content: str | None = None) -> Path:
@@ -426,6 +463,7 @@ class LatexProjectContext:
 
 __all__ = [
     "LatexProjectContext",
+    "LatexSourceCache",
     "collect_included_files",
     "expected_pdf_path",
     "get_output_directory",

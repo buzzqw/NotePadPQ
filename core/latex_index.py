@@ -347,12 +347,77 @@ class LatexIndex:
         return self._by_path.get(path.resolve())
 
 
-_CACHE_LOCK = threading.Lock()
-_INDEX_BUILD_LOCK = threading.Lock()
-_INDEX_CACHE: dict[tuple, LatexIndex] = {}
-_INDEX_CACHE_ORDER: list[tuple] = []
-_PROJECT_PATH_CACHE: dict[Path, tuple[Path, tuple[str, ...], tuple[Path, ...], tuple[tuple, ...]]] = {}
 _MAX_INDEX_CACHE = 8
+
+
+class LatexAnalysisCache:
+    """Revision-keyed analysis cache shared by the debounced LaTeX services.
+
+    Holds the immutable :class:`LatexIndex` snapshots (an LRU) and the resolved
+    project-source lists, replacing the module globals that used to carry the
+    same state.
+    """
+
+    def __init__(self, max_indexes: int = _MAX_INDEX_CACHE) -> None:
+        self._lock = threading.Lock()
+        self._build_lock = threading.Lock()
+        self._max_indexes = max_indexes
+        self._indexes: dict[tuple, LatexIndex] = {}
+        self._order: list[tuple] = []
+        self._project_paths: dict[Path, tuple] = {}
+
+    def get_index(self, key: tuple) -> LatexIndex | None:
+        with self._lock:
+            cached = self._indexes.get(key)
+            if cached is None:
+                return None
+            if key in self._order:
+                self._order.remove(key)
+            self._order.append(key)
+            return cached
+
+    def put_index(self, key: tuple, index: LatexIndex) -> None:
+        with self._lock:
+            self._indexes[key] = index
+            if key in self._order:
+                self._order.remove(key)
+            self._order.append(key)
+            while len(self._order) > self._max_indexes:
+                self._indexes.pop(self._order.pop(0), None)
+
+    def get_paths(self, current: Path):
+        with self._lock:
+            return self._project_paths.get(current)
+
+    def put_paths(self, current: Path, value: tuple) -> None:
+        with self._lock:
+            self._project_paths[current] = value
+
+    @property
+    def build_lock(self) -> threading.Lock:
+        return self._build_lock
+
+    def invalidate(self, path: Path | None = None) -> None:
+        with self._lock:
+            if path is None:
+                self._indexes.clear()
+                self._order.clear()
+                self._project_paths.clear()
+                return
+            resolved = Path(path).resolve()
+            self._project_paths.pop(resolved, None)
+            for key in list(self._order):
+                index = self._indexes.get(key)
+                if index is not None and any(
+                        source.path == resolved for source in index.sources):
+                    self._indexes.pop(key, None)
+                    self._order.remove(key)
+
+    def clear(self) -> None:
+        self.invalidate(None)
+
+
+_DEFAULT_ANALYSIS_CACHE = LatexAnalysisCache()
 _INCLUDE_HINT_RE = re.compile(
     r"\\(?:input|include|subfile|import|subimport|includefrom|subinputfrom)"
     r"\s*(?:\{[^}]*\}|\[[^]]*\])?\s*(?:\{[^}]*\})?"
@@ -377,8 +442,7 @@ def _source_paths(current: Path, content: str | None = None) -> list[Path]:
     # Root discovery itself may require comment stripping of a multi-megabyte
     # document.  If the include directives and all previously discovered files
     # are unchanged, skip that work entirely.
-    with _CACHE_LOCK:
-        cached = _PROJECT_PATH_CACHE.get(current)
+    cached = _DEFAULT_ANALYSIS_CACHE.get_paths(current)
     if cached is not None:
         cached_root, cached_includes, cached_paths, cached_signatures = cached
         if cached_includes == include_signature:
@@ -391,8 +455,7 @@ def _source_paths(current: Path, content: str | None = None) -> list[Path]:
     except (OSError, RuntimeError, ValueError):
         root = current
 
-    with _CACHE_LOCK:
-        cached = _PROJECT_PATH_CACHE.get(current)
+    cached = _DEFAULT_ANALYSIS_CACHE.get_paths(current)
     if cached is not None:
         cached_root, cached_includes, cached_paths, cached_signatures = cached
         if cached_root == root and cached_includes == include_signature:
@@ -403,10 +466,8 @@ def _source_paths(current: Path, content: str | None = None) -> list[Path]:
     paths = collect_included_files(root)
     paths = paths or [current]
     signatures = tuple(_file_signature(path) for path in paths)
-    with _CACHE_LOCK:
-        _PROJECT_PATH_CACHE[current] = (
-            root, include_signature, tuple(paths), signatures
-        )
+    _DEFAULT_ANALYSIS_CACHE.put_paths(
+        current, (root, include_signature, tuple(paths), signatures))
     return paths
 
 
@@ -436,24 +497,16 @@ def get_latex_index(text: str, tex_path: Optional[Path] = None,
         except OSError:
             signatures.append((path, None))
     key = (current, include_project, hash(text), len(text), tuple(signatures))
-    with _CACHE_LOCK:
-        cached = _INDEX_CACHE.get(key)
-        if cached is not None:
-            if key in _INDEX_CACHE_ORDER:
-                _INDEX_CACHE_ORDER.remove(key)
-            _INDEX_CACHE_ORDER.append(key)
-            return cached
+    cached = _DEFAULT_ANALYSIS_CACHE.get_index(key)
+    if cached is not None:
+        return cached
 
     # Several debounced services can wake up close together.  Serialize only
     # cache misses so two workers never parse the same large revision twice.
-    with _INDEX_BUILD_LOCK:
-        with _CACHE_LOCK:
-            cached = _INDEX_CACHE.get(key)
-            if cached is not None:
-                if key in _INDEX_CACHE_ORDER:
-                    _INDEX_CACHE_ORDER.remove(key)
-                _INDEX_CACHE_ORDER.append(key)
-                return cached
+    with _DEFAULT_ANALYSIS_CACHE.build_lock:
+        cached = _DEFAULT_ANALYSIS_CACHE.get_index(key)
+        if cached is not None:
+            return cached
 
         sources: list[IndexedSource] = []
         for path in paths:
@@ -476,33 +529,14 @@ def get_latex_index(text: str, tex_path: Optional[Path] = None,
             ))
 
         index = LatexIndex(sources, current)
-        with _CACHE_LOCK:
-            _INDEX_CACHE[key] = index
-            if key in _INDEX_CACHE_ORDER:
-                _INDEX_CACHE_ORDER.remove(key)
-            _INDEX_CACHE_ORDER.append(key)
-            while len(_INDEX_CACHE_ORDER) > _MAX_INDEX_CACHE:
-                old = _INDEX_CACHE_ORDER.pop(0)
-                _INDEX_CACHE.pop(old, None)
+        _DEFAULT_ANALYSIS_CACHE.put_index(key, index)
         return index
 
 
 def invalidate_latex_index(path: Path | None = None) -> None:
     """Drop cached indexes affected by a changed file."""
-    if path is None:
-        with _CACHE_LOCK:
-            _INDEX_CACHE.clear()
-            _INDEX_CACHE_ORDER.clear()
-            _PROJECT_PATH_CACHE.clear()
-        return
-    resolved = Path(path).resolve()
-    with _CACHE_LOCK:
-        _PROJECT_PATH_CACHE.pop(resolved, None)
-        for key in list(_INDEX_CACHE_ORDER):
-            index = _INDEX_CACHE.get(key)
-            if index is not None and any(source.path == resolved for source in index.sources):
-                _INDEX_CACHE.pop(key, None)
-                _INDEX_CACHE_ORDER.remove(key)
+    _DEFAULT_ANALYSIS_CACHE.invalidate(path)
 
 
-__all__ = ["IndexedSource", "LatexIndex", "get_latex_index", "invalidate_latex_index"]
+__all__ = ["IndexedSource", "LatexAnalysisCache", "LatexIndex",
+           "get_latex_index", "invalidate_latex_index"]

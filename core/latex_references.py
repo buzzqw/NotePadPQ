@@ -18,9 +18,9 @@ from core.latex_parser import (
     extract_label_reference_occurrences,
     extract_sections,
     mask_latex_comments,
-    read_latex_group,
     strip_latex_comments,
 )
+from core.latex_tokenizer import iter_command_calls
 from core.latex_project import (
     collect_included_files,
     read_cached_text,
@@ -137,9 +137,6 @@ class LatexReferencesAnalysis:
         return self.duplicates
 
 
-_balanced_group = read_latex_group
-
-
 def _command_name(text: str, position: int) -> str:
     match = _COMMAND_RE.match(text, position)
     return "" if match is None else match.group(1)
@@ -190,59 +187,26 @@ def _source_texts(
     return root, sources
 
 
-def _iter_group_commands(text: str, names: Iterable[str]):
-    """Yield ``(command, argument, argument_start)`` for simple group commands."""
-    allowed = set(names)
-    code = _masked_comments(text)
-    for match in _COMMAND_RE.finditer(code):
-        command = match.group(1)
-        if command not in allowed:
-            continue
-        index = match.end()
-        while index < len(code) and code[index].isspace():
-            index += 1
-        if index < len(code) and code[index] == "*":
-            index += 1
-            while index < len(code) and code[index].isspace():
-                index += 1
-        group = _balanced_group(code, index)
-        if group is not None:
-            start, end = group
-            yield command, code[start:end], start
+def _iter_group_commands(code: str, names: Iterable[str]):
+    """Yield ``(command, argument, argument_start)`` for simple group commands.
+
+    ``code`` must already be comment-masked so the reported offsets stay valid.
+    """
+    for command, _start, _optionals, mandatories in iter_command_calls(
+            code, names, n_optional=0, n_mandatory=1):
+        if mandatories:
+            content_start, content_end = mandatories[0]
+            yield command, code[content_start:content_end], content_start
 
 
-def _iter_command_groups(text: str, names: Iterable[str], max_groups: int = 2):
-    """Yield command arguments while accepting optional and multiple groups."""
-    allowed = set(names)
-    code = _masked_comments(text)
-    for match in _COMMAND_RE.finditer(code):
-        command = match.group(1)
-        if command not in allowed:
-            continue
-        index = match.end()
-        groups: list[tuple[int, int]] = []
-        while index < len(code) and len(groups) < max_groups:
-            while index < len(code) and code[index].isspace():
-                index += 1
-            if index < len(code) and code[index] == "*":
-                index += 1
-                continue
-            if index < len(code) and code[index] == "[":
-                depth = 1
-                index += 1
-                while index < len(code) and depth:
-                    if code[index] == "\\":
-                        index += 2
-                    else:
-                        depth += code[index] == "["
-                        depth -= code[index] == "]"
-                        index += 1
-                continue
-            group = _balanced_group(code, index)
-            if group is None:
-                break
-            groups.append(group)
-            index = group[1] + 1
+def _iter_command_groups(code: str, names: Iterable[str], max_groups: int = 2):
+    """Yield command arguments while accepting optional and multiple groups.
+
+    ``code`` must already be comment-masked so the reported offsets stay valid.
+    """
+    for command, _start, optionals, mandatories in iter_command_calls(
+            code, names, n_optional=1, n_mandatory=max_groups):
+        groups = (list(optionals) + list(mandatories))[:max_groups]
         if groups:
             yield command, [(code[start:end], start) for start, end in groups]
 

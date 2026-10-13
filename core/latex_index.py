@@ -96,6 +96,15 @@ class IndexedSource:
     def line_for_offset(self, offset: int) -> int:
         return bisect_right(self.line_starts, max(0, offset)) - 1
 
+    def line_text(self, line: int) -> str:
+        """Testo di una riga (0-based) senza spezzare tutto il documento."""
+        starts = self.line_starts
+        if line < 0 or line >= len(starts):
+            return ""
+        start = starts[line]
+        end = starts[line + 1] if line + 1 < len(starts) else len(self.text)
+        return self.text[start:end].rstrip("\n").rstrip("\r")
+
 
 class LatexIndex:
     """Immutable analysis snapshot shared by LaTeX editor services."""
@@ -117,8 +126,10 @@ class LatexIndex:
         self.citation_references: set[str] = set()
         self.bibtex_keys: set[str] = set()
         self.balance_issues: list[dict] = []
-        self.document_words: list[str] = []
-        self.current_document_words: list[str] = []
+        # Le parole del documento sono calcolate su richiesta (servono solo
+        # all'autocomplete): vedi le property document_words/current_document_words.
+        self._all_words: tuple[str, ...] | None = None
+        self._current_words: tuple[str, ...] | None = None
 
         self._build()
         # Freeze the published collections.  A worker may still hold an older
@@ -126,8 +137,8 @@ class LatexIndex:
         # never observe partially updated lists or sets.
         for name in (
                 "sources", "definitions", "references", "sections",
-                "custom_declarations", "balance_issues", "document_words",
-                "current_document_words", "custom_command_completions",
+                "custom_declarations", "balance_issues",
+                "custom_command_completions",
                 "label_contexts", "duplicates", "unused", "undefined"):
             setattr(self, name, tuple(getattr(self, name)))
         for name in (
@@ -137,7 +148,6 @@ class LatexIndex:
 
     def _build(self) -> None:
         command_completions: set[str] = set()
-        words: set[str] = set()
         for source in self.sources:
             tokens = label_reference_tokens(source.code)
             for token in tokens:
@@ -171,24 +181,16 @@ class LatexIndex:
             )
             self._scan_custom_commands(source, command_completions)
             self._scan_balance(source)
-            if source.path is None or source.path.suffix.lower() != ".bib":
-                source_words = {match.group(0) for match in _WORD_RE.finditer(source.code)}
-                words.update(source_words)
-                if source.path == self.current_path or (
-                        self.current_path is None and source.path is None):
-                    self.current_document_words = sorted(source_words, key=str.casefold)
-                # Keep compatibility with the existing helper, which also
-                # accepts inline BibTeX entries in a non-.bib snapshot.
-                self.bibtex_keys.update(_BIB_ENTRY_RE.findall(source.code))
-            else:
-                self.bibtex_keys.update(_BIB_ENTRY_RE.findall(source.code))
+            # Le chiavi BibTeX servono sempre; le parole del documento invece
+            # sono rimandate (vedi _compute_words): su un documento da 3 MB la
+            # scansione di ogni parola costava centinaia di migliaia di .group().
+            self.bibtex_keys.update(_BIB_ENTRY_RE.findall(source.code))
 
         self._scan_referenced_bibliographies()
         self.custom_commands = sorted({
             command for command in command_completions
         })
         self.custom_command_completions = sorted(command_completions)
-        self.document_words = sorted(words, key=str.casefold)
 
         by_key: dict[str, list[dict]] = {}
         for definition in self.definitions:
@@ -200,6 +202,33 @@ class LatexIndex:
         self.undefined = [item for item in self.references if item["key"] not in defined]
         self.labels = defined
         self.label_contexts = self._label_contexts()
+
+    def _compute_words(self) -> None:
+        """Calcola (una sola volta, su richiesta) le parole del documento."""
+        words: set[str] = set()
+        current: list[str] | None = None
+        for source in self.sources:
+            if source.path is not None and source.path.suffix.lower() == ".bib":
+                continue
+            source_words = {match.group(0) for match in _WORD_RE.finditer(source.code)}
+            words.update(source_words)
+            if source.path == self.current_path or (
+                    self.current_path is None and source.path is None):
+                current = sorted(source_words, key=str.casefold)
+        self._all_words = tuple(sorted(words, key=str.casefold))
+        self._current_words = tuple(current) if current is not None else ()
+
+    @property
+    def document_words(self) -> tuple[str, ...]:
+        if self._all_words is None:
+            self._compute_words()
+        return self._all_words
+
+    @property
+    def current_document_words(self) -> tuple[str, ...]:
+        if self._current_words is None:
+            self._compute_words()
+        return self._current_words
 
     def _scan_sections(self, source: IndexedSource) -> None:
         for line_number, line in enumerate(source.code.splitlines()):
@@ -223,9 +252,8 @@ class LatexIndex:
                 continue
             self.custom_declarations.append({
                 "name": command, "kind": "command", "line": source.line_for_offset(match.start()),
-                "file": source.path, "signature": source.text.splitlines()[
-                    source.line_for_offset(match.start())].strip()[:80]
-                if source.text.splitlines() else "",
+                "file": source.path,
+                "signature": source.line_text(source.line_for_offset(match.start())).strip()[:80],
             })
             arguments = match.group("arguments")
             if arguments is None:
@@ -241,16 +269,14 @@ class LatexIndex:
                 completions.add(command)
                 self.custom_declarations.append({
                     "name": command, "kind": "command", "line": source.line_for_offset(match.start()),
-                    "file": source.path, "signature": source.text.splitlines()[
-                        source.line_for_offset(match.start())].strip()[:80]
-                    if source.text.splitlines() else "",
+                    "file": source.path,
+                    "signature": source.line_text(source.line_for_offset(match.start())).strip()[:80],
                 })
         for match in _CUSTOM_ENV_RE.finditer(source.code):
             self.custom_declarations.append({
                 "name": match.group(1), "kind": "environment",
                 "line": source.line_for_offset(match.start()), "file": source.path,
-                "signature": source.text.splitlines()[source.line_for_offset(match.start())].strip()[:80]
-                if source.text.splitlines() else "",
+                "signature": source.line_text(source.line_for_offset(match.start())).strip()[:80],
             })
 
     def _scan_balance(self, source: IndexedSource) -> None:
@@ -409,8 +435,13 @@ _INCLUDE_HINT_RE = re.compile(
 
 
 def _line_starts(text: str) -> tuple[int, ...]:
+    # Posizioni di inizio riga tramite str.find, senza scandire ogni carattere
+    # in Python (un generatore su milioni di caratteri costava ~150 ms/3 MB).
     starts = [0]
-    starts.extend(index + 1 for index, char in enumerate(text) if char == "\n")
+    index = text.find("\n")
+    while index >= 0:
+        starts.append(index + 1)
+        index = text.find("\n", index + 1)
     return tuple(starts)
 
 

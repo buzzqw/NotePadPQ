@@ -173,8 +173,11 @@ class CompareDialog(QDialog):
         data = combo.currentData()
         if data is None: return []
         if isinstance(data, str):
-            try: return Path(data).read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
-            except: return []
+            try:
+                return Path(data).read_text(
+                    encoding="utf-8", errors="replace").splitlines(keepends=True)
+            except OSError:
+                return []
         return data.text().splitlines(keepends=True)
 
     def _do_compare(self):

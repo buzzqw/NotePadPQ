@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from PyQt6.QtGui import QIcon
     from ui.main_window import MainWindow
 
 

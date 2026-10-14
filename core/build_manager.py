@@ -1818,7 +1818,7 @@ class BuildManager(QObject):
         pkg = directory / "package.json"
         if pkg.exists():
             try:
-                data = json.loads(pkg.read_text())
+                data = json.loads(pkg.read_text(encoding="utf-8"))
                 for name, cmd in data.get("scripts", {}).items():
                     tasks.append({"name": f"npm run {name}", "cmd": f"npm run {name}", "source": "package.json"})
             except Exception as e:
@@ -1827,7 +1827,7 @@ class BuildManager(QObject):
         pyproject = directory / "pyproject.toml"
         if pyproject.exists():
             try:
-                text = pyproject.read_text()
+                text = pyproject.read_text(encoding="utf-8")
                 in_tasks = False
                 for line in text.splitlines():
                     line = line.strip()

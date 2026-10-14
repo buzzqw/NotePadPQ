@@ -58,6 +58,9 @@ except ImportError:
 
 from i18n.i18n import tr
 
+if TYPE_CHECKING:
+    from PyQt6.QtGui import QIcon
+
 
 def _load_rt_icon(svg_file: str, widget: QWidget, size: int = 18) -> "QIcon":
     """Carica un'icona SVG dal set attivo, sostituendo currentColor con il colore

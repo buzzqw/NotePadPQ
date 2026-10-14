@@ -1234,7 +1234,11 @@ class _RequestWorker(QObject):
                 name = f.get("name", "")
                 path = f.get("path", "")
                 if name and path and os.path.isfile(path):
-                    files[name] = (os.path.basename(path), open(path, "rb"))
+                    try:
+                        with open(path, "rb") as handle:
+                            files[name] = (os.path.basename(path), handle.read())
+                    except OSError:
+                        continue
             data = {}
             for line in body_text.splitlines():
                 if "=" in line:

@@ -37,7 +37,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QTreeView, QLineEdit, QPushButton, QLabel,
-    QComboBox, QMenu, QAbstractItemView,
+    QComboBox, QMenu, QAbstractItemView, QApplication,
 )
 
 from i18n.i18n import tr

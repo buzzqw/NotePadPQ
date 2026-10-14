@@ -52,6 +52,14 @@ checker, autocomplete and Function List. The snapshot is rebuilt only after
 the user pauses, not on every keystroke, and is cached by document revision
 and project-file signatures so all three services can reuse it.
 
+Labels, references and citations are produced by a single group-aware pass
+(`core/latex_parser.scan_annotations`) that understands multi-line and nested
+braces. Each source is scanned once and cached, so editing one file of a
+multi-file project only rescans that file. The native scanner's command tables
+are generated from `core/latex_commands.py` (the same tables the Python lexer
+imports) by `native/generate_command_tables.py`, and the build regenerates them
+automatically, so the two cannot drift.
+
 > **Performance work — measured on a real large document**
 >
 > The native C++ LaTeX scanner was benchmarked on `OBSSv2.tex` (about 3.0 MB
@@ -59,6 +67,11 @@ and project-file signatures so all three services can reuse it.
 > Python fallback and **47.5 ms** with the C++ accelerator: approximately
 > **13.2× faster**, with identical styles verified on the first 256 KB block.
 > The benchmark used the production chunk sizes (8 KB Python, 256 KB C++).
+>
+> The shared analysis layer was reworked on the same document: a cold index
+> build dropped from **279 ms to ~135 ms** and an indexed checker run from
+> **173 ms to ~61 ms**; editing one file of a four-file project rebuilds in
+> **~31 ms** instead of ~242 ms.
 
 - Syntax highlighting for native QScintilla languages including Python,
   JavaScript, TypeScript, C/C++, Java, C#, Bash, SQL, LaTeX, Markdown, HTML,

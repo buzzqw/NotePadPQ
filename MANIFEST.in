@@ -1,1 +1,1 @@
-recursive-include native *.cpp
+recursive-include native *.cpp *.inc *.py

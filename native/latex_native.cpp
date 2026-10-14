@@ -58,31 +58,11 @@ constexpr unsigned char S_OPTION = 7;
 constexpr unsigned char S_REF_ARG = 8;
 constexpr std::size_t NATIVE_MAX_STYLE_BYTES = 256 * 1024;
 
-const std::unordered_set<std::string> STRUCTURE_COMMANDS = {
-    "begin", "end", "chapter", "section", "subsection", "subsubsection",
-    "paragraph", "subparagraph", "part", "documentclass", "usepackage",
-    "RequirePackage", "input", "include", "subfile", "import", "newcommand",
-    "renewcommand", "providecommand", "newenvironment", "renewenvironment",
-    "title", "author", "date", "maketitle", "appendix", "frontmatter",
-    "mainmatter", "backmatter",
-};
-
-const std::unordered_set<std::string> REFERENCE_COMMANDS = {
-    "label", "ref", "eqref", "pageref", "nameref", "autoref", "cref", "Cref",
-    "vref", "fullref", "hyperref", "cite", "citep", "citet", "citealt", "citealp",
-    "citenum", "nocite", "footcite", "parencite", "textcite", "index", "glossary",
-    "nomenclature", "href", "url", "nolinkurl", "footnote", "footnotemark",
-    "footnotetext",
-};
-
-const std::unordered_set<std::string> MATH_ENVIRONMENTS = {
-    "equation", "align", "gather", "multline", "math", "displaymath", "split",
-    "cases", "alignat", "flalign", "subequations",
-};
-
-const std::unordered_set<std::string> VERBATIM_ENVIRONMENTS = {
-    "verbatim", "verbatim*", "lstlisting", "Verbatim", "BVerbatim", "minted",
-};
+// Command/environment classification comes from core/latex_commands.py (the
+// single source of truth shared with the Python lexer).  Regenerate the include
+// with `python native/generate_command_tables.py` after editing that module;
+// tests/test_latex_commands.py fails when it is stale.
+#include "latex_command_tables.inc"
 
 bool is_command_first(unsigned char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '@';

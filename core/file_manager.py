@@ -12,6 +12,7 @@ Gestisce lettura e scrittura file con:
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 
 from PyQt6.QtCore import QFileSystemWatcher, QObject, pyqtSignal
@@ -20,10 +21,15 @@ from core.diagnostics import operation
 from core.persistence import atomic_copy_file, atomic_write_text
 from editor.editor_widget import LineEnding
 
-try:
-    import chardet as _chardet
-except ImportError:
-    _chardet = None
+
+@lru_cache(maxsize=1)
+def _chardet_module():
+    """Import chardet lazily: it is only needed for encoding auto-detection."""
+    try:
+        import chardet
+    except ImportError:
+        return None
+    return chardet
 
 # ─── Costanti encoding ────────────────────────────────────────────────────────
 
@@ -148,11 +154,12 @@ class FileManager:
     @staticmethod
     def _chardet_detect(raw: bytes) -> str | None:
         """Usa chardet per rilevare l'encoding. Restituisce None se non disponibile."""
-        if _chardet is None:
+        chardet = _chardet_module()
+        if chardet is None:
             return None
         # Use a larger sample: LaTeX/source files often have a long ASCII preamble
         # that misleads chardet with a tiny sample (e.g. MacRoman instead of UTF-8).
-        result = _chardet.detect(raw[:65536])
+        result = chardet.detect(raw[:65536])
         if result and result.get("confidence", 0) > 0.7:
             enc = result.get("encoding", "")
             return enc if enc else None

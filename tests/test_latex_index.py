@@ -24,6 +24,35 @@ class LatexIndexTest(unittest.TestCase):
             self.assertIsNot(first, changed)
             self.assertEqual([item["name"] for item in changed.sections], ["One", "Two"])
 
+    def test_incremental_rebuild_matches_full_rescan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "main.tex"
+            child = root / "child.tex"
+            child.write_text(
+                "\\section{Child}\\label{sec:child} \\cite{k}\n", encoding="utf-8")
+            main.write_text(
+                "\\documentclass{article}\n\\input{child}\n", encoding="utf-8")
+
+            base = main.read_text(encoding="utf-8")
+            get_latex_index(base, main, include_project=True)
+
+            # Editing only main must reuse the unchanged child's scan.
+            edited = base + "\\section{Extra}\\label{sec:extra}\n"
+            incremental = get_latex_index(edited, main, include_project=True)
+
+            invalidate_latex_index()
+            full = get_latex_index(edited, main, include_project=True)
+
+            def keyed(index):
+                return sorted(
+                    (item["key"], item["line"]) for item in index.definitions)
+
+            self.assertEqual(keyed(incremental), keyed(full))
+            self.assertEqual(sorted(incremental.packages), sorted(full.packages))
+            self.assertIn("sec:extra", incremental.labels)
+            self.assertIn("sec:child", incremental.labels)
+
     def test_comment_mask_keeps_editor_offsets_and_project_data(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -1093,12 +1093,6 @@ LATEX_CMD_DOCS: dict[str, tuple[str, str, str, str]] = {
         "LaTeX base",
         r"\overline{z} = a - bi",
     ),
-    "underline": (
-        r"\underline{simbolo}",
-        "Disegna una barra orizzontale sotto il simbolo o il testo.",
-        "LaTeX base",
-        r"\underline{x + y}",
-    ),
     "overbrace": (
         r"\overbrace{formula}^{etichetta}",
         "Disegna una graffa sopra la formula con un'etichetta in apice. "

@@ -598,7 +598,6 @@ class HttpRequest:
         if self.auth_type == "Bearer Token" and self.auth_value:
             lines.append("# Authorization omitted: stored locally only")
         elif self.auth_type == "Basic (user:pass)" and self.auth_value:
-            encoded = base64.b64encode(self.auth_value.encode()).decode()
             lines.append("# Authorization omitted: stored locally only")
         elif self.auth_type == "API Key (header)" and self.auth_value:
             lines.append(f"# {self.auth_header}: <redacted>")
@@ -1251,9 +1250,6 @@ class _RequestWorker(QObject):
                 kw["data"] = data
             return kw
         else:
-            ct = _CONTENT_TYPE_MAP.get(req.body_type, "text/plain")
-            if "headers" not in req.headers:
-                pass
             return {"data": body_text.encode("utf-8")}
 
     def _build_body_urllib(self, env):

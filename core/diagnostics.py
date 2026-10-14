@@ -7,7 +7,6 @@ names, timings, resource usage and safe metadata (never document contents).
 
 from __future__ import annotations
 
-import logging
 import os
 import threading
 import time
@@ -15,7 +14,6 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import wraps
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -33,8 +31,10 @@ class _OperationStats:
 
 _enabled = False
 _threshold_ms = _DEFAULT_THRESHOLD_MS
-_logger = logging.getLogger(_LOGGER_NAME)
-_handler: RotatingFileHandler | None = None
+# ``logging`` is imported lazily in configure_diagnostics: the profiler is
+# opt-in and importing logging pulls in traceback/colorize (~30 ms) at startup.
+_logger: Any = None
+_handler: Any = None
 _stats: dict[str, _OperationStats] = {}
 _stats_lock = threading.Lock()
 _notify_state = threading.local()
@@ -88,7 +88,7 @@ def configure_diagnostics(
     log_path: Path | str | None = None,
 ) -> Path | None:
     """Configure the optional profiler and return its log path when enabled."""
-    global _enabled, _threshold_ms, _handler
+    global _enabled, _threshold_ms, _handler, _logger
 
     if enabled is None:
         enabled = profiling_requested()
@@ -107,6 +107,12 @@ def configure_diagnostics(
             _handler.close()
             _handler = None
         return None
+
+    import logging
+    from logging.handlers import RotatingFileHandler
+
+    if _logger is None:
+        _logger = logging.getLogger(_LOGGER_NAME)
 
     path = Path(log_path).expanduser() if log_path else _default_log_path()
     path.parent.mkdir(parents=True, exist_ok=True)

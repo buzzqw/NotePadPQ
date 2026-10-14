@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Callable
 from uuid import uuid4
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QObject, QEvent, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QEvent
 from PyQt6.QtGui import (
     QAction, QIcon, QKeySequence, QCloseEvent, QDragEnterEvent, QDropEvent, QPageSize,
     QShortcut,
@@ -39,6 +39,12 @@ from PyQt6.QtPrintSupport import QPrinter, QPrintPreviewDialog, QPageSetupDialog
 
 from editor.editor_widget import EditorWidget, LineEnding
 from i18n.i18n import tr, I18n
+from ui.main_window_parts import (
+    TripleClickFilter,
+    _EditorSaveWorker,
+    _ExportAsWorker,
+    _RecentFilesMenu,
+)
 from ui.busy_indicator import show_busy, hide_busy
 from core.platform import IS_WINDOWS, get_config_dir
 from core.external_open import open_url as _open_url
@@ -184,122 +190,6 @@ _ICON_MAP: dict[str, str] = {
 }
 
 # ─── MainWindow ───────────────────────────────────────────────────────────────
-
-
-class _RecentFilesMenu(QMenu):
-    """
-    QMenu File recenti: tasto destro su una voce per fissarla in cima
-    (pin) o rimuovere il fissaggio, così un file aperto spesso non
-    scompare dalla lista spinto fuori da file temporanei/di appoggio.
-    """
-
-    def contextMenuEvent(self, event) -> None:
-        action = self.actionAt(event.pos())
-        path = action.data() if action else None
-        if path is None:
-            return
-        from core.recent_files import RecentFiles
-        rf = RecentFiles.instance()
-        label = (tr("action.unpin_recent_file") if rf.is_pinned(path)
-                 else tr("action.pin_recent_file"))
-        ctx = QMenu(self)
-        pin_act = ctx.addAction(label)
-        chosen = ctx.exec(event.globalPos())
-        if chosen is pin_act:
-            rf.toggle_pin(path)
-            mw = self.parentWidget()
-            if hasattr(mw, "_populate_recent_menu"):
-                mw._populate_recent_menu()
-
-
-class TripleClickFilter(QObject):
-    """Riconosce 3 click rapidi su un widget e lancia un'azione."""
-    def __init__(self, parent, callback):
-        super().__init__(parent)
-        self.callback = callback
-        self.clicks = 0
-        self.timer = QTimer()
-        self.timer.setSingleShot(True)
-        self.timer.timeout.connect(self.reset)
-
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
-            self.clicks += 1
-            if self.clicks == 1:
-                self.timer.start(600) # Finestra di 600ms per fare i 3 click
-            elif self.clicks == 3:
-                self.callback()
-                self.reset()
-        return super().eventFilter(obj, event)
-
-    def reset(self):
-        self.clicks = 0
-
-
-class _ExportAsWorker(QThread):
-    """Esegue la conversione di 'Esporta come...' in background (pandoc può
-    richiedere fino a 30s su documenti grandi)."""
-
-    completed = pyqtSignal(str, bool)  # messaggio di errore ("" se riuscito), cancelled
-
-    def __init__(self, content: str, fmt_in: str, dest):
-        super().__init__()
-        self._content = content
-        self._fmt_in  = fmt_in
-        self._dest    = dest
-        self._proc    = None
-        self._cancelled = False
-
-    def _register_proc(self, proc) -> None:
-        self._proc = proc
-
-    def cancel(self) -> None:
-        # Segna "annullato" solo se esiste davvero un subprocess in corso da
-        # interrompere: alcuni formati (HTML, DOCX via htmldocx) non passano
-        # mai da pandoc, quindi non c'è nulla da terminare e l'esportazione
-        # va comunque completata e riportata con il suo esito reale.
-        proc = self._proc
-        if proc is not None and proc.poll() is None:
-            try:
-                proc.terminate()
-                self._cancelled = True
-            except Exception:
-                pass
-
-    def run(self) -> None:
-        err = MainWindow._export_text_as(
-            self._content, self._fmt_in, self._dest, register_proc=self._register_proc)
-        self.completed.emit(err, self._cancelled)
-
-
-class _EditorSaveWorker(QThread):
-    """Scrive uno snapshot dell'editor senza bloccare il thread GUI."""
-
-    completed = pyqtSignal(bool, str)
-
-    def __init__(self, path: Path, content: str, encoding: str,
-                 write_bom: bool, backup: bool):
-        super().__init__()
-        self._path = path
-        self._content = content
-        self._encoding = encoding
-        self._write_bom = write_bom
-        self._backup = backup
-
-    def run(self) -> None:
-        try:
-            from core.file_manager import FileManager
-            FileManager.write(
-                self._path,
-                self._content,
-                self._encoding,
-                write_bom=self._write_bom,
-                backup=self._backup,
-            )
-        except Exception as exc:
-            self.completed.emit(False, str(exc))
-        else:
-            self.completed.emit(True, "")
 
 
 class MainWindow(QMainWindow):
@@ -3633,7 +3523,7 @@ class MainWindow(QMainWindow):
                 tr("msg.export_busy", default="Esportazione già in corso…"), 3000)
             return
 
-        worker = _ExportAsWorker(content, fmt_in, p)
+        worker = _ExportAsWorker(content, fmt_in, p, MainWindow._export_text_as)
         busy = show_busy(
             self.statusBar(),
             tr("msg.export_in_progress", default="Esportazione in corso…"),

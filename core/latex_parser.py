@@ -251,11 +251,20 @@ def _split_reference_argument(
     return tokens
 
 
-_SPECIAL_RE = re.compile(r"[%\\]")
-# Nomi di comando LaTeX: lettere ASCII (eventuali) e '@'. Lo scan avviene in C
-# invece del vecchio ciclo carattere-per-carattere in Python (centinaia di
-# migliaia di iterazioni su un documento grande).
-_NAME_RE = re.compile(r"[A-Za-z@]+")
+# Comandi realmente rilevanti: label/ref, argomenti opachi e verbatim, più
+# 'begin' per gli ambienti verbatim. Un'unica regex in C li individua e scarta
+# in blocco i ~50k comandi non pertinenti di un documento grande, invece di
+# eseguire un match del nome per ogni backslash.
+_SCAN_COMMANDS = tuple(sorted(
+    _LABEL_COMMANDS | _REFERENCE_COMMANDS | _OPAQUE_GROUP_COMMANDS
+    | _VERBATIM_COMMANDS | {"begin"},
+    key=len, reverse=True,
+))
+_SCAN_RE = re.compile(
+    r"%|\\(?P<name>"
+    + "|".join(re.escape(name) for name in _SCAN_COMMANDS)
+    + r")(?![A-Za-z@])"
+)
 
 
 def label_reference_tokens(text: str) -> list[LatexToken]:
@@ -269,7 +278,7 @@ def label_reference_tokens(text: str) -> list[LatexToken]:
     tokens: list[LatexToken] = []
     length = len(text)
     skip_until = 0
-    for match in _SPECIAL_RE.finditer(text):
+    for match in _SCAN_RE.finditer(text):
         index = match.start()
         if index < skip_until:
             continue
@@ -281,14 +290,8 @@ def label_reference_tokens(text: str) -> list[LatexToken]:
             continue
 
         command_start = index
-        index += 1
-        if index >= length:
-            break
-        name_match = _NAME_RE.match(text, index)
-        if name_match is None:
-            continue
-        name = name_match.group(0)
-        index = name_match.end()
+        name = match.group("name")
+        index = match.end()
 
         if name in _VERBATIM_COMMANDS:
             skip_until = _skip_latex_opaque_command(text, name, index)

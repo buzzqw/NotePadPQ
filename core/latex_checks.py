@@ -17,9 +17,9 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-# ── Environment balance ───────────────────────────────────────────────────────
+from core.latex_parser import BEGIN_END_RE as _BEGIN_END_RE
 
-_BEGIN_END_RE = re.compile(r"\\(begin|end)\{([^}]+)\}")
+# ── Environment balance ───────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True, slots=True)

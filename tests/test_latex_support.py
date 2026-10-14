@@ -136,6 +136,23 @@ class LatexSupportTest(unittest.TestCase):
         self.assertTrue(LaTeXSupport.is_in_math_mode(text, text.index("y")))
         self.assertFalse(LaTeXSupport.is_in_math_mode(text, len(text)))
 
+    def test_text_utilities_delegate_to_the_shared_core_module(self):
+        from core import latex_text
+        text = (
+            "\\begin{document}\n"
+            "Hello brave world\n"
+            "\\begin{equation}\n"
+            "x = 1\n"
+            "\\end{equation}\n"
+            "\\end{document}\n"
+        )
+        self.assertEqual(LaTeXSupport.count_words(text), latex_text.count_words(text))
+        self.assertGreaterEqual(LaTeXSupport.count_words(text)["words"], 5)
+        self.assertEqual(
+            LaTeXSupport.find_open_environments(text, 3, 1),
+            ["equation", "document"],
+        )
+
     def test_table_count_ignores_escaped_and_nested_separators(self):
         self.assertEqual(_CheckWorker._count_row_cols(r"a \& b & c"), 2)
         self.assertEqual(

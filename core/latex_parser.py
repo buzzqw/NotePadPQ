@@ -30,6 +30,11 @@ class LatexOccurrence(LatexToken):
     column: int
 
 
+# Shared ``\\begin``/``\\end`` matcher.  One definition serves the parser, the
+# pure checks and the editor support adapter (they used to each compile it).
+BEGIN_END_RE = re.compile(r"\\(begin|end)\{([^}]+)\}")
+
+
 def is_latex_escaped(text: str, position: int) -> bool:
     """Return whether the character at ``position`` has an odd slash prefix."""
     slashes = 0

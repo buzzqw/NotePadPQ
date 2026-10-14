@@ -94,6 +94,16 @@ tests/*
 !tests/test_preferences_tooltips.py
 !tests/test_snippets.py
 !tests/test_spellcheck_personal_dict.py
+!tests/test_diagnostics.py
+!tests/test_latex_caches.py
+!tests/test_latex_checks.py
+!tests/test_latex_commands.py
+!tests/test_latex_encoding.py
+!tests/test_latex_native.py
+!tests/test_latex_tokenizer.py
+!tests/test_markdown_features.py
+!tests/test_resource_optimizations.py
+!tests/test_spreadsheet_db_workers.py
 retroactive_notes.sh
 test.sh
 .junie/.venv-build/

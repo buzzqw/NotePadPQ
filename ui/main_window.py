@@ -1447,7 +1447,6 @@ class MainWindow(QMainWindow):
         m = mb.addMenu(tr("menu.view"))
         self._menus["view"] = m
 
-        from config.settings import Settings
         s = Settings.instance()
 
         # Interfaccia

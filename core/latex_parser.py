@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import bisect
 import re
+from dataclasses import dataclass
 from typing import TypedDict
 
 
@@ -132,7 +133,7 @@ _REFERENCE_COMMANDS = frozenset({
 _MULTI_REFERENCE_COMMANDS = frozenset({"crefrange"})
 _OPAQUE_GROUP_COMMANDS = frozenset({
     "url", "path", "nolinkurl", "texttt", "textsf", "textrm", "textit",
-    "textbf", "textrup", "textnormal", "emph", "mbox", "fbox",
+    "textbf", "textup", "textrup", "textnormal", "emph", "mbox", "fbox",
 })
 _VERBATIM_COMMANDS = frozenset({"verb", "Verb", "lstinline", "mintinline"})
 _OPAQUE_ENVIRONMENTS = frozenset({
@@ -251,31 +252,56 @@ def _split_reference_argument(
     return tokens
 
 
-# Comandi realmente rilevanti: label/ref, argomenti opachi e verbatim, più
-# 'begin' per gli ambienti verbatim. Un'unica regex in C li individua e scarta
-# in blocco i ~50k comandi non pertinenti di un documento grande, invece di
-# eseguire un match del nome per ogni backslash.
+# Comandi rilevanti per l'analisi: label/ref, citazioni, argomenti opachi e
+# verbatim, più 'begin' per gli ambienti verbatim. Un'unica regex in C li
+# individua e scarta in blocco i ~50k comandi non pertinenti di un documento
+# grande. La famiglia ``cite*`` è case-insensitive; gli altri nomi sono
+# espliciti (i nomi biblatex che non iniziano per "cite").
+_CITATION_COMMANDS = frozenset({
+    "parencite", "parencites", "textcite", "textcites", "footcite",
+    "footcites", "autocite", "autocites", "smartcite", "smartcites",
+    "supercite", "supercites", "nocite",
+})
 _SCAN_COMMANDS = tuple(sorted(
     _LABEL_COMMANDS | _REFERENCE_COMMANDS | _OPAQUE_GROUP_COMMANDS
-    | _VERBATIM_COMMANDS | {"begin"},
+    | _VERBATIM_COMMANDS | _CITATION_COMMANDS | {"begin"},
     key=len, reverse=True,
 ))
 _SCAN_RE = re.compile(
-    r"%|\\(?P<name>"
-    + "|".join(re.escape(name) for name in _SCAN_COMMANDS)
+    r"%|\\(?P<name>(?i:cite[A-Za-z@]*)"
+    + "".join("|" + re.escape(name) for name in _SCAN_COMMANDS)
     + r")(?![A-Za-z@])"
 )
 
 
-def label_reference_tokens(text: str) -> list[LatexToken]:
-    """Scan exact label/reference commands outside comments and string content.
+@dataclass(frozen=True, slots=True)
+class AnnotationSpans:
+    """Label/reference tokens and citation occurrences from one scan."""
 
-    Scandisce i soli caratteri speciali ('%' e '\\\\') in un unico passaggio
-    regex (eseguito in C) invece di iterare carattere per carattere in Python:
-    su un documento da 3 MB il vecchio ciclo costava ~500 ms. ``skip_until``
-    ignora i match interni a commenti/gruppi opachi già consumati.
+    tokens: tuple[LatexToken, ...] = ()
+    citations: tuple[LatexOccurrence, ...] = ()
+
+
+def _is_citation_command(name: str) -> bool:
+    return name in _CITATION_COMMANDS or name.lower().startswith("cite")
+
+
+def scan_annotations(
+    text: str,
+    *,
+    tokens: bool = True,
+    citations: bool = True,
+) -> AnnotationSpans:
+    """Scan label/reference tokens and citations in a single pass.
+
+    The label scanner and the citation scanner used to walk the document
+    separately, each consuming the same opaque/verbatim/comment spans. Reading
+    them once halves that work and keeps both in step on ``\\verb`` and
+    comments. ``tokens``/``citations`` let a caller that needs only one skip the
+    other's argument parsing.
     """
-    tokens: list[LatexToken] = []
+    found_tokens: list[LatexToken] = []
+    found_citations: list[LatexOccurrence] = []
     length = len(text)
     skip_until = 0
     for match in _SCAN_RE.finditer(text):
@@ -287,6 +313,9 @@ def label_reference_tokens(text: str) -> list[LatexToken]:
                 continue
             newline = text.find("\n", index)
             skip_until = length if newline < 0 else newline + 1
+            continue
+        # Una barra escapata ("\\") chiude il comando precedente, non ne apre uno.
+        if is_latex_escaped(text, index):
             continue
 
         command_start = index
@@ -309,7 +338,52 @@ def label_reference_tokens(text: str) -> list[LatexToken]:
                     skip_until = _skip_latex_opaque_environment(
                         text, group[1] + 1, environment,
                     )
-                    continue
+            continue
+
+        if citations and _is_citation_command(name):
+            cursor = index
+            if cursor < length and text[cursor] == "*":
+                cursor += 1
+            for _ in range(2):
+                cursor = _skip_latex_space(text, cursor)
+                if cursor >= length or text[cursor] != "[":
+                    break
+                optional = read_latex_group(text, cursor, "[")
+                if optional is None:
+                    cursor = length
+                    break
+                cursor = optional[1] + 1
+            cursor = _skip_latex_space(text, cursor)
+            group = read_latex_group(text, cursor)
+            if group is not None:
+                content_start, content_end = group
+                part_start = content_start
+                for position in range(content_start, content_end + 1):
+                    if position != content_end and text[position] != ",":
+                        continue
+                    key_start, key_end = part_start, position
+                    while key_start < key_end and text[key_start].isspace():
+                        key_start += 1
+                    while key_end > key_start and text[key_end - 1].isspace():
+                        key_end -= 1
+                    if key_start < key_end:
+                        line_start = text.rfind("\n", 0, key_start)
+                        found_citations.append({
+                            "kind": "citation",
+                            "key": text[key_start:key_end],
+                            "start": key_start, "end": key_end,
+                            "command_start": command_start,
+                            "line": text.count("\n", 0, key_start),
+                            "column": (key_start if line_start < 0
+                                       else key_start - line_start - 1),
+                        })
+                    part_start = position + 1
+                if group[1] + 1 > skip_until:
+                    skip_until = group[1] + 1
+            continue
+
+        if not tokens:
+            continue
         if name not in _LABEL_COMMANDS and name not in _REFERENCE_COMMANDS:
             continue
 
@@ -330,7 +404,7 @@ def label_reference_tokens(text: str) -> list[LatexToken]:
                 content_start = bracket_start + 1
                 content_end = max(content_start, bracket_end - 1)
                 if bracket_end > content_start:
-                    tokens.extend(_split_reference_argument(
+                    found_tokens.extend(_split_reference_argument(
                         text, content_start, content_end, command_start,
                     ))
                 skip_until = bracket_end
@@ -344,20 +418,30 @@ def label_reference_tokens(text: str) -> list[LatexToken]:
                     len(text[content_start:content_end]) -
                     len(text[content_start:content_end].lstrip())
                 )
-                tokens.append({
+                found_tokens.append({
                     "kind": "label", "key": key,
                     "start": key_start, "end": key_start + len(key),
                     "command_start": command_start,
                 })
         elif name in _REFERENCE_COMMANDS:
             for content_start, content_end in groups:
-                tokens.extend(_split_reference_argument(
+                found_tokens.extend(_split_reference_argument(
                     text, content_start, content_end, command_start,
                 ))
         # Riprende la scansione dopo gli argomenti già letti.
         if argument_start > skip_until:
             skip_until = argument_start
-    return tokens
+    return AnnotationSpans(tuple(found_tokens), tuple(found_citations))
+
+
+def label_reference_tokens(text: str) -> list[LatexToken]:
+    """Scan exact label/reference commands outside comments and string content.
+
+    Thin view over :func:`scan_annotations`; the label and citation scanners
+    share one pass over the document.
+    """
+    return list(scan_annotations(text, citations=False).tokens)
+
 
 
 def extract_label_reference_occurrences(text: str) -> list[LatexOccurrence]:
@@ -393,6 +477,7 @@ def extract_sections(text: str) -> list[tuple[str, str, int]]:
 
 
 __all__ = [
+    "AnnotationSpans",
     "extract_label_reference_occurrences",
     "extract_sections",
     "is_latex_escaped",
@@ -401,5 +486,6 @@ __all__ = [
     "LatexToken",
     "mask_latex_comments",
     "read_latex_group",
+    "scan_annotations",
     "strip_latex_comments",
 ]

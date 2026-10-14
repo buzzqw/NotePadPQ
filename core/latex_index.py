@@ -19,9 +19,8 @@ from pathlib import Path
 from typing import Optional
 
 from core.latex_checks import environment_balance, format_balance_issue
-from core.latex_citations import extract_latex_citation_occurrences
 from core.latex_labels import label_contexts
-from core.latex_parser import label_reference_tokens, mask_latex_comments
+from core.latex_parser import mask_latex_comments, scan_annotations
 from core.latex_project import (
     collect_included_files,
     read_cached_text,
@@ -121,8 +120,8 @@ class LatexIndex:
     def _build(self) -> None:
         command_completions: set[str] = set()
         for source in self.sources:
-            tokens = label_reference_tokens(source.code)
-            for token in tokens:
+            annotations = scan_annotations(source.code)
+            for token in annotations.tokens:
                 item = dict(token)
                 item["line"] = source.line_for_offset(int(token["command_start"]))
                 if source.path is not None:
@@ -138,7 +137,7 @@ class LatexIndex:
             self.custom_environments.update(
                 environment.name for environment in spans.custom_environments)
             self.hypertargets.update(spans.hypertargets)
-            for occurrence in extract_latex_citation_occurrences(source.code):
+            for occurrence in annotations.citations:
                 key = occurrence["key"]
                 if not key or key == "*":
                     continue

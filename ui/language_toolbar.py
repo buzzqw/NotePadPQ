@@ -1936,7 +1936,12 @@ class _LanguageToolbarWidget(QWidget):
 
     @staticmethod
     def _ensure_latex_package(editor: "EditorWidget", package: str) -> None:
-        """Inserisce \\usepackage{package} nel preambolo se non già presente."""
+        """Inserisce \\usepackage{package} nel preambolo se non già presente.
+
+        L'inserimento avviene nel preambolo, ma cursore e selezione vengono
+        ripristinati: i chiamanti (inserimento immagine, menu LaTeX, include
+        list) devono poter inserire il contenuto alla posizione dell'utente.
+        """
         import re
         text = editor.text()
         if re.search(r'\\usepackage\s*(?:\[[^\]]*\]\s*)?\{' + re.escape(package) + r'\}', text):
@@ -1951,8 +1956,43 @@ class _LanguageToolbarWidget(QWidget):
                 insert_pos = m.start()
         if insert_pos == -1:
             return
-        line, col = editor.lineIndexFromPosition(insert_pos)
+
+        # Salva cursore e selezione come posizioni assolute Scintilla (byte),
+        # prima di spostare il cursore nel preambolo.
+        cur_line, cur_col = editor.getCursorPosition()
+        cur_pos = editor.positionFromLineIndex(cur_line, cur_col)
+        sel = editor.getSelection()
+        sel_range = None
+        if sel and sel[0] >= 0:
+            sel_range = (
+                editor.positionFromLineIndex(sel[0], sel[1]),
+                editor.positionFromLineIndex(sel[2], sel[3]),
+            )
+
+        # Posizione di inserimento in byte (Scintilla usa offset UTF-8).
+        line_start = text.rfind("\n", 0, insert_pos) + 1
+        ins_line = text.count("\n", 0, insert_pos)
+        ins_col = len(text[line_start:insert_pos].encode("utf-8"))
+        ins_pos = editor.positionFromLineIndex(ins_line, ins_col)
+
+        payload = f"\n\\usepackage{{{package}}}"
+        delta = len(payload.encode("utf-8"))
+
+        def _shift(pos: int) -> int:
+            return pos + delta if pos >= ins_pos else pos
+
         editor.beginUndoAction()
-        editor.setCursorPosition(line, col)
-        editor.insert(f"\n\\usepackage{{{package}}}")
-        editor.endUndoAction()
+        try:
+            editor.setCursorPosition(ins_line, ins_col)
+            editor.insert(payload)
+        finally:
+            try:
+                if sel_range is not None:
+                    sl, sc = editor.lineIndexFromPosition(_shift(sel_range[0]))
+                    el, ec = editor.lineIndexFromPosition(_shift(sel_range[1]))
+                    editor.setSelection(sl, sc, el, ec)
+                else:
+                    new_line, new_col = editor.lineIndexFromPosition(_shift(cur_pos))
+                    editor.setCursorPosition(new_line, new_col)
+            finally:
+                editor.endUndoAction()

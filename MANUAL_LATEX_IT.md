@@ -422,7 +422,7 @@ Perl equivalenti per la distribuzione in uso. Il checker interno non dipende da
 | `Ctrl+S` | Salva il file corrente |
 | `Shift+Ctrl+S` | Salva tutto / Salva con nome |
 | `Alt+Su` / `Alt+Giù` | Errore build precedente / successivo |
-| `Ctrl+Shift+F` | Function List |
+| `Ctrl+Alt+G` | Function List |
 | `Ctrl+Shift+E` | File Browser |
 | `Ctrl+F12` | Vai alla definizione LSP o semantica |
 | `Shift+F12` | Mostra riferimenti |

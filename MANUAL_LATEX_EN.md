@@ -419,7 +419,7 @@ not depend on `latexindent`.
 | `Ctrl+S` | Save current file |
 | `Shift+Ctrl+S` | Save all / Save as |
 | `Alt+Up` / `Alt+Down` | Previous / next build error |
-| `Ctrl+Shift+F` | Function List |
+| `Ctrl+Alt+G` | Function List |
 | `Ctrl+Shift+E` | File Browser |
 | `Ctrl+F12` | LSP or semantic go to definition |
 | `Shift+F12` | Show references |

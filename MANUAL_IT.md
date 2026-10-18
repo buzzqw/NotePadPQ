@@ -316,7 +316,18 @@ Navigazione rapida stile Sublime Text. Apre una palette che si comporta diversam
 
 Naviga con `↑`/`↓`, conferma con `Invio`, chiudi con `Esc`.
 
-### Dialog Cerca (`Ctrl+F`)
+### Barra di ricerca rapida (`Ctrl+F`)
+
+Mostra e porta il focus sulla barra di ricerca rapida nella toolbar (si attiva anche da **Visualizza → Barra di ricerca rapida**). Mentre digiti:
+
+- senza prefisso cerca tra i **nomi dei tab aperti** e nel **testo dei file aperti**;
+- `>` cerca tra i **comandi**;
+- `:` salta a una **riga**;
+- `@` cerca un **simbolo** (def/class/function) nel file corrente.
+
+Usa `↑`/`↓` per scorrere i risultati, `Invio` per aprire la corrispondenza e `Esc` per chiudere l'elenco. Se nell'editor c'è una selezione su una sola riga, viene riportata nel campo.
+
+### Dialog Cerca (`Ctrl+Shift+F`)
 
 Il dialog ha 4 tab.
 
@@ -870,7 +881,7 @@ Pannello dock stile PSPad per organizzare file in progetti. Il progetto viene sa
 - **Menu contestuale** (tasto destro): apri file, aggiungi file/gruppo, rimuovi
 - I file vengono salvati con il percorso assoluto; il progetto è portabile copiando sia il `.npqproj` che i file referenziati
 
-### Function List (`Ctrl+Shift+F`)
+### Function List (`Ctrl+Alt+G`)
 Pannello con la lista di funzioni, classi e metodi del file corrente. Si aggiorna automaticamente durante la digitazione.
 
 - **Aggiornamento lazy**: se il pannello è nascosto, il refresh viene posticipato al momento dell'apertura (nessun consumo CPU inutile)
@@ -1320,11 +1331,13 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 |---|---|
 | `Ctrl+Shift+P` | **Elenco comandi (Command Palette)** |
 | `Ctrl+Shift+G` | **Vai a… (file aperto / riga / simbolo / comando)** |
-| `Ctrl+F` | Apri dialog Cerca |
+| `Ctrl+F` | Barra di ricerca rapida |
+| `Ctrl+Shift+F` | Apri dialog Cerca e sostituisci |
 | `Ctrl+H` | Apri dialog Sostituisci |
 | `F3` | Trova successivo |
 | `Shift+F3` | Trova precedente |
 | `Ctrl+Shift+F2` | Ricerca incrementale inline |
+| `Ctrl+Alt+F` | Cerca e sostituisci nella directory |
 | `Ctrl+G` | Vai alla riga |
 | `Ctrl+]` | Vai alla parentesi corrispondente |
 | `Alt+↑` / `Alt+↓` | Errore build precedente / successivo |
@@ -1359,7 +1372,7 @@ Le regex usano la sintassi Python (`re` module). Disponibili ovunque sia present
 | `F11` | **Modalità scrittura (distraction-free)** |
 | `F12` | Anteprima |
 | `Ctrl+Shift+E` | File Browser |
-| `Ctrl+Shift+F` | Function List |
+| `Ctrl+Alt+G` | Function List |
 | `` Ctrl+` `` | Pannello compilazione e terminale |
 | `Ctrl+Alt+N` | Modalità testo semplice (per tab) |
 | `Ctrl+Alt+T` | Apri terminale integrato |

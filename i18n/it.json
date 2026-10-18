@@ -54,6 +54,7 @@
     "copy_path": "Copia percorso file",
     "copy_filename": "Copia nome file",
     "find": "Cerca...",
+    "quick_search": "Ricerca rapida...",
     "find_next": "Cerca successivo",
     "find_prev": "Cerca precedente",
     "replace": "Sostituisci...",
@@ -119,6 +120,7 @@
     "color_picker": "Selettore colori...",
     "reload_config": "Ricarica configurazione",
     "view_toolbar": "Barra degli strumenti",
+    "view_quick_search": "Barra di ricerca rapida",
     "view_statusbar": "Barra di stato",
     "customize_toolbar": "Personalizza barra degli strumenti…",
     "view_line_numbers": "Numeri di riga",
@@ -1800,6 +1802,14 @@
   "goto_anything": {
     "placeholder": "Cerca file aperto… (>comando  :riga  @simbolo)",
     "label_goto_line": "Inserisci un numero di riga"
+  },
+  "toolbar_quick_search": {
+    "placeholder": "Cerca… (>comandi  :riga  @simbolo)",
+    "tooltip": "Ricerca rapida: trova i tab aperti per nome o cerca nel loro testo, poi premi Invio.\nPrefissi: > comandi, : riga, @ simboli.",
+    "untitled": "Senza titolo",
+    "line_result": "Vai alla riga {line}",
+    "symbol_result": "{symbol} — riga {line}",
+    "content_result": "{name}:{line} — {snippet}"
   },
   "command_palette": {
     "placeholder": "Cerca comando…"

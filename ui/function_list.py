@@ -985,7 +985,7 @@ def install(main_window: "MainWindow") -> _FunctionListPanel:
     view_menu = main_window._menus.get("view")
     if view_menu:
         act = QAction(tr("action.view_function_list", default="Function List"), main_window)
-        act.setShortcut(QKeySequence("Ctrl+Shift+F"))
+        act.setShortcut(QKeySequence("Ctrl+Alt+G"))
         act.setCheckable(True)
         act.setIconVisibleInMenu(True)
         act.toggled.connect(dock.setVisible)

@@ -83,6 +83,7 @@ _DEFAULTS: dict[str, Any] = {
     "window/fullscreen":       False,
     # Barre
     "view/toolbar":            True,
+    "view/quick_search":       False,   # mini barra di ricerca nella toolbar
     "view/statusbar":          True,
     "view/split_sync_zoom":    False,
     # Controllo ortografico

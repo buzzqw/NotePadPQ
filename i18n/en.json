@@ -54,6 +54,7 @@
     "copy_path": "Copy File Path",
     "copy_filename": "Copy File Name",
     "find": "Find...",
+    "quick_search": "Quick Search...",
     "find_next": "Find Next",
     "find_prev": "Find Previous",
     "replace": "Replace...",
@@ -119,6 +120,7 @@
     "color_picker": "Color Picker...",
     "reload_config": "Reload Configuration",
     "view_toolbar": "Toolbar",
+    "view_quick_search": "Quick Search Bar",
     "view_statusbar": "Status Bar",
     "customize_toolbar": "Customize Toolbar…",
     "view_line_numbers": "Line Numbers",
@@ -1802,6 +1804,14 @@
   "goto_anything": {
     "placeholder": "Search open file… (>command  :line  @symbol)",
     "label_goto_line": "Enter a line number"
+  },
+  "toolbar_quick_search": {
+    "placeholder": "Search… (>commands  :line  @symbol)",
+    "tooltip": "Quick search: find open tabs by name or search their text, then press Enter.\nPrefixes: > commands, : line, @ symbols.",
+    "untitled": "Untitled",
+    "line_result": "Go to line {line}",
+    "symbol_result": "{symbol} — line {line}",
+    "content_result": "{name}:{line} — {snippet}"
   },
   "command_palette": {
     "placeholder": "Search command…"

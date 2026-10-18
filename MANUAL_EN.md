@@ -310,7 +310,18 @@ Sublime Text-style quick navigation. Opens a palette that behaves differently ba
 
 Navigate with `↑`/`↓`, confirm with `Enter`, close with `Esc`.
 
-### Find Dialog (`Ctrl+F`)
+### Quick Search Bar (`Ctrl+F`)
+
+Shows and focuses the quick search bar in the toolbar (it can also be enabled from **View → Quick Search Bar**). While typing:
+
+- with no prefix, it searches **open tab names** and the **text of open files**;
+- `>` searches **commands**;
+- `:` jumps to a **line**;
+- `@` searches for a **symbol** (def/class/function) in the current file.
+
+Use `↑`/`↓` to move through results, `Enter` to open the match and `Esc` to close the list. If there is a single-line selection in the editor, it is copied into the field.
+
+### Find Dialog (`Ctrl+Shift+F`)
 
 The dialog has 4 tabs.
 
@@ -835,7 +846,7 @@ PSPad-style dock panel for organizing files into projects. The project is saved 
 - **Context menu** (right-click): open file, add file/group, remove
 - Files are saved with absolute paths; the project is portable by copying both the `.npqproj` and the referenced files
 
-### Function List (`Ctrl+Shift+F`)
+### Function List (`Ctrl+Alt+G`)
 Panel with the list of functions, classes, and methods in the current file. Updates automatically while typing.
 
 - **Lazy update**: if the panel is hidden, the refresh is deferred to when it is opened (no unnecessary CPU usage)
@@ -1300,11 +1311,13 @@ Regexes use Python syntax (`re` module). Available wherever the "Regular express
 |---|---|
 | `Ctrl+Shift+P` | **Command Palette** |
 | `Ctrl+Shift+G` | **Goto Anything (open file / line / symbol / command)** |
-| `Ctrl+F` | Open Find dialog |
+| `Ctrl+F` | Quick search bar |
+| `Ctrl+Shift+F` | Open Find and Replace dialog |
 | `Ctrl+H` | Open Replace dialog |
 | `F3` | Find next |
 | `Shift+F3` | Find previous |
 | `Ctrl+Shift+F2` | Inline incremental search |
+| `Ctrl+Alt+F` | Find and Replace in Directory |
 | `Ctrl+G` | Go to line |
 | `Ctrl+]` | Go to matching bracket |
 | `Alt+↑` / `Alt+↓` | Previous / next build error |
@@ -1339,7 +1352,7 @@ Regexes use Python syntax (`re` module). Available wherever the "Regular express
 | `F11` | **Writing mode (distraction-free)** |
 | `F12` | Preview |
 | `Ctrl+Shift+E` | File Browser |
-| `Ctrl+Shift+F` | Function List |
+| `Ctrl+Alt+G` | Function List |
 | `` Ctrl+` `` | Build and Terminal panel |
 | `Ctrl+Alt+N` | Plain text mode (per tab) |
 | `Ctrl+Alt+T` | Open integrated terminal |

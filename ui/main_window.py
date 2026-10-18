@@ -1421,12 +1421,13 @@ class MainWindow(QMainWindow):
         m.addAction(self._act("command_palette", "Ctrl+Shift+P", self.action_command_palette))
         m.addAction(self._act("goto_anything",   "Ctrl+Shift+G", self.action_goto_anything))
         self._sep(m)
-        m.addAction(self._act("find",            "Ctrl+F",       self.action_find))
+        m.addAction(self._act("quick_search",    "Ctrl+F",       self.action_quick_search))
+        m.addAction(self._act("find",            "Ctrl+Shift+F", self.action_find))
         m.addAction(self._act("find_next",       "F3",           self.action_find_next))
         m.addAction(self._act("find_prev",       "Shift+F3",     self.action_find_prev))
         m.addAction(self._act("replace",         "Ctrl+H",       self.action_replace))
         self._sep(m)
-        m.addAction(self._act("find_in_files",    "Ctrl+Shift+F", self.action_find_in_files))
+        m.addAction(self._act("find_in_files",    "Ctrl+Alt+F",   self.action_find_in_files))
         m.addAction(self._act("find_in_all_docs", "Ctrl+Shift+H", self.action_find_in_all_docs))
         self._sep(m)
         m.addAction(self._act("go_to_line",      "Ctrl+G",       self.action_go_to_line))
@@ -1452,6 +1453,7 @@ class MainWindow(QMainWindow):
         # Interfaccia
         m.addAction(self._act("view_toolbar",      "", self._toggle_toolbar,     checkable=True, checked=s.get("view/toolbar", True)))
         m.addAction(self._act("customize_toolbar", "", self._action_customize_toolbar))
+        m.addAction(self._act("view_quick_search", "", self._toggle_quick_search, checkable=True, checked=s.get("view/quick_search", False)))
         m.addAction(self._act("view_lang_toolbar", "Ctrl+Shift+L", self._toggle_lang_toolbar, checkable=True, checked=s.get("view/lang_toolbar", False)))
         m.addAction(self._act("view_statusbar",    "", self._toggle_statusbar,   checkable=True, checked=s.get("view/statusbar", True)))
         self._sep(m)
@@ -1960,6 +1962,13 @@ class MainWindow(QMainWindow):
         self._toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self._toolbar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._toolbar.customContextMenuRequested.connect(self._toolbar_context_menu)
+        from ui.toolbar_quick_search import ToolbarQuickSearch
+        self._quick_search = ToolbarQuickSearch(self)
+        # Azione persistente: sopravvive ai tb.clear() di _rebuild_toolbar e
+        # non accumula QWidgetAction a ogni cambio tema/lingua.
+        from PyQt6.QtWidgets import QWidgetAction
+        self._quick_search_action = QWidgetAction(self)
+        self._quick_search_action.setDefaultWidget(self._quick_search)
         self._rebuild_toolbar()
         # Secondo refresh dopo show(): la palette è completamente inizializzata
         # solo dopo il primo ciclo eventi. Su Debian Qt 6.8 questo è necessario
@@ -1968,9 +1977,14 @@ class MainWindow(QMainWindow):
 
     def _toolbar_context_menu(self, pos) -> None:
         from PyQt6.QtWidgets import QMenu
+        from config.settings import Settings
         menu = QMenu(self)
         act = menu.addAction(tr("action.customize_toolbar", default="Personalizza barra degli strumenti…"))
         act.triggered.connect(self._action_customize_toolbar)
+        quick = menu.addAction(tr("action.view_quick_search", default="Barra di ricerca rapida"))
+        quick.setCheckable(True)
+        quick.setChecked(Settings.instance().get("view/quick_search", False))
+        quick.toggled.connect(self._apply_quick_search_setting)
         menu.exec(self._toolbar.mapToGlobal(pos))
 
     def _action_customize_toolbar(self) -> None:
@@ -2002,6 +2016,12 @@ class MainWindow(QMainWindow):
         from config.settings import Settings
 
         tb = self._toolbar
+        quick_search = getattr(self, "_quick_search", None)
+        quick_action = getattr(self, "_quick_search_action", None)
+        quick_search_had_focus = bool(
+            quick_search is not None and quick_search.hasFocus())
+        if quick_search is not None:
+            quick_search.hide_popup()
         tb.clear()
         style = self.style()
 
@@ -2071,6 +2091,19 @@ class MainWindow(QMainWindow):
                     label = action.text().replace("&", "").strip()
                     btn.setAccessibleName(label)
                     btn.setAccessibleDescription(label)
+
+        # Mini barra di ricerca rapida: opzionale (Visualizza ▸ Barra di
+        # ricerca rapida), sempre in coda alla toolbar.
+        if quick_search is not None and Settings.instance().get("view/quick_search", False):
+            tb.addSeparator()
+            if quick_action is not None:
+                tb.addAction(quick_action)
+                quick_action.setVisible(True)
+            else:
+                tb.addWidget(quick_search)
+            quick_search.show()
+            if quick_search_had_focus:
+                QTimer.singleShot(0, quick_search.setFocus)
         tb.update()
 
         # Applica icone ai submenu che non sono QAction in _actions
@@ -3816,6 +3849,36 @@ class MainWindow(QMainWindow):
 
     # ── Azioni Cerca ──────────────────────────────────────────────────────────
 
+    def action_quick_search(self) -> None:
+        """Apre la barra di ricerca rapida e le dà il focus (Ctrl+F)."""
+        from config.settings import Settings
+
+        if not self._toolbar.isVisible():
+            self._toolbar.setVisible(True)
+            Settings.instance().set("view/toolbar", True)
+            action = self._actions.get("view_toolbar")
+            if action is not None and not action.isChecked():
+                action.blockSignals(True)
+                action.setChecked(True)
+                action.blockSignals(False)
+
+        if not Settings.instance().get("view/quick_search", False):
+            self._apply_quick_search_setting(True)
+
+        field = getattr(self, "_quick_search", None)
+        if field is None:
+            return
+
+        # Precompila con l'eventuale selezione a riga singola dell'editor.
+        editor = self._current_editor()
+        if editor is not None and editor.hasSelectedText():
+            selected = editor.selectedText()
+            if selected and "\n" not in selected:
+                field.setText(selected)
+
+        field.setFocus()
+        field.selectAll()
+
     def action_find(self) -> None:
         from ui.find_replace import FindReplaceDialog
         FindReplaceDialog.show_find(self)
@@ -3920,6 +3983,27 @@ class MainWindow(QMainWindow):
         self._toolbar.setVisible(checked)
         from config.settings import Settings
         Settings.instance().set("view/toolbar", checked)
+
+    def _toggle_quick_search(self, checked: bool) -> None:
+        """Mostra/nasconde la mini barra di ricerca nella toolbar."""
+        self._apply_quick_search_setting(checked)
+
+    def _apply_quick_search_setting(self, checked: bool) -> None:
+        from config.settings import Settings
+        checked = bool(checked)
+        Settings.instance().set("view/quick_search", checked)
+
+        # Tiene allineata la voce di menu anche quando il cambio arriva dal
+        # menu contestuale della toolbar.
+        action = self._actions.get("view_quick_search")
+        if action is not None and action.isChecked() != checked:
+            action.blockSignals(True)
+            action.setChecked(checked)
+            action.blockSignals(False)
+
+        self._rebuild_toolbar()
+        if checked and self._toolbar.isVisible():
+            self._quick_search.setFocus()
 
     def _toggle_lang_toolbar(self, checked: bool) -> None:
         """Mostra/nasconde la toolbar contestuale LaTeX/Markdown."""

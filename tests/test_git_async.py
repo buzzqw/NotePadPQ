@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QCheckBox, QTextEdit, QTreeWidget
+from PyQt6.QtWidgets import QApplication, QCheckBox, QLabel, QTextEdit, QTreeWidget
 
 from core.git_framework import GitFramework, _GitThread
 from plugins.git_plugin import _GitPanel
@@ -86,6 +86,25 @@ class GitFrameworkAsyncTests(unittest.TestCase):
         self.assertEqual(log[0][0]["subject"], "Message")
         self.assertEqual(diff, ["+added"])
 
+    def test_commit_with_files_uses_explicit_pathspec(self):
+        framework = GitFramework(Path("repo"))
+        calls = self._capture_async(framework)
+        framework.stage_files = lambda files: True
+
+        framework.commit_async("message", files=["a.py", "b.py"])
+
+        self.assertEqual(
+            calls[0][0], ["commit", "-m", "message", "--", "a.py", "b.py"]
+        )
+
+    def test_detailed_status_keeps_porcelain_columns(self):
+        parsed = GitFramework._parse_status_detailed(" M a.txt\n?? c.txt\n")
+        self.assertEqual(parsed, [(" ", "M", "a.txt"), ("?", "?", "c.txt")])
+
+    def test_parse_status_keeps_full_path_with_leading_space(self):
+        parsed = GitFramework._parse_status(" M a.txt\n")
+        self.assertEqual(parsed, [("M", "a.txt")])
+
     def test_async_query_failures_preserve_empty_sync_fallbacks(self):
         framework = GitFramework(Path("repo"))
         calls = self._capture_async(framework)
@@ -147,6 +166,9 @@ class _QueryFramework:
     def status_async(self, callback):
         return self._queue("status", callback)
 
+    def status_detailed_async(self, callback):
+        return self._queue("status", callback)
+
     def log_async(self, count, callback):
         return self._queue("log", callback, count)
 
@@ -180,9 +202,14 @@ class GitPanelAsyncTests(unittest.TestCase):
             _log_generation=0,
             _diff_generation=0,
             _status_tree=QTreeWidget(),
+            _status_summary=QLabel(),
+            _status_entries=[],
+            _populating_status=False,
+            _selected_status_path=lambda: None,
             _log_list=QTreeWidget(),
             _diff_staged_cb=QCheckBox(),
             _diff_view=QTextEdit(),
+            _diff_label=QLabel(),
             _mw=SimpleNamespace(_tab_manager=SimpleNamespace(current_editor=lambda: None)),
             _colorize_diff=lambda: None,
         )
@@ -199,7 +226,7 @@ class GitPanelAsyncTests(unittest.TestCase):
         self.assertEqual(framework.calls[1][1], (60,))
         self.assertEqual(framework.calls[2][1], (None, False))
 
-        framework.calls[0][2]([("M", "src/file.py")])
+        framework.calls[0][2]([("M", " ", "src/file.py")])
         framework.calls[1][2]([{
             "short": "abc", "date": "2026-01-02", "author": "Ada",
             "subject": "Message", "hash": "abcdef",
@@ -220,8 +247,8 @@ class GitPanelAsyncTests(unittest.TestCase):
         second = framework.calls[1]
 
         self.assertTrue(first[3].cancelled)
-        first[2]([("M", "stale.py")])
-        second[2]([("A", "current.py")])
+        first[2]([(" ", "M", "stale.py")])
+        second[2]([("A", " ", "current.py")])
 
         self.assertEqual(panel._status_tree.topLevelItemCount(), 1)
         self.assertEqual(panel._status_tree.topLevelItem(0).text(1), "current.py")

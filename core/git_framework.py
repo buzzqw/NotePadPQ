@@ -66,7 +66,10 @@ class _GitThread(QThread):
             out, err = process.communicate(timeout=self._timeout)
             if self.cancelled:
                 return
-            self.result_ready.emit(process.returncode, out.strip(), err.strip())
+            # Do not strip: porcelain status uses significant leading spaces
+            # for the index/worktree columns, and diff context lines start
+            # with a space too.
+            self.result_ready.emit(process.returncode, out, err)
         except FileNotFoundError:
             if not self.cancelled:
                 self.result_ready.emit(-1, "", "git not found in PATH")
@@ -144,7 +147,8 @@ class GitFramework:
         for worker in tuple(self._workers):
             worker.cancel()
 
-    def _run_sync(self, args: list[str], timeout: int = 30) -> Tuple[int, str, str]:
+    def _run_sync(self, args: list[str], timeout: int = 30,
+                  strip_output: bool = True) -> Tuple[int, str, str]:
         try:
             result = subprocess.run(
                 ["git"] + args,
@@ -155,7 +159,9 @@ class GitFramework:
                 errors="replace",
                 timeout=timeout,
             )
-            return result.returncode, result.stdout.strip(), result.stderr.strip()
+            if strip_output:
+                return result.returncode, result.stdout.strip(), result.stderr.strip()
+            return result.returncode, result.stdout, result.stderr
         except FileNotFoundError:
             return -1, "", "git not found in PATH"
         except subprocess.TimeoutExpired:
@@ -174,7 +180,8 @@ class GitFramework:
         return out if rc == 0 else "?"
 
     def status(self) -> List[Tuple[str, str]]:
-        rc, out, _ = self._run_sync(["status", "--porcelain"], self._TIMEOUT_SHORT)
+        rc, out, _ = self._run_sync(
+            ["status", "--porcelain"], self._TIMEOUT_SHORT, strip_output=False)
         return self._parse_status(out) if rc == 0 else []
 
     @staticmethod
@@ -191,6 +198,33 @@ class GitFramework:
         """Fetch repository status without blocking the UI thread."""
         def _cb(rc, out, _err):
             callback(self._parse_status(out) if rc == 0 else [])
+        return self._run_async(["status", "--porcelain"], _cb, self._TIMEOUT_SHORT)
+
+    @staticmethod
+    def _parse_status_detailed(out: str) -> List[Tuple[str, str, str]]:
+        """Parse porcelain output as ``(index_status, worktree_status, path)``.
+
+        Unlike :meth:`_parse_status`, this keeps the two status columns apart so
+        the UI can tell whether a file is already staged.
+        """
+        result = []
+        for line in out.splitlines():
+            if len(line) < 3:
+                continue
+            index_status, worktree_status = line[0], line[1]
+            path = line[3:].strip()
+            if " -> " in path:
+                path = path.split(" -> ", 1)[1]
+            if path:
+                result.append((index_status, worktree_status, path))
+        return result
+
+    def status_detailed_async(
+        self, callback: Callable[[List[Tuple[str, str, str]]], None]
+    ) -> _GitThread:
+        """Fetch status preserving the staged/worktree distinction."""
+        def _cb(rc, out, _err):
+            callback(self._parse_status_detailed(out) if rc == 0 else [])
         return self._run_async(["status", "--porcelain"], _cb, self._TIMEOUT_SHORT)
 
     def log(self, n: int = 50) -> List[dict]:
@@ -238,7 +272,8 @@ class GitFramework:
 
     def diff(self, path: Optional[str] = None, staged: bool = False) -> str:
         args = self._diff_args(path, staged)
-        rc, out, _ = self._run_sync(args, self._TIMEOUT_SHORT)
+        rc, out, _ = self._run_sync(
+            args, self._TIMEOUT_SHORT, strip_output=False)
         return out if rc == 0 else ""
 
     @staticmethod
@@ -321,7 +356,7 @@ class GitFramework:
                    callback: Callable[[bool, str], None] = None):
         def _cb(rc, out, err):
             ok = rc == 0
-            msg = out or err
+            msg = (out or err).strip()
             if callback:
                 callback(ok, msg)
         self._run_async(["pull", remote], _cb, self._TIMEOUT_LONG)
@@ -333,7 +368,7 @@ class GitFramework:
             args.append(branch)
         def _cb(rc, out, err):
             ok = rc == 0
-            msg = out or err
+            msg = (out or err).strip()
             if callback:
                 callback(ok, msg)
         self._run_async(args, _cb, self._TIMEOUT_LONG)
@@ -343,6 +378,16 @@ class GitFramework:
         if not files:
             return True
         rc, _, _ = self._run_sync(["add"] + files, self._TIMEOUT_SHORT)
+        return rc == 0
+
+    def stage_all(self) -> bool:
+        """Stage every change, including deletions and untracked files."""
+        rc, _, _ = self._run_sync(["add", "-A"], self._TIMEOUT_SHORT)
+        return rc == 0
+
+    def unstage_all(self) -> bool:
+        """Move every staged change back to the worktree."""
+        rc, _, _ = self._run_sync(["reset"], self._TIMEOUT_SHORT)
         return rc == 0
 
     def unstage_file(self, path: str) -> bool:
@@ -355,18 +400,24 @@ class GitFramework:
 
     def commit_async(self, message: str, files: Optional[List[str]] = None,
                      callback: Callable[[bool, str], None] = None):
-        """Commit. Se files è specificato, committa solo quelli (altrimenti tutto ciò che è staged)."""
+        """Commit. Se files è specificato, committa solo quelli.
+
+        Usa un pathspec esplicito: eventuali altri file già in stage non
+        finiscono nel commit quando l'utente li ha deselezionati.
+        """
+        args = ["commit", "-m", message]
         if files:
             if not self.stage_files(list(files)):
                 if callback:
                     callback(False, "Stage fallito")
                 return
+            args += ["--"] + list(files)
         def _cb(rc, out, err):
             ok = rc == 0
-            msg = out or err
+            msg = (out or err).strip()
             if callback:
                 callback(ok, msg)
-        self._run_async(["commit", "-m", message], _cb, self._TIMEOUT_SHORT)
+        self._run_async(args, _cb, self._TIMEOUT_SHORT)
 
     def stash_push_async(self, message: str = "",
                          callback: Callable[[bool, str], None] = None):
@@ -375,7 +426,7 @@ class GitFramework:
             args += ["-m", message]
         def _cb(rc, out, err):
             ok = rc == 0
-            msg = out or err
+            msg = (out or err).strip()
             if callback:
                 callback(ok, msg)
         self._run_async(args, _cb, self._TIMEOUT_SHORT)
@@ -387,7 +438,7 @@ class GitFramework:
             args = ["stash", "pop", f"stash@{{{index}}}"]
         def _cb(rc, out, err):
             ok = rc == 0
-            msg = out or err
+            msg = (out or err).strip()
             if callback:
                 callback(ok, msg)
         self._run_async(args, _cb, self._TIMEOUT_SHORT)
@@ -400,7 +451,7 @@ class GitFramework:
         args.append(branch)
         def _cb(rc, out, err):
             ok = rc == 0
-            msg = out or err
+            msg = (out or err).strip()
             if callback:
                 callback(ok, msg)
         self._run_async(args, _cb, self._TIMEOUT_SHORT)
@@ -409,7 +460,7 @@ class GitFramework:
                     callback: Callable[[bool, str], None] = None):
         def _cb(rc, out, err):
             ok = rc == 0
-            msg = out or err
+            msg = (out or err).strip()
             if callback:
                 callback(ok, msg)
         self._run_async(["fetch", remote], _cb, self._TIMEOUT_LONG)

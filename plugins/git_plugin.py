@@ -21,6 +21,7 @@ Opzionale:
 
 from __future__ import annotations
 
+import html
 import os
 import re
 import subprocess
@@ -34,8 +35,9 @@ from PyQt6.QtWidgets import (
     QLineEdit, QComboBox, QSplitter, QMenu, QInputDialog,
     QMessageBox, QApplication, QCheckBox, QListWidget, QListWidgetItem,
     QFormLayout, QGroupBox, QDialog, QDialogButtonBox, QPlainTextEdit,
+    QFileDialog,
 )
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
 
 from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
@@ -54,8 +56,8 @@ class GitRunner:
     def __init__(self, repo_dir: Path):
         self.repo_dir = repo_dir
 
-    def run(self, *args, check=False) -> Tuple[int, str, str]:
-        """Esegue git con gli argomenti dati. Restituisce (returncode, stdout, stderr)."""
+    def run_raw(self, *args) -> Tuple[int, str, str]:
+        """Esegue git senza alterare l'output (gli spazi iniziali contano)."""
         try:
             result = subprocess.run(
                 ["git", *args],
@@ -66,13 +68,18 @@ class GitRunner:
                 errors="replace",
                 timeout=30,
             )
-            return result.returncode, result.stdout.strip(), result.stderr.strip()
+            return result.returncode, result.stdout, result.stderr
         except FileNotFoundError:
             return -1, "", "git non trovato nel PATH"
         except subprocess.TimeoutExpired:
             return -1, "", "Timeout comando git"
         except Exception as e:
             return -1, "", str(e)
+
+    def run(self, *args, check=False) -> Tuple[int, str, str]:
+        """Esegue git con gli argomenti dati. Restituisce (returncode, stdout, stderr)."""
+        rc, out, err = self.run_raw(*args)
+        return rc, out.strip(), err.strip()
 
     def is_repo(self) -> bool:
         rc, _, _ = self.run("rev-parse", "--is-inside-work-tree")
@@ -84,7 +91,7 @@ class GitRunner:
 
     def status(self) -> List[Tuple[str, str]]:
         """Restituisce [(status_code, filepath), ...]"""
-        rc, out, _ = self.run("status", "--porcelain")
+        rc, out, _ = self.run_raw("status", "--porcelain")
         if rc != 0 or not out:
             return []
         result = []
@@ -318,6 +325,89 @@ class _CredentialsDialog(QDialog):
         return Settings.instance()
 
 
+# ─── Dialog commit ───────────────────────────────────────────────────────────
+
+class _CommitDialog(QDialog):
+    """Commit message + explicit list of files to include."""
+
+    def __init__(self, files: List[str], branch: str, parent=None,
+                 preselected: Optional[List[str]] = None):
+        super().__init__(parent)
+        self.setWindowTitle("Git — Commit")
+        self.setMinimumSize(520, 420)
+        self._files = list(files)
+        self._preselected = set(preselected if preselected is not None else files)
+        self._build_ui(branch)
+
+    def _build_ui(self, branch: str) -> None:
+        layout = QVBoxLayout(self)
+        layout.setSpacing(6)
+
+        info = QLabel(tr(
+            "git.commit_dialog_info",
+            default="Branch: <b>{branch}</b> — {count} file modificati",
+            branch=branch or "?", count=len(self._files),
+        ))
+        layout.addWidget(info)
+
+        layout.addWidget(QLabel(tr(
+            "git.commit_message", default="Messaggio di commit:"
+        )))
+        self._message = QPlainTextEdit()
+        self._message.setPlaceholderText(tr(
+            "git.commit_message_placeholder",
+            default="Descrivi la modifica (obbligatorio)…",
+        ))
+        self._message.setFixedHeight(90)
+        layout.addWidget(self._message)
+
+        layout.addWidget(QLabel(tr(
+            "git.commit_files", default="File da includere:"
+        )))
+        self._file_list = QListWidget()
+        for path in self._files:
+            item = QListWidgetItem(path)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            state = (Qt.CheckState.Checked if path in self._preselected
+                     else Qt.CheckState.Unchecked)
+            item.setCheckState(state)
+            self._file_list.addItem(item)
+        layout.addWidget(self._file_list, 1)
+
+        self._buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        self._buttons.accepted.connect(self.accept)
+        self._buttons.rejected.connect(self.reject)
+        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setText(
+            tr("button.commit", default="Commit")
+        )
+        self._buttons.button(QDialogButtonBox.StandardButton.Cancel).setText(
+            tr("button.cancel", default="Annulla")
+        )
+        layout.addWidget(self._buttons)
+
+        self._message.textChanged.connect(self._update_ok)
+        self._file_list.itemChanged.connect(lambda _item: self._update_ok())
+        self._update_ok()
+
+    def _selected_files(self) -> List[str]:
+        result = []
+        for index in range(self._file_list.count()):
+            item = self._file_list.item(index)
+            if item.checkState() == Qt.CheckState.Checked:
+                result.append(item.text())
+        return result
+
+    def _update_ok(self) -> None:
+        ok = bool(self._message.toPlainText().strip()) and bool(self._selected_files())
+        self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(ok)
+
+    def values(self) -> Tuple[str, List[str]]:
+        return self._message.toPlainText().strip(), self._selected_files()
+
+
 # ─── Pannello Git ─────────────────────────────────────────────────────────────
 
 class _GitPanel(QWidget):
@@ -338,7 +428,14 @@ class _GitPanel(QWidget):
         self._diff_generation = 0
         self._log_detail_generation = 0
         self._decorator_generation = 0
+        self._status_entries: List[Tuple[str, str, str]] = []
+        self._populating_status = False
+        self._action_buttons: List[QPushButton] = []
         self._build_ui()
+        self._set_repo_ui_enabled(False)
+        shortcut = QShortcut(QKeySequence("F5"), self, activated=self.refresh)
+        # Don't steal F5 ("Run") from the main window when the panel is open.
+        shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._auto_refresh)
         self._refresh_timer.start(5000)  # aggiorna ogni 5s
@@ -348,20 +445,32 @@ class _GitPanel(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Header: repo + branch + refresh
+        # Header: repo + branch + refresh / repo picker
         hdr = QHBoxLayout()
-        self._repo_label   = QLabel("Nessun repository")
+        self._repo_label   = QLabel(tr("git.no_repo", default="Nessun repository"))
         self._repo_label.setStyleSheet("font-size: 11px;")
+        self._repo_label.setToolTip(tr(
+            "git.no_repo_hint",
+            default="Apri un file in un repository Git oppure scegli una cartella.",
+        ))
         self._branch_label = QLabel("")
         self._branch_label.setStyleSheet(
             "font-size: 11px; color: #7ec8e3; font-weight: bold;"
         )
+        btn_choose_repo = QPushButton("📂")
+        btn_choose_repo.setFixedSize(26, 26)
+        btn_choose_repo.setToolTip(tr(
+            "tooltip.git_choose_repo",
+            default="Apri una cartella/repository Git…",
+        ))
+        btn_choose_repo.clicked.connect(self._choose_repo)
         btn_refresh = QPushButton("🔄")
         btn_refresh.setFixedSize(26, 26)
         btn_refresh.setToolTip(tr("tooltip.git_refresh"))
         btn_refresh.clicked.connect(self.refresh)
         hdr.addWidget(self._repo_label, 1)
         hdr.addWidget(self._branch_label)
+        hdr.addWidget(btn_choose_repo)
         hdr.addWidget(btn_refresh)
         layout.addLayout(hdr)
 
@@ -377,23 +486,57 @@ class _GitPanel(QWidget):
             btn.setToolTip(tip)
             btn.setFixedHeight(26)
             btn.clicked.connect(slot)
+            self._action_buttons.append(btn)
             acts.addWidget(btn)
         layout.addLayout(acts)
 
         # Tabs: Status / Log / Diff / Branch
         tabs = QTabWidget()
         tabs.setTabPosition(QTabWidget.TabPosition.South)
+        self._tabs = tabs
 
         # ── Tab Status ──
         status_w = QWidget()
         sl = QVBoxLayout(status_w)
         sl.setContentsMargins(0, 0, 0, 0)
+        status_actions = QHBoxLayout()
+        self._btn_stage_all = QPushButton(tr("git.stage_all", default="Stage all"))
+        self._btn_stage_all.setToolTip(tr(
+            "tooltip.git_stage_all",
+            default="Aggiungi tutte le modifiche (anche file nuovi) all'area di stage",
+        ))
+        self._btn_stage_all.clicked.connect(self._stage_all)
+        self._btn_unstage_all = QPushButton(tr("git.unstage_all", default="Unstage all"))
+        self._btn_unstage_all.setToolTip(tr(
+            "tooltip.git_unstage_all",
+            default="Rimuovi tutte le modifiche dall'area di stage",
+        ))
+        self._btn_unstage_all.clicked.connect(self._unstage_all)
+        for btn in (self._btn_stage_all, self._btn_unstage_all):
+            btn.setFixedHeight(24)
+            self._action_buttons.append(btn)
+            status_actions.addWidget(btn)
+        status_actions.addStretch()
+        sl.addLayout(status_actions)
+
         self._status_tree = QTreeWidget()
-        self._status_tree.setHeaderLabels(["", "File"])
-        self._status_tree.header().resizeSection(0, 30)
+        self._status_tree.setHeaderLabels([
+            "✓", tr("git.file", default="File"), tr("git.state", default="Stato")
+        ])
+        self._status_tree.headerItem().setToolTip(
+            0, tr("git.stage_column_tooltip",
+                  default="Spunta i file da includere nel prossimo commit")
+        )
+        self._status_tree.header().resizeSection(0, 42)
+        self._status_tree.header().resizeSection(2, 90)
         self._status_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._status_tree.customContextMenuRequested.connect(self._status_context_menu)
-        sl.addWidget(self._status_tree)
+        self._status_tree.itemDoubleClicked.connect(self._on_status_double_click)
+        self._status_tree.itemChanged.connect(self._on_status_item_changed)
+        sl.addWidget(self._status_tree, 1)
+        self._status_summary = QLabel("")
+        self._status_summary.setStyleSheet("font-size: 11px; color: #999;")
+        sl.addWidget(self._status_summary)
         tabs.addTab(status_w, "Status")
 
         # ── Tab Log ──
@@ -415,16 +558,25 @@ class _GitPanel(QWidget):
         dl.setContentsMargins(0, 0, 0, 0)
         diff_top = QHBoxLayout()
         self._diff_staged_cb = QCheckBox("Staged")
+        self._diff_staged_cb.setToolTip(tr(
+            "tooltip.git_diff_staged",
+            default="Mostra la differenza rispetto all'area di stage",
+        ))
+        self._diff_staged_cb.toggled.connect(self._show_diff)
         diff_top.addWidget(self._diff_staged_cb)
-        btn_refresh_diff = QPushButton("Aggiorna diff")
+        btn_refresh_diff = QPushButton(tr("git.refresh_diff", default="Aggiorna diff"))
         btn_refresh_diff.clicked.connect(self._show_diff)
         diff_top.addWidget(btn_refresh_diff)
         diff_top.addStretch()
         dl.addLayout(diff_top)
+        self._diff_label = QLabel("")
+        self._diff_label.setStyleSheet("font-size: 11px; color: #999;")
+        dl.addWidget(self._diff_label)
         self._diff_view = QTextEdit()
         self._diff_view.setReadOnly(True)
         self._diff_view.setFont(QFont("Monospace", 10))
         dl.addWidget(self._diff_view)
+        self._diff_widget = diff_w
         tabs.addTab(diff_w, "Diff")
 
         # ── Tab Branch ──
@@ -435,8 +587,17 @@ class _GitPanel(QWidget):
         self._branch_list.itemDoubleClicked.connect(self._checkout_branch)
         bl.addWidget(self._branch_list)
         branch_acts = QHBoxLayout()
-        btn_new_br = QPushButton("Nuova branch")
+        btn_checkout = QPushButton(tr("git.checkout", default="Checkout"))
+        btn_checkout.setToolTip(tr(
+            "tooltip.git_checkout",
+            default="Passa alla branch selezionata",
+        ))
+        btn_checkout.clicked.connect(self._checkout_selected_branch)
+        self._action_buttons.append(btn_checkout)
+        branch_acts.addWidget(btn_checkout)
+        btn_new_br = QPushButton(tr("git.new_branch", default="Nuova branch"))
         btn_new_br.clicked.connect(self._new_branch)
+        self._action_buttons.append(btn_new_br)
         branch_acts.addWidget(btn_new_br)
         branch_acts.addStretch()
         bl.addLayout(branch_acts)
@@ -455,6 +616,12 @@ class _GitPanel(QWidget):
         btn_creds = QPushButton("⚙  Configura utente & token…")
         btn_creds.clicked.connect(self._open_credentials)
         cfl.addWidget(btn_creds)
+        btn_open_folder = QPushButton(tr(
+            "git.open_repo_folder", default="📂  Apri cartella repository"
+        ))
+        btn_open_folder.clicked.connect(self._open_repo_folder)
+        self._action_buttons.append(btn_open_folder)
+        cfl.addWidget(btn_open_folder)
         cfl.addWidget(QLabel("git config locale:"))
         self._cfg_view = QPlainTextEdit()
         self._cfg_view.setReadOnly(True)
@@ -480,12 +647,37 @@ class _GitPanel(QWidget):
             return
         repo_dir = self._find_repo(editor.file_path)
         if repo_dir and repo_dir != self._repo_dir:
-            self._cancel_query_workers()
-            self._repo_dir  = repo_dir
-            self._git       = GitRunner(repo_dir)
-            self._git_fw    = GitFramework(repo_dir)
-            self._repo_label.setText(f"📁 {repo_dir.name}")
-            self.refresh()
+            self._set_repo(repo_dir)
+
+    def _set_repo(self, repo_dir: Path) -> None:
+        """Cambia il repository mostrato dal pannello."""
+        repo_dir = Path(repo_dir)
+        if repo_dir == self._repo_dir:
+            return
+        self._cancel_query_workers()
+        self._status_entries = []
+        self._repo_dir = repo_dir
+        self._git = GitRunner(repo_dir)
+        self._git_fw = GitFramework(repo_dir)
+        self._repo_label.setText(f"📁 {repo_dir.name}")
+        self._repo_label.setToolTip(str(repo_dir))
+        self._set_repo_ui_enabled(True)
+        self.refresh()
+
+    def _set_repo_ui_enabled(self, enabled: bool) -> None:
+        for btn in self._action_buttons:
+            btn.setEnabled(enabled)
+        has_repo = enabled and self._git_fw is not None
+        self._status_tree.setEnabled(has_repo)
+        self._diff_view.setEnabled(has_repo)
+        self._branch_list.setEnabled(has_repo)
+        if not has_repo:
+            self._branch_label.setText("")
+            self._status_tree.clear()
+            self._status_summary.setText(tr(
+                "git.open_repo_hint",
+                default="Nessun repository aperto. Usa 📂 per sceglierne uno.",
+            ))
 
     def _find_repo(self, path: Path) -> Optional[Path]:
         """Risale la gerarchia finché trova una .git directory."""
@@ -495,6 +687,49 @@ class _GitPanel(QWidget):
                 return current
             current = current.parent
         return None
+
+    def _choose_repo(self) -> None:
+        """Sceglie una cartella repository (o propone di inizializzarla)."""
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            tr("git.choose_repo_title", default="Scegli una cartella Git"),
+            str(self._repo_dir.parent if self._repo_dir else Path.home()),
+        )
+        if not folder:
+            return
+        selected = Path(folder)
+        repo_dir = self._find_repo(selected)
+        if repo_dir is None and (selected / ".git").exists():
+            repo_dir = selected
+        if repo_dir is None:
+            reply = QMessageBox.question(
+                self,
+                "Git",
+                tr(
+                    "git.init_question",
+                    default="La cartella non è un repository Git.\n"
+                            "Vuoi inizializzarne uno qui?\n\n{folder}",
+                    folder=selected,
+                ),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            rc, _, err = GitRunner(selected).run("init")
+            if rc != 0:
+                QMessageBox.warning(self, "Git", err or "git init failed")
+                return
+            repo_dir = selected
+        self._set_repo(repo_dir)
+        self._log(tr("git.repo_opened", default=f"Repository: {repo_dir}"), True)
+
+    def _open_repo_folder(self) -> None:
+        if not self._repo_dir:
+            return
+        from PyQt6.QtCore import QUrl
+        from core.external_open import open_url
+        open_url(QUrl.fromLocalFile(str(self._repo_dir.resolve())))
 
     # ── Refresh ───────────────────────────────────────────────────────────────
 
@@ -513,7 +748,6 @@ class _GitPanel(QWidget):
             self._refresh_status()
 
     def _refresh_status(self) -> None:
-        self._status_tree.clear()
         if not self._git_fw:
             return
         if self._status_worker:
@@ -523,28 +757,121 @@ class _GitPanel(QWidget):
         self._status_generation += 1
         generation = self._status_generation
         _ICONS = {
-            "M": ("✎", "#f0b429"),
-            "A": ("＋", "#56bd5b"),
-            "D": ("－", "#e06c75"),
-            "?": ("?", "#888"),
-            "R": ("➜", "#61afef"),
+            "M": ("✎", "#f0b429", "modificato"),
+            "A": ("＋", "#56bd5b", "aggiunto"),
+            "D": ("－", "#e06c75", "eliminato"),
+            "?": ("?", "#888", "non tracciato"),
+            "R": ("➜", "#61afef", "rinominato"),
+            "U": ("!", "#e06c75", "conflitto"),
         }
 
-        def _done(status: List[Tuple[str, str]]) -> None:
+        # Preserve the currently selected file across the periodic refresh.
+        selected = self._selected_status_path()
+
+        def _done(status: List[Tuple[str, str, str]]) -> None:
             if (self._git_fw is not git or self._repo_dir != repo_dir
                     or self._status_generation != generation):
                 return
-            for xy, filepath in status:
-                icon, color = _ICONS.get(xy[0], ("·", "#aaa"))
-                item = QTreeWidgetItem([icon, filepath])
-                item.setForeground(0, QColor(color))
-                item.setData(0, Qt.ItemDataRole.UserRole, filepath)
-                self._status_tree.addTopLevelItem(item)
+            self._status_entries = list(status)
+            self._populating_status = True
+            try:
+                self._status_tree.clear()
+                for index_status, worktree_status, filepath in status:
+                    code = index_status if index_status not in (" ", "?") else worktree_status
+                    icon, color, label = _ICONS.get(code, ("·", "#aaa", "modificato"))
+                    if index_status not in (" ", "?") and worktree_status not in (" ", "?"):
+                        label = "staged + " + label
+                    item = QTreeWidgetItem([icon, filepath, label])
+                    item.setForeground(0, QColor(color))
+                    item.setToolTip(2, tr(
+                        "git.status_tooltip",
+                        default="Check = incluso nello stage. Doppio click = apri il file.",
+                    ))
+                    item.setData(0, Qt.ItemDataRole.UserRole, filepath)
+                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    staged = index_status not in (" ", "?", "!")
+                    item.setCheckState(
+                        0, Qt.CheckState.Checked if staged else Qt.CheckState.Unchecked
+                    )
+                    self._status_tree.addTopLevelItem(item)
+                    if filepath == selected:
+                        self._status_tree.setCurrentItem(item)
+                if not status:
+                    hint = QTreeWidgetItem(["", tr(
+                        "git.no_changes", default="Nessuna modifica"
+                    ), ""])
+                    hint.setFlags(Qt.ItemFlag.NoItemFlags)
+                    self._status_tree.addTopLevelItem(hint)
+                staged_count = sum(
+                    1 for x, _y, _p in status if x not in (" ", "?", "!")
+                )
+                self._status_summary.setText(
+                    tr("git.status_summary",
+                       default="{total} file modificati · {staged} in stage",
+                       total=len(status), staged=staged_count)
+                )
+            finally:
+                self._populating_status = False
 
-        self._status_worker = git.status_async(_done)
+        self._status_worker = git.status_detailed_async(_done)
+
+    def _selected_status_path(self) -> Optional[str]:
+        item = self._status_tree.currentItem()
+        if item is None:
+            return None
+        value = item.data(0, Qt.ItemDataRole.UserRole)
+        return str(value) if value else None
+
+    def _on_status_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
+        """Checkbox = stage/unstage that single file."""
+        if self._populating_status or column != 0 or not self._git:
+            return
+        filepath = item.data(0, Qt.ItemDataRole.UserRole)
+        if not filepath:
+            return
+        if item.checkState(0) == Qt.CheckState.Checked:
+            ok = self._git.add(filepath)
+            action = tr("git.staged", default="Aggiunto allo stage: {file}", file=filepath)
+        else:
+            rc, _out, err = self._git.run("reset", "HEAD", "--", filepath)
+            ok = rc == 0
+            action = tr("git.unstaged", default="Rimosso dallo stage: {file}", file=filepath)
+            if not ok and err:
+                action = err
+        self._log(action, ok)
+        if ok:
+            self._refresh_status()
+
+    def _on_status_double_click(self, item: QTreeWidgetItem, _column: int) -> None:
+        filepath = item.data(0, Qt.ItemDataRole.UserRole)
+        if filepath:
+            self._open_file(str(filepath))
+
+    def _stage_all(self) -> None:
+        if not self._git_fw:
+            return
+        ok = self._git_fw.stage_all()
+        self._log(
+            tr("git.stage_all_done", default="Tutte le modifiche aggiunte allo stage")
+            if ok else tr("git.stage_all_failed", default="Stage di tutte le modifiche fallito"),
+            ok,
+        )
+        if ok:
+            self._refresh_status()
+
+    def _unstage_all(self) -> None:
+        if not self._git_fw:
+            return
+        ok = self._git_fw.unstage_all()
+        self._log(
+            tr("git.unstage_all_done", default="Stage svuotato")
+            if ok else tr("git.unstage_all_failed", default="Svuotamento dello stage fallito"),
+            ok,
+        )
+        if ok:
+            self._refresh_status()
 
     def _refresh_log(self) -> None:
-        self._log_list.clear()
         if not self._git_fw:
             return
         if self._log_worker:
@@ -558,6 +885,7 @@ class _GitPanel(QWidget):
             if (self._git_fw is not git or self._repo_dir != repo_dir
                     or self._log_generation != generation):
                 return
+            self._log_list.clear()
             for c in commits:
                 item = QTreeWidgetItem([c["short"], c["date"], c["author"], c["subject"]])
                 item.setData(0, Qt.ItemDataRole.UserRole, c["hash"])
@@ -599,13 +927,39 @@ class _GitPanel(QWidget):
     def _commit(self) -> None:
         if not self._git_fw:
             return
-        msg, ok = QInputDialog.getText(
-            self, "Commit", "Messaggio di commit:"
-        )
-        if not ok or not msg.strip():
+        files = [path for _x, _y, path in self._status_entries]
+        if not files:
+            QMessageBox.information(
+                self, "Git",
+                tr("git.nothing_to_commit", default="Nessuna modifica da committare."),
+            )
             return
-        self._log("Commit in corso...", None)
-        self._git_fw.commit_async(msg.strip(), callback=self._on_async_done)
+        branch = self._git_fw.current_branch()
+        staged = [path for x, _y, path in self._status_entries
+                  if x not in (" ", "?", "!")]
+        dlg = _CommitDialog(
+            files, branch, self,
+            preselected=staged if staged else files,
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        message, selected = dlg.values()
+        if not message:
+            return
+        if not selected:
+            QMessageBox.warning(
+                self, "Git",
+                tr("git.no_files_selected",
+                   default="Seleziona almeno un file da includere nel commit."),
+            )
+            return
+        self._log(tr(
+            "git.commit_started",
+            default="Commit di {count} file in corso…", count=len(selected),
+        ), None)
+        self._git_fw.commit_async(
+            message, files=selected, callback=self._on_async_done
+        )
 
     def _stash(self) -> None:
         if not self._git_fw:
@@ -621,18 +975,50 @@ class _GitPanel(QWidget):
             self._git_fw.stash_push_async(callback=self._on_async_done)
 
     def _checkout_branch(self, item: QListWidgetItem) -> None:
+        self._checkout_named_branch(item.text())
+
+    def _checkout_selected_branch(self) -> None:
+        item = self._branch_list.currentItem()
+        if item is None:
+            QMessageBox.information(
+                self, "Git",
+                tr("git.select_branch", default="Seleziona una branch dall'elenco."),
+            )
+            return
+        self._checkout_named_branch(item.text())
+
+    def _checkout_named_branch(self, raw_name: str) -> None:
         if not self._git_fw:
             return
-        br = item.text().strip().lstrip("★ ").strip()
-        self._log(f"Checkout {br}...", None)
+        br = raw_name.strip()
+        if br.startswith("★ "):
+            br = br[2:].strip()
+        if not br:
+            return
+        if br == self._git_fw.current_branch():
+            return
+        reply = QMessageBox.question(
+            self, "Git",
+            tr("git.checkout_confirm",
+               default="Passare alla branch «{branch}»?", branch=br),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._log(tr("git.checkout_started",
+                     default="Checkout {branch}…", branch=br), None)
         self._git_fw.checkout_async(br, callback=self._on_async_done)
 
     def _new_branch(self) -> None:
         if not self._git_fw:
             return
-        name, ok = QInputDialog.getText(self, "Nuova branch", "Nome branch:")
+        name, ok = QInputDialog.getText(
+            self, "Git", tr("git.new_branch_prompt", default="Nome branch:")
+        )
         if ok and name.strip():
-            self._log(f"Creazione branch {name.strip()}...", None)
+            self._log(tr("git.branch_creating",
+                         default="Creazione branch {branch}…", branch=name.strip()), None)
             self._git_fw.checkout_async(name.strip(), create=True, callback=self._on_async_done)
 
     # ── Diff ─────────────────────────────────────────────────────────────────
@@ -640,13 +1026,14 @@ class _GitPanel(QWidget):
     def _show_diff(self) -> None:
         if not self._git_fw:
             return
-        editor = self._mw._tab_manager.current_editor()
-        path = None
-        if editor and editor.file_path and self._repo_dir:
-            try:
-                path = str(editor.file_path.relative_to(self._repo_dir))
-            except ValueError:
-                pass
+        path = self._selected_status_path()
+        if path is None:
+            editor = self._mw._tab_manager.current_editor()
+            if editor and editor.file_path and self._repo_dir:
+                try:
+                    path = str(editor.file_path.relative_to(self._repo_dir))
+                except ValueError:
+                    pass
         if self._diff_worker:
             self._diff_worker.cancel()
         git = self._git_fw
@@ -659,7 +1046,12 @@ class _GitPanel(QWidget):
             if (self._git_fw is not git or self._repo_dir != repo_dir
                     or self._diff_generation != generation):
                 return
-            self._diff_view.setPlainText(diff_text or "(nessuna differenza)")
+            scope = path or tr("git.whole_repo", default="intero repository")
+            mode = "staged" if staged else "worktree"
+            self._diff_label.setText(f"{scope}  ({mode})")
+            self._diff_view.setPlainText(
+                diff_text or tr("git.no_diff", default="(nessuna differenza)")
+            )
             self._colorize_diff()
 
         self._diff_worker = git.diff_async(path, staged, _done)
@@ -707,35 +1099,72 @@ class _GitPanel(QWidget):
         if not item:
             return
         filepath = item.data(0, Qt.ItemDataRole.UserRole)
+        if not filepath:
+            return
         menu = QMenu(self)
-        menu.addAction("git add",      lambda: self._stage(filepath))
-        menu.addAction("git reset HEAD", lambda: self._unstage(filepath))
-        menu.addAction("git checkout --", lambda: self._discard(filepath))
+        menu.addAction(tr("git.stage_file", default="Aggiungi allo stage"),
+                       lambda: self._stage(filepath))
+        menu.addAction(tr("git.unstage_file", default="Rimuovi dallo stage"),
+                       lambda: self._unstage(filepath))
         menu.addSeparator()
-        menu.addAction("Apri nell'editor",
+        menu.addAction(tr("git.show_diff", default="Mostra diff"),
+                       lambda: self._show_diff_for(filepath))
+        menu.addAction(tr("git.open_editor", default="Apri nell'editor"),
                        lambda: self._open_file(filepath))
-        menu.addAction("Apri su GitHub/GitLab",
+        menu.addAction(tr("git.open_remote", default="Apri su GitHub/GitLab"),
                        lambda: self._open_remote_url(filepath))
+        menu.addSeparator()
+        menu.addAction(tr("git.discard_file", default="Annulla modifiche…"),
+                       lambda: self._discard(filepath))
         menu.exec(self._status_tree.viewport().mapToGlobal(pos))
 
     def _stage(self, filepath: str) -> None:
         if self._git:
-            self._git.add(filepath)
+            ok = self._git.add(filepath)
+            self._log(
+                tr("git.staged", default="Aggiunto allo stage: {file}", file=filepath)
+                if ok else tr("git.stage_failed", default="Stage fallito: {file}", file=filepath),
+                ok,
+            )
             self._refresh_status()
 
     def _unstage(self, filepath: str) -> None:
         if self._git:
-            self._git.run("reset", "HEAD", "--", filepath)
+            rc, _out, err = self._git.run("reset", "HEAD", "--", filepath)
+            ok = rc == 0
+            self._log(
+                tr("git.unstaged", default="Rimosso dallo stage: {file}", file=filepath)
+                if ok else err,
+                ok,
+            )
             self._refresh_status()
+
+    def _show_diff_for(self, filepath: str) -> None:
+        for index in range(self._status_tree.topLevelItemCount()):
+            item = self._status_tree.topLevelItem(index)
+            if item.data(0, Qt.ItemDataRole.UserRole) == filepath:
+                self._status_tree.setCurrentItem(item)
+                break
+        self._tabs.setCurrentWidget(self._diff_widget)
+        self._show_diff()
 
     def _discard(self, filepath: str) -> None:
         reply = QMessageBox.question(
-            self, "Discard",
-            f"Annullare le modifiche a «{filepath}»? (non recuperabile)",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            self, "Git",
+            tr("git.discard_confirm",
+               default="Annullare le modifiche a «{file}»?\n"
+                       "L'operazione non è recuperabile.",
+               file=filepath),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes and self._git:
-            self._git.run("checkout", "--", filepath)
+            rc, _out, err = self._git.run("checkout", "--", filepath)
+            self._log(
+                tr("git.discarded", default="Modifiche annullate: {file}", file=filepath)
+                if rc == 0 else err,
+                rc == 0,
+            )
             self._refresh_status()
 
     def _open_file(self, filepath: str) -> None:
@@ -758,7 +1187,7 @@ class _GitPanel(QWidget):
             host, path = m.group(1), m.group(2)
             url = f"https://{host}/{path}/blob/{branch}/{filepath}"
         elif remote_url.startswith("https://"):
-            base = remote_url.rstrip(".git")
+            base = remote_url[:-4] if remote_url.endswith(".git") else remote_url
             url = f"{base}/blob/{branch}/{filepath}"
         else:
             QMessageBox.information(self, "Git", f"Remote: {remote_url}")
@@ -860,7 +1289,7 @@ class _GitPanel(QWidget):
         prefix = "✓" if success else "✗" if success is False else "⏳"
         color  = "#56bd5b" if success else "#e06c75" if success is False else "#61afef"
         self._log_output.append(
-            f'<span style="color:{color}">{prefix}</span> {msg}'
+            f'<span style="color:{color}">{prefix}</span> {html.escape(str(msg))}'
         )
 
 

@@ -97,6 +97,35 @@ class TabularAndTikzTest(unittest.TestCase):
         issues = tabular_column_issues(text)
         self.assertTrue(any("Colonne" in issue["msg"] for issue in issues))
 
+    def test_tblr_colspec_is_checked(self):
+        text = (
+            "\\begin{tblr}{colspec={ll}}\n"
+            "a & b \\\\\n"
+            "c & d & e \\\\\n"
+            "\\end{tblr}"
+        )
+        issues = tabular_column_issues(text)
+        self.assertTrue(any("3 nella riga" in issue["msg"] for issue in issues))
+
+    def test_longtblr_caption_does_not_break_colspec(self):
+        text = (
+            "\\begin{longtblr}[caption={A {nested} caption}]{colspec={lcr}, hlines}\n"
+            "a & b & c \\\\\n"
+            "d & e \\\\\n"
+            "\\end{longtblr}"
+        )
+        issues = tabular_column_issues(text)
+        self.assertTrue(any("2 nella riga" in issue["msg"] for issue in issues))
+        self.assertTrue(all("lcr" in issue["msg"] for issue in issues
+                            if "colspec" in issue["msg"]))
+
+    def test_tblr_without_colspec_is_ignored(self):
+        text = "\\begin{tblr}\na & b \\\\\n\\end{tblr}"
+        self.assertEqual(tabular_column_issues(text), [])
+
+    def test_tblr_x_column_options_are_not_counted_as_columns(self):
+        self.assertEqual(count_tabular_cols("|l|X[c]|X[2,m]|"), 3)
+
     def test_tikz_semicolon_issues_is_pure(self):
         text = "\\begin{tikzpicture}\n\\draw (0,0) -- (1,1)\n\\end{tikzpicture}"
         issues = tikz_semicolon_issues(text)

@@ -95,15 +95,20 @@ def format_balance_issue(
 
 _COL_CHARS = frozenset("lcrpLCRX")
 
+# tabularray environments: their column specification lives in the
+# ``colspec=...`` key of the mandatory argument instead of a positional group.
+TBLR_ENVS = frozenset({"tblr", "longtblr", "talltblr"})
+
 # LaTeX tabular environments with a column specification.
 _TABULAR_ENVS = frozenset({
     "tabular", "tabular*", "tabularx", "tabulary",
     "array", "longtable", "supertabular", "xltabular",
-})
+}) | TBLR_ENVS
 
 _RE_BEGIN_ENV = re.compile(r"\\begin\{([^}]+)\}")
 _RE_END_ENV = re.compile(r"\\end\{([^}]+)\}")
 _RE_RULE = re.compile(r"^\s*\\(?:hline|toprule|midrule|bottomrule|cline)\b")
+_RE_COLSPEC = re.compile(r"\bcolspec\s*=\s*")
 _ROW_SPECIAL_RE = re.compile(r"[\\{}&]")
 
 _RE_LENGTH_MACRO = re.compile(r"^\\[A-Za-z]+$")
@@ -219,6 +224,12 @@ def count_tabular_cols(col_spec: str) -> int:
                     group = read_group(spec, index)
                     if group is not None:
                         index = group[1]
+                elif index < len(spec) and spec[index] == "[":
+                    # tabularray X[c], X[2,m] ...: the brackets are options,
+                    # not additional column letters.
+                    close = spec.find("]", index)
+                    if close != -1:
+                        index = close + 1
                 continue
             if char in "><!@" and index + 1 < len(spec):
                 group = read_group(spec, index + 1)
@@ -243,14 +254,39 @@ def nth_ampersand_pos(row: str, n: int) -> int:
     return positions[n - 1] if 0 < n <= len(positions) else -1
 
 
+def _extract_tblr_col_spec(after_begin: str, offset: int):
+    """Return the ``colspec={...}`` value of a tabularray environment.
+
+    ``tblr``/``longtblr``/``talltblr`` accept an optional argument first and a
+    mandatory key/value argument second, e.g.
+    ``\\begin{longtblr}[caption={x}]{colspec={ll}, hlines}``.  The generic
+    positional parser cannot see through those nested groups.
+    """
+    match = _RE_COLSPEC.search(after_begin)
+    if match is None:
+        return None, -1, -1
+    start = match.end()
+    while start < len(after_begin) and after_begin[start].isspace():
+        start += 1
+    group = read_group(after_begin, start)
+    if group is None:
+        return None, -1, -1
+    spec, end = group
+    return spec, offset + start, offset + end
+
+
 def extract_col_spec(after_begin: str, offset: int, env_name: str = ""):
     """Column spec from the text following ``\\begin{env}``.
 
     For ``tabular*``/``tabularx``/``tabulary`` the second group is the spec
     (the first is the width); for the others it is the first.  If the expected
-    group looks like a width argument the other group is used.  Returns
+    group looks like a width argument the other group is used.  tabularray
+    environments use ``colspec={...}`` instead.  Returns
     ``(col_spec, start, end)`` or ``(None, -1, -1)``.
     """
+    if env_name in TBLR_ENVS:
+        return _extract_tblr_col_spec(after_begin, offset)
+
     two_arg = frozenset({"tabular*", "tabularx", "tabulary", "xltabular"})
 
     brace_depth = 0
@@ -361,7 +397,13 @@ def tabular_column_issues(
             if ("\\begin" in row_text or "\\end" in row_text) and (
                     _RE_BEGIN_ENV.search(row_text) or _RE_END_ENV.search(row_text)):
                 continue
-            if "&" not in row_text and not any(c in _COL_CHARS for c in row_text):
+            # For classic tabular a line without ``&`` is often a caption or a
+            # command inside the environment.  tabularray rows, however, may
+            # legitimately be single-cell rows (``\SetCell{...} text \\``), so
+            # they must be counted.
+            if (env_name not in TBLR_ENVS
+                    and "&" not in row_text
+                    and not any(c in _COL_CHARS for c in row_text)):
                 continue
             actual = count_row_cols(row_text)
             if actual > max_actual:
@@ -373,11 +415,13 @@ def tabular_column_issues(
                     amp_pos = nth_ampersand_pos(row_text, declared)
                     if amp_pos >= 0:
                         highlight_start = amp_pos
+                spec_label = (f"{{colspec={{{col_spec}}}}}" if env_name in TBLR_ENVS
+                              else f"{{{col_spec}}}")
                 row_issues.append({
                     "line":     row,
                     "severity": "warning",
                     "msg":      f"Colonne: {actual} nella riga, {declared} dichiarate "
-                                f"in \\begin{{{env_name}}}{{{col_spec}}}",
+                                f"in \\begin{{{env_name}}}{spec_label}",
                     "col_line": index,
                     "col_start": spec_start,
                     "col_end":   spec_end,
@@ -474,6 +518,7 @@ def tikz_semicolon_issues(
 
 __all__ = [
     "BalanceIssue",
+    "TBLR_ENVS",
     "count_row_cols",
     "count_tabular_cols",
     "environment_balance",

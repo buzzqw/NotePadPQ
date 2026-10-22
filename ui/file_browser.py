@@ -11,13 +11,37 @@ from typing import Optional
 
 from i18n.i18n import tr
 from core.external_open import open_url as _open_url
+from config.settings import Settings
 from PyQt6.QtCore import Qt, QDir, pyqtSignal
-from PyQt6.QtGui import QFileSystemModel, QAction
+from PyQt6.QtGui import QFileSystemModel, QAction, QDrag
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeView,
     QToolButton, QLineEdit, QFileDialog, QMenu, QAbstractItemView,
     QInputDialog, QMessageBox,
 )
+
+
+# MIME marker used to distinguish a drag started inside NotePadPQ's file
+# browser from a file dropped by an external application.  The editor uses it
+# to insert ``\include{...}`` for .tex files instead of opening a new tab.
+FILEBROWSER_MIME = "application/x-notepadpq-filebrowser"
+
+
+class _FileTreeView(QTreeView):
+    """QTreeView that tags its drags with ``FILEBROWSER_MIME``."""
+
+    def startDrag(self, supported_actions) -> None:  # Qt enum in signature
+        indexes = self.selectedIndexes()
+        if not indexes:
+            return
+        model = self.model()
+        mime = model.mimeData(indexes) if model is not None else None
+        if mime is None:
+            return
+        mime.setData(FILEBROWSER_MIME, b"1")
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.CopyAction)
 
 
 class FileBrowser(QWidget):
@@ -27,12 +51,16 @@ class FileBrowser(QWidget):
     """
 
     file_open_requested = pyqtSignal(object)   # Path
+    follow_changed = pyqtSignal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self._root: Path = Path.home()
+        self._root: Optional[Path] = None
+        self._follow_active = bool(
+            Settings.instance().get("file_browser/follow_active_file", True)
+        )
         self._setup_ui()
-        self._set_root(self._root)
+        self._set_root(Path.home())
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -55,7 +83,7 @@ class FileBrowser(QWidget):
         btn_home.setToolTip(tr("tooltip.filebrowser_home"))
         btn_home.setAccessibleName(tr("tooltip.filebrowser_home"))
         btn_home.setAccessibleDescription(tr("tooltip.filebrowser_home"))
-        btn_home.clicked.connect(lambda: self._set_root(Path.home()))
+        btn_home.clicked.connect(lambda: self._manual_set_root(Path.home()))
         bar.addWidget(btn_home)
 
         btn_choose = QToolButton()
@@ -74,16 +102,35 @@ class FileBrowser(QWidget):
         btn_up.clicked.connect(self._go_up)
         bar.addWidget(btn_up)
 
+        self._btn_follow = QToolButton()
+        self._btn_follow.setText("📍")
+        self._btn_follow.setCheckable(True)
+        self._btn_follow.setChecked(self._follow_active)
+        self._btn_follow.setToolTip(tr(
+            "tooltip.filebrowser_follow",
+            default="Segui il file attivo: imposta la radice alla cartella del documento",
+        ))
+        self._btn_follow.setAccessibleName(self._btn_follow.toolTip())
+        self._btn_follow.toggled.connect(self._on_follow_toggled)
+        bar.addWidget(self._btn_follow)
+
         layout.addLayout(bar)
 
         # Albero filesystem
         self._model = QFileSystemModel()
+        # Don't watch the whole tree while the panel is hidden: QFileSystemModel
+        # can generate a lot of inotify traffic on large roots (#4700 in
+        # TeXstudio).  showEvent/hideEvent toggle this option.
+        self._model.setOption(
+            QFileSystemModel.Option.DontWatchForChanges, True
+        )
         self._model.setRootPath("")
         self._model.setFilter(
             QDir.Filter.AllEntries | QDir.Filter.NoDotAndDotDot | QDir.Filter.Hidden
         )
 
-        self._tree = QTreeView()
+        self._tree = _FileTreeView()
+        self._tree.setObjectName("FileBrowserTree")
         self._tree.setAccessibleName(tr("action.view_file_browser"))
         self._tree.setAccessibleDescription(tr("tooltip.filebrowser_path"))
         self._tree.setModel(self._model)
@@ -92,6 +139,9 @@ class FileBrowser(QWidget):
         self._tree.setSortingEnabled(True)
         self._tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         self._tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._tree.setDragEnabled(True)
+        self._tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self._tree.setDefaultDropAction(Qt.DropAction.CopyAction)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
 
@@ -107,26 +157,73 @@ class FileBrowser(QWidget):
     # ── Navigazione ───────────────────────────────────────────────────────────
 
     def _set_root(self, path: Path) -> None:
+        path = Path(path)
+        if self._root == path and self._model.rootPath():
+            return
         self._root = path
         self._path_edit.setText(str(path))
         idx = self._model.setRootPath(str(path))
         self._tree.setRootIndex(idx)
 
+    def _manual_set_root(self, path: Path) -> None:
+        """Navigazione manuale: sblocca il "segui file attivo"."""
+        if self._follow_active:
+            self._btn_follow.setChecked(False)
+        self._set_root(path)
+
     def _choose_root(self) -> None:
         folder = QFileDialog.getExistingDirectory(
-            self, tr("file_browser.choose_folder", default="Scegli cartella"), str(self._root)
+            self, tr("file_browser.choose_folder", default="Scegli cartella"),
+            str(self._root or Path.home()),
         )
         if folder:
-            self._set_root(Path(folder))
+            self._manual_set_root(Path(folder))
 
     def _go_up(self) -> None:
+        if self._root is None:
+            return
         parent = self._root.parent
         if parent != self._root:
-            self._set_root(parent)
+            self._manual_set_root(parent)
+
+    # ── Segui file attivo ─────────────────────────────────────────────────────
+
+    def follows_active_file(self) -> bool:
+        return self._follow_active
+
+    def _on_follow_toggled(self, checked: bool) -> None:
+        self._follow_active = checked
+        Settings.instance().set("file_browser/follow_active_file", checked)
+        self._btn_follow.setToolTip(tr(
+            "tooltip.filebrowser_follow",
+            default="Segui il file attivo: imposta la radice alla cartella del documento",
+        ))
+        self.follow_changed.emit(checked)
 
     def set_root_from_file(self, file_path: Path) -> None:
-        """Imposta la radice alla cartella del file aperto."""
-        self._set_root(file_path.parent)
+        """Imposta la radice alla cartella del file aperto e lo seleziona."""
+        if not self._follow_active:
+            return
+        target = Path(file_path)
+        self._set_root(target.parent)
+        index = self._model.index(str(target))
+        if index.isValid():
+            self._tree.setCurrentIndex(index)
+            self._tree.scrollTo(index, QAbstractItemView.ScrollHint.EnsureVisible)
+
+    # ── Watcher ───────────────────────────────────────────────────────────────
+
+    def showEvent(self, event) -> None:
+        self._model.setOption(
+            QFileSystemModel.Option.DontWatchForChanges, False
+        )
+        super().showEvent(event)
+
+    def hideEvent(self, event) -> None:
+        self._model.setOption(
+            QFileSystemModel.Option.DontWatchForChanges, True
+        )
+        super().hideEvent(event)
 
     # ── Interazione ───────────────────────────────────────────────────────────
 
@@ -143,7 +240,8 @@ class FileBrowser(QWidget):
     def _on_context_menu(self, pos) -> None:
         index = self._tree.indexAt(pos)
         path = Path(self._model.filePath(index)) if index.isValid() else None
-        folder = path.parent if (path and path.is_file()) else (path or self._root)
+        root = self._root or Path.home()
+        folder = path.parent if (path and path.is_file()) else (path or root)
         menu = QMenu(self)
 
         if path and path.is_file():
@@ -174,12 +272,14 @@ class FileBrowser(QWidget):
             menu.addSeparator()
             act_set_root = QAction(tr("file_browser.act_set_root"), self)
             act_set_root.triggered.connect(
-                lambda: self._set_root(path if path.is_dir() else path.parent)
+                lambda: self._manual_set_root(
+                    path if path.is_dir() else path.parent
+                )
             )
             menu.addAction(act_set_root)
 
         act_reveal = QAction(tr("file_browser.reveal_in_fm", default="Mostra nel file manager"), self)
-        act_reveal.triggered.connect(lambda: self._reveal(path or self._root))
+        act_reveal.triggered.connect(lambda: self._reveal(path or root))
         menu.addAction(act_reveal)
 
         menu.exec(self._tree.viewport().mapToGlobal(pos))

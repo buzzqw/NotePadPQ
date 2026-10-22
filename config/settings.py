@@ -48,6 +48,8 @@ _DEFAULTS: dict[str, Any] = {
     "file/defer_tabs_threshold_mb": 4,      # differisce i file sotto questa soglia
     "file/prefetch_budget_mb":      256,    # budget RAM per il prefetch in idle
     "file/recent_max":         20,
+    # File Browser: sincronizza la radice con la cartella del file attivo.
+    "file_browser/follow_active_file": True,
     "search/auto_refresh_results": True,
     # Autocompletamento
     "autocomplete/enabled":    True,

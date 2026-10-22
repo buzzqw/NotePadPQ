@@ -1793,18 +1793,24 @@ class EditorWidget(QsciScintilla):
         super().dragEnterEvent(event)
 
     def dropEvent(self, event: QDropEvent) -> None:
-        """Passa immagini locali agli assistenti LaTeX/Markdown senza aprirle come tab."""
+        """Gestisce drop di immagini e file, anche dal File Browser interno."""
+        mime = event.mimeData()
+        local_paths = [
+            Path(url.toLocalFile())
+            for url in mime.urls()
+            if url.isLocalFile()
+        ]
+        from ui.file_browser import FILEBROWSER_MIME
+        internal_drag = mime.hasFormat(FILEBROWSER_MIME)
         is_latex = (
             (self.file_path and self.file_path.suffix.lower() in {".tex", ".ltx", ".latex"})
             or getattr(self, "_current_language", "").lower() == "latex"
         )
-        paths = [
-            Path(url.toLocalFile())
-            for url in event.mimeData().urls()
-            if url.isLocalFile() and self._is_latex_image_drop(Path(url.toLocalFile()))
+        image_paths = [
+            path for path in local_paths if self._is_latex_image_drop(path)
         ]
-        if is_latex and paths:
-            for path in paths:
+        if is_latex and image_paths:
+            for path in image_paths:
                 self.latex_image_drop_requested.emit(path)
             event.acceptProposedAction()
             return
@@ -1812,24 +1818,59 @@ class EditorWidget(QsciScintilla):
             (self.file_path and self.file_path.suffix.lower() in {".md", ".markdown", ".mdown", ".mkdn", ".mdwn", ".rmd"})
             or "markdown" in getattr(self, "_current_language", "").lower()
         )
-        if is_markdown and paths:
-            for path in paths:
+        if is_markdown and image_paths:
+            for path in image_paths:
                 self.markdown_image_drop_requested.emit(path)
             event.acceptProposedAction()
             return
-        if event.mimeData().hasUrls():
-            paths = [
-                Path(url.toLocalFile())
-                for url in event.mimeData().urls()
-                if url.isLocalFile()
-            ]
-            if paths:
-                window = self.window()
-                if hasattr(window, "open_files"):
-                    window.open_files(paths)
+
+        # Drag interno dal File Browser: un .tex rilasciato su un documento
+        # LaTeX inserisce un riferimento, invece di aprire un nuovo tab.
+        if is_latex and internal_drag:
+            inserted = False
+            for path in local_paths:
+                if path.suffix.lower() in {".tex", ".ltx", ".latex"}:
+                    self._insert_latex_include(path)
+                    inserted = True
+            if inserted:
                 event.acceptProposedAction()
                 return
+
+        if local_paths:
+            window = self.window()
+            if hasattr(window, "open_files"):
+                window.open_files(local_paths)
+            event.acceptProposedAction()
+            return
         super().dropEvent(event)
+
+    def _insert_latex_include(self, target: Path) -> None:
+        """Inserisce ``\\include{relpath}`` (o ``\\input`` per i sottofile)."""
+        base = self.file_path.parent if self.file_path else Path.cwd()
+        try:
+            arg = target.resolve().relative_to(base.resolve()).as_posix()
+        except ValueError:
+            arg = target.as_posix()
+        for extension in (".tex", ".ltx", ".latex"):
+            if arg.lower().endswith(extension):
+                arg = arg[:-len(extension)]
+                break
+
+        # In un sottofile \include non è consentito: usa \input.
+        head = "\n".join(
+            self.text(line) for line in range(min(self.lines(), 80))
+        )
+        command = "include" if "\\documentclass" in head else "input"
+        snippet = f"\\{command}{{{arg}}}\n"
+        self.beginUndoAction()
+        try:
+            if self.hasSelectedText():
+                self.replaceSelectedText(snippet)
+            else:
+                self.insert(snippet)
+        finally:
+            self.endUndoAction()
+        self.setFocus()
 
     def keyPressEvent(self, event) -> None:
         """Intercetta Insert per toggle overwrite e registra macro."""

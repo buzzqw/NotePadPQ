@@ -2278,6 +2278,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_json_xml_panel"):
             self._json_xml_panel.set_editor(editor)
 
+        # File browser: segui la cartella del documento attivo (solo quando il
+        # dock è visibile, per non popolare il modello in background).
+        self._sync_file_browser(editor)
+
         # Scollega i segnali dell'editor precedente
         prev = self._prev_editor
         if prev is not None and prev is not editor:
@@ -2855,6 +2859,8 @@ class MainWindow(QMainWindow):
                 tab.ensureLineVisible(max(0, pc[0] - 1))
             except Exception:
                 pass
+        if tab is self._tab_manager.current_editor():
+            self._sync_file_browser(tab)
 
     def _load_deferred(self, editor) -> None:
         """Carica il contenuto di un tab differito alla prima attivazione."""
@@ -4127,13 +4133,33 @@ class MainWindow(QMainWindow):
             self._file_browser.file_open_requested.connect(
                 lambda p: self.open_files([p])
             )
+            self._file_browser.follow_changed.connect(
+                lambda _checked: self._sync_file_browser(
+                    self._tab_manager.current_editor()
+                )
+            )
             self._file_browser_dock.setWidget(self._file_browser)
         return self._file_browser
+
+    def _sync_file_browser(self, editor) -> None:
+        """Allinea la radice del File Browser al file attivo, se visibile."""
+        browser = getattr(self, "_file_browser", None)
+        dock = getattr(self, "_file_browser_dock", None)
+        if browser is None or dock is None or not dock.isVisible():
+            return
+        path = getattr(editor, "file_path", None) if editor is not None else None
+        if path is None:
+            return
+        # I percorsi FTP/remoti non esistono nel filesystem locale.
+        if getattr(editor, "_ftp_remote_path", None):
+            return
+        browser.set_root_from_file(path)
 
     def _on_file_browser_visibility(self, visible: bool) -> None:
         # Copre anche il ripristino del layout di sessione.
         if visible:
             self._ensure_file_browser()
+            self._sync_file_browser(self._tab_manager.current_editor())
         self._on_dock_visibility_changed("view_file_browser", visible)
 
     def _toggle_file_browser(self, checked: bool) -> None:

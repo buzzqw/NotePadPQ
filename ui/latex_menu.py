@@ -377,6 +377,10 @@ class LatexMenuManager:
                   lambda: self._insert_tabular("tabularx"))
         self._act(s, "\\begin{longtable}",
                   lambda: self._insert_tabular("longtable"))
+        self._act(s, "\\begin{xltabular}",
+                  lambda: self._insert_tabular("xltabular"))
+        self._act(s, "\\begin{tblr}",
+                  lambda: self._insert_tabular("tblr"))
         self._act(s, "\\begin{array}",
                   lambda: self._insert_tabular("array"))
         return s
@@ -539,9 +543,13 @@ class LatexMenuManager:
         from PyQt6.QtWidgets import QDialog
         from ui.latex_citation_dialog import (
             LatexCitationChooserDialog, project_bibtex_keys,
+            project_bibtex_metadata,
         )
 
-        dlg = LatexCitationChooserDialog(project_bibtex_keys(ed), parent=self._mw)
+        dlg = LatexCitationChooserDialog(
+            project_bibtex_keys(ed), parent=self._mw,
+            metadata=project_bibtex_metadata(ed),
+        )
         if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selected_key:
             ed.setFocus()
             return
@@ -693,9 +701,12 @@ class LatexMenuManager:
             return
         ed.beginUndoAction()
         line, col = ed.getCursorPosition()
-        if env == "tabularx":
+        if env in ("tabularx", "xltabular"):
             header = f"\\begin{{{env}}}{{\\textwidth}}{{}}"
             cursor_col = col + len(f"\\begin{{{env}}}{{\\textwidth}}{{")
+        elif env == "tblr":
+            header = "\\begin{tblr}{colspec={}}"
+            cursor_col = col + len("\\begin{tblr}{colspec={")
         else:
             header = f"\\begin{{{env}}}{{}}"
             cursor_col = col + len(f"\\begin{{{env}}}{{")

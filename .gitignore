@@ -78,6 +78,7 @@ tests/*
 !tests/test_latex_external_tools.py
 !tests/test_latex_references.py
 !tests/test_cwl.py
+!tests/test_autocomplete_popup.py
 !tests/test_latex_parser.py
 !tests/test_bibtex_parser.py
 !tests/test_latex_integration.py

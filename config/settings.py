@@ -101,6 +101,7 @@ _DEFAULTS: dict[str, Any] = {
     # LaTeX
     "latex/env_usage_counts":  "{}",  # JSON: {env_name: count} per ordinare il popup \begin{
     "latex/cwl_directories":    [],    # directory .cwl aggiuntive, in ordine di precedenza
+    "latex/completion_usage_counts": "{}",  # JSON: frequenza dei completamenti scelti
     # Function List
     "function_list/latex_hidden_kinds": "",  # CSV: "subsubsection,command" ecc.
     "function_list/disabled_presets":   "",  # CSV: preset JSON disabilitati

@@ -350,6 +350,15 @@ class _CommitDialog(QDialog):
         ))
         layout.addWidget(info)
 
+        hint = QLabel(tr(
+            "git.commit_preselection_hint",
+            default="Preselezionati i file in stage o modificati rispetto al "
+                    "remote; i file non tracciati restano deselezionati.",
+        ))
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #858585; font-size: 11px;")
+        layout.addWidget(hint)
+
         layout.addWidget(QLabel(tr(
             "git.commit_message", default="Messaggio di commit:"
         )))
@@ -478,8 +487,8 @@ class _GitPanel(QWidget):
         acts = QHBoxLayout()
         for label, tip, slot in [
             ("↓ Pull",   tr("tooltip.git_pull"),   self._pull),
-            ("↑ Push",   tr("tooltip.git_push"),   self._push),
             ("✓ Commit", tr("tooltip.git_commit"), self._commit),
+            ("↑ Push",   tr("tooltip.git_push"),   self._push),
             ("≡ Stash",  tr("tooltip.git_stash"),  self._stash),
         ]:
             btn = QPushButton(label)
@@ -937,9 +946,21 @@ class _GitPanel(QWidget):
         branch = self._git_fw.current_branch()
         staged = [path for x, _y, path in self._status_entries
                   if x not in (" ", "?", "!")]
+        if staged:
+            # Le scelte esplicite dell'utente hanno sempre la precedenza.
+            preselected = staged
+        else:
+            # Non preselezionare tutto: solo i file che differiscono dal
+            # remote (o da HEAD se il branch non ha upstream). I file non
+            # tracciati restano deselezionati finché l'utente non li spunta.
+            try:
+                remote_files = set(self._git_fw.changed_files_vs_remote())
+            except Exception:
+                remote_files = set()
+            preselected = [path for path in files if path in remote_files]
         dlg = _CommitDialog(
             files, branch, self,
-            preselected=staged if staged else files,
+            preselected=preselected,
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return

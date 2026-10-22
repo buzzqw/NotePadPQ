@@ -8,7 +8,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication, QDialog
 
+from editor.autocomplete import AutoCompleteManager, _format_bibtex_completion
 from editor.editor_widget import EditorWidget, extract_latex_citation_occurrences
+from editor.latex_support import LaTeXSupport
 from ui.latex_citation_dialog import (
     LatexCitationChooserDialog,
     project_bibtex_keys,
@@ -59,6 +61,45 @@ class LatexNavigationTest(unittest.TestCase):
             self.assertEqual(
                 project_bibtex_keys(editor), ["saved", "unsaved"]
             )
+
+    def test_project_bibtex_metadata_includes_author_and_year(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "main.tex"
+            bib = root / "refs.bib"
+            main.write_text(r"\addbibresource{refs.bib}")
+            bib.write_text(
+                "@article{doe2024, author={Doe, John and Smith, Jane},"
+                " year={2024}, title={A title}}"
+            )
+
+            metadata = LaTeXSupport.extract_bibtex_metadata_multifile(main)
+
+            self.assertEqual(metadata["doe2024"]["author"], "Doe")
+            self.assertEqual(metadata["doe2024"]["year"], "2024")
+
+    def test_citation_annotations_and_fuzzy_filtering(self):
+        item = _format_bibtex_completion(
+            "doe2024", {"author": "Doe", "year": "2024"}
+        )
+        self.assertEqual(item, "doe2024  [Doe 2024]")
+        items = [item, "smith2020  [Smith 2020]"]
+        self.assertEqual(
+            AutoCompleteManager._filter_items(items, "smi", fuzzy=True),
+            ["smith2020  [Smith 2020]"],
+        )
+        self.assertEqual(
+            AutoCompleteManager._filter_items(items, "d24", fuzzy=True),
+            ["doe2024  [Doe 2024]"],
+        )
+
+    def test_chooser_shows_annotations_and_still_returns_the_key(self):
+        dialog = LatexCitationChooserDialog(
+            ["doe2024"], metadata={"doe2024": {"author": "Doe", "year": "2024"}}
+        )
+        self.assertEqual(dialog._list.item(0).text(), "doe2024  [Doe 2024]")
+        dialog._accept_selected()
+        self.assertEqual(dialog.selected_key, "doe2024")
 
     def test_chooser_filters_and_accepts_selected_key(self):
         dialog = LatexCitationChooserDialog(["Zeta", "Alpha", "beta"])

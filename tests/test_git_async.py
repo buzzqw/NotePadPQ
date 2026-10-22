@@ -6,9 +6,10 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QCheckBox, QLabel, QTextEdit, QTreeWidget
+from PyQt6.QtWidgets import QApplication, QCheckBox, QDialog, QLabel, QTextEdit, QTreeWidget
 
 from core.git_framework import GitFramework, _GitThread
+from plugins import git_plugin
 from plugins.git_plugin import _GitPanel
 
 
@@ -104,6 +105,39 @@ class GitFrameworkAsyncTests(unittest.TestCase):
     def test_parse_status_keeps_full_path_with_leading_space(self):
         parsed = GitFramework._parse_status(" M a.txt\n")
         self.assertEqual(parsed, [("M", "a.txt")])
+
+    def test_changed_files_vs_remote_prefers_upstream_and_falls_back_to_head(self):
+        framework = GitFramework(Path("repo"))
+        calls = []
+
+        def run_sync(args, timeout, strip_output=True):
+            calls.append(list(args))
+            if "@{upstream}" in args:
+                return 1, "", "no upstream configured"
+            return 0, "a.txt\nsub/b.txt\n", ""
+
+        framework._run_sync = run_sync
+
+        self.assertEqual(
+            framework.changed_files_vs_remote(), ["a.txt", "sub/b.txt"]
+        )
+        self.assertEqual(calls, [
+            ["diff", "--name-only", "@{upstream}"],
+            ["diff", "--name-only", "HEAD"],
+        ])
+
+    def test_changed_files_vs_remote_uses_upstream_when_available(self):
+        framework = GitFramework(Path("repo"))
+        calls = []
+
+        def run_sync(args, timeout, strip_output=True):
+            calls.append(list(args))
+            return 0, "only.txt\n", ""
+
+        framework._run_sync = run_sync
+
+        self.assertEqual(framework.changed_files_vs_remote(), ["only.txt"])
+        self.assertEqual(calls, [["diff", "--name-only", "@{upstream}"]])
 
     def test_async_query_failures_preserve_empty_sync_fallbacks(self):
         framework = GitFramework(Path("repo"))
@@ -252,6 +286,74 @@ class GitPanelAsyncTests(unittest.TestCase):
 
         self.assertEqual(panel._status_tree.topLevelItemCount(), 1)
         self.assertEqual(panel._status_tree.topLevelItem(0).text(1), "current.py")
+
+    def _commit_panel(self, status_entries, remote_files):
+        commits = []
+        framework = SimpleNamespace(
+            current_branch=lambda: "main",
+            changed_files_vs_remote=lambda: list(remote_files),
+            commit_async=lambda message, files=None, callback=None: commits.append(
+                (message, list(files or []))
+            ),
+        )
+        panel = SimpleNamespace(
+            _git_fw=framework,
+            _status_entries=list(status_entries),
+            _log=lambda *_args, **_kwargs: None,
+            _on_async_done=lambda *_args, **_kwargs: None,
+        )
+        return panel, commits
+
+    def test_commit_preselects_only_files_changed_against_the_remote(self):
+        class _FakeDialog:
+            instances = []
+
+            def __init__(self, files, branch, parent=None, preselected=None):
+                self.files = list(files)
+                self.preselected = list(preselected or [])
+                _FakeDialog.instances.append(self)
+
+            def exec(self):
+                return QDialog.DialogCode.Accepted
+
+            def values(self):
+                return "message", list(self.preselected)
+
+        panel, commits = self._commit_panel(
+            [(" ", "M", "a.txt"), ("?", "?", "new.txt")],
+            ["a.txt"],
+        )
+
+        with patch.object(git_plugin, "_CommitDialog", _FakeDialog):
+            _GitPanel._commit(panel)
+
+        self.assertEqual(_FakeDialog.instances[-1].preselected, ["a.txt"])
+        self.assertEqual(commits, [("message", ["a.txt"])])
+
+    def test_commit_keeps_explicitly_staged_files_preselected(self):
+        class _FakeDialog:
+            instances = []
+
+            def __init__(self, files, branch, parent=None, preselected=None):
+                self.preselected = list(preselected or [])
+                _FakeDialog.instances.append(self)
+
+            def exec(self):
+                return QDialog.DialogCode.Accepted
+
+            def values(self):
+                return "message", list(self.preselected)
+
+        panel, commits = self._commit_panel(
+            [("M", " ", "b.txt"), (" ", "M", "a.txt")],
+            ["a.txt", "b.txt"],
+        )
+
+        with patch.object(git_plugin, "_CommitDialog", _FakeDialog):
+            _GitPanel._commit(panel)
+
+        self.assertEqual(_FakeDialog.instances[-1].preselected, ["b.txt"])
+        self.assertEqual(commits, [("message", ["b.txt"])])
 
 
 if __name__ == "__main__":

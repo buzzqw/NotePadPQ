@@ -1922,6 +1922,54 @@ class LaTeXSupport:
         return sorted(set(keys))
 
     @staticmethod
+    def extract_bibtex_metadata_multifile(
+            tex_path: Optional[Path]) -> dict[str, dict[str, str]]:
+        """Return BibTeX entry metadata for the whole project.
+
+        Only ``.bib`` resources referenced by the project sources are read;
+        the result is keyed by citation key and used to annotate completion
+        popups with the first author and year.
+        """
+        from core.bibtex_parser import parse_bibtex_entries
+
+        if not tex_path:
+            return {}
+        metadata: dict[str, dict[str, str]] = {}
+        parsed: set[Path] = set()
+        for fpath in LaTeXSupport.collect_project_files(tex_path):
+            try:
+                text = _cached_read_text(fpath)
+            except Exception:
+                continue
+            code = mask_latex_comments(text)
+            for bib_name in scan_bibliography_references(code):
+                candidate = Path(fpath).parent / bib_name
+                candidates = [candidate]
+                if candidate.suffix.lower() != ".bib":
+                    candidates.extend((
+                        candidate.with_suffix(candidate.suffix + ".bib"),
+                        candidate.with_suffix(".bib"),
+                    ))
+                for bib_path in candidates:
+                    if not bib_path.is_file():
+                        continue
+                    try:
+                        resolved = bib_path.resolve()
+                    except OSError:
+                        resolved = bib_path
+                    if resolved in parsed:
+                        break
+                    parsed.add(resolved)
+                    try:
+                        metadata.update(parse_bibtex_entries(
+                            _cached_read_text(bib_path)
+                        ))
+                    except Exception:
+                        pass
+                    break
+        return metadata
+
+    @staticmethod
     def extract_custom_commands_multifile(tex_path: Optional[Path]) -> list[str]:
         """Raccoglie \\newcommand da tutti i file del progetto."""
         cmds: list[str] = []

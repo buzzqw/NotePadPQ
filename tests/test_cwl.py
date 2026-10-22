@@ -19,6 +19,16 @@ class CWLTest(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def setUp(self):
+        # Isola i test dalle frequenze d'uso salvate nelle preferenze reali.
+        from editor import autocomplete as autocomplete_module
+        self._usage_cache = autocomplete_module._USAGE_COUNTS_CACHE
+        autocomplete_module._USAGE_COUNTS_CACHE = {}
+
+    def tearDown(self):
+        from editor import autocomplete as autocomplete_module
+        autocomplete_module._USAGE_COUNTS_CACHE = self._usage_cache
+
     def test_parser_reads_commands_arguments_descriptions_and_environments(self):
         package = parse_cwl(
             "# package: Demo package\n"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -39,12 +40,28 @@ def project_bibtex_keys(editor: EditorWidget) -> list[str]:
     return sorted(keys, key=str.casefold)
 
 
+def project_bibtex_metadata(editor: EditorWidget) -> dict[str, dict[str, str]]:
+    """Return author/year metadata for the project's cited .bib entries."""
+    from editor.latex_support import LaTeXSupport
+
+    path = getattr(editor, "file_path", None)
+    if not path:
+        return {}
+    try:
+        return LaTeXSupport.extract_bibtex_metadata_multifile(path)
+    except Exception:
+        return {}
+
+
 class LatexCitationChooserDialog(QDialog):
     """Search and select one existing BibTeX key."""
 
-    def __init__(self, keys: list[str], parent: QWidget | None = None) -> None:
+    def __init__(self, keys: list[str],
+                 parent: QWidget | None = None,
+                 metadata: dict[str, dict[str, str]] | None = None) -> None:
         super().__init__(parent)
         self._keys = sorted(set(keys), key=str.casefold)
+        self._metadata = metadata or {}
         self._selected_key = ""
         self.setWindowTitle(tr("latex_citation.title", default="Scegli citazione"))
         self.setMinimumSize(420, 340)
@@ -90,12 +107,24 @@ class LatexCitationChooserDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
+    def _entry_label(self, key: str) -> str:
+        meta = self._metadata.get(key)
+        if not meta:
+            return key
+        author = meta.get("author", "").strip()
+        year = meta.get("year", "").strip()
+        annotation = " ".join(part for part in (author, year) if part)
+        return f"{key}  [{annotation}]" if annotation else key
+
     def _refresh_list(self, query: str) -> None:
         query = query.casefold().strip()
         self._list.clear()
         for key in self._keys:
-            if query in key.casefold():
-                self._list.addItem(QListWidgetItem(key))
+            label = self._entry_label(key)
+            if query in label.casefold():
+                item = QListWidgetItem(label)
+                item.setData(Qt.ItemDataRole.UserRole, key)
+                self._list.addItem(item)
         self._info.setText(
             tr("latex_citation.count", default="{count} chiavi").format(
                 count=self._list.count()
@@ -104,13 +133,18 @@ class LatexCitationChooserDialog(QDialog):
         if self._list.count():
             self._list.setCurrentRow(0)
 
+    @staticmethod
+    def _item_key(item: QListWidgetItem) -> str:
+        value = item.data(Qt.ItemDataRole.UserRole)
+        return str(value) if value else item.text().split("  [", 1)[0]
+
     def _accept_item(self, item: QListWidgetItem) -> None:
-        self._selected_key = item.text()
+        self._selected_key = self._item_key(item)
         self.accept()
 
     def _accept_selected(self) -> None:
         item = self._list.currentItem()
         if item is None:
             return
-        self._selected_key = item.text()
+        self._selected_key = self._item_key(item)
         self.accept()

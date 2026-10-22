@@ -276,6 +276,23 @@ class GitFramework:
             args, self._TIMEOUT_SHORT, strip_output=False)
         return out if rc == 0 else ""
 
+    def changed_files_vs_remote(self) -> list[str]:
+        """Files that differ from the upstream branch (or from HEAD).
+
+        ``@{upstream}`` uses the local remote-tracking ref, so no network
+        access is needed.  When the branch has no upstream, the fallback to
+        ``HEAD`` still returns tracked modifications only: untracked files
+        are deliberately not included.
+        """
+        rc, out, _ = self._run_sync(
+            ["diff", "--name-only", "@{upstream}"], self._TIMEOUT_SHORT)
+        if rc != 0:
+            rc, out, _ = self._run_sync(
+                ["diff", "--name-only", "HEAD"], self._TIMEOUT_SHORT)
+        if rc != 0:
+            return []
+        return [line.strip() for line in out.splitlines() if line.strip()]
+
     @staticmethod
     def _diff_args(path: Optional[str], staged: bool) -> list[str]:
         args = ["diff"]

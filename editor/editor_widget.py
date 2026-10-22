@@ -28,7 +28,7 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QPoint, QEvent
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QKeyEvent, QDragEnterEvent, QDropEvent
-from PyQt6.QtWidgets import QWidget, QApplication, QMenu
+from PyQt6.QtWidgets import QWidget, QApplication, QMenu, QListWidget
 
 from PyQt6.Qsci import (
     QsciScintilla,
@@ -55,6 +55,37 @@ _fitz = None          # PyMuPDF — importato solo se richiesto
 _HAS_FITZ: bool | None = None   # None = non ancora verificato
 _plt = None           # matplotlib.pyplot — importato solo se richiesto
 _HAS_MATPLOTLIB: bool | None = None
+_MATH_HOVER_CACHE: dict[tuple[str, str], object] = {}
+_MATH_HOVER_CACHE_MAX = 64
+
+_MATH_PATTERNS: tuple[tuple[re.Pattern, int], ...] = (
+    # Display formulas.  The environment patterns are single-line friendly;
+    # multi-line content is reduced to its first row below.
+    (re.compile(r"\\begin\{(equation|displaymath|math)\*?\}(.*?)"
+                r"\\end\{\1\*?\}"), 2),
+    (re.compile(r"\\begin\{(align|gather|multline|alignat|flalign)\*?\}"
+                r"(.*?)\\end\{\1\*?\}"), 2),
+    (re.compile(r"(?<!\\)\$\$(.+?)(?<!\\)\$\$"), 1),
+    (re.compile(r"\\\[(.*?)\\\]"), 1),
+    (re.compile(r"\\\((.*?)\\\)"), 1),
+    (re.compile(r"(?<!\$)(?<!\\)\$([^$\n]+?)(?<!\\)\$(?!\$)"), 1),
+)
+
+
+def _extract_math_formula(text: str, position: int) -> str | None:
+    """Return the formula containing ``position`` on a source line."""
+    for pattern, group in _MATH_PATTERNS:
+        for match in pattern.finditer(text):
+            if match.start(group) <= position <= match.end(group):
+                formula = match.group(group).strip()
+                if not formula:
+                    continue
+                # matplotlib mathtext does not support alignment tabs or row
+                # separators; keep the first row as a useful preview.
+                formula = formula.split(r"\\", 1)[0].replace("&", "")
+                formula = re.sub(r"\\(?:label|tag)\{[^{}]*\}", "", formula)
+                return formula.strip() or None
+    return None
 
 # Pattern per spell check — Unicode, copre IT/EN/DE/FR/ES e qualsiasi alfabeto latino esteso
 _RE_SPELL = re.compile(r"(?<![\\])\b[^\W\d_]+\b", re.UNICODE)
@@ -504,7 +535,8 @@ class EditorWidget(QsciScintilla):
         # Do not use QScintilla's native user-list popup.  It is created lazily
         # by the methods below and is deliberately kept separate from the
         # editor's hover popup state.
-        self._user_list_popup: Optional[QMenu] = None
+        self._user_list_popup: Optional[QListWidget] = None
+        self._user_list_id: int = 0
 
         # Multi-cursore (Ctrl+D, Ctrl+Shift+D, Ctrl+Alt+↑/↓, …)
         from editor.multicursor import MultiCursorManager
@@ -592,7 +624,7 @@ class EditorWidget(QsciScintilla):
         # X11), causando un SIGSEGV nativo in QScreen::availableGeometry().
         # Lasciamo disponibile il completamento esplicito (Ctrl+Spazio), ma
         # disabilitiamo l'apertura automatica del popup nativo: il manager usa
-        # una user-list QScintilla più sicura.
+        # una lista Qt scorrevole più sicura.
         self.setAutoCompletionThreshold(0)
         self.setAutoCompletionCaseSensitivity(False)
         self.setAutoCompletionReplaceWord(False)
@@ -2022,26 +2054,52 @@ class EditorWidget(QsciScintilla):
         QScintilla 2.14.1 calls ``QScreen::availableGeometry()`` without
         checking the result of its screen lookup.  On X11 this can terminate
         the whole Python process while typing, and Python cannot catch it.
-        A regular Qt menu provides the same keyboard/mouse selection flow but
-        does not enter that QScintilla code path.
+        A scrollable ``QListWidget`` popup provides the same selection flow
+        without entering that QScintilla code path and without the multi-column
+        layout a ``QMenu`` produces for long lists.
         """
         self._hide_user_list_popup()
         labels = [str(value) for value in strings if str(value)]
         if not labels:
             return
 
-        menu = QMenu(self)
-        menu.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        menu.setToolTipsVisible(False)
-        for label in labels:
-            menu.addAction(label)
-        menu.triggered.connect(
-            lambda action, ident=int(list_id): self.user_list_activated.emit(
-                ident, action.text()
+        popup = QListWidget(self)
+        popup.setWindowFlags(Qt.WindowType.Popup)
+        popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        popup.setUniformItemSizes(True)
+        popup.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        popup.setTextElideMode(Qt.TextElideMode.ElideRight)
+        popup.setWordWrap(False)
+        popup.addItems(labels)
+        popup.setCurrentRow(0)
+        popup.itemActivated.connect(
+            lambda item, ident=int(list_id): self._activate_user_list_item(
+                ident, item.text()
             )
         )
-        self._user_list_popup = menu
-        menu.installEventFilter(self)
+        popup.itemClicked.connect(
+            lambda item, ident=int(list_id): self._activate_user_list_item(
+                ident, item.text()
+            )
+        )
+        self._user_list_popup = popup
+        self._user_list_id = int(list_id)
+        popup.installEventFilter(self)
+
+        # Compact popup: one column with a scrollbar instead of a QMenu that
+        # splits 50+ entries into several screen-filling columns.
+        metrics = popup.fontMetrics()
+        width = min(
+            640,
+            max(220, max(metrics.horizontalAdvance(label) for label in labels) + 36),
+        )
+        row_height = popup.sizeHintForRow(0)
+        if row_height <= 0:
+            row_height = metrics.height() + 8
+        height = min(max(len(labels) * row_height + 8, row_height + 8), 280)
+        popup.resize(width, height)
 
         # Position below the current Scintilla caret.  Avoid showing a top-level
         # popup when the editor has no screen yet (e.g. during lazy startup).
@@ -2054,65 +2112,93 @@ class EditorWidget(QsciScintilla):
                 QsciScintilla.SCI_POINTYFROMPOSITION, 0, position
             )
             global_pos = self.mapToGlobal(QPoint(int(x), int(y) + 20))
+            screen = QApplication.screenAt(global_pos) or self.screen()
+            if screen is not None:
+                available = screen.availableGeometry()
+                if global_pos.y() + height > available.bottom():
+                    global_pos.setY(
+                        max(available.top(),
+                            global_pos.y() - height - row_height)
+                    )
+                if global_pos.x() + width > available.right():
+                    global_pos.setX(
+                        max(available.left(), available.right() - width)
+                    )
             if self.screen() is None and QApplication.screenAt(global_pos) is None:
-                menu.deleteLater()
+                popup.deleteLater()
                 self._user_list_popup = None
                 return
-            menu.aboutToHide.connect(
-                lambda popup=menu: self._clear_user_list_popup(popup)
-            )
-            menu.popup(global_pos)
+            popup.move(global_pos)
+            popup.show()
+            popup.setFocus(Qt.FocusReason.PopupFocusReason)
         except (RuntimeError, TypeError, ValueError):
-            menu.deleteLater()
+            popup.deleteLater()
             self._user_list_popup = None
 
-    def _clear_user_list_popup(self, popup: QMenu) -> None:
+    def _activate_user_list_item(self, list_id: int, text: str) -> None:
+        if self._user_list_popup is None:
+            return
+        self._hide_user_list_popup()
+        self.user_list_activated.emit(list_id, text)
+
+    def _accept_user_list_current(self) -> None:
+        popup = self._user_list_popup
+        if popup is None:
+            return
+        item = popup.currentItem()
+        if item is None:
+            return
+        self._activate_user_list_item(self._user_list_id, item.text())
+
+    def _clear_user_list_popup(self, popup: QWidget) -> None:
         if self._user_list_popup is popup:
             self._user_list_popup = None
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802 - Qt API
-        """Keep normal editor keys working while the completion menu is open.
+        """Keep normal editor keys working while the completion list is open.
 
-        ``QMenu.popup()`` becomes Qt's active popup and consequently receives
-        keyboard events before the editor, even when the editor still owns the
-        focus.  The native QScintilla list did not have this behaviour.  Let
-        the menu keep navigation/selection keys, but send editing keys back to
-        the editor so typing and deletion continue to work while suggestions
-        are visible.
+        The ``Qt.Popup`` list receives keyboard events before the editor even
+        when the editor still owns the focus.  Let Up/Down/PageUp/PageDown
+        navigate the list, accept with Enter/Tab and close with Escape; send
+        every other editing key back to the editor so typing and deletion
+        continue to work while suggestions are visible.
         """
         popup = self._user_list_popup
-        if (
-            popup is not None
-            and watched is popup
-            and event.type() == QEvent.Type.KeyPress
-        ):
-            navigation_keys = {
-                Qt.Key.Key_Up,
-                Qt.Key.Key_Down,
-                Qt.Key.Key_PageUp,
-                Qt.Key.Key_PageDown,
-                Qt.Key.Key_Home,
-                Qt.Key.Key_End,
-                Qt.Key.Key_Left,
-                Qt.Key.Key_Right,
-                Qt.Key.Key_Return,
-                Qt.Key.Key_Enter,
-                Qt.Key.Key_Escape,
-                Qt.Key.Key_Tab,
-            }
-            if event.key() not in navigation_keys:
-                self._hide_user_list_popup()
-                self.setFocus(Qt.FocusReason.OtherFocusReason)
-                forwarded = QKeyEvent(
-                    QEvent.Type.KeyPress,
-                    event.key(),
-                    event.modifiers(),
-                    event.text(),
-                    event.isAutoRepeat(),
-                    event.count(),
-                )
-                QApplication.sendEvent(self, forwarded)
-                return True
+        if popup is not None and watched is popup:
+            if event.type() in (QEvent.Type.Hide, QEvent.Type.Close):
+                self._clear_user_list_popup(popup)
+                return False
+            if event.type() == QEvent.Type.KeyPress:
+                if event.key() in (
+                    Qt.Key.Key_Return,
+                    Qt.Key.Key_Enter,
+                    Qt.Key.Key_Tab,
+                    Qt.Key.Key_Backtab,
+                ):
+                    self._accept_user_list_current()
+                    return True
+                if event.key() == Qt.Key.Key_Escape:
+                    self._hide_user_list_popup()
+                    return True
+                navigation_keys = {
+                    Qt.Key.Key_Up,
+                    Qt.Key.Key_Down,
+                    Qt.Key.Key_PageUp,
+                    Qt.Key.Key_PageDown,
+                }
+                if event.key() not in navigation_keys:
+                    self._hide_user_list_popup()
+                    self.setFocus(Qt.FocusReason.OtherFocusReason)
+                    forwarded = QKeyEvent(
+                        QEvent.Type.KeyPress,
+                        event.key(),
+                        event.modifiers(),
+                        event.text(),
+                        event.isAutoRepeat(),
+                        event.count(),
+                    )
+                    QApplication.sendEvent(self, forwarded)
+                    return True
 
         return super().eventFilter(watched, event)
 
@@ -2120,6 +2206,7 @@ class EditorWidget(QsciScintilla):
         popup = self._user_list_popup
         if popup is not None:
             self._user_list_popup = None
+            self._user_list_id = 0
             popup.close()
             popup.deleteLater()
 
@@ -2884,6 +2971,8 @@ class EditorWidget(QsciScintilla):
         if list_id in (2, 4, 9):
             # Chiavi BibTeX (\citep/\citet/…), file paths, temi beamer
             # — rimpiazza il prefisso parziale digitato dopo {
+            if list_id == 2:
+                text = text.split("  [", 1)[0]
             self._insert_replacing_partial_and_close_brace(text)
         elif list_id == 3:
             # Ambienti LaTeX da \begin{ o \end{ (o da \begin/\end senza
@@ -2923,9 +3012,18 @@ class EditorWidget(QsciScintilla):
             self._insert_and_close_brace(key)
         elif list_id == 6:
             self._insert_and_close_brace(text)
-        elif list_id in (10, 11):
-            # Opzioni comando/ambiente/pacchetto da [...] — inserisci senza chiudere
-            self._insert_replacing_partial(text, delimiter='[')
+        elif list_id == 13:
+            # Linguaggi Pygments per \begin{minted}{...} e \mint{...}
+            self._insert_replacing_partial_and_close_brace(
+                text.split("  [", 1)[0]
+            )
+        elif list_id == 15:
+            # Valore language= dentro \lstset{...}
+            self._insert_brace_option_value(text.split("  [", 1)[0])
+        elif list_id in (10, 11, 12, 14):
+            # Opzioni comando/ambiente/pacchetto da [...] — inserisci senza
+            # chiudere e senza cancellare le opzioni precedenti dopo una virgola.
+            self._insert_option_value(text)
 
     def _insert_replacing_partial(self, text: str, delimiter: str) -> None:
         """Sostituisce il prefisso parziale dopo delimiter con text."""
@@ -2936,6 +3034,59 @@ class EditorWidget(QsciScintilla):
         partial = text_before[delim_pos + 1:] if delim_pos >= 0 else ""
         if partial:
             self.setSelection(line, col - len(partial), line, col)
+            self.removeSelectedText()
+            line, col = self.getCursorPosition()
+        self.insert(text)
+        self.setCursorPosition(line, col + len(text))
+
+    def _insert_brace_option_value(self, text: str) -> None:
+        """Sostituisce il valore dopo ``chiave=`` dentro l'ultima ``{``."""
+        line, col = self.getCursorPosition()
+        before = self.text(line)[:col]
+        brace = before.rfind("{")
+        equals = before.rfind("=", brace + 1)
+        if brace < 0 or equals < 0:
+            self._insert_and_close_brace(text)
+            return
+        self.setSelection(line, equals + 1, line, col)
+        self.removeSelectedText()
+        line, col = self.getCursorPosition()
+        self.insert(text)
+        new_col = col + len(text)
+        line_text = self.text(line)
+        if new_col < len(line_text) and line_text[new_col] == "}":
+            self.setCursorPosition(line, new_col + 1)
+        else:
+            self.setCursorPosition(line, new_col)
+            self.insert("}")
+            self.setCursorPosition(line, new_col + 1)
+
+    def _insert_option_value(self, text: str) -> None:
+        """Sostituisce solo la chiave/valore corrente dentro ``[...]``.
+
+        A differenza di ``_insert_replacing_partial`` non cancella le opzioni
+        precedenti separate da virgola e conserva ``chiave=`` quando si
+        completa un valore.
+        """
+        line, col = self.getCursorPosition()
+        line_text = self.text(line)
+        before = line_text[:col]
+        start = before.rfind("[")
+        if start < 0:
+            self._insert_replacing_partial(text, delimiter="[")
+            return
+        token_start = before.rfind(",", start + 1) + 1
+        if token_start <= start:
+            token_start = start + 1
+        while token_start < col and before[token_start].isspace():
+            token_start += 1
+        current = before[token_start:]
+        if "=" in current and "=" not in text:
+            equals = before.find("=", token_start)
+            if equals >= 0:
+                token_start = equals + 1
+        if token_start < col:
+            self.setSelection(line, token_start, line, col)
             self.removeSelectedText()
             line, col = self.getCursorPosition()
         self.insert(text)
@@ -3079,48 +3230,44 @@ class EditorWidget(QsciScintilla):
             self.lsp_hover_requested.emit(line_idx, relative_pos)
             return
 
-        # Cerca formule in linea ($...$) e display equation ($$...$$ o \[...\])
-        math_patterns = [
-            r'\$\$([^\$]+)\$\$',         # $$...$$
-            r'\\\[(.*?)\\\]',            # \[...\]
-            r'\$([^\$]+)\$',             # $...$
-            r'\\begin\{equation\}(.*?)\\end\{equation\}', # begin{equation}
-        ]
-
-        formula_text = None
-        for p in math_patterns:
-            for m in re.finditer(p, text):
-                if m.start() <= relative_pos <= m.end():
-                    formula_text = m.group(1).strip()
-                    break
-            if formula_text:
-                break
+        # Cerca formule in linea e display sulla riga corrente.
+        formula_text = _extract_math_formula(text, relative_pos)
 
         if formula_text:
             try:
                 global _plt, _HAS_MATPLOTLIB
-                if _HAS_MATPLOTLIB is None:
-                    try:
-                        import matplotlib as _mpl
-                        _mpl.use('Agg')
-                        import matplotlib.pyplot as _plt
-                        _HAS_MATPLOTLIB = True
-                    except ImportError:
-                        _plt = None
-                        _HAS_MATPLOTLIB = False
-                if not _HAS_MATPLOTLIB:
-                    raise ImportError("matplotlib non installato")
-                import io
-                formula_to_render = f"${formula_text}$"
-                fig = _plt.figure(figsize=(0.01, 0.01))
-                fig.text(0, 0, formula_to_render, fontsize=16, color='#e0e0e0', ha='center', va='center')
-                buf = io.BytesIO()
-                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', pad_inches=0.1, transparent=True)
-                _plt.close(fig)
-                buf.seek(0)
-                pixmap = QPixmap()
-                pixmap.loadFromData(buf.read())
-                if not pixmap.isNull():
+                color = self.palette().color(self.foregroundRole()).name()
+                cache_key = (formula_text, color)
+                pixmap = _MATH_HOVER_CACHE.get(cache_key)
+                if pixmap is None:
+                    if _HAS_MATPLOTLIB is None:
+                        try:
+                            import matplotlib as _mpl
+                            _mpl.use('Agg')
+                            import matplotlib.pyplot as _plt
+                            _HAS_MATPLOTLIB = True
+                        except ImportError:
+                            _plt = None
+                            _HAS_MATPLOTLIB = False
+                    if not _HAS_MATPLOTLIB:
+                        raise ImportError("matplotlib non installato")
+                    import io
+                    fig = _plt.figure(figsize=(0.01, 0.01))
+                    fig.text(0, 0, f"${formula_text}$", fontsize=16,
+                             color=color, ha='center', va='center')
+                    buf = io.BytesIO()
+                    fig.savefig(buf, format='png', dpi=150,
+                                bbox_inches='tight', pad_inches=0.1,
+                                transparent=True)
+                    _plt.close(fig)
+                    buf.seek(0)
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(buf.read())
+                    if not pixmap.isNull():
+                        if len(_MATH_HOVER_CACHE) >= _MATH_HOVER_CACHE_MAX:
+                            _MATH_HOVER_CACHE.pop(next(iter(_MATH_HOVER_CACHE)))
+                        _MATH_HOVER_CACHE[cache_key] = pixmap
+                if pixmap is not None and not pixmap.isNull():
                     self._create_tooltip_popup(pixmap, x, y)
                     return
             except Exception as e:
@@ -3178,7 +3325,12 @@ class EditorWidget(QsciScintilla):
         from PyQt6.QtWidgets import QLabel
         self._hover_popup = QLabel(self, Qt.WindowType.ToolTip)
         self._hover_popup.setPixmap(pixmap)
-        self._hover_popup.setStyleSheet("border: 2px solid #555; background-color: #1e1e1e; border-radius: 4px;")
+        background = self.palette().color(self.backgroundRole()).name()
+        foreground = self.palette().color(self.foregroundRole()).name()
+        self._hover_popup.setStyleSheet(
+            f"border: 2px solid {foreground}; background-color: {background};"
+            " border-radius: 4px;"
+        )
         global_pos = self.mapToGlobal(QPoint(x, y))
         self._hover_popup.move(global_pos.x() + 15, global_pos.y() + 15)
         self._hover_popup.show()

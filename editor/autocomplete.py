@@ -18,6 +18,7 @@ Uso:
 
 from __future__ import annotations
 
+import json
 import re
 from enum import IntFlag, auto
 from typing import Optional, TYPE_CHECKING
@@ -557,6 +558,80 @@ _API_JSON_KW: list[str] = [
 
 _MAX_DYNAMIC_API_TERMS = 5_000
 
+
+def _format_bibtex_completion(
+    key: str, metadata: dict[str, str] | None = None
+) -> str:
+    """Format a citation key with a compact author/year annotation."""
+    if not metadata:
+        return key
+    author = metadata.get("author", "").strip()
+    year = metadata.get("year", "").strip()
+    label = " ".join(part for part in (author, year) if part)
+    return f"{key}  [{label}]" if label else key
+
+
+_CODE_LANGUAGES_CACHE: list[str] | None = None
+_CODE_LANGUAGE_PRIORITY = {
+    "python", "py", "c", "cpp", "c++", "java", "javascript", "typescript",
+    "html", "css", "latex", "tex", "bash", "sh", "sql", "json", "yaml",
+    "xml", "rust", "go", "ruby", "php", "perl", "lua", "r", "matlab",
+    "julia", "scala", "kotlin", "swift", "haskell", "ocaml", "fortran",
+    "pascal", "asm", "text", "console",
+}
+
+
+def _code_language_terms() -> list[str]:
+    """Return Pygments language aliases as annotated completion entries."""
+    global _CODE_LANGUAGES_CACHE
+    if _CODE_LANGUAGES_CACHE is not None:
+        return _CODE_LANGUAGES_CACHE
+    try:
+        from pygments.lexers import get_all_lexers
+    except Exception:
+        _CODE_LANGUAGES_CACHE = []
+        return _CODE_LANGUAGES_CACHE
+    terms: list[str] = []
+    seen: set[str] = set()
+    for name, aliases, _filenames, _mimetypes in get_all_lexers():
+        for alias in (aliases or ()):
+            alias = str(alias).strip()
+            if not alias or alias in seen:
+                continue
+            seen.add(alias)
+            terms.append(f"{alias}  [{name}]" if name else alias)
+    # Common languages first, then short aliases (``py`` before ``python``
+    # and ``py+ul4``), then alphabetical order for the rest.
+    terms.sort(key=lambda item: (
+        0 if item.split("  [", 1)[0] in _CODE_LANGUAGE_PRIORITY else 1,
+        len(item.split("  [", 1)[0]), item.casefold()
+    ))
+    _CODE_LANGUAGES_CACHE = terms
+    return _CODE_LANGUAGES_CACHE
+
+
+def _fuzzy_match_score(needle: str, haystack: str) -> int:
+    """Small fuzzy scorer used only by citation completion."""
+    needle = needle.casefold().strip()
+    haystack = haystack.casefold()
+    if not needle:
+        return 1
+    if haystack.startswith(needle):
+        return 100
+    position = haystack.find(needle)
+    if position >= 0:
+        return max(20, 80 - position)
+    index = -1
+    gaps = 0
+    for char in needle:
+        index = haystack.find(char, index + 1)
+        if index < 0:
+            return 0
+        gaps += index
+    return max(5, 50 - gaps)
+# Cache condivisa tra i tab: le frequenze d'uso sono globali, non per editor.
+_USAGE_COUNTS_CACHE: dict[str, int] | None = None
+
 # Mappa linguaggio → lista API
 _LANGUAGE_APIS: dict[str, list[str]] = {
     "python":     _API_PYTHON,
@@ -701,6 +776,18 @@ class _ApiRebuildWorker(QThread):
                     )
                 except Exception:
                     pass
+            if bibtex and self._file_path:
+                try:
+                    from editor.latex_support import LaTeXSupport
+                    metadata = LaTeXSupport.extract_bibtex_metadata_multifile(
+                        self._file_path
+                    )
+                    bibtex = [
+                        _format_bibtex_completion(key, metadata.get(key))
+                        for key in bibtex
+                    ]
+                except Exception:
+                    pass
             if not self._cancelled:
                 self.latex_cache.emit(labels, bibtex, hypertargets, environments)
 
@@ -743,6 +830,14 @@ class AutoCompleteManager(QObject):
         self._custom_popup_open = False
         self._custom_popup_items: dict[str, str] = {}
         self._completion_list_id = 30
+        # Ultima lista contestuale mostrata: (chiave, list_id, voci complete).
+        # Serve a rifiltrare in memoria mentre si digita dentro \begin{...},
+        # \cite{...} o [...] senza ripetere I/O o ricerche sul modello CWL.
+        self._context_popup: tuple[tuple, int, list[str]] | None = None
+        # Ultima lista effettivamente mostrata: evita di ricreare due volte lo
+        # stesso menu nello stesso keystroke (handler LaTeX + handler generico).
+        self._context_shown: tuple[int, tuple[str, ...]] | None = None
+        # Conteggi d'uso dei completamenti scelti: chiavi "categoria:voce".
         try:
             from config.settings import Settings
             self._completion_threshold = max(
@@ -795,10 +890,11 @@ class AutoCompleteManager(QObject):
         editor.SCN_CHARADDED.connect(self._on_char_added_for_lsp)
         # Il popup API nativo di QScintilla può dereferenziare un QScreen nullo
         # su alcune combinazioni Qt/X11. Il popup sicuro dell'EditorWidget usa
-        # un menu Qt standard e non passa da startAutoCompletion()/showUserList().
+        # una lista Qt e non passa da startAutoCompletion()/showUserList().
         editor.SCN_CHARADDED.connect(self._on_char_added_for_popup)
         editor.user_list_activated.connect(self._on_lsp_user_list_selection)
         editor.user_list_activated.connect(self._on_custom_user_list_selection)
+        editor.user_list_activated.connect(self._track_user_list_usage)
         editor.destroyed.connect(self.shutdown)
 
         try:
@@ -892,6 +988,7 @@ class AutoCompleteManager(QObject):
             self._disconnect_lsp_client()
             self._cwl_enabled = False
         self._language = language.lower()
+        self._context_popup = None
         if self._levels & AutoCompleteLevel.API_DICT:
             self._local_completion_keys = {
                 self._completion_key(term.split("?", 1)[0])
@@ -1024,6 +1121,7 @@ class AutoCompleteManager(QObject):
         } if self._levels & AutoCompleteLevel.API_DICT else set())
         self._local_completion_terms = list(terms)
         self._api_worker = None
+        self._context_popup = None
         lexer = self._editor.lexer()
         if lexer is None:
             return
@@ -1112,6 +1210,105 @@ class AutoCompleteManager(QObject):
         except Exception:
             return []
 
+    # ── Frequenza d'uso dei completamenti ─────────────────────────────────────
+
+    _USAGE_SETTING = "latex/completion_usage_counts"
+
+    def _get_usage_counts(self) -> dict[str, int]:
+        global _USAGE_COUNTS_CACHE
+        if _USAGE_COUNTS_CACHE is None:
+            counts: dict[str, int] = {}
+            try:
+                from config.settings import Settings
+                raw = Settings.instance().get(self._USAGE_SETTING, "{}")
+                data = json.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(data, dict):
+                    for key, value in data.items():
+                        try:
+                            counts[str(key)] = int(value)
+                        except (TypeError, ValueError):
+                            continue
+            except Exception:
+                counts = {}
+            _USAGE_COUNTS_CACHE = counts
+        return _USAGE_COUNTS_CACHE
+
+    def _track_completion_usage(self, category: str, value: str) -> None:
+        value = str(value).strip()
+        if not value:
+            return
+        key = f"{category}:{value}"
+        counts = self._get_usage_counts()
+        counts[key] = counts.get(key, 0) + 1
+        try:
+            from config.settings import Settings
+            Settings.instance().set(self._USAGE_SETTING, json.dumps(counts))
+        except Exception:
+            pass
+
+    @staticmethod
+    def _usage_command(value: str) -> str:
+        """Riduce ``\\section{}``/``\\cmd[opt]{}`` al solo nome del comando."""
+        text = str(value).split("  [", 1)[0].strip()
+        for separator in ("[", "{", "(", "<"):
+            position = text.find(separator)
+            if position > 0:
+                text = text[:position]
+        return text
+
+    def _sort_by_usage(self, items: list[str], category: str,
+                       normalize=None) -> list[str]:
+        """Mette prima le voci usate più spesso, senza alterare i pareggi."""
+        counts = self._get_usage_counts()
+
+        def sort_key(pair):
+            index, item = pair
+            value = normalize(item) if normalize is not None else str(item)
+            return (-counts.get(f"{category}:{value}", 0), index)
+
+        return [item for _index, item in sorted(enumerate(items), key=sort_key)]
+
+    def _track_user_list_usage(self, list_id: int, text: str) -> None:
+        """Registra la voce scelta in un popup per ordinare i successivi."""
+        value = str(text)
+        if list_id == 30:
+            if not value.startswith("\\"):
+                return
+            self._track_completion_usage("cmd", self._usage_command(value))
+            return
+        if list_id == 2:
+            self._track_completion_usage(
+                "cite", value.split("  [", 1)[0]
+            )
+        elif list_id == 4:
+            self._track_completion_usage("file", value)
+        elif list_id in (10, 11, 12, 14):
+            self._track_completion_usage("option", value)
+        elif list_id in (13, 15):
+            self._track_completion_usage(
+                "language", value.split("  [", 1)[0]
+            )
+        elif list_id == 9:
+            self._track_completion_usage("theme", value)
+        elif list_id == 5:
+            context = self._context_popup[0] if self._context_popup else ()
+            category = (
+                "package" if tuple(context[:2]) == ("brace", "usepackage")
+                else "label"
+            )
+            self._track_completion_usage(category, value.split("  [", 1)[0])
+        elif list_id == 6:
+            context = self._context_popup[0] if self._context_popup else ()
+            category = (
+                "hypertarget"
+                if tuple(context[:2]) in (
+                    ("brace", "hyperlink"), ("brace", "hypertarget")
+                )
+                else "class"
+            )
+            self._track_completion_usage(category, value)
+        # list_id 3 (ambienti) è già conteggiato da insert_environment.
+
     def _show_custom_completion(self, force: bool = False) -> None:
         """Mostra il completamento ordinario senza il popup API nativo."""
         if self._shutting_down:
@@ -1153,10 +1350,13 @@ class AutoCompleteManager(QObject):
         if not labels:
             self._cancel_custom_popup()
             return
+        labels = self._sort_by_usage(labels, "cmd", self._usage_command)
         self._custom_popup_items = {label: label for label in labels}
+        self._context_popup = None
+        self._context_shown = None
         try:
             # SCI_AUTOCCANCEL chiude un eventuale popup nativo precedente. Il
-            # popup ordinario viene sempre creato dal menu Qt dell'editor.
+            # popup ordinario viene sempre creato dalla lista Qt dell'editor.
             self._editor.SendScintilla(QsciScintilla.SCI_AUTOCCANCEL)
             self._editor.showUserList(self._completion_list_id, labels)
             self._custom_popup_open = True
@@ -1164,8 +1364,260 @@ class AutoCompleteManager(QObject):
             self._custom_popup_items.clear()
             self._custom_popup_open = False
 
-    def _on_char_added_for_popup(self, _char: int) -> None:
+    def _on_char_added_for_popup(self, char: int) -> None:
+        # I contesti LaTeX (ambienti, label, citazioni, opzioni, pacchetti…)
+        # hanno liste dedicate: il popup generico non deve chiuderle.
+        if self._show_context_completion():
+            return
         self._show_custom_completion()
+
+    # ── Popup contestuali LaTeX ───────────────────────────────────────────────
+
+    @staticmethod
+    def _filter_items(items: list[str], prefix: str,
+                      fuzzy: bool = False) -> list[str]:
+        """Filtra per prefisso ignorando le annotazioni ``voce  [descrizione]``.
+
+        Con ``fuzzy=True`` (usato dalle citazioni) accetta anche corrispondenze
+        non contigue e cerca nell'annotazione autore/anno.
+        """
+        prefix = str(prefix or "").strip().casefold()
+        if not prefix:
+            return list(items)
+        if not fuzzy:
+            result = []
+            for item in items:
+                text = str(item)
+                key = text.split("  [", 1)[0]
+                if key.casefold().startswith(prefix):
+                    result.append(text)
+            return result
+
+        scored: list[tuple[int, int, str]] = []
+        for index, item in enumerate(items):
+            text = str(item)
+            key = text.split("  [", 1)[0]
+            score = _fuzzy_match_score(prefix, key)
+            if score <= 0:
+                score = _fuzzy_match_score(prefix, text) // 2
+            if score > 0:
+                scored.append((-score, index, text))
+        scored.sort()
+        return [text for _score, _index, text in scored]
+
+    @staticmethod
+    def _option_candidates_from_token(options: list[str],
+                                      token: str) -> list[str]:
+        """Applica la stessa semantica di ``\\cmd[chiave=valore]``."""
+        token = str(token or "").rsplit(",", 1)[-1].strip()
+        if "=" in token:
+            key, value_prefix = token.split("=", 1)
+            candidates = [
+                option.split("=", 1)[1]
+                for option in options
+                if "=" in option
+                and option.split("=", 1)[0].casefold() == key.casefold()
+            ]
+            prefix = value_prefix.casefold()
+        else:
+            candidates = list(options)
+            prefix = token.casefold()
+        if not prefix:
+            # Senza prefisso conserva l'ordine dichiarato dai file CWL.
+            return [item for item in candidates if item]
+        return sorted({
+            item for item in candidates
+            if item and item.casefold().startswith(prefix)
+        })
+
+    def _display_context_items(self, list_id: int, items: list[str]) -> bool:
+        """Mostra la lista contestuale evitando doppi show nello stesso evento."""
+        shown = tuple(str(item) for item in items)
+        if (getattr(self._editor, "_user_list_popup", None) is not None
+                and self._context_shown == (list_id, shown)):
+            return True
+        self._context_shown = (list_id, shown)
+        self._custom_popup_open = False
+        self._editor.showUserList(list_id, items)
+        return True
+
+    def _show_context_list(self, key: tuple, list_id: int,
+                           items: list[str]) -> bool:
+        """Mostra una lista contestuale e la conserva per i filtri successivi."""
+        unique = list(dict.fromkeys(str(item) for item in items if str(item)))
+        if not unique:
+            self._context_popup = None
+            self._cancel_custom_popup()
+            return False
+        self._context_popup = (key, list_id, unique)
+        return self._display_context_items(list_id, unique)
+
+    def _show_filtered_context(self, key: tuple, list_id: int,
+                               items: list[str], prefix: str,
+                               fuzzy: bool = False) -> bool:
+        """Conserva tutte le voci e mostra solo quelle col prefisso digitato."""
+        unique = list(dict.fromkeys(str(item) for item in items if str(item)))
+        if not unique:
+            self._context_popup = None
+            self._cancel_custom_popup()
+            return False
+        self._context_popup = (key, list_id, unique)
+        filtered = self._filter_items(unique, prefix, fuzzy=fuzzy)
+        if not filtered:
+            self._cancel_custom_popup()
+            return False
+        return self._display_context_items(list_id, filtered)
+
+    def _show_option_context(self, key: tuple, list_id: int,
+                             options: list[str], token: str) -> bool:
+        """Conserva tutte le opzioni e mostra solo quelle che combaciano."""
+        unique = list(dict.fromkeys(str(item) for item in options if str(item)))
+        if not unique:
+            self._context_popup = None
+            return False
+        self._context_popup = (key, list_id, unique)
+        candidates = self._option_candidates_from_token(unique, token)
+        if not candidates:
+            self._cancel_custom_popup()
+            return False
+        candidates = self._sort_by_usage(candidates, "option")
+        return self._display_context_items(list_id, candidates)
+
+    def _show_context_completion(self) -> bool:
+        """Rifiltra il popup contestuale attivo, senza aprire quello generico.
+
+        Ritorna True quando il cursore è in un contesto servito da una lista
+        dedicata: in quel caso ``_show_custom_completion`` non deve eseguire
+        (chiuderebbe il menu appena aperto, come accadeva prima del fix).
+        """
+        if self._language != "latex" or self._shutting_down:
+            return False
+        line, col = self._editor.getCursorPosition()
+        try:
+            line_text = self._editor.text(line)[:col]
+        except Exception:
+            return False
+
+        # 1) Opzioni dentro l'ultima parentesi quadra ancora aperta.
+        start = line_text.rfind("[")
+        if start >= 0 and line_text.rfind("]", start + 1) < 0:
+            before = line_text[:start]
+            command = re.search(
+                r'(\\(?:[A-Za-z@]+\*?|begin\{[^}]+\}))\s*$', before
+            )
+            if command:
+                key = ("option", command.group(1).casefold())
+                token = line_text[start + 1:]
+                cached = self._context_popup
+                if cached is not None and cached[0] == key:
+                    candidates = self._option_candidates_from_token(
+                        cached[2], token
+                    )
+                    if candidates:
+                        candidates = self._sort_by_usage(candidates, "option")
+                        return self._display_context_items(
+                            cached[1], candidates
+                        )
+                    self._cancel_custom_popup()
+                    return True
+                self._enable_cwl_for_completion(force=True)
+                self._complete_active_latex_option(line_text, col)
+                return True
+
+        # 2) Nome ambiente dentro \begin{...} / \end{...}.
+        environment = re.search(r'\\(begin|end)\{([^{}]*)$', line_text)
+        if environment:
+            key = ("env", environment.group(1))
+            cached = self._context_popup
+            if cached is not None and cached[0] == key:
+                self.refresh_env_popup(environment.group(2))
+            else:
+                self._complete_environments(
+                    is_end=(environment.group(1) == "end"),
+                    prefix=environment.group(2),
+                )
+            return True
+
+        # 3) Linguaggi minted/listings: hanno un secondo gruppo rispetto
+        # alla regex generica \cmd{...}.
+        minted_env = re.search(
+            r'\\begin\{minted\}(?:\[[^\]]*\])?\{([^{}]*)$', line_text
+        )
+        if minted_env:
+            key = ("brace", "minted")
+            cached = self._context_popup
+            if cached is not None and cached[0] == key:
+                filtered = self._filter_items(cached[2], minted_env.group(1))
+                if filtered:
+                    return self._display_context_items(cached[1], filtered)
+                self._cancel_custom_popup()
+                return True
+            return self.handle_latex_special("{")
+
+        minted_cmd = re.search(
+            r'\\(mint|mintinline|inputminted|newminted|newmintinline|'
+            r'newmintedfile)(?:\[[^\]]*\])?\{([^{}]*)$', line_text
+        )
+        if minted_cmd:
+            key = ("brace", minted_cmd.group(1))
+            cached = self._context_popup
+            if cached is not None and cached[0] == key:
+                filtered = self._filter_items(cached[2], minted_cmd.group(2))
+                if filtered:
+                    return self._display_context_items(cached[1], filtered)
+                self._cancel_custom_popup()
+                return True
+            return self.handle_latex_special("{")
+
+        listings_lang = re.search(
+            r'\\lstset\{[^{}]*\blanguage\s*=\s*([A-Za-z0-9_+.#-]*)$',
+            line_text,
+        )
+        if listings_lang:
+            key = ("brace", "language")
+            cached = self._context_popup
+            if cached is not None and cached[0] == key:
+                filtered = self._filter_items(cached[2], listings_lang.group(1))
+                if filtered:
+                    return self._display_context_items(cached[1], filtered)
+                self._cancel_custom_popup()
+                return True
+            return self.handle_latex_special("{")
+
+        # 4) Altri argomenti contestuali: \cite{, \ref{, \usepackage{…
+        brace = re.search(r'\\(\w+)\*?\{([^{}]*)$', line_text)
+        if brace:
+            key = ("brace", brace.group(1))
+            cached = self._context_popup
+            if cached is not None and cached[0] == key:
+                filtered = self._filter_items(
+                    cached[2], brace.group(2), fuzzy=(cached[1] == 2)
+                )
+                if filtered:
+                    return self._display_context_items(cached[1], filtered)
+                self._cancel_custom_popup()
+                return True
+            return self.handle_latex_special("{")
+
+        # 4) \begin / \end ancora senza '{': il popup ambienti dedicato è
+        # già stato aperto da LaTeXSupport._handle_env_word. Va però riaperto
+        # a ogni lettera: il tasto digitato chiude il popup Qt prima che il
+        # nuovo carattere arrivi all'editor.
+        word = re.search(r'\\([A-Za-z]*)$', line_text)
+        if word:
+            typed = word.group(1)
+            is_end = "end".startswith(typed)
+            if len(typed) >= 2 and (
+                    "begin".startswith(typed) or "end".startswith(typed)):
+                expected = ("env", "end" if is_end else "begin")
+                if (self._env_cache and self._context_popup is not None
+                        and self._context_popup[0] == expected):
+                    self.refresh_env_popup("")
+                else:
+                    self._complete_environments(is_end=is_end)
+                return True
+
+        return False
 
     def _cancel_custom_popup(self) -> None:
         try:
@@ -1177,6 +1629,7 @@ class AutoCompleteManager(QObject):
             hide_popup()
         self._custom_popup_open = False
         self._custom_popup_items.clear()
+        self._context_shown = None
 
     def _on_custom_user_list_selection(self, list_id: int, label: str) -> None:
         if list_id != self._completion_list_id:
@@ -1185,9 +1638,37 @@ class AutoCompleteManager(QObject):
         self._custom_popup_open = False
         line, col = self._editor.getCursorPosition()
         prefix = self._completion_prefix(line, col)
+        start_col = col - len(prefix) if prefix else col
         if prefix:
-            self._editor.setSelection(line, col - len(prefix), line, col)
+            self._editor.setSelection(line, start_col, line, col)
         self._editor.replaceSelectedText(value)
+        self._place_caret_inside_completion(start_col, value)
+
+    def _place_caret_inside_completion(self, start_col: int, value: str) -> None:
+        """Porta il cursore dentro la prima coppia vuota della voce inserita.
+
+        Il popup custom non passa da ``SCN_AUTOCCOMPLETED``, quindi la logica
+        di ``LaTeXSupport._on_autocomplete_done`` non verrebbe eseguita.
+        """
+        if not value.startswith("\\"):
+            return
+        best: tuple[int, str] | None = None
+        for token, opener in (("{}", "{"), ("[]", "["), ("()", "(")):
+            index = value.find(token)
+            if index >= 0 and (best is None or index < best[0]):
+                best = (index, opener)
+        if best is None:
+            return
+        index, opener = best
+        line, _ = self._editor.getCursorPosition()
+        self._editor.setCursorPosition(line, start_col + index + 1)
+        try:
+            if opener == "{":
+                self.handle_latex_special("{")
+            elif opener == "[":
+                self.handle_latex_option("[")
+        except Exception:
+            pass
 
     # ── Completamento LSP ─────────────────────────────────────────────────────
 
@@ -1199,8 +1680,8 @@ class AutoCompleteManager(QObject):
 
     def _on_char_added_for_lsp(self, _char: int) -> None:
         self._enable_cwl_for_completion()
-        if self._language == "latex" and chr(_char) in "=,":
-            self.handle_latex_option(chr(_char))
+        # I caratteri ',', '=' e '[' sono gestiti da _show_context_completion,
+        # che rifiltra la lista contestuale senza chiuderla.
         self._lsp_completion_timer.start()
 
     def _enable_cwl_for_completion(self, force: bool = False) -> None:
@@ -1407,61 +1888,89 @@ class AutoCompleteManager(QObject):
         line, col = ed.getCursorPosition()
         line_text = ed.text(line)[:col]
 
-        match = re.search(r'\\(\w+)\{$', line_text)
+        # minted: il primo argomento è il linguaggio Pygments.
+        minted_env = re.search(
+            r'\\begin\{minted\}(?:\[[^\]]*\])?\{([^{}]*)$', line_text
+        )
+        if minted_env:
+            return self._complete_code_languages(
+                minted_env.group(1), ("brace", "minted")
+            )
+        minted_cmd = re.search(
+            r'\\(mint|mintinline|inputminted|newminted|newmintinline|'
+            r'newmintedfile)(?:\[[^\]]*\])?\{([^{}]*)$', line_text
+        )
+        if minted_cmd:
+            return self._complete_code_languages(
+                minted_cmd.group(2), ("brace", minted_cmd.group(1))
+            )
+        listings_lang = re.search(
+            r'\\lstset\{[^{}]*\blanguage\s*=\s*([A-Za-z0-9_+.#-]*)$',
+            line_text,
+        )
+        if listings_lang:
+            return self._show_filtered_context(
+                ("brace", "language"), 15,
+                _code_language_terms(), listings_lang.group(1),
+            )
+
+        match = re.search(r'\\(\w+)\*?\{([^{}]*)$', line_text)
         if not match:
             return False
 
         cmd = match.group(1)
+        partial = match.group(2)
+        key = ("brace", cmd)
 
         if cmd in ("ref", "eqref", "pageref", "autoref",
                    "cref", "Cref", "crefrange",
                    "nameref", "namecrefs", "lcnamecref",
                    "vref", "vpageref", "cpageref", "labelcref"):
-            self._complete_labels()
+            self._complete_labels(partial, key)
             return True
         elif cmd == "hyperref":
             # \hyperref[label]{text} — il label va fra [ ], non { }
             # ma intercettiamo anche \hyperref{ come fallback
-            self._complete_labels()
+            self._complete_labels(partial, key)
             return True
         elif cmd in ("hyperlink",):
-            self._complete_hypertargets()
+            self._complete_hypertargets(partial, key)
             return True
         elif cmd in ("hypertarget",):
             # mostra i target esistenti per evitare duplicati
-            self._complete_hypertargets()
+            self._complete_hypertargets(partial, key)
             return True
         elif cmd in ("cite", "citep", "citet", "citeauthor", "citeyear",
                      "parencite", "footcite", "textcite", "autocite",
                      "fullcite", "citetitle", "citealt", "citealp",
                      "footfullcite", "citenum"):
-            self._complete_cite_keys()
+            self._complete_cite_keys(partial, key)
             return True
         elif cmd in ("begin", "end"):
             self._complete_environments(is_end=(cmd == "end"))
             return True
         elif cmd in ("input", "include", "subfile", "subinputfrom",
                      "includefrom", "subimport"):
-            self._complete_file_paths("tex")
+            self._complete_file_paths("tex", partial, key)
             return True
         elif cmd == "includegraphics":
-            self._complete_file_paths("includegraphics")
+            self._complete_file_paths("includegraphics", partial, key)
             return True
         elif cmd in ("includesvg", "includeinkscape"):
-            self._complete_file_paths("includegraphics")
+            self._complete_file_paths("includegraphics", partial, key)
             return True
         elif cmd == "usepackage":
-            self._complete_packages()
+            self._complete_packages(partial, key)
             return True
         elif cmd == "documentclass":
-            self._complete_documentclasses()
+            self._complete_documentclasses(partial, key)
             return True
         elif cmd in ("bibliography", "addbibresource"):
-            self._complete_file_paths("bib")
+            self._complete_file_paths("bib", partial, key)
             return True
         elif cmd in ("usetheme", "usecolortheme", "useinnertheme",
                      "useoutertheme", "usefonttheme"):
-            self._complete_beamer_themes(cmd)
+            self._complete_beamer_themes(cmd, partial, key)
             return True
         elif cmd in ("newtheorem", "newtheorem*"):
             pass  # lasciamo al completamento standard
@@ -1491,16 +2000,17 @@ class AutoCompleteManager(QObject):
 
         # \\hyperref[  →  label del progetto (il label di hyperref è fra [ ])
         if re.search(r'\\hyperref\[$', line_text):
-            self._complete_labels()
+            self._complete_labels("", ("option", "\\hyperref"))
             return True
 
         # \\begin{env}[  →  opzioni ambiente
         m = re.search(r'\\begin\{([^}]+)\}\[$', line_text)
         if m:
             options = self._get_environment_options(m.group(1))
-            if options:
-                self._editor.showUserList(10, options)
-                return True
+            return self._show_option_context(
+                ("option", f"\\begin{{{m.group(1)}}}".casefold()),
+                10, options, "",
+            )
 
         # \\usepackage[  →  opzioni pacchetto (cerca il nome dopo)
         m_pkg_bracket = re.search(r'\\usepackage\[$', line_text)
@@ -1515,9 +2025,9 @@ class AutoCompleteManager(QObject):
                 options = sorted({
                     option for values in PACKAGE_OPTIONS.values() for option in values
                 })
-            if options:
-                self._editor.showUserList(11, options)
-                return True
+            return self._show_option_context(
+                ("option", "\\usepackage"), 11, options, ""
+            )
 
         # \\includegraphics[
         if re.search(r'\\includegraphics\[$', line_text):
@@ -1533,34 +2043,52 @@ class AutoCompleteManager(QObject):
                 opts = list(dict.fromkeys(opts))
             except Exception:
                 pass
-            if opts:
-                self._editor.showUserList(10, opts)
-                return True
+            return self._show_option_context(
+                ("option", "\\includegraphics"), 10, opts, ""
+            )
 
         # \\documentclass[
         if re.search(r'\\documentclass\[$', line_text):
             from editor.latex_support import COMMAND_OPTIONS
             opts = COMMAND_OPTIONS.get("documentclass", [])
-            if opts:
-                self._editor.showUserList(10, opts)
-                return True
+            return self._show_option_context(
+                ("option", "\\documentclass"), 10, opts, ""
+            )
+
+        # language= dentro le opzioni di listings
+        m_lang_opt = re.search(
+            r'(?:\\lstset|\\begin\{lstlisting\})\[[^\]]*'
+            r'\blanguage\s*=\s*([A-Za-z0-9_+.#-]*)$',
+            line_text,
+        )
+        if m_lang_opt:
+            languages = [
+                f"language={term.split('  [', 1)[0]}"
+                for term in _code_language_terms()
+            ]
+            token = line_text[line_text.rfind("[") + 1:]
+            if languages:
+                return self._show_option_context(
+                    ("option", "language"), 14, languages, token
+                )
 
         # \\lstset[ o \\begin{lstlisting}[
-        if re.search(r'(?:\\lstset|\\begin\{lstlisting\})\[$', line_text):
+        m_lst = re.search(r'(\\lstset|\\begin\{lstlisting\})\[$', line_text)
+        if m_lst:
             from editor.latex_support import COMMAND_OPTIONS
             opts = COMMAND_OPTIONS.get("lstlisting", [])
-            if opts:
-                self._editor.showUserList(10, opts)
-                return True
+            return self._show_option_context(
+                ("option", m_lst.group(1).casefold()), 10, opts, ""
+            )
 
         # \\usetheme[ , \\usecolortheme[  etc
         m_theme = re.search(r'\\(usetheme|usecolortheme|useinnertheme|useoutertheme)\[$', line_text)
         if m_theme:
             from editor.latex_support import COMMAND_OPTIONS
             opts = COMMAND_OPTIONS.get(m_theme.group(1), [])
-            if opts:
-                self._editor.showUserList(10, opts)
-                return True
+            return self._show_option_context(
+                ("option", "\\" + m_theme.group(1).casefold()), 10, opts, ""
+            )
 
         # Comando generico \\cmd[
         m_cmd = re.search(r'\\(\w+)\[$', line_text)
@@ -1577,9 +2105,9 @@ class AutoCompleteManager(QObject):
                 opts = list(dict.fromkeys([*opts, *cwl_opts]))
             except Exception:
                 opts = list(opts)
-            if opts:
-                self._editor.showUserList(10, opts)
-                return True
+            return self._show_option_context(
+                ("option", "\\" + m_cmd.group(1).casefold()), 10, opts, ""
+            )
 
         return False
 
@@ -1591,14 +2119,17 @@ class AutoCompleteManager(QObject):
         before = line_text[:start]
         options: list[str] = []
         command_name = ""
+        key: tuple = ("option", before.strip().casefold())
 
         env_match = re.search(r"\\begin\{([^}]+)\}\s*$", before)
         if env_match:
             options = self._get_environment_options(env_match.group(1))
+            key = ("option", f"\\begin{{{env_match.group(1)}}}".casefold())
         else:
             command_match = re.search(r"\\([A-Za-z@]+)\*?\s*$", before)
             if command_match:
                 command_name = "\\" + command_match.group(1)
+                key = ("option", command_name.casefold())
                 from editor.latex_support import COMMAND_OPTIONS, LaTeXSupport
                 options = list(COMMAND_OPTIONS.get(command_match.group(1), []))
                 try:
@@ -1611,6 +2142,7 @@ class AutoCompleteManager(QObject):
                     pass
             package_match = re.search(r"\\usepackage\s*$", before)
             if package_match:
+                key = ("option", "\\usepackage")
                 rest = self._editor.text(self._editor.getCursorPosition()[0])[col:]
                 package = re.search(r"^\s*\{([^}]+)\}", rest)
                 if package:
@@ -1633,24 +2165,9 @@ class AutoCompleteManager(QObject):
         if not options:
             return False
 
-        token = line_text[start + 1:].rsplit(",", 1)[-1].strip()
-        if "=" in token:
-            key, value_prefix = token.split("=", 1)
-            candidates = [
-                option.split("=", 1)[1]
-                for option in options
-                if "=" in option and option.split("=", 1)[0].casefold() == key.casefold()
-            ]
-            prefix = value_prefix.casefold()
-        else:
-            candidates = options
-            prefix = token.casefold()
-        candidates = sorted({item for item in candidates
-                             if item and item.casefold().startswith(prefix)})
-        if not candidates:
-            return False
-        self._editor.showUserList(12, candidates)
-        return True
+        return self._show_option_context(
+            key, 12, options, line_text[start + 1:]
+        )
 
     def _get_environment_options(self, env: str) -> list[str]:
         try:
@@ -1677,33 +2194,70 @@ class AutoCompleteManager(QObject):
         except Exception:
             return []
 
-    def _complete_labels(self) -> None:
+    def _complete_labels(self, prefix: str = "", key: tuple | None = None) -> bool:
         """Popup con tutte le \\label{} del progetto con tipo rilevato.
         Usa la cache precalcolata dal worker in background (nessun I/O sul main thread)."""
         pairs = self._labels_cache
-        if pairs:
-            items = [f"{key}  [{hint}]" if hint and hint != "label" else key
-                     for key, hint in pairs]
-            self._editor.showUserList(5, sorted(items))
+        if not pairs:
+            return False
+        items = [f"{key_name}  [{hint}]" if hint and hint != "label" else key_name
+                 for key_name, hint in pairs]
+        items = self._sort_by_usage(
+            sorted(items), "label",
+            lambda item: item.split("  [", 1)[0],
+        )
+        return self._show_filtered_context(
+            key or ("brace", "ref"), 5, items, prefix
+        )
 
-    def _complete_hypertargets(self) -> None:
+    def _complete_hypertargets(self, prefix: str = "",
+                               key: tuple | None = None) -> bool:
         """Popup con i nomi \\hypertarget definiti nel progetto (da cache background)."""
         names = self._hypertargets_cache
-        if names:
-            self._editor.showUserList(6, names)
+        if not names:
+            return False
+        names = self._sort_by_usage(names, "hypertarget")
+        return self._show_filtered_context(
+            key or ("brace", "hyperlink"), 6, names, prefix
+        )
 
-    def _complete_cite_keys(self) -> None:
+    def _complete_cite_keys(self, prefix: str = "",
+                            key: tuple | None = None) -> bool:
         """Popup con le chiavi BibTeX (da cache background, nessun I/O sul main thread)."""
         keys = self._bibtex_cache
-        if keys:
-            self._editor.showUserList(2, keys)
+        if not keys:
+            return False
+        keys = self._sort_by_usage(
+            keys, "cite", lambda item: item.split("  [", 1)[0]
+        )
+        return self._show_filtered_context(
+            key or ("brace", "cite"), 2, keys, prefix, fuzzy=True
+        )
 
-    def _complete_beamer_themes(self, cmd: str) -> None:
+    def _complete_code_languages(self, prefix: str = "",
+                                 key: tuple | None = None) -> bool:
+        """Popup dei linguaggi Pygments per minted/listings."""
+        languages = _code_language_terms()
+        if not languages:
+            return False
+        languages = self._sort_by_usage(
+            languages, "language", lambda item: item.split("  [", 1)[0]
+        )
+        return self._show_filtered_context(
+            key or ("brace", "minted"), 13, languages, prefix
+        )
+
+    def _complete_beamer_themes(self, cmd: str, prefix: str = "",
+                                key: tuple | None = None) -> bool:
         """Popup con i temi beamer disponibili."""
         from editor.latex_support import COMMAND_OPTIONS
         themes = COMMAND_OPTIONS.get(cmd, [])
-        if themes:
-            self._editor.showUserList(9, themes)
+        if not themes:
+            return False
+        themes = self._sort_by_usage(themes, "theme")
+        return self._show_filtered_context(
+            key or ("brace", cmd), 9, themes, prefix
+        )
 
     def complete_environments_from_word(self, is_end: bool) -> None:
         """
@@ -1730,11 +2284,7 @@ class AutoCompleteManager(QObject):
         if not self._env_popup_needs_brace:
             return
         self._env_popup_needs_brace = False
-        try:
-            from PyQt6.Qsci import QsciScintilla as _QSci
-            self._editor.SendScintilla(_QSci.SCI_AUTOCCANCEL)
-        except Exception:
-            pass
+        self._cancel_custom_popup()
 
     def restore_env_word_popup(self, command: str) -> None:
         """Ripristina il popup ambienti dopo l'autocomplete nativo.
@@ -1749,13 +2299,16 @@ class AutoCompleteManager(QObject):
             line, col = self._editor.getCursorPosition()
             if not self._editor.text(line)[:col].endswith(f"\\{command}"):
                 return
-            from PyQt6.Qsci import QsciScintilla as _QSci
-            self._editor.SendScintilla(_QSci.SCI_AUTOCCANCEL)
-            self._editor.showUserList(3, self._env_cache)
+            self._show_context_list(
+                ("env", "end" if command == "end" else "begin"),
+                3, self._env_cache,
+            )
         except Exception:
             pass
 
-    def _complete_environments(self, is_end: bool = False, needs_brace: bool = False) -> None:
+    def _complete_environments(self, is_end: bool = False,
+                               needs_brace: bool = False,
+                               prefix: str = "") -> None:
         """Popup con ambienti LaTeX dalla cache, senza I/O durante la digitazione."""
         self._enable_cwl_for_completion(force=True)
         self._env_popup_needs_brace = needs_brace
@@ -1777,29 +2330,26 @@ class AutoCompleteManager(QObject):
         else:
             # Ambienti già usati (alfabetico) in cima, poi tutti gli altri (alfabetico)
             self._env_cache = LaTeXSupport.sort_environments_by_usage(envs)   # usato da refresh_env_popup
-        self._editor.showUserList(3, self._env_cache)
+        self._show_filtered_context(
+            ("env", "end" if is_end else "begin"), 3,
+            self._env_cache, prefix,
+        )
 
     def refresh_env_popup(self, prefix: str) -> None:
         """Aggiorna il popup ambienti filtrando per prefix (chiamato su ogni keystroke)."""
         if not self._env_cache:
             return
-        lp = prefix.lower()
-        filtered = [e for e in self._env_cache if e.lower().startswith(lp)]
-        if filtered:
-            self._editor.showUserList(3, filtered)
-        else:
-            try:
-                from PyQt6.Qsci import QsciScintilla as _QSci
-                self._editor.SendScintilla(_QSci.SCI_AUTOCCANCEL)
-            except Exception:
-                pass
+        key = ("env", "begin")
+        if self._context_popup is not None and self._context_popup[0][0] == "env":
+            key = self._context_popup[0]
+        self._show_filtered_context(key, 3, self._env_cache, prefix)
 
-    def _complete_file_paths(self, cmd: str) -> None:
+    def _complete_file_paths(self, cmd: str, prefix: str = "",
+                             key: tuple | None = None) -> bool:
         """Popup con i file nella directory del documento corrente."""
-        from pathlib import Path
         ed = self._editor
         if not ed.file_path:
-            return
+            return False
 
         base_dir = ed.file_path.parent
         if cmd == "includegraphics":
@@ -1807,14 +2357,20 @@ class AutoCompleteManager(QObject):
         else:
             exts = {".tex", ".sty", ".cls"}
 
-        files = [
-            f.name for f in base_dir.iterdir()
-            if f.is_file() and f.suffix.lower() in exts
-        ]
-        if files:
-            self._editor.showUserList(4, sorted(files))
+        try:
+            files = [
+                f.name for f in base_dir.iterdir()
+                if f.is_file() and f.suffix.lower() in exts
+            ]
+        except OSError:
+            return False
+        files = self._sort_by_usage(sorted(files), "file")
+        return self._show_filtered_context(
+            key or ("brace", cmd), 4, files, prefix
+        )
 
-    def _complete_packages(self) -> None:
+    def _complete_packages(self, prefix: str = "",
+                           key: tuple | None = None) -> bool:
         """Popup con i pacchetti LaTeX più comuni (per \\usepackage{)."""
         self._enable_cwl_for_completion(force=True)
         from editor.latex_support import PACKAGE_COMMANDS
@@ -1870,9 +2426,16 @@ class AutoCompleteManager(QObject):
             ]
         except Exception:
             pass
-        self._editor.showUserList(5, all_pkgs)
+        all_pkgs = self._sort_by_usage(
+            all_pkgs, "package",
+            lambda item: item.split("  [", 1)[0],
+        )
+        return self._show_filtered_context(
+            key or ("brace", "usepackage"), 5, all_pkgs, prefix
+        )
 
-    def _complete_documentclasses(self) -> None:
+    def _complete_documentclasses(self, prefix: str = "",
+                                  key: tuple | None = None) -> bool:
         """Popup con le document class LaTeX standard."""
         classes = sorted([
             "article", "book", "report", "letter", "slides",
@@ -1883,7 +2446,10 @@ class AutoCompleteManager(QObject):
             "tufte-book", "tufte-handout",
             "extarticle", "extbook", "extreport",
         ])
-        self._editor.showUserList(6, classes)
+        classes = self._sort_by_usage(classes, "class")
+        return self._show_filtered_context(
+            key or ("brace", "documentclass"), 6, classes, prefix
+        )
 
     # ── Rebuild su modifica documento (pacchetti/label cambiano) ─────────────
 

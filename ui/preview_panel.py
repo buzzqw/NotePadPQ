@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QToolBar, QToolButton, QSplitter, QSizePolicy,
     QTreeWidget, QTreeWidgetItem, QStackedWidget,
-    QTextBrowser, QScrollArea, QScrollBar,
+    QTextBrowser, QScrollArea, QScrollBar, QInputDialog,
 )
 from PyQt6.QtGui import QIcon, QAction
 
@@ -876,6 +876,14 @@ class PreviewPanel(QWidget):
         self._pdf_btn_zoom_reset.setToolTip(tr("tooltip.preview_zoom_reset"))
         self._pdf_btn_zoom_reset.clicked.connect(self._pdf_zoom_reset)
 
+        self._pdf_btn_zoom_custom = QToolButton()
+        self._pdf_btn_zoom_custom.setText("%")
+        self._pdf_btn_zoom_custom.setToolTip(tr(
+            "tooltip.preview_zoom_custom",
+            default="Zoom personalizzato (percentuale)",
+        ))
+        self._pdf_btn_zoom_custom.clicked.connect(self._pdf_zoom_custom)
+
         self._pdf_btn_open_external = QToolButton()
         self._pdf_btn_open_external.setText("↗")
         self._pdf_btn_open_external.setToolTip(tr("tooltip.preview_open_external"))
@@ -919,7 +927,8 @@ class PreviewPanel(QWidget):
         for w2 in [self._pdf_btn_continuous,
                    self._pdf_btn_prev, self._pdf_lbl_page, self._pdf_btn_next,
                    self._pdf_zoom_out, self._pdf_zoom_in,
-                   self._pdf_btn_zoom_reset, self._pdf_btn_fit_width,
+                   self._pdf_btn_zoom_reset, self._pdf_btn_zoom_custom,
+                   self._pdf_btn_fit_width,
                    self._pdf_btn_fit_page, self._pdf_btn_crop,
                     self._pdf_btn_links, self._pdf_btn_sync, self._pdf_btn_sync_highlight,
                     self._pdf_btn_open_external, self._pdf_lbl_synctex]:
@@ -927,7 +936,8 @@ class PreviewPanel(QWidget):
         for btn in [self._pdf_btn_continuous,
                     self._pdf_btn_prev, self._pdf_btn_next,
                     self._pdf_zoom_out, self._pdf_zoom_in,
-                    self._pdf_btn_zoom_reset, self._pdf_btn_fit_width,
+                    self._pdf_btn_zoom_reset, self._pdf_btn_zoom_custom,
+                    self._pdf_btn_fit_width,
                     self._pdf_btn_fit_page, self._pdf_btn_crop,
                     self._pdf_btn_links, self._pdf_btn_sync, self._pdf_btn_sync_highlight,
                     self._pdf_btn_open_external]:
@@ -2409,6 +2419,20 @@ class PreviewPanel(QWidget):
     def _pdf_zoom_reset(self) -> None:
         """Zoom 100% (1 punto PDF = 1 pixel × devicePixelRatio)."""
         self._set_pdf_zoom(1.0)
+
+    def _pdf_zoom_custom(self) -> None:
+        """Chiede una percentuale di zoom e la applica (25%–400%)."""
+        if self._pdf_doc is None:
+            return
+        current = int(round(self._pdf_zoom * 100))
+        percent, ok = QInputDialog.getInt(
+            self,
+            tr("preview.zoom_custom_title", default="Zoom personalizzato"),
+            tr("preview.zoom_custom_prompt", default="Percentuale di zoom:"),
+            current, 25, 400, 5,
+        )
+        if ok:
+            self._set_pdf_zoom(percent / 100.0)
 
     def _active_pdf_scroll(self) -> "QScrollArea":
         """Scroll area effettivamente visibile: pagina singola o scroll continuo."""

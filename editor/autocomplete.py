@@ -1655,9 +1655,20 @@ class AutoCompleteManager(QObject):
     def _get_environment_options(self, env: str) -> list[str]:
         try:
             from editor.latex_support import ENVIRONMENT_OPTIONS
-            return ENVIRONMENT_OPTIONS.get(env, [])
+            options = list(ENVIRONMENT_OPTIONS.get(env, []))
         except Exception:
-            return []
+            options = []
+        # Merge environment options declared by our own CWL files, e.g.
+        # ``\begin{multicoltab}[width=...]`` or ``\begin{axis}[xmin=...]``.
+        try:
+            from editor.latex_support import LaTeXSupport
+            model = LaTeXSupport.get_cwl_model(
+                getattr(self._editor, "file_path", None)
+            )
+            options.extend(model.option_candidates_for(r"\begin{" + env + "}"))
+        except Exception:
+            pass
+        return list(dict.fromkeys(options))
 
     def _get_package_options(self, pkg: str) -> list[str]:
         try:
@@ -1810,7 +1821,7 @@ class AutoCompleteManager(QObject):
         # Pacchetti noti + aggiunge quelli comuni non nel dict
         known = list(PACKAGE_COMMANDS.keys())
         extra = [
-            "amsmath", "amssymb", "amsthm", "mathtools",
+            "amsmath", "amssymb", "amsthm", "mathtools", "bm", "unicode-math",
             "inputenc", "fontenc", "babel", "polyglossia",
             "lmodern", "fontawesome5", "microtype",
             "geometry", "layout", "fullpage", "a4wide",
@@ -1818,17 +1829,18 @@ class AutoCompleteManager(QObject):
             "xcolor", "color", "colortbl", "soul",
             "hyperref", "url", "cleveref", "varioref",
             "natbib", "biblatex", "cite",
-            "booktabs", "tabularx", "tabulary", "longtable",
-            "multirow", "multicol", "array", "dcolumn", "hhline",
+            "booktabs", "tabularx", "tabulary", "longtable", "xltabular",
+            "tabularray", "multicoltab", "makecell", "threeparttable",
+            "multirow", "multicol", "array", "dcolumn", "hhline", "colortbl",
             "fancyhdr", "titlesec", "tocloft", "tocbibind",
-            "caption", "subcaption", "float", "placeins",
+            "caption", "subcaption", "float", "placeins", "pdflscape",
             "listings", "minted", "verbatim", "fancyvrb",
-            "tikz", "pgf", "pgfplots", "pgfplotstable",
+            "tikz", "pgf", "pgfplots", "pgfplotstable", "tikz-cd", "forest",
             "algorithm2e", "algorithmicx", "algpseudocode",
-            "siunitx", "physics", "braket", "tensor",
+            "siunitx", "physics", "braket", "tensor", "mhchem",
             "tcolorbox", "mdframed", "framed", "shadethm",
             "enumitem", "paralist", "tasks",
-            "imakeidx", "makeidx", "index",
+            "imakeidx", "makeidx", "index", "appendix",
             "glossaries", "nomencl", "acronym",
             "todonotes", "changes", "ulem", "soulpos",
             "parskip", "setspace", "leading",

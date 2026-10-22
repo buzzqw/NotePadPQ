@@ -1,1 +1,2 @@
 recursive-include native *.cpp *.inc *.py
+recursive-include editor/cwl *.cwl *.md

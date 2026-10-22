@@ -23,7 +23,7 @@ _DESCRIPTION_RE = re.compile(
     r"(?=\s*#|$)"
 )
 _PACKAGE_DESCRIPTION_RE = re.compile(
-    r"^[#%]\s*(?:package|description)\s*:\s*(.+)$", re.IGNORECASE
+    r"^[#%]\s*(package|description)\s*:\s*(.+)$", re.IGNORECASE
 )
 
 
@@ -209,6 +209,7 @@ def parse_cwl(text: str, package: str = "", source: Path | None = None) -> CWLPa
     """
     package_name = str(package or "").strip()
     result = CWLPackage(package_name, source=source)
+    package_description = ""
     includes: list[str] = []
     conditional_includes: list[tuple[str, tuple[str, ...]]] = []
     conditions: list[tuple[str, bool]] = []
@@ -298,8 +299,15 @@ def parse_cwl(text: str, package: str = "", source: Path | None = None) -> CWLPa
 
         if not line or line.startswith("%") or line.startswith("#"):
             match = _PACKAGE_DESCRIPTION_RE.match(line)
-            if match and not result.description:
-                result.description = match.group(1).strip()
+            if match:
+                kind = match.group(1).casefold()
+                value = match.group(2).strip()
+                if kind == "description" and not result.description:
+                    result.description = value
+                elif kind == "package" and not package_description:
+                    # Older files used ``# package:`` as a description.  Keep
+                    # that fallback, but let ``# description:`` win.
+                    package_description = value
             continue
 
         signature, description, number, hidden = _description_and_metadata(line)
@@ -325,7 +333,10 @@ def parse_cwl(text: str, package: str = "", source: Path | None = None) -> CWLPa
             arguments = tuple(CWLArgument("") for _ in range(number))
 
         if name == r"\begin" and groups:
-            environment_name = groups[0][1:-1].strip()
+            # The environment name is the first brace group; optional
+            # arguments (``\begin{frame}[fragile]``) may come before it.
+            brace_groups = [group for group in groups if group.startswith("{")]
+            environment_name = brace_groups[0][1:-1].strip() if brace_groups else ""
             if environment_name:
                 result.environments[environment_name.casefold()] = CWLEnvironment(
                     environment_name, description, package_name
@@ -345,6 +356,8 @@ def parse_cwl(text: str, package: str = "", source: Path | None = None) -> CWLPa
         result.commands[name.casefold()] = command
     if keyval_contexts is not None:
         finish_keyvals()
+    if not result.description:
+        result.description = package_description
     result.includes = tuple(dict.fromkeys(includes))
     result.conditional_includes = tuple(dict.fromkeys(conditional_includes))
     return result

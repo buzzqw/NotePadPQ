@@ -34,6 +34,7 @@ added_datas = [
     (R('ui', 'assets', 'jodit'),         'ui/assets/jodit'),
     (R('ui', 'assets', 'xterm'),         'ui/assets/xterm'),
     (R('plugins'),                       'plugins'),
+    (R('editor', 'cwl'),                 'editor/cwl'),
     (R('MANUAL_EN.md'),                  '.'),
     (R('MANUAL_IT.md'),                  '.'),
     (R('data', 'notepadpq.desktop'),     'data'),

@@ -154,6 +154,95 @@ class CWLTest(unittest.TestCase):
         model = CWLModel(packages={"demo": package})
         self.assertEqual(model.option_candidates_for(r"\usepackage", ["demo"]), ["draft"])
 
+    def test_bundled_cwl_files_expose_common_packages(self):
+        from editor.cwl import load_cwl_directories
+
+        model = load_cwl_directories([Path(__file__).parents[1] / "editor" / "cwl"])
+
+        expected = {
+            "amsmath", "amssymb", "amsthm", "mathtools",
+            "graphicx", "hyperref", "booktabs", "tabularray",
+            "siunitx", "tikz", "pgfplots", "biblatex",
+            "natbib", "cleveref", "enumitem", "geometry",
+            "xcolor", "listings", "minted", "tcolorbox",
+            "beamer", "fontspec", "microtype", "csquotes",
+            "subcaption", "multirow", "longtable",
+            "algorithm2e", "algpseudocode", "glossaries",
+            "fancyhdr", "titlesec", "caption", "float",
+            "setspace", "ulem", "todonotes", "pdfpages", "babel",
+            "multicoltab", "multicol", "tabularx", "array",
+            "tikz-cd", "mhchem", "physics", "imakeidx", "etoolbox",
+            "xparse", "soul", "wrapfig", "rotating", "placeins",
+            "appendix", "varioref", "fancyvrb", "tocloft",
+            "bm", "textcomp", "makecell", "tasks", "unicode-math",
+            "polyglossia", "fontenc", "inputenc", "forest",
+            "colortbl", "hhline", "xltabular", "threeparttable",
+            "pdflscape", "paralist",
+        }
+        self.assertLessEqual(expected, set(model.package_names))
+        self.assertGreater(len(model.commands), 680)
+        self.assertGreater(len(model.environments), 105)
+
+        booktabs = {command.name for command in model.commands_for(["booktabs"])}
+        self.assertIn(r"\toprule", booktabs)
+        tabularray = {env.name for env in model.environments_for(["tabularray"])}
+        self.assertIn("tblr", tabularray)
+        self.assertIn("longtblr", tabularray)
+        multicoltab = {env.name for env in model.environments_for(["multicoltab"])}
+        self.assertIn("multicoltab", multicoltab)
+        multicoltab_commands = {
+            command.name for command in model.commands_for(["multicoltab"])
+        }
+        self.assertIn(r"\mchead", multicoltab_commands)
+        self.assertIn(r"\mcheadrepeat", multicoltab_commands)
+        self.assertIn(r"\multicoltabbreak", multicoltab_commands)
+        options = model.option_candidates_for(
+            r"\begin{multicoltab}", ["multicoltab"])
+        self.assertIn("width=", options)
+        self.assertIn("natural-widths=global", options)
+
+    def test_builtin_package_commands_reach_the_dynamic_api(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            main = root / "main.tex"
+            main.write_text(r"\usepackage{booktabs}")
+            api = LaTeXSupport.build_dynamic_api("", main)
+            self.assertTrue(any(r"\toprule" in term for term in api))
+
+    def test_description_header_wins_over_package_header(self):
+        package = parse_cwl(
+            "# package: demo\n# description: Useful description\n\\demo\n",
+            package="demo",
+        )
+        self.assertEqual(package.description, "Useful description")
+
+    def test_environment_with_options_keeps_the_environment_name(self):
+        package = parse_cwl(
+            "\\begin{frame}[fragile]{title}#D{A slide}\n"
+            "\\begin{column}{width}#D{A column}\n",
+            package="demo",
+        )
+        self.assertEqual(set(package.environments), {"frame", "column"})
+
+    def test_multicoltab_environment_options_reach_completion(self):
+        editor = EditorWidget()
+        manager = AutoCompleteManager(editor)
+        shown = []
+        editor.showUserList = lambda list_id, labels: shown.append((list_id, labels))
+        editor.setText(r"\usepackage{multicoltab}\begin{multicoltab}[")
+        editor.setCursorPosition(0, len(editor.text(0)))
+        try:
+            manager.set_language("latex")
+            self.assertTrue(manager.handle_latex_option("["))
+            labels = shown[-1][1]
+            self.assertIn("width=", labels)
+            self.assertIn("natural-widths=global", labels)
+            self.assertIn("break-penalty=", labels)
+        finally:
+            manager.shutdown()
+            editor.deleteLater()
+            self.app.processEvents()
+
     def test_builtin_graphicx_keyvals_reach_option_completion(self):
         from editor.cwl import load_cwl_directories
 

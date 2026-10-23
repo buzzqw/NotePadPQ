@@ -12,22 +12,40 @@ Gestisce:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtGui import QColor, QFont
 from PyQt6.Qsci import (
-    QsciScintilla, QsciLexer,
-    QsciLexerPython, QsciLexerCPP, QsciLexerJavaScript,
-    QsciLexerHTML, QsciLexerCSS, QsciLexerXML,
-    QsciLexerSQL, QsciLexerBash, QsciLexerMakefile,
-    QsciLexerDiff, QsciLexerProperties, QsciLexerJSON,
-    QsciLexerYAML, QsciLexerLua, QsciLexerRuby,
-    QsciLexerTeX, QsciLexerMarkdown,
-    QsciLexerBatch, QsciLexerCMake, QsciLexerCSharp,
-    QsciLexerJava, QsciLexerPerl, QsciLexerPascal,
-    QsciLexerFortran, QsciLexerVerilog, QsciLexerVHDL,
-    QsciLexerPostScript, QsciLexerSpice,
+    QsciLexer,
+    QsciLexerBash,
+    QsciLexerBatch,
+    QsciLexerCMake,
+    QsciLexerCPP,
+    QsciLexerCSharp,
+    QsciLexerCSS,
+    QsciLexerDiff,
+    QsciLexerFortran,
+    QsciLexerHTML,
+    QsciLexerJava,
+    QsciLexerJavaScript,
+    QsciLexerJSON,
+    QsciLexerLua,
+    QsciLexerMakefile,
+    QsciLexerMarkdown,
+    QsciLexerPascal,
+    QsciLexerPerl,
+    QsciLexerPostScript,
+    QsciLexerProperties,
+    QsciLexerPython,
+    QsciLexerRuby,
+    QsciLexerSpice,
+    QsciLexerSQL,
+    QsciLexerTeX,
+    QsciLexerVerilog,
+    QsciLexerVHDL,
+    QsciLexerXML,
+    QsciLexerYAML,
 )
+
 from editor.lexer_latex_custom import LaTeXLexer
 
 if TYPE_CHECKING:
@@ -199,7 +217,7 @@ _PYGMENTS_EXT_MAP: dict[str, tuple[str, str]] = {
 
 # ─── Funzioni pubbliche ───────────────────────────────────────────────────────
 
-def set_lexer_by_extension(editor: "EditorWidget", ext: str) -> bool:
+def set_lexer_by_extension(editor: EditorWidget, ext: str) -> bool:
     """
     Imposta il lexer sull'editor in base all'estensione file.
     Restituisce True se il lexer è stato impostato.
@@ -217,7 +235,7 @@ def set_lexer_by_extension(editor: "EditorWidget", ext: str) -> bool:
     return False
 
 
-def set_lexer_by_path(editor: "EditorWidget", path: Path) -> bool:
+def set_lexer_by_path(editor: EditorWidget, path: Path) -> bool:
     """
     Imposta il lexer in base al percorso file.
     Prova estensione, poi filename speciali, poi shebang/content.
@@ -253,7 +271,7 @@ def set_lexer_by_path(editor: "EditorWidget", path: Path) -> bool:
     return False
 
 
-def set_lexer_auto(editor: "EditorWidget") -> bool:
+def set_lexer_auto(editor: EditorWidget) -> bool:
     """Rileva e imposta automaticamente il lexer (dal path o dal contenuto)."""
     path = getattr(editor, "file_path", None)
     if path:
@@ -272,7 +290,7 @@ def set_lexer_auto(editor: "EditorWidget") -> bool:
     return True
 
 
-def set_lexer_by_name(editor: "EditorWidget", lang_name: str) -> bool:
+def set_lexer_by_name(editor: EditorWidget, lang_name: str) -> bool:
     """Imposta il lexer per nome linguaggio (dal menu Documento)."""
     key = lang_name.lower()
     if key == "automatico":
@@ -287,7 +305,7 @@ def set_lexer_by_name(editor: "EditorWidget", lang_name: str) -> bool:
     return set_lexer_by_extension(editor, ext)
 
 
-def get_language_name(editor: "EditorWidget") -> str:
+def get_language_name(editor: EditorWidget) -> str:
     """Restituisce il nome del linguaggio dell'editor corrente."""
     # Usa il nome salvato da _apply_lexer (es. "LaTeX"), più preciso di lexer.language()
     # che può restituire nomi interni diversi (es. QsciLexerTeX → "TeX").
@@ -365,7 +383,7 @@ def get_comment_chars(language: str) -> tuple[str, str]:
 
 # ─── Helpers interni ──────────────────────────────────────────────────────────
 
-def _deactivate_language_support(editor: "EditorWidget") -> None:
+def _deactivate_language_support(editor: EditorWidget) -> None:
     """Rimuove supporti, checker e handler del linguaggio precedente."""
     from editor.latex_support import LaTeXSupport
     from editor.markdown_support import MarkdownSupport
@@ -388,7 +406,7 @@ def _deactivate_language_support(editor: "EditorWidget") -> None:
             pass
 
 
-def _clear_lexer(editor: "EditorWidget", language: str = "Text") -> None:
+def _clear_lexer(editor: EditorWidget, language: str = "Text") -> None:
     """Imposta testo normale e chiude ogni stato del linguaggio precedente."""
     _deactivate_language_support(editor)
     editor.setLexer(None)
@@ -403,7 +421,7 @@ def _clear_lexer(editor: "EditorWidget", language: str = "Text") -> None:
         pass
 
 
-def refresh_language_support(editor: "EditorWidget", force_check: bool = False,
+def refresh_language_support(editor: EditorWidget, force_check: bool = False,
                              refresh_autocomplete: bool = True) -> None:
     """Ricollega supporti e aggiorna API/checker dopo una modifica di contenuto."""
     language = getattr(editor, "_current_language", "")
@@ -417,8 +435,8 @@ def refresh_language_support(editor: "EditorWidget", force_check: bool = False,
             MarkdownSupport._apply_yaml_fm(editor)
 
     if language_key in ("latex", "bibtex"):
-        from editor.latex_support import LaTeXSupport
         from editor.latex_checker import LaTeXChecker
+        from editor.latex_support import LaTeXSupport
 
         if not getattr(editor, "_latex_support_active", False):
             LaTeXSupport.activate(editor)
@@ -440,8 +458,8 @@ def refresh_language_support(editor: "EditorWidget", force_check: bool = False,
         if force_check:
             checker.force_check()
 
-def _apply_lexer(editor: "EditorWidget",
-                 lexer_class: Optional[type],
+def _apply_lexer(editor: EditorWidget,
+                 lexer_class: type | None,
                  lang_name: str) -> bool:
     """Instanzia e applica il lexer all'editor."""
     _deactivate_language_support(editor)
@@ -477,9 +495,10 @@ def _apply_lexer(editor: "EditorWidget",
     # Il QTimer garantisce che Scintilla abbia terminato di inizializzare
     # il lexer prima che vengano impostati i colori dei token.
     try:
-        from config.themes import ThemeManager
-        from PyQt6.QtCore import QTimer
         from PyQt6 import sip
+        from PyQt6.QtCore import QTimer
+
+        from config.themes import ThemeManager
         tm = ThemeManager.instance()
         # Applica subito i colori UI (sfondo, margini, caret...)
         tm.apply_to_editor(editor)
@@ -543,7 +562,7 @@ def _apply_lexer(editor: "EditorWidget",
     return True
 
 
-def _set_pygments_lexer(editor: "EditorWidget", alias: str, display_name: str) -> bool:
+def _set_pygments_lexer(editor: EditorWidget, alias: str, display_name: str) -> bool:
     """Istanzia un PygmentsLexer e lo applica all'editor."""
     _deactivate_language_support(editor)
     try:
@@ -559,9 +578,10 @@ def _set_pygments_lexer(editor: "EditorWidget", alias: str, display_name: str) -
     editor.SendScintilla(editor.SCI_COLOURISE, 0, -1)
 
     try:
-        from config.themes import ThemeManager
-        from PyQt6.QtCore import QTimer
         from PyQt6 import sip
+        from PyQt6.QtCore import QTimer
+
+        from config.themes import ThemeManager
         tm = ThemeManager.instance()
         tm.apply_to_editor(editor)
 

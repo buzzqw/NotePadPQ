@@ -6,11 +6,10 @@ Menu: Plugin → Database → Nuova connessione / Connessioni salvate / Gestione
 """
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -27,7 +26,7 @@ class DatabasePlugin(BasePlugin):
     )
     AUTHOR = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
 
         m = main_window._menus.get("plugins")

@@ -11,10 +11,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QSortFilterProxyModel
-from PyQt6.QtGui import QStandardItemModel, QStandardItem
+from PyQt6.QtCore import QSortFilterProxyModel, Qt
+from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
-     QDialog, QVBoxLayout, QLineEdit, QListView, QLabel,
+    QDialog,
+    QLineEdit,
+    QListView,
+    QVBoxLayout,
 )
 
 from i18n.i18n import tr
@@ -29,7 +32,7 @@ class CommandPaletteDialog(QDialog):
     Digita per filtrare, Invio per eseguire, Esc per chiudere.
     """
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(
             main_window,
             Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint,

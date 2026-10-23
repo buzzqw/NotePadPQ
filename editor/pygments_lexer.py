@@ -11,7 +11,7 @@ from PyQt6.Qsci import QsciLexerCustom
 from PyQt6.QtGui import QColor, QFont
 
 if TYPE_CHECKING:
-    from editor.editor_widget import EditorWidget
+    pass
 
 # ─── Stili ────────────────────────────────────────────────────────────────────
 
@@ -74,7 +74,7 @@ _STYLE_TO_TOKEN_KEY = {
 
 def _token_to_style(ttype) -> int:
     """Mappa un token Pygments al numero di stile QScintilla."""
-    from pygments.token import Keyword, Name, String, Number, Operator, Comment, Error
+    from pygments.token import Comment, Error, Keyword, Name, Number, Operator, String
     if ttype in Keyword.Type:
         return S_KWTYPE
     if ttype in Keyword:

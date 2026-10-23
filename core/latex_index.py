@@ -16,7 +16,6 @@ import threading
 from bisect import bisect_right
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from core.latex_checks import environment_balance, format_balance_issue
 from core.latex_labels import label_contexts
@@ -27,7 +26,6 @@ from core.latex_project import (
     resolve_project_root,
 )
 from core.latex_tokenizer import DocumentSpans, scan_bib_entries, scan_document
-
 
 _WORD_RE = re.compile(r"(?u)[\w\\]{2,}")
 
@@ -474,7 +472,7 @@ def _file_signature(path: Path) -> tuple:
         return (None,)
 
 
-def get_latex_index(text: str, tex_path: Optional[Path] = None,
+def get_latex_index(text: str, tex_path: Path | None = None,
                     include_project: bool = True) -> LatexIndex:
     """Return a cached immutable index for the current document/project."""
     current = Path(tex_path).resolve() if tex_path else None

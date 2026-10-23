@@ -21,36 +21,35 @@ Dipendenze opzionali (degradano gracefully):
 from __future__ import annotations
 
 import json
-import tempfile
 import shutil
+import tempfile
 import urllib.request
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QObject, QThread, QTimer, QEventLoop, QUrl, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QEventLoop, QObject, Qt, QThread, QTimer, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QToolBar,
-    QToolButton,
-    QComboBox,
-    QLabel,
     QFileDialog,
+    QHBoxLayout,
+    QLabel,
     QMessageBox,
     QProgressDialog,
     QSizePolicy,
+    QToolBar,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 try:
-    from PyQt6.QtWebEngineWidgets import QWebEngineView
-    from PyQt6.QtWebEngineCore import (
-        QWebEngineSettings,
-        QWebEngineScript,
-        QWebEnginePage,
-    )
     from PyQt6.QtWebChannel import QWebChannel
+    from PyQt6.QtWebEngineCore import (
+        QWebEnginePage,  # noqa: F401
+        QWebEngineScript,  # noqa: F401
+        QWebEngineSettings,
+    )
+    from PyQt6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
 
     WEBENGINE_OK = True
 except ImportError:
@@ -62,11 +61,10 @@ if TYPE_CHECKING:
     from PyQt6.QtGui import QIcon
 
 
-def _load_rt_icon(svg_file: str, widget: QWidget, size: int = 18) -> "QIcon":
+def _load_rt_icon(svg_file: str, widget: QWidget, size: int = 18) -> QIcon:
     """Carica un'icona SVG dal set attivo, sostituendo currentColor con il colore
     testo corrente della palette. Ritorna QIcon vuota se non trovata."""
     from PyQt6.QtGui import QIcon, QPalette, QPixmap
-    from config.settings import Settings
 
     icon_path = Path(__file__).parent.parent / "icons" / "lucide" / svg_file
 
@@ -100,7 +98,7 @@ _ACTIVE_THREADS: set[QThread] = set()
 
 # ── Shared Jodit directory (singleton, not temp-per-widget) ──────────────────
 
-_JODIT_SHARED_DIR: Optional[Path] = None
+_JODIT_SHARED_DIR: Path | None = None
 
 
 def _get_shared_jodit_dir() -> Path:
@@ -177,7 +175,7 @@ class JoditDownload(QObject):
 
     finished = pyqtSignal(bool)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._ok = False
         self._error = ""
@@ -227,13 +225,13 @@ class JoditDownload(QObject):
         self.finished.emit(self._ok)
 
 
-def download_jodit(parent: Optional[QWidget] = None) -> JoditDownload:
+def download_jodit(parent: QWidget | None = None) -> JoditDownload:
     controller = JoditDownload(parent)
     controller.start()
     return controller
 
 
-def _download_jodit(parent: Optional[QWidget] = None) -> bool:
+def _download_jodit(parent: QWidget | None = None) -> bool:
     """API storica: attende l'esito mantenendo reattivo l'event loop Qt."""
     result = [False]
     loop = QEventLoop()
@@ -248,7 +246,7 @@ def _download_jodit(parent: Optional[QWidget] = None) -> bool:
     return result[0]
 
 
-def ensure_jodit(parent: Optional[QWidget] = None) -> bool:
+def ensure_jodit(parent: QWidget | None = None) -> bool:
     """Verifica/scarica gli asset Jodit. Ritorna True se pronti."""
     if _JODIT_JS.exists() and _JODIT_CSS.exists():
         return True
@@ -306,7 +304,9 @@ class RichTextIO:
     @staticmethod
     def _doc_to_html(path: Path) -> tuple[str, str]:
         """Converte .doc (Word 97-2003) → HTML via LibreOffice → mammoth."""
-        import subprocess, tempfile, shutil
+        import shutil
+        import subprocess
+        import tempfile
 
         tmp = Path(tempfile.mkdtemp(prefix="npq_doc_"))
         try:
@@ -566,7 +566,7 @@ class _EditorBridge(QObject):
     content_changed = pyqtSignal()
     js_ready = pyqtSignal()
 
-    def __init__(self, widget: "RichTextWidget"):
+    def __init__(self, widget: RichTextWidget):
         super().__init__()
         self._widget = widget
 
@@ -774,17 +774,17 @@ class RichTextWidget(QWidget):
     load_finished = pyqtSignal(bool)
     save_finished = pyqtSignal(bool, object)  # success, Path
 
-    def __init__(self, path: Optional[Path] = None, parent: Optional[QWidget] = None):
+    def __init__(self, path: Path | None = None, parent: QWidget | None = None):
         super().__init__(parent)
-        self.file_path: Optional[Path] = path
+        self.file_path: Path | None = path
         self._modified = False
         self._js_ready = False
-        self._pending_html: Optional[str] = None
-        self._tmpdir: Optional[Path] = None
-        self._io_worker: Optional[_RichTextIOWorker] = None
-        self._progress_dlg: Optional[QProgressDialog] = None
+        self._pending_html: str | None = None
+        self._tmpdir: Path | None = None
+        self._io_worker: _RichTextIOWorker | None = None
+        self._progress_dlg: QProgressDialog | None = None
         self._io_operation = ""
-        self._io_path: Optional[Path] = None
+        self._io_path: Path | None = None
         self._io_save_as = False
         self._io_pending = False
         self._io_ok = False
@@ -857,7 +857,6 @@ class RichTextWidget(QWidget):
 
     def _make_toolbar(self) -> QWidget:
         from PyQt6.QtCore import QSize
-        from PyQt6.QtGui import QIcon
 
         bar = QToolBar(self)
         bar.setMovable(False)
@@ -1019,7 +1018,7 @@ class RichTextWidget(QWidget):
         """Legge il contenuto HTML corrente dall'editor (sincrono)."""
         if not WEBENGINE_OK or not self._js_ready:
             return ""
-        result: list[Optional[str]] = [None]
+        result: list[str | None] = [None]
         loop = QEventLoop()
 
         def cb(val: str):
@@ -1078,8 +1077,8 @@ class RichTextWidget(QWidget):
 
     def _print_document(self) -> None:
         """Apre QPrintDialog e stampa il contenuto del documento."""
-        from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
         from PyQt6.QtGui import QTextDocument
+        from PyQt6.QtPrintSupport import QPrintDialog, QPrinter
 
         if not WEBENGINE_OK or not self._js_ready:
             return
@@ -1102,7 +1101,7 @@ class RichTextWidget(QWidget):
         """Metodo pubblico per esportare come PDF (usato da menu File > Esporta PDF)."""
         self._export_pdf()
 
-    def _export_pdf(self, path: Optional[Path] = None) -> bool:
+    def _export_pdf(self, path: Path | None = None) -> bool:
         if not isinstance(path, Path):
             path = None
         if path is None:

@@ -8,22 +8,31 @@ Fallback: QWebEngineView (Chromium) — link non evidenziati ma testo selezionab
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, List
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QPoint, QRect, QSize, QTimer
-from PyQt6.QtGui import (
-    QPixmap, QImage, QPainter, QPen, QBrush, QColor,
-    QCursor, QDesktopServices, QIcon, QShortcut, QKeySequence
-)
-from core.external_open import open_url as _open_url
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QCursor, QIcon, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QToolBar, QToolButton,
-    QLabel, QSizePolicy, QScrollArea, QFrame, QComboBox, QLineEdit,
-    QSplitter, QListWidget, QListWidgetItem, QTabWidget, QApplication
+    QApplication,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
+    QTabWidget,
+    QToolBar,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 
+from core.external_open import open_url as _open_url
 from i18n.i18n import tr
-from ui.pdf_tools import PdfSearchManager, PdfTextSelector, PdfMagnifier
+from ui.pdf_tools import PdfMagnifier, PdfSearchManager, PdfTextSelector
 
 # ── Dipendenze opzionali ───────────────────────────────────────────────────────
 
@@ -39,6 +48,7 @@ except ImportError:
 # nativo non carica il runtime Chromium (~31 MB). Presenza verificata con
 # find_spec; le classi si importano dove servono davvero.
 import importlib.util as _importlib_util
+
 WEBENGINE_OK = _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
 
 # Colori overlay link
@@ -58,19 +68,19 @@ class _PdfPageLabel(QLabel):
     text_selected = pyqtSignal(str)
 
     def __init__(self, fitz_page, zoom: float, show_links: bool,
-                 parent: Optional[QWidget] = None):
+                 parent: QWidget | None = None):
         super().__init__(parent)
         self._fitz_page  = fitz_page
         self._zoom       = zoom
         self._show_links = show_links
-        self._links: List[dict] = fitz_page.get_links() if fitz_page else []
-        self._hovered_link: Optional[dict] = None
+        self._links: list[dict] = fitz_page.get_links() if fitz_page else []
+        self._hovered_link: dict | None = None
 
-        self._selector: Optional[PdfTextSelector] = None
+        self._selector: PdfTextSelector | None = None
         self._search_matches: list = []
         self._search_current: int = -1
         self._is_selecting: bool = False
-        self._pending_link: Optional[dict] = None
+        self._pending_link: dict | None = None
 
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
@@ -79,7 +89,7 @@ class _PdfPageLabel(QLabel):
         self._render()
 
     def _render(self) -> None:
-        from ui.pdf_tools import _SEARCH_HIGHLIGHT, _SEARCH_CURRENT, _SELECTION_COLOR, _SELECTION_BORDER
+        from ui.pdf_tools import _SEARCH_CURRENT, _SEARCH_HIGHLIGHT, _SELECTION_BORDER, _SELECTION_COLOR
 
         mat = _fitz.Matrix(self._zoom, self._zoom)
         pix = self._fitz_page.get_pixmap(matrix=mat, colorspace=_fitz.csRGB)
@@ -138,7 +148,7 @@ class _PdfPageLabel(QLabel):
             int((r.y1 - r.y0) * self._zoom),
         )
 
-    def _link_at(self, pos: QPoint) -> Optional[dict]:
+    def _link_at(self, pos: QPoint) -> dict | None:
         x = pos.x() / self._zoom
         y = pos.y() / self._zoom
         pt = _fitz.Point(x, y)
@@ -216,7 +226,7 @@ class _SidePanel(QWidget):
 
     page_requested = pyqtSignal(int)   # indice pagina (0-based)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setMinimumWidth(80)
 
@@ -313,24 +323,24 @@ class PdfViewerWidget(QWidget):
 
     _DEFAULT_ZOOM = 1.5
 
-    def __init__(self, path: Path, parent: Optional[QWidget] = None,
+    def __init__(self, path: Path, parent: QWidget | None = None,
                  main_window=None):
         super().__init__(parent)
-        self.file_path: Optional[Path] = path
+        self.file_path: Path | None = path
         self._main_window = main_window
         self._doc         = None
         self._zoom        = self._DEFAULT_ZOOM
         self._show_links  = True
         self._continuous  = True   # True = scroll continuo; False = pagina singola
         self._cur_page    = 0      # usato in modalità pagina singola
-        self._page_labels: List[_PdfPageLabel] = []
+        self._page_labels: list[_PdfPageLabel] = []
         # Contatore di generazione: incrementato ad ogni rebuild per invalidare
         # eventuali QTimer.singleShot pendenti da rebuild precedenti.
         self._page_gen    = 0
 
-        self._search_mgr: Optional[PdfSearchManager] = None
+        self._search_mgr: PdfSearchManager | None = None
         self._search_bar = None
-        self._magnifier: Optional[PdfMagnifier] = None
+        self._magnifier: PdfMagnifier | None = None
 
         self._zoom_timer = QTimer(self)
         self._zoom_timer.setSingleShot(True)
@@ -531,8 +541,9 @@ class PdfViewerWidget(QWidget):
             self._view = None
 
         elif WEBENGINE_OK:
-            from core.webengine import safe_webview
             from PyQt6.QtWebEngineCore import QWebEngineSettings
+
+            from core.webengine import safe_webview
             self._view = safe_webview(self)
             if self._view is not None:
                 self._view.settings().setAttribute(
@@ -756,7 +767,6 @@ class PdfViewerWidget(QWidget):
         return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event) -> None:
-        from PyQt6.QtCore import QEvent
         if not self._doc or not FITZ_OK:
             super().keyPressEvent(event)
             return
@@ -939,7 +949,7 @@ class PdfViewerWidget(QWidget):
     def _print(self) -> None:
         if not self._doc:
             return
-        from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+        from PyQt6.QtPrintSupport import QPrintDialog, QPrinter
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         dlg = QPrintDialog(printer, self)
         if dlg.exec() != QPrintDialog.DialogCode.Accepted:
@@ -1138,9 +1148,9 @@ class PdfWebTabWidget(QWidget):
 
     modified_changed = pyqtSignal(bool)
 
-    def __init__(self, path: Path, parent: Optional[QWidget] = None):
+    def __init__(self, path: Path, parent: QWidget | None = None):
         super().__init__(parent)
-        self.file_path: Optional[Path] = path
+        self.file_path: Path | None = path
         self._view        = None
         self._find_edit   = None
         self._find_lbl    = None
@@ -1210,8 +1220,9 @@ class PdfWebTabWidget(QWidget):
         layout.addWidget(bar)
 
         if WEBENGINE_OK:
-            from core.webengine import safe_webview
             from PyQt6.QtWebEngineCore import QWebEngineSettings
+
+            from core.webengine import safe_webview
             self._view = safe_webview(self)
             if self._view is not None:
                 self._view.settings().setAttribute(

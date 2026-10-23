@@ -5,11 +5,11 @@ NotePadPQ
 """
 from __future__ import annotations
 
-import subprocess
 import re
+import subprocess
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional, List, Tuple, Callable
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
 
@@ -148,7 +148,7 @@ class GitFramework:
             worker.cancel()
 
     def _run_sync(self, args: list[str], timeout: int = 30,
-                  strip_output: bool = True) -> Tuple[int, str, str]:
+                  strip_output: bool = True) -> tuple[int, str, str]:
         try:
             result = subprocess.run(
                 ["git"] + args,
@@ -179,13 +179,13 @@ class GitFramework:
         rc, out, _ = self._run_sync(["branch", "--show-current"], self._TIMEOUT_SHORT)
         return out if rc == 0 else "?"
 
-    def status(self) -> List[Tuple[str, str]]:
+    def status(self) -> list[tuple[str, str]]:
         rc, out, _ = self._run_sync(
             ["status", "--porcelain"], self._TIMEOUT_SHORT, strip_output=False)
         return self._parse_status(out) if rc == 0 else []
 
     @staticmethod
-    def _parse_status(out: str) -> List[Tuple[str, str]]:
+    def _parse_status(out: str) -> list[tuple[str, str]]:
         result = []
         for line in out.splitlines():
             if len(line) >= 3:
@@ -194,14 +194,14 @@ class GitFramework:
                 result.append((xy, path))
         return result
 
-    def status_async(self, callback: Callable[[List[Tuple[str, str]]], None]) -> _GitThread:
+    def status_async(self, callback: Callable[[list[tuple[str, str]]], None]) -> _GitThread:
         """Fetch repository status without blocking the UI thread."""
         def _cb(rc, out, _err):
             callback(self._parse_status(out) if rc == 0 else [])
         return self._run_async(["status", "--porcelain"], _cb, self._TIMEOUT_SHORT)
 
     @staticmethod
-    def _parse_status_detailed(out: str) -> List[Tuple[str, str, str]]:
+    def _parse_status_detailed(out: str) -> list[tuple[str, str, str]]:
         """Parse porcelain output as ``(index_status, worktree_status, path)``.
 
         Unlike :meth:`_parse_status`, this keeps the two status columns apart so
@@ -220,21 +220,21 @@ class GitFramework:
         return result
 
     def status_detailed_async(
-        self, callback: Callable[[List[Tuple[str, str, str]]], None]
+        self, callback: Callable[[list[tuple[str, str, str]]], None]
     ) -> _GitThread:
         """Fetch status preserving the staged/worktree distinction."""
         def _cb(rc, out, _err):
             callback(self._parse_status_detailed(out) if rc == 0 else [])
         return self._run_async(["status", "--porcelain"], _cb, self._TIMEOUT_SHORT)
 
-    def log(self, n: int = 50) -> List[dict]:
+    def log(self, n: int = 50) -> list[dict]:
         fmt = "%H\x1f%h\x1f%an\x1f%ae\x1f%ai\x1f%s"
         rc, out, _ = self._run_sync(
             ["log", f"-{n}", f"--pretty=format:{fmt}"], self._TIMEOUT_SHORT)
         return self._parse_log(out) if rc == 0 else []
 
     @staticmethod
-    def _parse_log(out: str) -> List[dict]:
+    def _parse_log(out: str) -> list[dict]:
         commits = []
         for line in out.splitlines():
             parts = line.split("\x1f")
@@ -246,7 +246,7 @@ class GitFramework:
                 })
         return commits
 
-    def log_async(self, n: int, callback: Callable[[List[dict]], None]) -> _GitThread:
+    def log_async(self, n: int, callback: Callable[[list[dict]], None]) -> _GitThread:
         """Fetch commit history without blocking the UI thread."""
         fmt = "%H\x1f%h\x1f%an\x1f%ae\x1f%ai\x1f%s"
 
@@ -255,7 +255,7 @@ class GitFramework:
         return self._run_async(
             ["log", f"-{n}", f"--pretty=format:{fmt}"], _cb, self._TIMEOUT_SHORT)
 
-    def branches(self) -> List[str]:
+    def branches(self) -> list[str]:
         rc, out, _ = self._run_sync(
             ["branch", "-a", "--format=%(refname:short)"], self._TIMEOUT_SHORT)
         return out.splitlines() if rc == 0 else []
@@ -270,7 +270,7 @@ class GitFramework:
                     result[parts[0]] = parts[1]
         return result
 
-    def diff(self, path: Optional[str] = None, staged: bool = False) -> str:
+    def diff(self, path: str | None = None, staged: bool = False) -> str:
         args = self._diff_args(path, staged)
         rc, out, _ = self._run_sync(
             args, self._TIMEOUT_SHORT, strip_output=False)
@@ -294,7 +294,7 @@ class GitFramework:
         return [line.strip() for line in out.splitlines() if line.strip()]
 
     @staticmethod
-    def _diff_args(path: Optional[str], staged: bool) -> list[str]:
+    def _diff_args(path: str | None, staged: bool) -> list[str]:
         args = ["diff"]
         if staged:
             args.append("--cached")
@@ -302,7 +302,7 @@ class GitFramework:
             args += ["--", path]
         return args
 
-    def diff_async(self, path: Optional[str], staged: bool,
+    def diff_async(self, path: str | None, staged: bool,
                    callback: Callable[[str], None]) -> _GitThread:
         """Fetch a file or repository diff without blocking the UI thread."""
         def _cb(rc, out, _err):
@@ -346,7 +346,7 @@ class GitFramework:
             callback(out if rc == 0 else "")
         return self._run_async(["show", "--stat", sha], _cb, self._TIMEOUT_SHORT)
 
-    def stash_list(self) -> List[str]:
+    def stash_list(self) -> list[str]:
         rc, out, _ = self._run_sync(
             ["stash", "list", "--pretty=format:%h %ai %s"], self._TIMEOUT_SHORT)
         return out.splitlines() if rc == 0 else []
@@ -390,7 +390,7 @@ class GitFramework:
                 callback(ok, msg)
         self._run_async(args, _cb, self._TIMEOUT_LONG)
 
-    def stage_files(self, files: List[str]) -> bool:
+    def stage_files(self, files: list[str]) -> bool:
         """Stage solo i file specificati (NON tutto con `git add .`)."""
         if not files:
             return True
@@ -415,7 +415,7 @@ class GitFramework:
         rc, _, _ = self._run_sync(["checkout", "--", path], self._TIMEOUT_SHORT)
         return rc == 0
 
-    def commit_async(self, message: str, files: Optional[List[str]] = None,
+    def commit_async(self, message: str, files: list[str] | None = None,
                      callback: Callable[[bool, str], None] = None):
         """Commit. Se files è specificato, committa solo quelli.
 

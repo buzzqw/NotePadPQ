@@ -12,19 +12,23 @@ Gestisce:
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-from typing import Optional, List
 from functools import partial
+from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QFileSystemWatcher
-from PyQt6.QtGui import QIcon, QColor
+from PyQt6.QtCore import QFileSystemWatcher, QPoint, Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QTabWidget, QTabBar, QWidget, QVBoxLayout,
-    QSplitter, QMenu, QApplication, QMessageBox,
+    QApplication,
+    QMenu,
+    QMessageBox,
+    QSplitter,
+    QTabBar,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
-from editor.editor_widget import EditorWidget, LineEnding
+from editor.editor_widget import EditorWidget
 from i18n.i18n import tr
 
 # ─── TabContainer ─────────────────────────────────────────────────────────────
@@ -35,11 +39,11 @@ class TabContainer(QWidget):
     Gestisce il layout tra Editor e PreviewPanel.
     """
 
-    def __init__(self, editor: EditorWidget, tab_manager: "TabManager"):
+    def __init__(self, editor: EditorWidget, tab_manager: TabManager):
         super().__init__()
         self._editor = editor
         self._tab_manager = tab_manager
-        self._preview: Optional[QWidget] = None
+        self._preview: QWidget | None = None
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -128,7 +132,7 @@ class TabManager(QTabWidget):
         # Mappa EditorWidget → container widget (splitter o editor stesso)
         self._containers: dict[EditorWidget, QWidget] = {}
         # Tab custom non-editor (es. SpreadsheetWidget): widget → path opzionale
-        self._custom_tabs: dict[QWidget, Optional[Path]] = {}
+        self._custom_tabs: dict[QWidget, Path | None] = {}
         # Chiusure in attesa dell'esito di un salvataggio asincrono.
         self._pending_custom_closes: dict[QWidget, object] = {}
         self._pending_editor_closes: dict[EditorWidget, object] = {}
@@ -136,7 +140,7 @@ class TabManager(QTabWidget):
         self._preview_enabled = False
         # Ordine di ultimo utilizzo dei tab (widget container), usato dal
         # popup Ctrl+Tab: indice 0 = tab corrente, poi in ordine di recenza.
-        self._mru: List[QWidget] = []
+        self._mru: list[QWidget] = []
 
         self._setup_connections()
 
@@ -154,7 +158,7 @@ class TabManager(QTabWidget):
 
     # ── Creazione tab ─────────────────────────────────────────────────────────
 
-    def new_tab(self, path: Optional[Path] = None,
+    def new_tab(self, path: Path | None = None,
                 template_ext: str = "", template_name: str = "") -> EditorWidget:
         """
         Crea un nuovo tab con un EditorWidget.
@@ -254,7 +258,7 @@ class TabManager(QTabWidget):
         )
 
         editor.setFocus()
-        
+
         # --- MONITORAGGIO FILE ESTERNO ---
         # Creiamo una "sentinella" per questo file
         editor._watcher = QFileSystemWatcher(self)
@@ -264,7 +268,7 @@ class TabManager(QTabWidget):
             # Se la sentinella vede un cambiamento, avvisa la finestra principale
             # Usiamo partial invece di lambda per evitare bug di binding!
             editor._watcher.fileChanged.connect(partial(self.window()._on_file_changed_externally, editor))
-        
+
         return editor
 
     def _make_container(self, editor: EditorWidget) -> TabContainer:
@@ -286,18 +290,18 @@ class TabManager(QTabWidget):
 
     # ── Accesso editor ────────────────────────────────────────────────────────
 
-    def current_editor(self) -> Optional[EditorWidget]:
+    def current_editor(self) -> EditorWidget | None:
         """Restituisce l'EditorWidget del tab corrente."""
         container = self.currentWidget()
         if container is None:
             return None
         return self._editors.get(container)
 
-    def editor_at(self, index: int) -> Optional[EditorWidget]:
+    def editor_at(self, index: int) -> EditorWidget | None:
         container = self.widget(index)
         return self._editors.get(container) if container else None
 
-    def all_editors(self) -> List[EditorWidget]:
+    def all_editors(self) -> list[EditorWidget]:
         return list(self._editors.values())
 
     def all_custom_tabs(self) -> list:
@@ -314,7 +318,7 @@ class TabManager(QTabWidget):
     def set_current_index(self, index: int) -> None:
         self.setCurrentIndex(index)
 
-    def find_tab_by_path(self, path: Path) -> Optional[int]:
+    def find_tab_by_path(self, path: Path) -> int | None:
         """Restituisce l'indice del tab con il file dato, o None."""
         resolved = path.resolve()
         for i in range(self.count()):
@@ -330,7 +334,7 @@ class TabManager(QTabWidget):
         return None
 
     def add_spreadsheet_tab(self, widget: QWidget, title: str,
-                            path: Optional[Path] = None) -> int:
+                            path: Path | None = None) -> int:
         """Aggiunge un widget custom (es. SpreadsheetWidget) come nuovo tab."""
         self._custom_tabs[widget] = path
         idx = self.addTab(widget, title)
@@ -353,12 +357,12 @@ class TabManager(QTabWidget):
         name = fp.name if fp else self.tabText(idx).rstrip(" *")
         self.setTabText(idx, name + (" *" if modified else ""))
 
-    def current_custom_path(self) -> Optional[Path]:
+    def current_custom_path(self) -> Path | None:
         """Se il tab corrente è un tab custom, restituisce il path; altrimenti None."""
         w = self.currentWidget()
         return self._custom_tabs.get(w) if w else None
 
-    def current_custom_widget(self) -> Optional[QWidget]:
+    def current_custom_widget(self) -> QWidget | None:
         """Se il tab corrente è un tab custom, restituisce il widget; altrimenti None."""
         w = self.currentWidget()
         return w if (w is not None and w in self._custom_tabs) else None
@@ -589,7 +593,7 @@ class TabManager(QTabWidget):
         idx = self.indexOf(container)
         if idx < 0:
             return
-            
+
         # Controllo se il file proviene dall'FTP
         if hasattr(editor, "_ftp_remote_path") and editor._ftp_remote_path:
             # Estrae solo il nome del file dalla stringa del percorso (es: mio_file.txt)
@@ -598,7 +602,7 @@ class TabManager(QTabWidget):
             # File locale normale
             path = editor.file_path
             name = path.name if path else tr("label.untitled")
-            
+
         prefix = "* " if modified else ""
         self.setTabText(idx, f"{prefix}{name}")
         if not (hasattr(editor, "_ftp_remote_path") and editor._ftp_remote_path):
@@ -620,7 +624,7 @@ class TabManager(QTabWidget):
                 self._mru.remove(widget)
             self._mru.insert(0, widget)
 
-    def mru_widgets(self) -> List[QWidget]:
+    def mru_widgets(self) -> list[QWidget]:
         """Container dei tab in ordine di ultimo utilizzo (indice 0 = corrente),
         usato dal popup di switch rapido Ctrl+Tab. Include eventuali tab
         aperti ma mai ancora messi a fuoco, in coda, nell'ordine delle tab."""
@@ -721,8 +725,9 @@ class TabManager(QTabWidget):
             open_path_in_filemanager(editor.file_path)
 
     def _open_terminal_here(self, editor: EditorWidget) -> None:
-        from core.platform import open_terminal_in_folder
         from pathlib import Path
+
+        from core.platform import open_terminal_in_folder
         if editor.file_path:
             folder = str(editor.file_path.parent)
         else:

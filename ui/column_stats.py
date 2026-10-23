@@ -20,18 +20,24 @@ Integrazione:
 
 from __future__ import annotations
 
-import re
 import math
-import statistics
-from typing import List, Optional, TYPE_CHECKING
+import re
+from typing import TYPE_CHECKING
 
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTableWidget,
-    QTableWidgetItem, QPushButton, QLabel,
-    QDialogButtonBox, QHeaderView, QApplication,
-)
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+)
 
 from i18n.i18n import tr
 
@@ -52,7 +58,7 @@ _NUMBER_RE = re.compile(
 )
 
 
-def extract_numbers(text: str) -> List[float]:
+def extract_numbers(text: str) -> list[float]:
     """Estrae tutti i numeri dal testo, sostituendo la virgola col punto."""
     # Normalizza separatore decimale italiano (3,14 → 3.14)
     # ma non confonde i separatori delle migliaia (1.000 → non è 1000)
@@ -68,7 +74,7 @@ def extract_numbers(text: str) -> List[float]:
 
 # ─── Calcolo statistiche ──────────────────────────────────────────────────────
 
-def compute_stats(numbers: List[float]) -> dict:
+def compute_stats(numbers: list[float]) -> dict:
     """Restituisce un dict {label_tradotta: valore} per le statistiche."""
     if not numbers:
         return {}
@@ -129,7 +135,7 @@ def _fmt(v) -> str:
 
 class ColumnStatsDialog(QDialog):
 
-    def __init__(self, editor: "EditorWidget", parent=None):
+    def __init__(self, editor: EditorWidget, parent=None):
         super().__init__(parent)
         self.setWindowTitle(tr("column_stats.title"))
         self.resize(420, 380)

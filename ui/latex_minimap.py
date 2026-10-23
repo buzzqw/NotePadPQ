@@ -10,20 +10,24 @@ salta alla riga corrispondente nell'editor.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Dict, Any, Optional
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QLabel, QSizePolicy,
+    QLabel,
+    QSizePolicy,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
 
 # Icone testuali per ogni livello
-_SECTION_ICONS: Dict[str, str] = {
+_SECTION_ICONS: dict[str, str] = {
     "part":         "❶",
     "chapter":      "◉",
     "section":      "§",
@@ -64,12 +68,12 @@ class LaTeXMinimapWidget(QWidget):
     cliccando su una voce.
     """
 
-    def __init__(self, editor: "EditorWidget", parent: QWidget = None):
+    def __init__(self, editor: EditorWidget, parent: QWidget = None):
         super().__init__(parent)
         self._editor = editor
         self._needs_refresh = False
 
-        self._worker: Optional[_StructureWorker] = None
+        self._worker: _StructureWorker | None = None
         self._old_workers: list = []
 
         self._timer = QTimer(self)
@@ -174,7 +178,7 @@ class LaTeXMinimapWidget(QWidget):
             self._tree.blockSignals(False)
             return
 
-        stack: List[tuple] = []
+        stack: list[tuple] = []
         for entry in structure:
             depth    = entry["depth"]
             sec_type = entry["type"]

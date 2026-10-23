@@ -21,21 +21,18 @@ Uso:
 
 import re
 import sys
-from html import escape as _html_escape
 from enum import Enum
+from html import escape as _html_escape
 from pathlib import Path
-from typing import Optional
-
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer, QPoint, QEvent
-from PyQt6.QtGui import QColor, QFont, QKeySequence, QKeyEvent, QDragEnterEvent, QDropEvent
-from PyQt6.QtWidgets import QWidget, QApplication, QMenu, QListWidget
 
 from PyQt6.Qsci import (
+    QsciLexerPython,  # usato solo nel test standalone
     QsciScintilla,
-    QsciLexerPython,   # usato solo nel test standalone
 )
+from PyQt6.QtCore import QEvent, QPoint, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QKeyEvent
+from PyQt6.QtWidgets import QApplication, QListWidget, QMenu, QWidget
 
-from core.platform import get_data_dir, get_preferred_monospace_font, IS_WINDOWS
 from core.diagnostics import operation, profile_operation
 from core.latex_citations import (
     extract_latex_citation_occurrences as _extract_latex_citation_occurrences,
@@ -45,6 +42,8 @@ from core.latex_parser import (
     mask_latex_comments as _latex_scan_text,
     read_latex_group,
 )
+from core.platform import get_data_dir, get_preferred_monospace_font
+from core.text_search import literal_search_pattern
 from i18n.i18n import tr
 
 _latex_escaped = is_latex_escaped
@@ -87,8 +86,6 @@ def _extract_math_formula(text: str, position: int) -> str | None:
                 return formula.strip() or None
     return None
 
-# Pattern per spell check — Unicode, copre IT/EN/DE/FR/ES e qualsiasi alfabeto latino esteso
-_RE_SPELL = re.compile(r"(?<![\\])\b[^\W\d_]+\b", re.UNICODE)
 _SPELL_CONTEXT_LINES = 40
 
 
@@ -127,9 +124,9 @@ def _persist_personal_word(lang: str, word: str) -> None:
         pass
 
 
-# Un solo dizionario per lingua, condiviso da tutti gli editor. Ogni
-# SpellChecker carica l'intero dizionario (~14 MB): istanziarne uno per tab
-# moltiplicava la RAM (5 tab ≈ +73 MB). Il dizionario base è usato in sola
+# Un solo motore per lingua, condiviso da tutti gli editor. Ogni backend
+# carica l'intero dizionario: istanziarne uno per tab moltiplicava la RAM
+# (con pyspellchecker 5 tab ≈ +73 MB). Il dizionario base è usato in sola
 # lettura durante il controllo; le parole personali/ignorate restano per-editor
 # in `_spell_personal` e vengono filtrate da `_SpellWorker`, quindi non serve
 # scriverle nel dizionario condiviso.
@@ -139,8 +136,8 @@ _SHARED_SPELL_CHECKERS: dict[str, object] = {}
 def _shared_spell_checker(lang: str):
     checker = _SHARED_SPELL_CHECKERS.get(lang)
     if checker is None:
-        from spellchecker import SpellChecker
-        checker = SpellChecker(language=lang)
+        from editor.spellcheck import get_spell_checker
+        checker = get_spell_checker(lang)
         _SHARED_SPELL_CHECKERS[lang] = checker
     return checker
 _SPELL_MAX_SNAPSHOT_BYTES = 256 * 1024
@@ -173,15 +170,16 @@ class _SpellWorker(QThread):
         import bisect
         text = self._text
 
+        from editor.spellcheck import iter_spell_words
+
         positions: list[tuple[int, int, str]] = []
         words_found: list[str] = []
         seen_words: set[str] = set()
-        for m in _RE_SPELL.finditer(text):
+        for start, end, word in iter_spell_words(text):
             if self._cancelled:
                 return
-            word = m.group(0)
-            if len(word) > 2 and not word.isupper() and not word.isdigit():
-                positions.append((m.start(), m.end(), word))
+            if not word.isupper() and not word.isdigit():
+                positions.append((start, end, word))
                 if word not in seen_words:
                     seen_words.add(word)
                     words_found.append(word)
@@ -190,7 +188,7 @@ class _SpellWorker(QThread):
             self.done.emit(self._generation, [])
             return
 
-        check_list = [w for w in words_found if w not in self._personal]
+        check_list = [w for w in words_found if w.lower() not in self._personal]
         unknown = self._checker.unknown(check_list)
         if not unknown or self._cancelled:
             self.done.emit(self._generation, [])
@@ -214,7 +212,9 @@ class _SpellWorker(QThread):
                 continue
             line_s = bisect.bisect_right(newlines, start)
             col_s  = start - (newlines[line_s - 1] + 1 if line_s > 0 else 0)
-            line_e = bisect.bisect_right(newlines, end)
+            # `end` è esclusivo: una parola che finisce subito prima di un
+            # a capo appartiene ancora alla riga precedente.
+            line_e = bisect.bisect_right(newlines, end - 1)
             col_e  = end - (newlines[line_e - 1] + 1 if line_e > 0 else 0)
             result.append((line_s + self._base_line, col_s,
                            line_e + self._base_line, col_e))
@@ -442,7 +442,7 @@ class EditorWidget(QsciScintilla):
     markdown_image_drop_requested = pyqtSignal(object)  # file immagine trascinato su Markdown
     vim_mode_changed = pyqtSignal(str)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
 
         # Stato documento
@@ -454,14 +454,14 @@ class EditorWidget(QsciScintilla):
             "UTF-8 BOM" if default_encoding == "UTF-8-BOM" else default_encoding
         )
         self._line_ending: LineEnding = LineEnding.LF
-        self._file_path: Optional[Path] = None
+        self._file_path: Path | None = None
         self._document_revision: int = 0
         self._save_in_progress: bool = False
         self._read_only_forced: bool = False
         self._zoom_level: int  = 0
         self._overwrite: bool  = False
         self._show_line_numbers: bool = True
-        self._paged_line_offset: Optional[int] = None
+        self._paged_line_offset: int | None = None
         self._smart_highlight_enabled: bool = Settings.instance().get(
             "editor/smart_highlight_enabled", True
         )
@@ -511,7 +511,7 @@ class EditorWidget(QsciScintilla):
         self._spell_timer.setInterval(1000)
         self._spell_timer.timeout.connect(self._do_spell_check)
         self._spell_text_hash: int = 0
-        self._spell_worker: Optional[_SpellWorker] = None
+        self._spell_worker: _SpellWorker | None = None
         self._spell_gen: int = 0
         self._spell_check_range: tuple[int, int] | None = None
         self._spell_marked_range: tuple[int, int] | None = None
@@ -535,7 +535,7 @@ class EditorWidget(QsciScintilla):
         # Do not use QScintilla's native user-list popup.  It is created lazily
         # by the methods below and is deliberately kept separate from the
         # editor's hover popup state.
-        self._user_list_popup: Optional[QListWidget] = None
+        self._user_list_popup: QListWidget | None = None
         self._user_list_id: int = 0
 
         # Multi-cursore (Ctrl+D, Ctrl+Shift+D, Ctrl+Alt+↑/↓, …)
@@ -548,7 +548,7 @@ class EditorWidget(QsciScintilla):
         # Sincronizzazione nome \begin{X}/\end{X}: quando il cursore lascia
         # l'argomento di uno dei due dopo averlo modificato, l'altro capo
         # della coppia viene rinominato di conseguenza. Vedi _on_cursor_env_rename.
-        self._env_rename_watch: Optional[dict] = None
+        self._env_rename_watch: dict | None = None
         self._env_rename_committing: bool = False
 
         self._setup_base()
@@ -982,16 +982,14 @@ class EditorWidget(QsciScintilla):
             return
         lines = self.lines()
         digits = len(str(lines)) + 1
-        # Ricalcola solo se il numero di cifre è effettivamente cambiato
-        current_width = self.marginWidth(MARGIN_LINE_NUMBERS)
+        # Ricalcola solo se il numero di cifre è effettivamente cambiato.
         needed_str = "0" * (digits + 1)
-        # Stima approssimativa: evita setMarginWidth se la larghezza è già adeguata
         if hasattr(self, '_margin_digits') and self._margin_digits == digits:
             return
         self._margin_digits = digits
         self.setMarginWidth(MARGIN_LINE_NUMBERS, needed_str)
 
-    def set_paged_line_offset(self, offset: Optional[int]) -> None:
+    def set_paged_line_offset(self, offset: int | None) -> None:
         """Mostra numeri globali per la pagina corrente di un file paginato."""
         self._paged_line_offset = max(0, offset) if offset is not None else None
         if self._paged_line_offset is None:
@@ -1092,7 +1090,7 @@ class EditorWidget(QsciScintilla):
             return
         self._smart_hl_word = word
         self._smart_hl_text_len = text_len
-        pattern = r'\b' + re.escape(word) + r'\b'
+        pattern = literal_search_pattern(word, whole_word=True)
         self._clear_smart_highlight()
         self._smart_hl_range = (start_line, end_line)
 
@@ -1113,8 +1111,11 @@ class EditorWidget(QsciScintilla):
                 break
             line = raw_line.rstrip("\r")
             for match in re.finditer(pattern, line):
+                # match.start/end sono colonne in caratteri, come richiesto
+                # da fillIndicatorRange.
                 self.fillIndicatorRange(
-                    line_no, match.start(), line_no, match.end(), INDICATOR_SMART_HL
+                    line_no, match.start(), line_no, match.end(),
+                    INDICATOR_SMART_HL,
                 )
                 count += 1
                 if count >= 500:
@@ -1181,11 +1182,11 @@ class EditorWidget(QsciScintilla):
     # ── Proprietà documento ───────────────────────────────────────────────────
 
     @property
-    def file_path(self) -> Optional[Path]:
+    def file_path(self) -> Path | None:
         return self._file_path
 
     @file_path.setter
-    def file_path(self, path: Optional[Path]) -> None:
+    def file_path(self, path: Path | None) -> None:
         self._file_path = path
         if path:
             self.setAccessibleName(f"Editor — {path.name}")
@@ -1221,7 +1222,7 @@ class EditorWidget(QsciScintilla):
 
     @profile_operation("editor.load_content")
     def load_content(self, text: str, encoding: str = "UTF-8",
-                     line_ending: Optional[LineEnding] = None) -> None:
+                     line_ending: LineEnding | None = None) -> None:
         """
         Carica il testo nell'editor. Rileva il line ending se non fornito.
         Resetta lo stato di modifica.
@@ -1519,7 +1520,7 @@ class EditorWidget(QsciScintilla):
             self.ensureLineVisible(line_0)
             self.SendScintilla(QsciScintilla.SCI_SCROLLCARET)
 
-    def go_to_matching(self, line: Optional[int] = None, col: Optional[int] = None) -> bool:
+    def go_to_matching(self, line: int | None = None, col: int | None = None) -> bool:
         """
         Salta all'estremo corrispondente della coppia su cui si trova
         (line, col) — il cursore corrente se non specificati.
@@ -1595,10 +1596,9 @@ class EditorWidget(QsciScintilla):
 
     def clear_indicator(self, indicator: int) -> None:
         """Rimuove tutti i marcatori di un indicatore."""
+        last_line = self.lines() - 1
         self.clearIndicatorRange(
-            0, 0,
-            self.lines() - 1, self.lineLength(self.lines() - 1),
-            indicator
+            0, 0, last_line, len(self.text(last_line)), indicator
         )
 
     def indicatorValueAt(self, indicator: int, pos: int) -> int:
@@ -1628,36 +1628,30 @@ class EditorWidget(QsciScintilla):
         Scintilla sposta l'indicatore su una parola sbagliata. Per questo
         convertiamo qui gli offset di carattere in (riga, colonna-byte) corrette.
         """
-        line_s, col_s = self._char_offset_to_line_bytecol(start)
-        line_e, col_e = self._char_offset_to_line_bytecol(start + length)
+        # fillIndicatorRange accetta colonne in caratteri, quindi usiamo
+        # direttamente la riga e la colonna-calcolata in caratteri.
+        line_s, col_s = self._char_offset_to_line_col(start)
+        line_e, col_e = self._char_offset_to_line_col(start + length)
         self.fillIndicatorRange(line_s, col_s, line_e, col_e, indicator)
 
-    def _char_offset_to_line_bytecol(self, char_offset: int) -> tuple[int, int]:
-        """Converte un offset di **carattere** (sulla stringa Python dell'intero
-        documento) in `(riga, colonna_byte)` come richiesto da QScintilla.
-
-        La colonna è espressa in byte UTF-8 dall'inizio della riga, così gli
-        indicatori cadono sempre sulla porzione di testo corretta anche in
-        presenza di caratteri multibyte.
-        """
+    def _char_offset_to_line_col(self, char_offset: int) -> tuple[int, int]:
+        """Converte un offset di carattere assoluto in (riga, colonna-carattere)."""
         text = self.text()
         char_offset = max(0, min(char_offset, len(text)))
-        prefix = text[:char_offset]
-        line = prefix.count("\n")
-        last_nl = prefix.rfind("\n")
-        line_start = last_nl + 1  # 0 se nessun newline
-        col_bytes = len(text[line_start:char_offset].encode("utf-8"))
-        return line, col_bytes
+        line = text.count("\n", 0, char_offset)
+        line_start = text.rfind("\n", 0, char_offset) + 1
+        return line, char_offset - line_start
 
     def char_col_to_byte_col(self, line: int, char_col: int) -> int:
         """Converte una colonna espressa in **caratteri** (es. l'offset
         `re.match.start()` calcolato sulla stringa Python della riga) nella
-        colonna in **byte** UTF-8 richiesta da QScintilla.
+        corrispondente colonna in **byte** UTF-8.
 
-        Necessario per `highlight_find_match`, `setSelection`, ecc.: su righe con
-        caratteri accentati/multibyte (italiano: `città`, `perché`…) la colonna
-        in caratteri e quella in byte divergono, e usare quella in caratteri
-        sposterebbe la selezione/indicatore sulla parola sbagliata.
+        Serve per le API che ricevono posizioni assolute in byte (`SCI_*`,
+        `indicatorValueAt`, `_spell_replace`), non per `fillIndicatorRange`,
+        `clearIndicatorRange` o `setSelection`: quelle accettano caratteri.
+        Su righe con accenti (italiano: `città`, `perché`…) le due unità
+        divergono.
         """
         try:
             line_text = self.text(line)
@@ -1699,7 +1693,7 @@ class EditorWidget(QsciScintilla):
     def highlight_find_match(self, line: int, start_col: int,
                              end_col: int) -> None:
         """Evidenzia in modo **visibile** un match di ricerca alla riga `line`
-        (0-based), tra le colonne `start_col` e `end_col`.
+        (0-based), tra le colonne **in caratteri** `start_col` e `end_col`.
 
         Usato dai pannelli risultati (Trova / Search PQ) quando l'utente clicca
         un risultato. Oltre a impostare la selezione (che però QScintilla disegna
@@ -1710,12 +1704,16 @@ class EditorWidget(QsciScintilla):
         """
         line = max(0, min(line, max(0, self.lines() - 1)))
         try:
-            line_len = len(self.text(line).rstrip("\n").rstrip("\r"))
+            line_text = self.text(line).rstrip("\n").rstrip("\r")
         except Exception:
-            line_len = 0
+            line_text = ""
+        line_len = len(line_text)
         start_col = max(0, min(start_col, line_len))
         end_col   = max(start_col, min(end_col, line_len))
 
+        # Le colonne in ingresso e quelle accettate da fillIndicatorRange/
+        # setSelection sono offset di CARATTERE. Solo le API Scintilla che
+        # ricevono posizioni assolute (es. indicatorValueAt, SCI_*) usano i byte.
         # 1) Evidenziazione dell'INTERA riga (fascia ambra): rende la riga di
         #    destinazione immediatamente individuabile anche sui temi chiari, dove
         #    il caret-line del tema è spesso troppo tenue per essere notato.
@@ -2003,7 +2001,6 @@ class EditorWidget(QsciScintilla):
             if mm.is_recording() and mm._current_editor is self:
                 text = event.text()
                 key  = event.key()
-                mods = event.modifiers()
                 if text and text.isprintable():
                     mm._actions.append({"type": "insert", "text": text})
                 elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
@@ -2371,7 +2368,7 @@ class EditorWidget(QsciScintilla):
             bookmarks.append(line)
             line = self.markerFindNext(line + 1, 1 << MARKER_BOOKMARK)
         return bookmarks
-        
+
     # ── Controllo Ortografico ──────────────────────────────────────────────────
 
     def set_spellcheck_enabled(self, enabled: bool, lang: str = "it") -> None:
@@ -2385,7 +2382,8 @@ class EditorWidget(QsciScintilla):
                 self._do_spell_check()
             except ImportError:
                 self._spell_checker = None
-                print("[SpellCheck] Installa con: pip install pyspellchecker")
+                print("[SpellCheck] Installa pyspellchecker (pip install pyspellchecker) "
+                      "oppure Hunspell con il dizionario della lingua")
         else:
             self._spell_checker = None
             self._spell_timer.stop()
@@ -2689,7 +2687,7 @@ class EditorWidget(QsciScintilla):
                      if item["command_start"] <= position < item["end"]), None)
 
     @staticmethod
-    def _same_path(left: Optional[Path], right: Optional[Path]) -> bool:
+    def _same_path(left: Path | None, right: Path | None) -> bool:
         if left is None or right is None:
             return left is right
         try:
@@ -2763,7 +2761,7 @@ class EditorWidget(QsciScintilla):
 
     def _latex_semantic_info(
         self, token: dict
-    ) -> tuple[Optional[Path], Optional[int], Optional[int], str] | None:
+    ) -> tuple[Path | None, int | None, int | None, str] | None:
         """Resolve a token and create plain HTML-safe hover text."""
         key = token["key"]
         safe_key = _html_escape(key)
@@ -2909,12 +2907,13 @@ class EditorWidget(QsciScintilla):
         # Posizione Scintilla → indice nella riga
         scin_pos = self.SendScintilla(2023, x, y)  # SCI_POSITIONFROMPOINT = 2023
         _, col = self.lineIndexFromPosition(scin_pos)
-        for m in _RE_SPELL.finditer(line_text):
-            if m.start() <= col <= m.end():
+        from editor.spellcheck import iter_spell_words
+        for start, end_col, word in iter_spell_words(line_text):
+            if start <= col <= end_col:
                 return (
-                    m.group(0), line,
-                    self.char_col_to_byte_col(line, m.start()), line,
-                    self.char_col_to_byte_col(line, m.end()),
+                    word, line,
+                    self.char_col_to_byte_col(line, start), line,
+                    self.char_col_to_byte_col(line, end_col),
                 )
         return None
 
@@ -3129,7 +3128,7 @@ class EditorWidget(QsciScintilla):
             self.setCursorPosition(line, new_col)
             self.insert("}")
             self.setCursorPosition(line, new_col + 1)
-            
+
     # ── Tooltip Immagini (Hover) ──────────────────────────────────────────────
 
     def _hide_hover_popup(self) -> None:
@@ -3151,9 +3150,9 @@ class EditorWidget(QsciScintilla):
 
         self._hide_hover_popup()
 
-        from PyQt6.QtCore import Qt, QPoint
-        from PyQt6.QtGui import QPixmap, QImage
-        from PyQt6.QtWidgets import QLabel
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QImage, QPixmap
+
         from editor.lexers import get_language_name
 
         # Ottieni le informazioni sul testo e sulla posizione
@@ -3218,7 +3217,7 @@ class EditorWidget(QsciScintilla):
                 if pixmap and not pixmap.isNull():
                     if pixmap.width() > 350 or pixmap.height() > 250:
                         pixmap = pixmap.scaled(350, 250, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                    
+
                     self._create_tooltip_popup(pixmap, x, y)
                     return
 
@@ -3321,7 +3320,7 @@ class EditorWidget(QsciScintilla):
 
     # -- Helper per creare il popup con immagine
     def _create_tooltip_popup(self, pixmap, x, y):
-        from PyQt6.QtCore import Qt, QPoint
+        from PyQt6.QtCore import QPoint, Qt
         from PyQt6.QtWidgets import QLabel
         self._hover_popup = QLabel(self, Qt.WindowType.ToolTip)
         self._hover_popup.setPixmap(pixmap)
@@ -3338,8 +3337,8 @@ class EditorWidget(QsciScintilla):
 
     # -- Helper per creare il popup con HTML (documentazione comandi)
     def _create_html_tooltip_popup(self, html: str, x: int, y: int) -> None:
-        from PyQt6.QtCore import Qt, QPoint
-        from PyQt6.QtWidgets import QLabel, QApplication
+        from PyQt6.QtCore import QPoint, Qt
+        from PyQt6.QtWidgets import QApplication, QLabel
         lbl = QLabel(self, Qt.WindowType.ToolTip)
         # Sfondo fisso crema: uguale alla cella <td> nell'HTML così Qt non
         # inserisce il background nero del tema tra il bordo e il contenuto
@@ -3369,14 +3368,13 @@ class EditorWidget(QsciScintilla):
 
     def print(self, printer) -> None:
         """Stampa il contenuto dell'editor usando QPrinter."""
-        from PyQt6.QtGui import QPainter, QTextDocument
-        from PyQt6.QtCore import QRectF
-        
+        from PyQt6.QtGui import QTextDocument
+
         # Crea un documento di testo dal contenuto dell'editor
         doc = QTextDocument()
         doc.setPlainText(self.text())
         doc.setDefaultFont(self.font())
-        
+
         # Stampa il documento
         doc.print(printer)
 
@@ -3385,7 +3383,7 @@ class EditorWidget(QsciScintilla):
 # ─── Test standalone ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QLabel, QStatusBar
+    from PyQt6.QtWidgets import QLabel, QMainWindow
 
     app = QApplication(sys.argv)
 

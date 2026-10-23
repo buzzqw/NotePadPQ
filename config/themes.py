@@ -19,7 +19,7 @@ Uso:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
@@ -527,8 +527,8 @@ BUILTIN_THEMES: dict[str, dict] = {
             "special_char":   {"fg": "#00ff41"},
         }
     },
-    
-    
+
+
     "Catppuccin Mocha": {
         "meta": {"name": "Catppuccin Mocha", "author": "Catppuccin Org", "version": "1.0", "dark": True},
         "ui": {
@@ -1017,13 +1017,13 @@ class ThemeManager(QObject):
 
     theme_changed = pyqtSignal(str)   # nome tema
 
-    _instance: Optional["ThemeManager"] = None
+    _instance: ThemeManager | None = None
 
     def __init__(self):
         super().__init__()
         self._active_name: str = "Dark"
         self._themes: dict[str, dict] = dict(BUILTIN_THEMES)
-        self._user_themes_dir: Optional[Path] = None
+        self._user_themes_dir: Path | None = None
         self._load_user_themes()
         # Ripristina il tema scelto dall'utente (salvato in QSettings)
         try:
@@ -1035,7 +1035,7 @@ class ThemeManager(QObject):
             pass
 
     @classmethod
-    def instance(cls) -> "ThemeManager":
+    def instance(cls) -> ThemeManager:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -1070,7 +1070,7 @@ class ThemeManager(QObject):
         user = [k for k in self._themes if k not in BUILTIN_THEMES]
         return builtin + sorted(user)
 
-    def get_theme(self, name: str) -> Optional[dict]:
+    def get_theme(self, name: str) -> dict | None:
         return self._themes.get(name)
 
     def is_dark(self, name: str = "") -> bool:
@@ -1091,7 +1091,7 @@ class ThemeManager(QObject):
 
     # ── Applicazione ──────────────────────────────────────────────────────────
 
-    def apply_to_editor(self, editor: "EditorWidget",
+    def apply_to_editor(self, editor: EditorWidget,
                         theme_name: str = "") -> None:
         """
         Applica un tema a un EditorWidget.
@@ -1109,8 +1109,8 @@ class ThemeManager(QObject):
         # ── Font ──
         # User prefs (editor/font_family, editor/font_size) override the theme's
         # built-in font. Theme font is the fallback when prefs are not set.
-        from core.platform import get_preferred_monospace_font
         from config.settings import Settings as _Settings
+        from core.platform import get_preferred_monospace_font
         _s = _Settings.instance()
         user_family = _s.get("editor/font_family")   # None if not set
         user_size   = _s.get("editor/font_size", 0)  # 0 = not explicitly set
@@ -1210,11 +1210,22 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
         Usa mappature precise stile-numero → chiave-token per ogni tipo di lexer.
         """
         from PyQt6.Qsci import (
-            QsciLexerPython, QsciLexerCPP, QsciLexerJavaScript,
-            QsciLexerBash, QsciLexerTeX, QsciLexerHTML, QsciLexerXML,
-            QsciLexerCSS, QsciLexerSQL, QsciLexerJSON, QsciLexerYAML,
-            QsciLexerMarkdown, QsciLexerRuby, QsciLexerLua,
-            QsciLexerJava, QsciLexerCSharp,
+            QsciLexerBash,
+            QsciLexerCPP,
+            QsciLexerCSharp,
+            QsciLexerCSS,
+            QsciLexerHTML,
+            QsciLexerJava,
+            QsciLexerJavaScript,
+            QsciLexerJSON,
+            QsciLexerLua,
+            QsciLexerMarkdown,
+            QsciLexerPython,
+            QsciLexerRuby,
+            QsciLexerSQL,
+            QsciLexerTeX,
+            QsciLexerXML,
+            QsciLexerYAML,
         )
 
         # Font base
@@ -1615,7 +1626,7 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
         except Exception:
             return False
 
-    def import_theme(self, path: Path) -> Optional[str]:
+    def import_theme(self, path: Path) -> str | None:
         """
         Importa un tema da file JSON esterno.
         Restituisce il nome del tema importato o None in caso di errore.
@@ -1640,7 +1651,7 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
                 and all(isinstance(theme.get(section, {}), dict)
                         for section in ("ui", "tokens", "font")))
 
-    def clone_theme(self, source_name: str, new_name: str) -> Optional[dict]:
+    def clone_theme(self, source_name: str, new_name: str) -> dict | None:
         """
         Clona un tema (built-in o utente) come base per un tema custom.
         Restituisce il nuovo tema (non ancora salvato).
@@ -1659,8 +1670,8 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
 
 if __name__ == "__main__":
     import sys
+
     from PyQt6.QtWidgets import QApplication
-    from PyQt6.Qsci import QsciLexerPython
 
     app = QApplication(sys.argv)
     tm = ThemeManager.instance()

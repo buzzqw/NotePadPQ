@@ -76,9 +76,9 @@ STYLE_TOKEN = {
 # Unica fonte: core.latex_commands.  Il modulo nativo C++ deve restare
 # allineato; tests/test_latex_commands.py verifica la corrispondenza.
 
-from core.latex_commands import (
-    STRUCTURE_COMMANDS as _STRUCTURE_CMDS,
+from core.latex_commands import (  # noqa: E402
     REFERENCE_COMMANDS as _REFERENCE_CMDS,
+    STRUCTURE_COMMANDS as _STRUCTURE_CMDS,
     VERBATIM_ENVIRONMENTS as _VERBATIM_ENVS,
 )
 

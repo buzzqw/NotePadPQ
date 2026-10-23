@@ -24,14 +24,22 @@ from __future__ import annotations
 
 import colorsys
 import re
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QLineEdit, QPushButton, QFrame, QColorDialog, QApplication,
+    QApplication,
+    QColorDialog,
+    QDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
     QSizePolicy,
+    QVBoxLayout,
 )
 
 from i18n.i18n import tr
@@ -123,7 +131,7 @@ def _clamp(v: float, lo: float = 0, hi: float = 255) -> int:
     return max(lo, min(hi, round(v)))
 
 
-def parse_color(text: str) -> Optional[QColor]:
+def parse_color(text: str) -> QColor | None:
     """
     Tenta di interpretare `text` come colore in uno dei formati supportati.
     Restituisce QColor valido o None se il parse fallisce.
@@ -200,7 +208,7 @@ def _rgb_to_hsl(r: int, g: int, b: int) -> tuple[int, int, int]:
 class ColorTranslatorDialog(QDialog):
     """Dialog traduttore colori stile PSPad con input libero."""
 
-    def __init__(self, main_window: "MainWindow", initial: Optional[QColor] = None):
+    def __init__(self, main_window: MainWindow, initial: QColor | None = None):
         super().__init__(main_window)
         self._mw = main_window
         self._color = initial or QColor("#3399ff")

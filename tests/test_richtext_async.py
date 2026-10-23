@@ -1,15 +1,15 @@
-from pathlib import Path
-import threading
 import tempfile
+import threading
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from PyQt6.QtCore import QCoreApplication, QEventLoop, QTimer
 
 import ui.richtext_widget as richtext
 from plugins.richtext_plugin import RichTextPlugin
-from ui.tab_manager import TabManager
 from ui.richtext_widget import RichTextIO, _JoditDownloadWorker, _RichTextIOWorker
+from ui.tab_manager import TabManager
 
 
 class _Signal:

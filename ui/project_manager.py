@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction
@@ -68,10 +68,10 @@ class ProjectManager(QWidget):
 
     file_open_requested = pyqtSignal(Path)
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(main_window)
         self._mw = main_window
-        self._project_path: Optional[Path] = None
+        self._project_path: Path | None = None
         self._dirty = False
         self._build_ui()
 

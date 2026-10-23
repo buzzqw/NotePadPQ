@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import csv
 import base64
+import csv
 import os
 import threading
 import unittest
@@ -14,11 +14,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import QThread
 from PyQt6.QtWidgets import QApplication
 
-from ui.db_widget import DBBrowserWidget, _ExportWorker, _QueryTab, _QueryWorker
-from ui.db_widget import _SchemaWorker
-from ui.spreadsheet_widget import SpreadsheetIO, SpreadsheetLoadWorker, SpreadsheetModel
 from plugins.encrypt_plugin import _aes_gcm_decrypt, _aes_gcm_encrypt, _derive_key, _legacy_aes_gcm_decrypt
-from plugins.ftp_browser_plugin import FtpProfile, _DownloadTooLarge, _FtpPanel, _MAX_DOWNLOAD_BYTES
+from plugins.ftp_browser_plugin import _MAX_DOWNLOAD_BYTES, FtpProfile, _DownloadTooLarge, _FtpPanel
+from ui.db_widget import DBBrowserWidget, _ExportWorker, _QueryTab, _QueryWorker, _SchemaWorker
+from ui.spreadsheet_widget import SpreadsheetIO, SpreadsheetLoadWorker, SpreadsheetModel
 
 
 class SpreadsheetLoadingTests(unittest.TestCase):
@@ -424,6 +423,7 @@ class DatabaseAndPluginSecurityTests(unittest.TestCase):
 
     def test_authenticated_envelope_rejects_tampering_and_legacy_is_explicit(self):
         try:
+            from cryptography.exceptions import InvalidTag
             from cryptography.hazmat.primitives.ciphers.aead import AESGCM
         except ImportError:
             self.skipTest("cryptography non installato")
@@ -433,8 +433,10 @@ class DatabaseAndPluginSecurityTests(unittest.TestCase):
         prefix, payload = encrypted.rsplit(":", 1)
         tampered = bytearray(base64.b64decode(payload))
         tampered[-1] ^= 1
-        with self.assertRaises(Exception):
-            _aes_gcm_decrypt(prefix + ":" + base64.b64encode(tampered).decode("ascii"), "password")
+        with self.assertRaises(InvalidTag):
+            _aes_gcm_decrypt(
+                prefix + ":" + base64.b64encode(tampered).decode("ascii"),
+                "password")
 
         salt, nonce = b"s" * 16, b"n" * 12
         legacy = base64.b64encode(salt + nonce + AESGCM(_derive_key("password", salt, 32)).encrypt(

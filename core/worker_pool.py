@@ -3,7 +3,6 @@ core/worker_pool.py — Safe worker thread lifecycle management
 NotePadPQ
 """
 
-from typing import Optional
 
 from PyQt6.QtCore import QObject, QThread
 
@@ -24,8 +23,8 @@ class ManagedWorker:
     """
 
     def __init__(self, worker: QObject) -> None:
-        self._worker: Optional[QObject] = worker
-        self._thread: Optional[QThread] = QThread()
+        self._worker: QObject | None = worker
+        self._thread: QThread | None = QThread()
         self._worker.moveToThread(self._thread)
         # A worker's normal completion must end the thread event loop. Without
         # this, a completed worker keeps a running QThread and its resources.
@@ -38,11 +37,11 @@ class ManagedWorker:
         self._thread.finished.connect(self._thread.deleteLater)
 
     @property
-    def thread(self) -> Optional[QThread]:
+    def thread(self) -> QThread | None:
         return self._thread
 
     @property
-    def worker(self) -> Optional[QObject]:
+    def worker(self) -> QObject | None:
         return self._worker
 
     def start(self) -> None:

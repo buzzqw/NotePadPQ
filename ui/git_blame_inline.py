@@ -12,13 +12,13 @@ from __future__ import annotations
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QTimer, QThread, pyqtSignal
+from PyQt6.QtCore import QThread, QTimer, pyqtSignal
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+    from ui.main_window import MainWindow
 
 
 class _BlameWorker(QThread):
@@ -43,14 +43,14 @@ class _BlameWorker(QThread):
 
 class GitBlameManager:
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         self._mw = main_window
-        self._editor: Optional["EditorWidget"] = None
+        self._editor: EditorWidget | None = None
         self._enabled = False
         self._cache: dict[tuple, str] = {}
         self._last_line = -1
 
-        self._blame_worker: Optional[_BlameWorker] = None
+        self._blame_worker: _BlameWorker | None = None
         self._old_blame_workers: list = []
 
         self._timer = QTimer()
@@ -74,7 +74,7 @@ class GitBlameManager:
 
     # ── Gestione editor ──────────────────────────────────────────────────────
 
-    def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
+    def _on_editor_changed(self, editor: EditorWidget | None) -> None:
         if self._editor:
             try:
                 self._editor.cursor_changed.disconnect(self._on_cursor)
@@ -154,7 +154,7 @@ class GitBlameManager:
         worker.start()
 
     def _on_blame_done(self, text: str, key: tuple, line0: int,
-                       line1: int, editor: "EditorWidget") -> None:
+                       line1: int, editor: EditorWidget) -> None:
         self._cache[key] = text
         self._blame_worker = None
         if editor is not self._editor:
@@ -180,7 +180,7 @@ class GitBlameManager:
             except Exception:
                 pass
 
-    def _annotate(self, editor: "EditorWidget", line0: int, text: str) -> None:
+    def _annotate(self, editor: EditorWidget, line0: int, text: str) -> None:
         try:
             from PyQt6.Qsci import QsciScintilla
             editor.setAnnotationDisplay(
@@ -254,7 +254,7 @@ class GitBlameManager:
             return ""
 
 
-def install(main_window: "MainWindow") -> GitBlameManager:
+def install(main_window: MainWindow) -> GitBlameManager:
     from config.settings import Settings
     mgr = GitBlameManager(main_window)
     mgr.set_enabled(Settings.instance().get("editor/git_blame_inline", False))

@@ -25,8 +25,8 @@ from core.latex_references import (
     LatexInclude,
     LatexLocation,
     LatexReference,
-    LatexSection,
     LatexReferencesAnalysis,
+    LatexSection,
     analyze_latex_project,
 )
 

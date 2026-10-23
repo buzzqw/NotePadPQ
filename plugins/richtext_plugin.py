@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QFileDialog, QMessageBox
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -42,7 +42,7 @@ class RichTextPlugin(BasePlugin):
     )
     AUTHOR      = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
         self._unloading = False
         self._jodit_download = None
@@ -86,6 +86,7 @@ class RichTextPlugin(BasePlugin):
 
     def _maybe_show_format_warning(self, path: Path) -> None:
         from PyQt6.QtWidgets import QCheckBox
+
         from config.settings import Settings
         if path.suffix.lower() not in self._FORMAT_WARNING_EXTS:
             return
@@ -109,7 +110,7 @@ class RichTextPlugin(BasePlugin):
         """Carica il file e apre un tab rich text. Chiamato da main_window.open_files."""
         if getattr(self, "_unloading", False):
             return
-        from ui.richtext_widget import RichTextWidget, WEBENGINE_OK
+        from ui.richtext_widget import WEBENGINE_OK, RichTextWidget
 
         if not WEBENGINE_OK:
             QMessageBox.warning(
@@ -147,7 +148,7 @@ class RichTextPlugin(BasePlugin):
         """Apre un documento richtext vuoto."""
         if getattr(self, "_unloading", False):
             return
-        from ui.richtext_widget import RichTextWidget, WEBENGINE_OK
+        from ui.richtext_widget import WEBENGINE_OK, RichTextWidget
 
         if not WEBENGINE_OK:
             QMessageBox.warning(
@@ -177,7 +178,7 @@ class RichTextPlugin(BasePlugin):
             self.open_document(Path(p))
 
     def _download_deps(self) -> None:
-        from ui.richtext_widget import _JODIT_JS, _JODIT_CSS
+        from ui.richtext_widget import _JODIT_CSS, _JODIT_JS
         if _JODIT_JS.exists() and _JODIT_CSS.exists():
             QMessageBox.information(
                 self._mw, "NotePadPQ",
@@ -187,7 +188,7 @@ class RichTextPlugin(BasePlugin):
         self._start_jodit_download(True)
 
     def _ensure_jodit_then(self, callback) -> bool:
-        from ui.richtext_widget import _JODIT_JS, _JODIT_CSS
+        from ui.richtext_widget import _JODIT_CSS, _JODIT_JS
         if _JODIT_JS.exists() and _JODIT_CSS.exists():
             return True
         self._start_jodit_download(False, callback)

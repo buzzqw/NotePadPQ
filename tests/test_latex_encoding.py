@@ -20,7 +20,7 @@ class EncodingDetectionTest(unittest.TestCase):
         return path
 
     def test_default_is_utf8(self):
-        path = self._write("a.tex", "caffè\n".encode("utf-8"))
+        path = self._write("a.tex", "caffè\n".encode())
         self.assertEqual(detect_source_encoding(path), "utf-8")
         self.assertEqual(read_cached_text(path), "caffè\n")
 

@@ -6,10 +6,11 @@ Uso:
     python main.py [file1 file2 ...]
 """
 
+import faulthandler
 import os
 import sys
-import faulthandler
 from pathlib import Path
+
 from core.single_instance import SingleInstance
 
 # Abilita faulthandler subito: stampa lo stack trace C++ su segfault/SIGABRT
@@ -128,7 +129,7 @@ def check_dependencies() -> bool:
     missing = []
 
     try:
-        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtWidgets import QApplication  # noqa: F401
     except ImportError:
         missing.append("PyQt6  →  pip install PyQt6")
 
@@ -146,7 +147,7 @@ def check_dependencies() -> bool:
         )
 
     try:
-        from PyQt6.Qsci import QsciScintilla
+        from PyQt6.Qsci import QsciScintilla  # noqa: F401
     except ImportError:
         missing.append(
             "QScintilla  →  Su Arch: sudo pacman -S python-qscintilla\n"
@@ -172,6 +173,7 @@ def main():
         sys.exit(1)
 
     import traceback
+
     from core.diagnostics import (
         ProfilingApplication,
         configure_diagnostics,
@@ -202,9 +204,9 @@ def main():
 
     sys.excepthook = _excepthook
 
-    from PyQt6.QtWidgets import QApplication
-    from PyQt6.QtGui import QIcon
     from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
+    from PyQt6.QtGui import QIcon
+    from PyQt6.QtWidgets import QApplication
 
     def _qt_msg_handler(msg_type, context, message):
         labels = {
@@ -255,10 +257,10 @@ def main():
             )
             _existing = ""
             if _os.path.exists(_fc_path):
-                with open(_fc_path) as _fh:
+                with open(_fc_path, encoding="utf-8") as _fh:
                     _existing = _fh.read()
             if _existing != _conf:
-                with open(_fc_path, "w") as _fh:
+                with open(_fc_path, "w", encoding="utf-8") as _fh:
                     _fh.write(_conf)
         except Exception:
             pass
@@ -349,9 +351,8 @@ def main():
         app.setWindowIcon(icon)
 
     # Import dopo il check — tutti i moduli che usano Qsci
-    from i18n.i18n import I18n
     from config.settings import Settings
-    from config.themes import ThemeManager
+    from i18n.i18n import I18n
     from ui.main_window import MainWindow
 
     # Inizializza settings
@@ -392,7 +393,7 @@ def main():
         win._rebuild_toolbar()
 
         try:
-            from ui.smart_highlight import SmartHighlighter, MultiMarkManager
+            from ui.smart_highlight import MultiMarkManager, SmartHighlighter
             win._smart_highlighter = SmartHighlighter.install_into_main_window(win)
             win._mark_manager = MultiMarkManager.install_into_main_window(win)
         except Exception as e:

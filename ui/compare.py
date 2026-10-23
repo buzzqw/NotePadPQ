@@ -7,14 +7,22 @@ from __future__ import annotations
 
 import difflib
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor, QFont
+from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
-    QPlainTextEdit, QLabel, QPushButton, QFileDialog,
-    QComboBox, QGroupBox, QWidget, QDialogButtonBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPlainTextEdit,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
@@ -38,12 +46,12 @@ _EDITOR_FG    = QColor("#1a1a1a")
 
 class CompareDialog(QDialog):
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(main_window)
         self._mw = main_window
         self.setWindowTitle(tr("action.compare_files"))
         self.resize(1100, 750)
-        
+
         # Memoria interna per il merging
         self._lines_a: list[str] = []
         self._lines_b: list[str] = []
@@ -87,10 +95,10 @@ class CompareDialog(QDialog):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         self._view_a = self._create_editor()
         self._view_b = self._create_editor()
-        
+
         left_w = QWidget(); lv = QVBoxLayout(left_w); self._lbl_a = QLabel("—"); lv.addWidget(self._lbl_a); lv.addWidget(self._view_a)
         right_w = QWidget(); rv = QVBoxLayout(right_w); self._lbl_b = QLabel("—"); rv.addWidget(self._lbl_b); rv.addWidget(self._view_b)
-        
+
         splitter.addWidget(left_w)
         splitter.addWidget(right_w)
         layout.addWidget(splitter, 1)
@@ -100,15 +108,15 @@ class CompareDialog(QDialog):
 
         # ── BARRA STRUMENTI MERGE (STILE MELD) ───────────────────────────
         merge_bar = QHBoxLayout()
-        
+
         self._btn_prev = QPushButton(tr("compare.btn_prev", default="▲ Prec.")); self._btn_prev.clicked.connect(self._prev_diff)
         self._btn_next = QPushButton(tr("compare.btn_next", default="▼ Succ.")); self._btn_next.clicked.connect(self._next_diff)
-        
+
         # Pulsanti per il merging
         self._btn_to_right = QPushButton(tr("compare.btn_copy_right"))
         self._btn_to_right.setStyleSheet("background-color: #e1f5fe; font-weight: bold; padding: 5px;")
         self._btn_to_right.clicked.connect(self._merge_to_right)
-        
+
         self._btn_to_left = QPushButton(tr("compare.btn_copy_left"))
         self._btn_to_left.setStyleSheet("background-color: #f1f8e9; font-weight: bold; padding: 5px;")
         self._btn_to_left.clicked.connect(self._merge_to_left)
@@ -119,7 +127,7 @@ class CompareDialog(QDialog):
         merge_bar.addWidget(self._btn_to_left)
         merge_bar.addWidget(self._btn_to_right)
         merge_bar.addStretch()
-        
+
         self._lbl_stats = QLabel("")
         merge_bar.addWidget(self._lbl_stats)
         layout.addLayout(merge_bar)
@@ -128,10 +136,10 @@ class CompareDialog(QDialog):
         self._btn_apply = QPushButton(tr("compare.btn_apply"))
         self._btn_apply.clicked.connect(self._apply_and_close)
         self._btn_apply.hide()
-        
+
         close_btn = QPushButton(tr("compare.btn_close"))
         close_btn.clicked.connect(self.reject)
-        
+
         btns.addStretch()
         btns.addWidget(self._btn_apply)
         btns.addWidget(close_btn)
@@ -191,7 +199,7 @@ class CompareDialog(QDialog):
         matcher = difflib.SequenceMatcher(None, self._lines_a, self._lines_b)
         # Salviamo gli opcode che non sono uguali per la navigazione
         self._opcodes = [op for op in matcher.get_opcodes() if op[0] != 'equal']
-        
+
         all_opcodes = matcher.get_opcodes()
         la_out, lb_out = [], []
         self._diff_positions = []
@@ -216,7 +224,7 @@ class CompareDialog(QDialog):
         self._render_view(self._view_b, lb_out)
         self._lbl_stats.setText(tr("compare.diffs_found", n=len(self._opcodes)))
         self._btn_apply.show()
-        
+
         if self._diff_idx == -1 and self._opcodes:
             self._diff_idx = 0
             self._go_to_diff(self._diff_positions[0])
@@ -248,23 +256,23 @@ class CompareDialog(QDialog):
         """Salva il risultato finale nell'editor attivo e chiude."""
         data_b = self._combo_b.currentData()
         new_text = "".join(self._lines_b)
-        
+
         # Se B era un editor aperto, aggiorniamo il suo contenuto
-        if hasattr(data_b, "set_text"): 
+        if hasattr(data_b, "set_text"):
             data_b.set_text(new_text)
         elif isinstance(data_b, str) and "tmp" not in data_b:
             # Se B era un file su disco (non temporaneo), lo salviamo
             Path(data_b).write_text(new_text, encoding="utf-8")
-        
+
         self.accept()
 
     def _prev_diff(self):
-        if self._diff_idx > 0: 
+        if self._diff_idx > 0:
             self._diff_idx -= 1
             self._go_to_diff(self._diff_positions[self._diff_idx])
 
     def _next_diff(self):
-        if self._diff_idx < len(self._diff_positions) - 1: 
+        if self._diff_idx < len(self._diff_positions) - 1:
             self._diff_idx += 1
             self._go_to_diff(self._diff_positions[self._diff_idx])
 

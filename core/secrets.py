@@ -45,8 +45,9 @@ def set_secret(key: str, value: str) -> None:
     """Store a secret in the keyring or fail without a plaintext fallback."""
     try:
         import keyring
-    except Exception:
-        raise SecretStorageUnavailable("Il portachiavi di sistema non e disponibile")
+    except Exception as exc:
+        raise SecretStorageUnavailable(
+            "Il portachiavi di sistema non e disponibile") from exc
 
     try:
         if value:

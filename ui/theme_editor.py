@@ -10,21 +10,32 @@ Supporta import/export e anteprima live sull'editor corrente.
 from __future__ import annotations
 
 import copy
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont, QPixmap, QIcon
+from PyQt6.QtGui import QColor, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
-    QListWidget, QListWidgetItem, QFormLayout,
-    QLabel, QPushButton, QCheckBox, QSpinBox,
-    QColorDialog, QFontComboBox, QDialogButtonBox,
-    QGroupBox, QWidget, QScrollArea, QInputDialog,
-    QFileDialog,
+    QCheckBox,
+    QColorDialog,
+    QDialog,
+    QDialogButtonBox,
+    QFontComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QInputDialog,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
+from config.themes import BUILTIN_THEMES, ThemeManager
 from i18n.i18n import tr
-from config.themes import ThemeManager, BUILTIN_THEMES
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -83,7 +94,7 @@ UI_LABELS: dict[str, str] = {
 }
 
 
-def _color_swatch(color_str: Optional[str]) -> QIcon:
+def _color_swatch(color_str: str | None) -> QIcon:
     """Crea un'icona quadrata con il colore dato."""
     px = QPixmap(16, 16)
     if color_str:
@@ -95,7 +106,7 @@ def _color_swatch(color_str: Optional[str]) -> QIcon:
 
 class ThemeEditorDialog(QDialog):
 
-    def __init__(self, main_window: "MainWindow",
+    def __init__(self, main_window: MainWindow,
                  theme_name: str = ""):
         super().__init__(main_window)
         self._mw = main_window
@@ -116,7 +127,7 @@ class ThemeEditorDialog(QDialog):
                 self._theme["meta"]["name"] = f"{source} (copia)"
             else:
                 self._theme["meta"]["name"] = name
-        
+
         self.setWindowTitle(
             f"Editor tema — {self._theme.get('meta', {}).get('name', source)}"
         )
@@ -246,7 +257,7 @@ class ThemeEditorDialog(QDialog):
             self._font_combo.setCurrentFont(QFont(font_d["family"]))
         self._font_size.setValue(font_d.get("size", 11))
 
-    def _on_item_changed(self, item: Optional[QListWidgetItem]) -> None:
+    def _on_item_changed(self, item: QListWidgetItem | None) -> None:
         if not item:
             return
         data = item.data(Qt.ItemDataRole.UserRole)
@@ -272,7 +283,7 @@ class ThemeEditorDialog(QDialog):
             self._chk_italic.setChecked(tok.get("italic", False))
 
     def _update_btn(self, btn: QPushButton,
-                    color_str: Optional[str]) -> None:
+                    color_str: str | None) -> None:
         if color_str:
             btn.setStyleSheet(
                 f"background-color: {color_str}; color: {'#fff' if QColor(color_str).lightness() < 128 else '#000'};"

@@ -21,11 +21,11 @@ from __future__ import annotations
 import json
 import re
 from enum import IntFlag, auto
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
+from PyQt6.Qsci import QsciAPIs, QsciScintilla
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor
-from PyQt6.Qsci import QsciScintilla, QsciAPIs
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -741,7 +741,8 @@ class _ApiRebuildWorker(QThread):
                 hypertargets = sorted(latex_index.hypertargets)
                 try:
                     from editor.latex_support import (
-                        PACKAGE_ENVIRONMENTS, STANDARD_ENVIRONMENTS,
+                        PACKAGE_ENVIRONMENTS,
+                        STANDARD_ENVIRONMENTS,
                         LaTeXSupport,
                     )
                     envs = set(STANDARD_ENVIRONMENTS)
@@ -806,17 +807,17 @@ class AutoCompleteManager(QObject):
     Un'istanza per tab.
     """
 
-    def __init__(self, editor: "EditorWidget", parent: QObject = None):
+    def __init__(self, editor: EditorWidget, parent: QObject = None):
         super().__init__(parent if parent is not None else editor)
 
         self._editor   = editor
         editor._autocomplete = self
         self._language = ""
         self._levels   = AutoCompleteLevel.DOCUMENT | AutoCompleteLevel.API_DICT
-        self._api: Optional[QsciAPIs] = None
+        self._api: QsciAPIs | None = None
         self._tab_manager_ref = None   # impostato da TabManager
 
-        self._api_worker: Optional[_ApiRebuildWorker] = None
+        self._api_worker: _ApiRebuildWorker | None = None
         self._old_api_workers: list = []
         self._api_gen: int = 0
         self._shutting_down = False
@@ -847,7 +848,7 @@ class AutoCompleteManager(QObject):
             self._completion_threshold = 2
         self._lsp_client = None
         self._lsp_signal_client = None
-        self._lsp_request_id: Optional[int] = None
+        self._lsp_request_id: int | None = None
         self._lsp_request_uri = ""
         self._lsp_request_cursor: tuple[int, int] | None = None
         self._lsp_items: dict[str, dict] = {}
@@ -2312,7 +2313,7 @@ class AutoCompleteManager(QObject):
         """Popup con ambienti LaTeX dalla cache, senza I/O durante la digitazione."""
         self._enable_cwl_for_completion(force=True)
         self._env_popup_needs_brace = needs_brace
-        from editor.latex_support import LaTeXSupport, STANDARD_ENVIRONMENTS
+        from editor.latex_support import STANDARD_ENVIRONMENTS, LaTeXSupport
         envs = self._available_envs or STANDARD_ENVIRONMENTS
 
         if is_end:

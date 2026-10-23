@@ -7,19 +7,26 @@ Doppio click su un file → lo apre nell'editor.
 """
 
 from pathlib import Path
-from typing import Optional
 
-from i18n.i18n import tr
-from core.external_open import open_url as _open_url
-from config.settings import Settings
-from PyQt6.QtCore import Qt, QDir, pyqtSignal
-from PyQt6.QtGui import QFileSystemModel, QAction, QDrag
+from PyQt6.QtCore import QDir, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QDrag, QFileSystemModel
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTreeView,
-    QToolButton, QLineEdit, QFileDialog, QMenu, QAbstractItemView,
-    QInputDialog, QMessageBox,
+    QAbstractItemView,
+    QFileDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QToolButton,
+    QTreeView,
+    QVBoxLayout,
+    QWidget,
 )
 
+from config.settings import Settings
+from core.external_open import open_url as _open_url
+from i18n.i18n import tr
 
 # MIME marker used to distinguish a drag started inside NotePadPQ's file
 # browser from a file dropped by an external application.  The editor uses it
@@ -53,9 +60,9 @@ class FileBrowser(QWidget):
     file_open_requested = pyqtSignal(object)   # Path
     follow_changed = pyqtSignal(bool)
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._root: Optional[Path] = None
+        self._root: Path | None = None
         self._follow_active = bool(
             Settings.instance().get("file_browser/follow_active_file", True)
         )

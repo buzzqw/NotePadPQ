@@ -16,27 +16,38 @@ Installazione automatica di paramiko se mancante (su richiesta utente).
 
 from __future__ import annotations
 
-import os
 import io
+import os
 import ssl
 import threading
 from pathlib import Path, PurePosixPath
-from typing import Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QThread
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QTreeWidget,
-    QTreeWidgetItem, QPushButton, QLabel, QLineEdit, QSpinBox,
-    QComboBox, QDialog, QFormLayout, QDialogButtonBox,
-    QMessageBox, QProgressDialog, QMenu, QInputDialog,
     QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDockWidget,
+    QFormLayout,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtGui import QIcon, QFont, QColor
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 from ui.busy_indicator import BusyIndicator
-
 
 _ORPHANED_FTP_WORKERS: set[QThread] = set()
 _MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
@@ -117,7 +128,7 @@ class FtpProfile:
         return data
 
     @classmethod
-    def from_dict(cls, d: dict) -> "FtpProfile":
+    def from_dict(cls, d: dict) -> FtpProfile:
         p = cls()
         for k, v in d.items():
             if k != "password":
@@ -129,7 +140,7 @@ class FtpProfile:
 
 class _ProfileDialog(QDialog):
 
-    def __init__(self, profile: Optional[FtpProfile] = None, parent=None):
+    def __init__(self, profile: FtpProfile | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle(tr("plugin.ftp_browser.profile_dialog_title"))
         self.resize(400, 280)
@@ -142,7 +153,8 @@ class _ProfileDialog(QDialog):
 
         self._name     = QLineEdit(self._profile.name)
         self._host     = QLineEdit(self._profile.host)
-        self._port     = QSpinBox(); self._port.setRange(1, 65535)
+        self._port     = QSpinBox()
+        self._port.setRange(1, 65535)
         self._port.setValue(self._profile.port)
         self._user     = QLineEdit(self._profile.user)
         self._password = QLineEdit(self._profile.password)
@@ -283,14 +295,14 @@ class _FtpPanel(QWidget):
 
     file_open_requested = pyqtSignal(str, bytes)  # remote_path, content
 
-    def __init__(self, main_window: "MainWindow", parent=None):
+    def __init__(self, main_window: MainWindow, parent=None):
         super().__init__(parent)
         self._mw        = main_window
-        self._profiles: List[FtpProfile] = []
+        self._profiles: list[FtpProfile] = []
         self._conn      = None    # ftplib.FTP o paramiko.SFTPClient
-        self._current_profile: Optional[FtpProfile] = None
+        self._current_profile: FtpProfile | None = None
         self._current_dir = "/"
-        self._worker: Optional[_FtpOpWorker] = None
+        self._worker: _FtpOpWorker | None = None
         self._closed    = False
         self._cancel_requested = False
 
@@ -512,6 +524,7 @@ class _FtpPanel(QWidget):
 
     def _load_profiles(self) -> None:
         import json
+
         from core.secrets import SecretStorageUnavailable, get_secret, set_secret
 
         p = self._profiles_path()
@@ -563,6 +576,7 @@ class _FtpPanel(QWidget):
 
     def _save_profiles(self) -> bool:
         import json
+
         from core.secrets import SecretStorageUnavailable, set_secret
 
         try:
@@ -692,9 +706,9 @@ class _FtpPanel(QWidget):
         in tmpfs (/run/user/UID); macOS delega il dialog password al sistema;
         Windows usa stdin per passare la password a net use.
         """
-        import sys
-        import subprocess
         import shutil
+        import subprocess
+        import sys
 
         host  = profile.host
         share = profile.smb_share or ""
@@ -767,9 +781,9 @@ class _FtpPanel(QWidget):
         Ritorna (mounted_path, platform_kind) dove platform_kind indica al
         chiamante (sul thread UI) quale dialog/azione post-mount eseguire.
         """
-        import sys
-        import subprocess
         import shutil
+        import subprocess
+        import sys
 
         if sys.platform.startswith("win"):
             # Windows: net use \\host\share /user:domain\user
@@ -811,7 +825,8 @@ class _FtpPanel(QWidget):
             if not os.path.isdir(run_dir):
                 run_dir = "/tmp"  # fallback
 
-            import tempfile, stat
+            import stat
+            import tempfile
             cred_fd, cred_path = tempfile.mkstemp(prefix="npq_smb_", dir=run_dir)
             try:
                 # Scrivi il file credenziali con permessi 0600 (solo owner)
@@ -844,7 +859,7 @@ class _FtpPanel(QWidget):
             return mnt_dir, "linux"
 
     @staticmethod
-    def _smb_find_mount(host: str, share: str) -> Optional[str]:
+    def _smb_find_mount(host: str, share: str) -> str | None:
         """Cerca se //host/share è già montata. Restituisce il mountpoint o None."""
         import sys
         try:
@@ -859,7 +874,7 @@ class _FtpPanel(QWidget):
                 # Linux: cerca in /proc/mounts
                 needle = f"//{host}/{share}"
                 needle2 = f"\\\\{host}\\{share}"
-                with open("/proc/mounts", "r") as f:
+                with open("/proc/mounts", encoding="utf-8", errors="replace") as f:
                     for line in f:
                         parts = line.split()
                         if len(parts) >= 2:
@@ -891,8 +906,9 @@ class _FtpPanel(QWidget):
     def _connect_sftp(self, profile: FtpProfile):
         try:
             import paramiko
-        except ImportError:
-            raise RuntimeError(tr("plugin.ftp_browser.sftp_missing"))
+        except ImportError as exc:
+            raise RuntimeError(
+                tr("plugin.ftp_browser.sftp_missing")) from exc
         ssh = paramiko.SSHClient()
         ssh.load_system_host_keys()
         # Non accettare automaticamente chiavi sconosciute: altrimenti una
@@ -1076,10 +1092,12 @@ class _FtpPanel(QWidget):
 
     def _open_in_editor(self, remote_path: str, raw: bytes) -> None:
         """Apre i byte del file remoto in un nuovo tab dell'editor."""
+        from pathlib import PurePosixPath
+
+        from PyQt6.QtCore import QTimer
+
         from core.file_manager import FileManager
         from editor.editor_widget import LineEnding
-        from pathlib import PurePosixPath
-        from PyQt6.QtCore import QTimer
 
         # Rilevamento encoding
         encoding, bom_len = FileManager._detect_bom(raw)
@@ -1094,12 +1112,12 @@ class _FtpPanel(QWidget):
 
         # Crea tab con path virtuale (non esiste su disco locale)
         tab = self._mw._tab_manager.new_tab(path=None)
-        
+
         # Metadati: origine remota
         tab._ftp_remote_path   = remote_path
         tab._ftp_profile       = self._current_profile
         tab._ftp_panel_ref     = self
-        
+
         tab.load_content(text, encoding.upper(), le)
 
         # --- FIX FORZATURA NOMI E TITOLI PULITA ---
@@ -1398,7 +1416,7 @@ class FtpBrowserPlugin(BasePlugin):
     DESCRIPTION = "FTP/SFTP navigation panel with SMB mount helper."
     AUTHOR      = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
         # Pannello costruito pigramente alla prima apertura del dock (nascosto
         # all'avvio): vedi _ensure_panel().

@@ -319,7 +319,7 @@ Shows and focuses the quick search bar in the toolbar (it can also be enabled fr
 - `:` jumps to a **line**;
 - `@` searches for a **symbol** (def/class/function) in the current file.
 
-Use `↑`/`↓` to move through results, `Enter` to open the match and `Esc` to close the list. If there is a single-line selection in the editor, it is copied into the field.
+Use `↑`/`↓` to move through results, `Enter` to open the match and `Esc` to close the list. If there is a single-line selection in the editor, it is copied into the field. Text search treats typographic apostrophes, quotes and dashes as equivalent to their ASCII versions (`’`/`'`, `“”`/`"`, `–`/`-`) and accented letters in composed or decomposed form as the same character.
 
 ### Find Dialog (`Ctrl+Shift+F`)
 
@@ -337,6 +337,8 @@ The dialog has 4 tabs.
 | Wrap search | Restarts from beginning/end at document end |
 | In selection | Searches only within selected text |
 | Auto-refresh results | Recalculates the list when the document changes |
+
+In literal mode (regular expressions off), typographic apostrophes, quotes and dashes are equivalent to their ASCII versions (`’`/`'`, `“”`/`"`, `–`/`-`), as are accented letters in composed or decomposed form. The same equivalence applies to "Find in Files", "Find in All Documents" and incremental search.
 
 **Buttons:**
 
@@ -579,6 +581,7 @@ Holding the cursor still for half a second over certain elements, NotePadPQ show
 - **Word wrap** (`Alt+Z`): wraps text on screen without modifying the file
 - **Spell Check (`F4`)**: activates red squiggle underlines for misspelled words. The dictionary language is independent of the interface language and is selected from **Document → Dictionary Language** (Italian, English, German, French, Spanish). Right-clicking a highlighted word shows up to 8 correction suggestions, "Add to dictionary", and "Ignore all". Ignores all-caps acronyms and words shorter than 3 characters.
 - **Dictionary Language**: Document submenu that selects the spell checker language independently of the interface language. The choice is saved between sessions.
+- **Spell engine**: if Hunspell with the language dictionary is installed, NotePadPQ uses it automatically and recognises inflected forms too; otherwise it falls back to `spylls` (the `spell` extra) or `pyspellchecker`. `.aff`/`.dic` files can be placed in the `hunspell` folder of the data directory or pointed to with `NOTEPADPQ_HUNSPELL_DIR`. In LaTeX documents, commands, environments, options, paths and math blocks are ignored.
 - **Smart typography**: automatically converts "raw" characters to their proper typographic equivalents: `"..."` → `"..."`, `'...'` → `'...'`, `--` → `—`, `...` → `…`. Does not activate inside code blocks. Toggle from **Document → Smart typography** or from **Preferences → Editor → Writing**.
 - **Paragraph focus**: dims all text outside the current paragraph (delimited by blank lines) to aid concentration. The dim color adapts to light/dark themes automatically. Toggle from **Document → Paragraph focus**. Updates in real time while typing and when switching tabs.
 - **Toggle task (`Ctrl+Shift+L`)**: on a Markdown task list line (`- [ ] text` or `- [x] text`), toggles between completed and not completed. Works with `-`, `*`, `+` markers.

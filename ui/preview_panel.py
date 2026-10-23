@@ -23,30 +23,38 @@ senza compilatore resta disponibile l'albero della struttura.
 from __future__ import annotations
 
 import bisect
-import json
-import re
-from pathlib import Path
-from typing import Optional
-
-from PyQt6.QtCore import Qt, QTimer, QThread, QEvent, pyqtSlot, pyqtSignal
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QToolBar, QToolButton, QSplitter, QSizePolicy,
-    QTreeWidget, QTreeWidgetItem, QStackedWidget,
-    QTextBrowser, QScrollArea, QScrollBar, QInputDialog,
-)
-from PyQt6.QtGui import QIcon, QAction
-
-from core.external_open import open_url as _open_url
-from core.diagnostics import profile_operation
-from i18n.i18n import tr
-from config.settings import Settings
 
 # QWebEngineView è opzionale: se non installato si usa QTextBrowser come fallback.
 # Non importiamo QtWebEngine qui: caricarne il runtime costa ~31 MB di RAM anche
 # se l'utente non apre mai un'anteprima HTML. La presenza si verifica con
 # find_spec; le classi si importano solo quando serve creare davvero la view.
 import importlib.util as _importlib_util
+import json
+import re
+from pathlib import Path
+
+from PyQt6.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QScrollArea,
+    QScrollBar,
+    QStackedWidget,
+    QTextBrowser,
+    QToolBar,
+    QToolButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from config.settings import Settings
+from core.diagnostics import profile_operation
+from core.external_open import open_url as _open_url
+from i18n.i18n import tr
+
 _HAS_WEBENGINE = _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
 
 # python-markdown opzionale — caricato solo al primo rendering Markdown
@@ -66,7 +74,8 @@ def _get_markdown():
             _HAS_MARKDOWN = False
     return _markdown_lib
 
-import re as _re
+import re as _re  # noqa: E402
+
 
 def _fix_img_percent_dimensions(html: str, viewport_width: int = 800) -> str:
     """
@@ -75,7 +84,7 @@ def _fix_img_percent_dimensions(html: str, viewport_width: int = 800) -> str:
     Lascia invariati i valori già in pixel.
     Chiamare nel thread principale dove viewport_width è noto.
     """
-    def _rewrite(m: "re.Match") -> str:
+    def _rewrite(m: re.Match) -> str:
         tag = m.group(0)
         changed = False
         for attr in ("width", "height"):
@@ -204,7 +213,7 @@ class _PdfScrollBar(QScrollBar):
         if self.minimum() != self.maximum():
             super().paintEvent(event)
             return
-        from PyQt6.QtGui import QPainter, QColor
+        from PyQt6.QtGui import QColor, QPainter
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#2b2b2b"))
         painter.setPen(Qt.PenStyle.NoPen)
@@ -503,7 +512,7 @@ class _PdfRenderWorker(QThread):
     def run(self) -> None:
         try:
             import fitz as _fitz
-            from PyQt6.QtGui import QImage, QPainter, QPen, QBrush, QColor
+            from PyQt6.QtGui import QBrush, QColor, QImage, QPainter, QPen
 
             doc = _fitz.open(self._path)
             try:
@@ -657,7 +666,7 @@ class PreviewPanel(QWidget):
     Si collega a un EditorWidget tramite set_editor().
     """
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._closing = False
         self._editor = None
@@ -716,7 +725,7 @@ class PreviewPanel(QWidget):
         self._selection_sync_timer.setInterval(450)
         self._selection_sync_timer.timeout.connect(self._do_selection_sync)
         # (page_0based, y0_pt, y1_pt) in PDF points, o None
-        self._pdf_selection_highlight: Optional[tuple] = None
+        self._pdf_selection_highlight: tuple | None = None
 
         # Debounce scroll continuo: aggiorna il numero di pagina corrente
         # senza bloccare ogni pixel di drag
@@ -727,26 +736,26 @@ class PreviewPanel(QWidget):
         self._cont_scroll_timer.timeout.connect(self._pdf_on_cont_scroll)
 
         # Worker asincrono per rasterizzazione pagina PDF
-        self._render_worker: Optional[_PdfRenderWorker] = None
+        self._render_worker: _PdfRenderWorker | None = None
         self._old_render_workers: list = []   # tenuti vivi fino a finished
         self._render_gen: int = 0
         self._pdf_single_render_pending: bool = False
-        self._synctex_scroll_y_pt: Optional[float] = None  # scroll da applicare dopo render
+        self._synctex_scroll_y_pt: float | None = None  # scroll da applicare dopo render
         self._synctex_scroll_force: bool = True  # True = ricentra sempre, False solo se fuori viewport
         self._pdf_tex_path = None  # root .tex associato al PDF corrente
 
         # Worker asincrono per SyncTeX forward (tex→pdf)
-        self._synctex_fwd_worker: Optional[_SyncTeXFwdWorker] = None
+        self._synctex_fwd_worker: _SyncTeXFwdWorker | None = None
         self._old_synctex_fwd_workers: list = []   # tenuti vivi fino a finished
         self._synctex_fwd_gen: int = 0
 
         # Worker asincrono per SyncTeX della selezione (evidenziazione)
-        self._synctex_sel_worker: Optional[_SyncTeXSelWorker] = None
+        self._synctex_sel_worker: _SyncTeXSelWorker | None = None
         self._old_synctex_sel_workers: list = []   # tenuti vivi fino a finished
         self._synctex_sel_gen: int = 0
 
         # Worker asincrono per SyncTeX backward (pdf→tex, click sul PDF)
-        self._synctex_bwd_worker: Optional[_SyncTeXBwdWorker] = None
+        self._synctex_bwd_worker: _SyncTeXBwdWorker | None = None
         self._old_synctex_bwd_workers: list = []   # tenuti vivi fino a finished
         self._synctex_bwd_gen: int = 0
 
@@ -758,7 +767,7 @@ class PreviewPanel(QWidget):
         # QWebEngineView carica setHtml() in modo asincrono. Conserviamo l'ultima
         # riga richiesta così la sincronizzazione del cursore può essere
         # applicata anche quando il nuovo documento Mermaid non è ancora pronto.
-        self._pending_web_scroll_anchor: Optional[str] = None
+        self._pending_web_scroll_anchor: str | None = None
 
         self._build_ui()
         # Default: scroll continuo, così la scrollbar naviga tra tutte le
@@ -813,7 +822,7 @@ class PreviewPanel(QWidget):
         # QWebEngineView lazy: creato solo alla prima richiesta per HTML puro.
         # Viene aggiunto in fondo allo stack (indice dinamico).
         # Stack fisso: 0=TextBrowser, 1=LaTeX tree, 2=testo grezzo, 3=PDF, 4+=WebEngine
-        self._web: Optional[object] = None
+        self._web: object | None = None
 
         # Pagina 1 — albero struttura LaTeX
         self._tree = QTreeWidget()
@@ -864,7 +873,7 @@ class PreviewPanel(QWidget):
         self._pdf_btn_fit_page.setText("⛶")
         self._pdf_btn_fit_page.setToolTip(tr("tooltip.preview_fit_page"))
         self._pdf_btn_fit_page.clicked.connect(self._pdf_fit_page)
-        
+
         self._pdf_btn_crop = QToolButton()
         self._pdf_btn_crop.setText("✂")
         self._pdf_btn_crop.setToolTip(tr("tooltip.preview_crop"))
@@ -942,12 +951,12 @@ class PreviewPanel(QWidget):
                     self._pdf_btn_links, self._pdf_btn_sync, self._pdf_btn_sync_highlight,
                     self._pdf_btn_open_external]:
             btn.setFixedSize(26, 26)
-        
+
         # (Questa è la riga che abbiamo aggiunto prima)
         pdf_vl.addLayout(pdf_nav)
 
         # --- INIZIO AGGIUNTA CONTATORI TAGLIO ---
-        from PyQt6.QtWidgets import QSpinBox, QWidget as _QWidget, QHBoxLayout as _QHBoxLayout
+        from PyQt6.QtWidgets import QHBoxLayout as _QHBoxLayout, QSpinBox, QWidget as _QWidget
         self._crop_widget = _QWidget()
         crop_layout = _QHBoxLayout(self._crop_widget)
         crop_layout.setContentsMargins(4, 0, 4, 2)
@@ -1034,7 +1043,7 @@ class PreviewPanel(QWidget):
         self._pdf_page_size  = (595.0, 842.0)  # punti A4 default
         self._pdf_show_links = True
         self._pdf_links: list = []
-        self._pdf_cursor_highlight: Optional[tuple] = None  # (page_0based, y_pt, h_pt, W_pt)
+        self._pdf_cursor_highlight: tuple | None = None  # (page_0based, y_pt, h_pt, W_pt)
         self._pdf_continuous  = False   # True = scroll continuo
         self._pdf_building    = False   # guardia contro valueChanged durante rebuild
         self._pdf_cont_page_labels: list = []   # _ClickableLabel per ogni pagina in modo continuo
@@ -1116,14 +1125,14 @@ class PreviewPanel(QWidget):
         # FIX: Forza il re-render invalidando la memoria dell'ultimo testo
         self._last_revision = -1
         self._last_hash = 0
-        
+
         if editor is None:
             self._set_mode("text")
             return
 
         # 1. RIPRISTINIAMO la definizione di 'path' perché serve per i PDF
         path = getattr(editor, "file_path", None)
-        
+
         # 2. Ma passiamo l'intero 'editor' a _detect_mode come avevamo detto
         mode = _detect_mode(editor)
         self._set_mode(mode)
@@ -1209,6 +1218,7 @@ class PreviewPanel(QWidget):
             return
         try:
             from uuid import uuid4
+
             from core.build_manager import BuildManager
             manager = BuildManager.instance()
             if manager.is_running():
@@ -1777,7 +1787,7 @@ class PreviewPanel(QWidget):
                 except Exception:
                     pass
 
-   
+
 
     def _render_html(self, text: str) -> None:
         # HTML puro: usa WebEngine se disponibile (supporta JS e CSS complessi)
@@ -1921,7 +1931,7 @@ class PreviewPanel(QWidget):
 
     def _highlight_tree_item(self, line: int) -> None:
         """Evidenzia nell'albero la sezione più vicina alla riga corrente."""
-        best: Optional[QTreeWidgetItem] = None
+        best: QTreeWidgetItem | None = None
         best_line = -1
 
         def _walk(item: QTreeWidgetItem) -> None:
@@ -2039,7 +2049,7 @@ class PreviewPanel(QWidget):
             block = block.next()
         self._md_anchor_pos_map.sort()
 
-    def _line_for_doc_pos(self, pos: int) -> Optional[int]:
+    def _line_for_doc_pos(self, pos: int) -> int | None:
         """Ritorna il numero di riga sorgente (1-based) più vicino alla posizione pos nel documento."""
         if not self._md_anchor_pos_map:
             return None
@@ -2180,7 +2190,7 @@ class PreviewPanel(QWidget):
 
             mat = _fitz.Matrix(self._pdf_zoom, self._pdf_zoom)
             pix = page.get_pixmap(matrix=mat, alpha=False, clip=clip_rect)
-            from PyQt6.QtGui import QImage, QPixmap, QPainter, QPen, QBrush, QColor
+            from PyQt6.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap
             # bytes() copia i samples prima che fitz li liberi; QImage non
             # deve tenere un riferimento alla memoria di fitz.
             img = QImage(bytes(pix.samples), pix.width, pix.height,
@@ -2383,7 +2393,7 @@ class PreviewPanel(QWidget):
         elif self._pdf_single_render_pending:
             self._pdf_show_page()
 
-    
+
 
     def _pdf_prev_page(self) -> None:
         if self._pdf_doc is not None and self._pdf_page_num > 0:
@@ -2434,7 +2444,7 @@ class PreviewPanel(QWidget):
         if ok:
             self._set_pdf_zoom(percent / 100.0)
 
-    def _active_pdf_scroll(self) -> "QScrollArea":
+    def _active_pdf_scroll(self) -> QScrollArea:
         """Scroll area effettivamente visibile: pagina singola o scroll continuo."""
         return self._pdf_scroll_cont if self._pdf_continuous else self._pdf_scroll
 
@@ -2475,10 +2485,12 @@ class PreviewPanel(QWidget):
         """Apre il PDF corrente con il visualizzatore esterno predefinito."""
         if not self._pdf_path:
             return
-        from config.settings import Settings
         import os
         import shlex
+
         from PyQt6.QtCore import QProcess
+
+        from config.settings import Settings
         configured = Settings.instance().get("preview/external_viewer_command", "")
         if isinstance(configured, str) and configured.strip():
             try:
@@ -3209,7 +3221,7 @@ class PreviewPanel(QWidget):
                     self._pdf_update_cont_highlight(None, old_page)
                 else:
                     self._pdf_show_page()
-            
+
     def wheelEvent(self, event) -> None:
         """Gestisce lo scroll con la rotella: cambio pagina e zoom."""
         if self._mode != "pdf" or self._pdf_doc is None:
@@ -3249,7 +3261,7 @@ class PreviewPanel(QWidget):
                 return
 
         # Altrimenti, lascia che lo scroll funzioni normalmente dentro la pagina
-        super().wheelEvent(event)        
+        super().wheelEvent(event)
 
     def hideEvent(self, event) -> None:
         """Release rendered page images while the preview is hidden."""

@@ -8,17 +8,21 @@ Mostra: percorso completo, dimensione, date creazione/modifica,
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtWidgets import (
-    QDialog, QFormLayout, QLabel, QPushButton,
-    QVBoxLayout, QHBoxLayout, QDialogButtonBox,
-    QGroupBox, QApplication,
-)
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+)
 
 from i18n.i18n import tr
 
@@ -40,7 +44,7 @@ def _fmt_date(ts: float) -> str:
 
 class FilePropertiesDialog(QDialog):
 
-    def __init__(self, editor: "EditorWidget", parent=None):
+    def __init__(self, editor: EditorWidget, parent=None):
         super().__init__(parent)
         self.setWindowTitle(tr("action.file_properties"))
         self.setMinimumWidth(460)

@@ -1,16 +1,26 @@
 """Dialog opzioni di stampa con header e footer configurabili."""
 import datetime
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
-    QCheckBox, QComboBox, QLineEdit, QLabel, QFontComboBox,
-    QSpinBox, QDialogButtonBox, QFrame,
-)
+
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QPainter, QColor
+from PyQt6.QtGui import QFont, QPainter
 from PyQt6.QtPrintSupport import QPrinter
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFontComboBox,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QSpinBox,
+    QVBoxLayout,
+)
 
 from i18n.i18n import tr
-
 
 # Token sostituiti a runtime nella stringa header/footer
 _TOKENS = {
@@ -40,9 +50,12 @@ class _HFRow(QFrame):
         super().__init__()
         hl = QHBoxLayout(self)
         hl.setContentsMargins(0, 0, 0, 0)
-        self._left   = QLineEdit(); self._left.setPlaceholderText(tr("print_options.align_left"))
-        self._center = QLineEdit(); self._center.setPlaceholderText(tr("print_options.align_center"))
-        self._right  = QLineEdit(); self._right.setPlaceholderText(tr("print_options.align_right"))
+        self._left   = QLineEdit()
+        self._left.setPlaceholderText(tr("print_options.align_left"))
+        self._center = QLineEdit()
+        self._center.setPlaceholderText(tr("print_options.align_center"))
+        self._right  = QLineEdit()
+        self._right.setPlaceholderText(tr("print_options.align_right"))
         hl.addWidget(QLabel(f"{label}:"))
         hl.addWidget(self._left,   1)
         hl.addWidget(self._center, 1)
@@ -186,8 +199,8 @@ def _resolve_tokens(text: str, page: int, total_pages: int, file_path) -> str:
 
 def print_with_header_footer(printer: QPrinter, editor, options: PrintOptionsDialog) -> None:
     """Stampa il documento con header/footer. Usa QTextDocument per il corpo."""
-    from PyQt6.QtGui import QTextDocument, QTextCursor, QFontMetrics
     from PyQt6.QtCore import QRectF, QSizeF
+    from PyQt6.QtGui import QFontMetrics, QTextDocument
 
     hf_font = options.hf_font()
     fm = QFontMetrics(hf_font)

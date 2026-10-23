@@ -1,15 +1,23 @@
 """Pannello dock con tabella Unicode per l'inserimento di caratteri speciali."""
 import unicodedata
-from PyQt6.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QLineEdit, QComboBox, QTableWidget, QTableWidgetItem,
-    QLabel, QAbstractItemView, QSizePolicy,
-)
-from PyQt6.QtCore import Qt, QSize
+
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QComboBox,
+    QDockWidget,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from i18n.i18n import tr
-
 
 # Categorie Unicode con range di code point da mostrare
 # Le chiavi i18n vengono risolte a runtime in _build_categories()

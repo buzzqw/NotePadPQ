@@ -13,10 +13,10 @@ chiamante senza dover riscrivere quelle chiamate.
 
 from __future__ import annotations
 
-from typing import Optional, Callable
+from collections.abc import Callable
 
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QProgressBar, QToolButton, QStatusBar
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QProgressBar, QStatusBar, QToolButton, QWidget
 
 from i18n.i18n import tr
 
@@ -75,7 +75,7 @@ class BusyIndicator(QWidget):
 
 
 def show_busy(statusbar: QStatusBar, text: str, cancellable: bool = False,
-              on_cancel: Optional[Callable[[], None]] = None) -> BusyIndicator:
+              on_cancel: Callable[[], None] | None = None) -> BusyIndicator:
     """Crea e mostra un BusyIndicator come widget permanente della status bar.
 
     Il chiamante deve rimuoverlo con hide_busy() al termine dell'operazione.
@@ -90,7 +90,7 @@ def show_busy(statusbar: QStatusBar, text: str, cancellable: bool = False,
     return widget
 
 
-def hide_busy(statusbar: QStatusBar, widget: Optional[BusyIndicator]) -> None:
+def hide_busy(statusbar: QStatusBar, widget: BusyIndicator | None) -> None:
     if widget is None:
         return
     statusbar.removeWidget(widget)

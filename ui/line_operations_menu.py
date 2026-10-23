@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMenu, QInputDialog
+from PyQt6.QtWidgets import QInputDialog, QMenu
 
 from i18n.i18n import tr
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
 
-def build_line_ops_menu(menu: QMenu, main_window: "MainWindow") -> None:
+def build_line_ops_menu(menu: QMenu, main_window: MainWindow) -> None:
     """Aggiunge tutte le voci Line Operations al menu dato."""
 
     def _act(label: str, slot) -> QAction:

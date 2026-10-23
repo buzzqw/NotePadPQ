@@ -15,8 +15,9 @@ Uso:
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from PyQt6.QtGui import QColor
+
 from PyQt6.Qsci import QsciScintilla
+from PyQt6.QtGui import QColor
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -28,7 +29,7 @@ MARKER_BOOKMARK = 10
 MARKER_MASK = 1 << MARKER_BOOKMARK
 
 
-def _ensure_marker_defined(editor: "EditorWidget") -> None:
+def _ensure_marker_defined(editor: EditorWidget) -> None:
     """
     Definisce il marker bookmark sull'editor se non ancora fatto.
     Chiamato lazy al primo uso.
@@ -51,7 +52,7 @@ def _ensure_marker_defined(editor: "EditorWidget") -> None:
     editor._bookmark_marker_defined = True
 
 
-def toggle_bookmark(editor: "EditorWidget") -> None:
+def toggle_bookmark(editor: EditorWidget) -> None:
     """Aggiunge o rimuove il bookmark sulla riga corrente."""
     _ensure_marker_defined(editor)
     line, _ = editor.getCursorPosition()
@@ -66,7 +67,7 @@ def toggle_bookmark(editor: "EditorWidget") -> None:
         editor.markerAdd(line, MARKER_BOOKMARK)
 
 
-def next_bookmark(editor: "EditorWidget") -> None:
+def next_bookmark(editor: EditorWidget) -> None:
     """Sposta il cursore al prossimo bookmark."""
     _ensure_marker_defined(editor)
     line, _ = editor.getCursorPosition()
@@ -84,7 +85,7 @@ def next_bookmark(editor: "EditorWidget") -> None:
         editor.setFocus()
 
 
-def prev_bookmark(editor: "EditorWidget") -> None:
+def prev_bookmark(editor: EditorWidget) -> None:
     """Sposta il cursore al bookmark precedente."""
     _ensure_marker_defined(editor)
     line, _ = editor.getCursorPosition()
@@ -102,13 +103,13 @@ def prev_bookmark(editor: "EditorWidget") -> None:
         editor.setFocus()
 
 
-def clear_all_bookmarks(editor: "EditorWidget") -> None:
+def clear_all_bookmarks(editor: EditorWidget) -> None:
     """Rimuove tutti i bookmark dal documento."""
     _ensure_marker_defined(editor)
     editor.markerDeleteAll(MARKER_BOOKMARK)
 
 
-def get_all_bookmarks(editor: "EditorWidget") -> list[int]:
+def get_all_bookmarks(editor: EditorWidget) -> list[int]:
     """Restituisce la lista delle righe con bookmark (0-based)."""
     _ensure_marker_defined(editor)
     bookmarks = []

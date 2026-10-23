@@ -16,12 +16,12 @@ import json
 import subprocess
 import threading
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
 if TYPE_CHECKING:
-    from editor.editor_widget import EditorWidget
+    pass
 
 # ─── Server predefiniti per linguaggio ───────────────────────────────────────
 
@@ -83,7 +83,7 @@ def _completion_documentation(value) -> str:
     return str(value or "")
 
 
-def normalize_completion_item(item: dict) -> Optional[dict]:
+def normalize_completion_item(item: dict) -> dict | None:
     """Normalizza un CompletionItem LSP per il popup dell'editor."""
     if not isinstance(item, dict):
         return None
@@ -139,7 +139,7 @@ class LSPProtocol:
         return (header + body).encode("utf-8")
 
     def request(self, method: str, params: dict,
-                req_id: Optional[int] = None) -> dict:
+                req_id: int | None = None) -> dict:
         msg: dict = {"jsonrpc": "2.0", "method": method, "params": params}
         if req_id is not None:
             msg["id"] = req_id
@@ -161,14 +161,14 @@ class LSPWorker(QThread):
         super().__init__()
         self._cmd       = cmd
         self._workspace = workspace
-        self._proc: Optional[subprocess.Popen] = None
+        self._proc: subprocess.Popen | None = None
         self._proto     = LSPProtocol()
         self._running   = False
         self._send_lock = threading.Lock()
         self._startup_lock = threading.Lock()
         self._stop_requested = threading.Event()
-        self._shutdown_id: Optional[int] = None
-        self._exit_msg: Optional[dict] = None
+        self._shutdown_id: int | None = None
+        self._exit_msg: dict | None = None
 
     def run(self) -> None:
         error_reported = False
@@ -297,7 +297,7 @@ class LSPWorker(QThread):
                 pass
 
     @staticmethod
-    def _terminate_process(proc: Optional[subprocess.Popen]) -> None:
+    def _terminate_process(proc: subprocess.Popen | None) -> None:
         if proc and proc.poll() is None:
             try:
                 proc.terminate()
@@ -327,14 +327,14 @@ class LSPClient(QObject):
     rename_ready      = pyqtSignal(dict)            # WorkspaceEdit
     signature_ready   = pyqtSignal(str)             # label testo
 
-    _instances: dict[str, "LSPClient"] = {}
+    _instances: dict[str, LSPClient] = {}
     _instances_lock = threading.Lock()
 
     def __init__(self, language: str, workspace: str):
         super().__init__()
         self._language    = language
         self._workspace   = workspace
-        self._worker: Optional[LSPWorker] = None
+        self._worker: LSPWorker | None = None
         self._proto       = LSPProtocol()
         self._pending: dict[int, str] = {}
         self._completion_uris: dict[int, str] = {}
@@ -347,7 +347,7 @@ class LSPClient(QObject):
         self._stopped = False
 
     @classmethod
-    def get(cls, language: str, workspace: str = "") -> Optional["LSPClient"]:
+    def get(cls, language: str, workspace: str = "") -> LSPClient | None:
         if not is_server_available(language):
             return None
         key = f"{language}:{workspace}"
@@ -584,7 +584,7 @@ class LSPClient(QObject):
         self._document_versions[uri] = version
         return version
 
-    def request_completions(self, path: Path, line: int, col: int) -> Optional[int]:
+    def request_completions(self, path: Path, line: int, col: int) -> int | None:
         if not self._initialized or not self._worker:
             return None
         req_id = self._proto.next_id()

@@ -10,10 +10,7 @@ viene usato come valore iniziale.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QGridLayout, QLabel, QLineEdit,
-    QPushButton, QHBoxLayout, QFrame
-)
+from PyQt6.QtWidgets import QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout
 
 from i18n.i18n import tr
 
@@ -54,10 +51,14 @@ class NumberConverterDialog(QDialog):
         grid.addWidget(QLabel(tr("number_converter.label_bin")),    2, 0)
         grid.addWidget(QLabel(tr("number_converter.label_oct")),     3, 0)
 
-        self._dec_edit = QLineEdit(); self._dec_edit.setPlaceholderText(tr("number_converter.placeholder_dec"))
-        self._hex_edit = QLineEdit(); self._hex_edit.setPlaceholderText(tr("number_converter.placeholder_hex"))
-        self._bin_edit = QLineEdit(); self._bin_edit.setPlaceholderText(tr("number_converter.placeholder_bin"))
-        self._oct_edit = QLineEdit(); self._oct_edit.setPlaceholderText(tr("number_converter.placeholder_oct"))
+        self._dec_edit = QLineEdit()
+        self._dec_edit.setPlaceholderText(tr("number_converter.placeholder_dec"))
+        self._hex_edit = QLineEdit()
+        self._hex_edit.setPlaceholderText(tr("number_converter.placeholder_hex"))
+        self._bin_edit = QLineEdit()
+        self._bin_edit.setPlaceholderText(tr("number_converter.placeholder_bin"))
+        self._oct_edit = QLineEdit()
+        self._oct_edit.setPlaceholderText(tr("number_converter.placeholder_oct"))
 
         grid.addWidget(self._dec_edit, 0, 1)
         grid.addWidget(self._hex_edit, 1, 1)
@@ -66,7 +67,8 @@ class NumberConverterDialog(QDialog):
 
         layout.addLayout(grid)
 
-        sep = QFrame(); sep.setFrameShape(QFrame.Shape.HLine)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
         layout.addWidget(sep)
 
         btn_row = QHBoxLayout()

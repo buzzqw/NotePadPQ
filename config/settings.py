@@ -8,10 +8,9 @@ Tutti i moduli leggono le preferenze da qui — mai da QSettings direttamente.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-from PyQt6.QtCore import QSettings, QObject, pyqtSignal
-
+from PyQt6.QtCore import QObject, QSettings, pyqtSignal
 
 _DEFAULTS: dict[str, Any] = {
     # Editor
@@ -113,14 +112,14 @@ class Settings(QObject):
 
     settings_changed = pyqtSignal(str, object)   # chiave, valore
 
-    _instance: Optional["Settings"] = None
+    _instance: Settings | None = None
 
     def __init__(self):
         super().__init__()
         self._qs = QSettings("NotePadPQ", "NotePadPQ")
 
     @classmethod
-    def instance(cls) -> "Settings":
+    def instance(cls) -> Settings:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance

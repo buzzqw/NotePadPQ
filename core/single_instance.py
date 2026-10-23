@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Callable, List, Optional
+from collections.abc import Callable
 
-from PyQt6.QtNetwork import QLocalServer, QLocalSocket
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer
 from PyQt6 import sip
+from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 
 class SingleInstance(QObject):
@@ -26,17 +26,17 @@ class SingleInstance(QObject):
     _MAX_PAYLOAD_BYTES = 64 * 1024
     _ACK_TIMEOUT_MS = 2000
 
-    def __init__(self, app_name: str = "NotePadPQ", parent: Optional[QObject] = None):
+    def __init__(self, app_name: str = "NotePadPQ", parent: QObject | None = None):
         super().__init__(parent)
         uid = os.getuid() if hasattr(os, "getuid") else 0
         self._app_name = f"{app_name}_{uid}"
         self._server = None
-        self._callback: Optional[Callable[[List[str]], None]] = None
+        self._callback: Callable[[list[str]], None] | None = None
         self._buffers: dict[int, bytes] = {}
         self._connection_slots: dict[int, tuple[Callable, Callable]] = {}
         self._conn_seq: int = 0
 
-    def send_args_if_secondary(self, paths: List[str]) -> bool:
+    def send_args_if_secondary(self, paths: list[str]) -> bool:
         """
         Tenta un'unica connessione al server principale.
         Se riesce, invia i path e restituisce True (siamo la seconda istanza).
@@ -71,7 +71,7 @@ class SingleInstance(QObject):
         sock.deleteLater()
         return False
 
-    def start_server(self, callback: Callable[[List[str]], None]) -> bool:
+    def start_server(self, callback: Callable[[list[str]], None]) -> bool:
         """
         Avvia il server locale sulla prima istanza.
         Restituisce True se il server è stato avviato con successo (siamo
@@ -117,8 +117,10 @@ class SingleInstance(QObject):
         self._conn_seq += 1
         cid = self._conn_seq
         self._buffers[cid] = b""
-        ready_read = lambda c=conn, i=cid: self._on_ready_read(c, i)
-        disconnected = lambda c=conn, i=cid: self._cleanup_connection(c, i)
+        def ready_read(c=conn, i=cid):
+            return self._on_ready_read(c, i)
+        def disconnected(c=conn, i=cid):
+            return self._cleanup_connection(c, i)
         self._connection_slots[cid] = (ready_read, disconnected)
         conn.readyRead.connect(ready_read)
         conn.disconnected.connect(disconnected)
@@ -175,7 +177,7 @@ class SingleInstance(QObject):
                         for path in paths))
 
     @classmethod
-    def _decode_paths(cls, line: bytes) -> Optional[List[str]]:
+    def _decode_paths(cls, line: bytes) -> list[str] | None:
         try:
             payload = json.loads(line.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):

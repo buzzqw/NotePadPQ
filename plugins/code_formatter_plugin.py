@@ -36,22 +36,28 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import xml.dom.minidom
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
-    QLabel, QLineEdit, QMessageBox, QPushButton, QTabWidget,
-    QVBoxLayout, QWidget,
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
-from plugins.base_plugin import BasePlugin
-from i18n.i18n import tr
 from editor.lexers import get_language_name
-from ui.busy_indicator import show_busy, hide_busy
+from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
+from ui.busy_indicator import hide_busy, show_busy
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -59,7 +65,7 @@ if TYPE_CHECKING:
 
 # ─── Ricerca eseguibili ──────────────────────────────────────────────────────
 
-def _find_exe(name: str) -> Optional[str]:
+def _find_exe(name: str) -> str | None:
     """
     Cerca l'eseguibile `name` in ordine:
       1. PATH di sistema  (shutil.which)
@@ -106,7 +112,7 @@ def _find_exe(name: str) -> Optional[str]:
 
 # ─── Configurazione default dei formatter ─────────────────────────────────────
 
-_DEFAULT_FORMATTERS: Dict[str, dict] = {
+_DEFAULT_FORMATTERS: dict[str, dict] = {
     "python": {
         "cmd":  ["black", "--quiet", "-"],
         "stdin": True,
@@ -173,7 +179,7 @@ _DEFAULT_FORMATTERS: Dict[str, dict] = {
 }
 
 # mapping: nome linguaggio QScintilla/lexer → chiave in _DEFAULT_FORMATTERS
-_LANG_MAP: Dict[str, str] = {
+_LANG_MAP: dict[str, str] = {
     "python":     "python",
     "javascript": "javascript",
     "typescript": "typescript",
@@ -192,7 +198,7 @@ _LANG_MAP: Dict[str, str] = {
 
 # ─── Formattazione built-in (JSON, XML) ──────────────────────────────────────
 
-def _format_json(text: str) -> Tuple[bool, str]:
+def _format_json(text: str) -> tuple[bool, str]:
     try:
         obj    = json.loads(text)
         result = json.dumps(obj, indent=2, ensure_ascii=False)
@@ -201,7 +207,7 @@ def _format_json(text: str) -> Tuple[bool, str]:
         return False, str(exc)
 
 
-def _format_xml(text: str) -> Tuple[bool, str]:
+def _format_xml(text: str) -> tuple[bool, str]:
     try:
         dom    = xml.dom.minidom.parseString(text.encode("utf-8"))
         result = dom.toprettyxml(indent="  ", encoding=None)
@@ -216,8 +222,8 @@ def _format_xml(text: str) -> Tuple[bool, str]:
 
 # ─── Chiamata subprocess ─────────────────────────────────────────────────────
 
-def _run_formatter(cmd: List[str], text: str,
-                    register_proc: Optional[callable] = None) -> Tuple[bool, str, str]:
+def _run_formatter(cmd: list[str], text: str,
+                    register_proc: callable | None = None) -> tuple[bool, str, str]:
     """
     Esegue il formatter passando il testo via stdin.
     Ritorna (successo, stdout, stderr).
@@ -266,7 +272,7 @@ class _PrefsDialog(QDialog):
         self.setWindowTitle("Preferenze Formatter")
         self.resize(580, 400)
         self._settings = dict(settings)
-        self._edits: Dict[str, QLineEdit] = {}
+        self._edits: dict[str, QLineEdit] = {}
         self._build_ui()
 
     def _build_ui(self):
@@ -350,7 +356,7 @@ class _Formatter:
     def __init__(self, settings: dict):
         self._settings = settings
 
-    def _get_cmd(self, lang: str) -> Optional[List[str]]:
+    def _get_cmd(self, lang: str) -> list[str] | None:
         cfg = _DEFAULT_FORMATTERS.get(lang)
         if not cfg:
             return None
@@ -360,7 +366,7 @@ class _Formatter:
         return cfg.get("cmd")
 
     def format_text(self, text: str, lang: str,
-                     register_proc: Optional[callable] = None) -> Tuple[bool, str, str]:
+                     register_proc: callable | None = None) -> tuple[bool, str, str]:
         """
         Formatta `text` per il linguaggio `lang`.
         Ritorna (successo, testo_formattato, messaggio_errore).
@@ -393,7 +399,7 @@ class _Formatter:
                 if ok2 and stdout2.strip():
                     return True, stdout2, ""
                 return False, text, stderr2 or stderr
-            return False, text, stderr or f"Il formatter ha restituito codice di errore."
+            return False, text, stderr or "Il formatter ha restituito codice di errore."
         # formatter che non scrive stdout (es. clang-format con file temporaneo)
         return True, stdout or text, ""
 
@@ -406,7 +412,7 @@ class _FormatWorker(QThread):
 
     completed = pyqtSignal(bool, str, str, bool)  # ok, formatted, err, cancelled
 
-    def __init__(self, formatter: "_Formatter", text: str, lang: str):
+    def __init__(self, formatter: _Formatter, text: str, lang: str):
         super().__init__()
         self._formatter = formatter
         self._text = text
@@ -444,11 +450,11 @@ class CodeFormatterPlugin(BasePlugin):
     DESCRIPTION = "Formatta il documento corrente con black/prettier/clang-format/rustfmt/gofmt"
     AUTHOR      = "NotePadPQ"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
         self._settings = self._load_settings()
         self._formatter = _Formatter(self._settings)
-        self._active_worker: Optional[_FormatWorker] = None
+        self._active_worker: _FormatWorker | None = None
 
         self.add_menu_action(
             main_window, "tools",
@@ -605,7 +611,7 @@ class CodeFormatterPlugin(BasePlugin):
 
     # ── Rilevamento linguaggio ────────────────────────────────────────────────
 
-    def _detect_lang(self, editor) -> Optional[str]:
+    def _detect_lang(self, editor) -> str | None:
         """Rileva il linguaggio dall'editor e lo mappa alla chiave formatter."""
         # 1. Usa get_language_name() che legge _current_language (più preciso)
         lang_raw = None
@@ -659,7 +665,15 @@ class CodeFormatterPlugin(BasePlugin):
     def _save_settings(self):
         try:
             self._settings_path().write_text(
-                json.dumps(self._settings, indent=2, ensure_ascii=False)
+                json.dumps(self._settings, indent=2, ensure_ascii=False),
+                encoding="utf-8",
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                if self._mw is not None:
+                    self._mw.statusBar().showMessage(
+                        f"⚠ Code Formatter: impostazioni non salvate — {exc}",
+                        5000,
+                    )
+            except Exception:
+                pass

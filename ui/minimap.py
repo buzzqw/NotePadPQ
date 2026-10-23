@@ -10,11 +10,12 @@ Implementato come QAbstractScrollArea ridisegnato.
 from __future__ import annotations
 
 import re
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QRect, QTimer, QThread, QPoint, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QColor, QPainter, QPen, QBrush, QPixmap, QImage
-from PyQt6.QtWidgets import QWidget, QAbstractScrollArea, QLabel
+from PyQt6.QtCore import QPoint, QRect, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
+from PyQt6.QtWidgets import QLabel, QWidget
+
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
 
@@ -95,14 +96,14 @@ class MinimapWidget(QWidget):
     dal TabManager o dalla MainWindow.
     """
 
-    def __init__(self, editor: "EditorWidget", parent: QWidget = None):
+    def __init__(self, editor: EditorWidget, parent: QWidget = None):
         super().__init__(parent)
         self._editor = editor
-        self._pixmap: Optional[QPixmap] = None
+        self._pixmap: QPixmap | None = None
         self._dirty  = True
         self._needs_refresh = False
 
-        self._worker: Optional[_MinimapWorker] = None
+        self._worker: _MinimapWorker | None = None
         self._old_workers: list = []
 
         self._popup: QLabel | None = None
@@ -130,7 +131,7 @@ class MinimapWidget(QWidget):
 
         self._rebuild()
 
-    def set_editor(self, editor: "EditorWidget") -> None:
+    def set_editor(self, editor: EditorWidget) -> None:
         """Collega la minimap a un nuovo editor, disconnettendo il precedente."""
         if editor is self._editor:
             return
@@ -211,7 +212,7 @@ class MinimapWidget(QWidget):
         worker.start()
 
     @pyqtSlot(object)
-    def _on_image_ready(self, img: "QImage") -> None:
+    def _on_image_ready(self, img: QImage) -> None:
         """Riceve il QImage dal worker e lo converte in QPixmap (main thread)."""
         self._worker = None
         self._pixmap = QPixmap.fromImage(img)
@@ -236,7 +237,6 @@ class MinimapWidget(QWidget):
     def _draw_viewport_indicator(self, painter: QPainter) -> None:
         """Disegna il rettangolo che indica la porzione visibile."""
         sb     = self._editor.verticalScrollBar()
-        total  = max(1, self._editor.lines())
         vmin   = sb.minimum()
         vmax   = max(1, sb.maximum())
         vval   = sb.value()

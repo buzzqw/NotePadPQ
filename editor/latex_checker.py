@@ -19,19 +19,20 @@ Uso:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal, Qt
-from PyQt6.QtGui import QColor
 from PyQt6.Qsci import QsciScintilla
+from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor
+
 from core.diagnostics import profile_operation
 from core.latex_checks import (
+    count_row_cols,
+    count_tabular_cols,
     environment_balance,
     format_balance_issue,
     tabular_column_issues,
     tikz_semicolon_issues,
-    count_row_cols,
-    count_tabular_cols,
 )
 from core.latex_citations import extract_latex_citation_occurrences
 from core.latex_index import get_latex_index
@@ -357,11 +358,11 @@ class LaTeXChecker(QObject):
 
     issues_found = pyqtSignal(list)   # list[dict{line, severity, msg}]
 
-    def __init__(self, editor: "EditorWidget", parent: QObject = None):
+    def __init__(self, editor: EditorWidget, parent: QObject = None):
         super().__init__(parent)
         self._editor  = editor
         self._enabled = True
-        self._worker: Optional[_CheckWorker] = None
+        self._worker: _CheckWorker | None = None
         self._old_workers: set[_CheckWorker] = set()
         self._gen: int = 0
         self._started = False
@@ -554,7 +555,7 @@ class LaTeXChecker(QObject):
             if last_line < 0:
                 return
             ed.clearIndicatorRange(0, 0, last_line,
-                                   ed.lineLength(last_line), INDICATOR_LATEX_COL)
+                                   len(ed.text(last_line)), INDICATOR_LATEX_COL)
         except RuntimeError:
             pass
 
@@ -574,6 +575,7 @@ class LaTeXChecker(QObject):
                 if key in seen:
                     continue
                 seen.add(key)
+                # hs/he sono colonne in caratteri (fillIndicatorRange non usa byte).
                 self._editor.fillIndicatorRange(
                     line, hs, line, he, INDICATOR_LATEX_COL
                 )

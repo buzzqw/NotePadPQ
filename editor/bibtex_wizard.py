@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
@@ -22,7 +21,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QTabWidget,
@@ -197,7 +195,7 @@ def normalize_url(value: object) -> str:
 
 
 def normalize_bibtex_record(
-    record: Mapping[str, object], entry_type: Optional[str] = None
+    record: Mapping[str, object], entry_type: str | None = None
 ) -> dict[str, str]:
     """Normalize field names and the DOI/URL values of one BibTeX record.
 
@@ -266,8 +264,8 @@ def _is_valid_url(value: str) -> bool:
 
 def validate_bibtex_record(
     record: Mapping[str, object],
-    entry_type: Optional[str] = None,
-    existing_keys: Optional[Iterable[str] | str] = None,
+    entry_type: str | None = None,
+    existing_keys: Iterable[str] | str | None = None,
 ) -> list[str]:
     """Validate one record and return non-modal, human-readable errors.
 
@@ -333,13 +331,13 @@ def parse_bibtex_record(text: str) -> dict[str, str]:
 class BibTeXWizardDialog(QDialog):
     """Dialog per creare voci bibliografiche BibTeX con form guidato."""
 
-    def __init__(self, editor: "EditorWidget", parent=None):
+    def __init__(self, editor: EditorWidget, parent=None):
         super().__init__(parent)
         self._editor = editor
         self._fields: dict[str, QLineEdit] = {}
-        self._field_layout: Optional[QFormLayout] = None
-        self._type_combo: Optional[QComboBox] = None
-        self._validation_status: Optional[QLabel] = None
+        self._field_layout: QFormLayout | None = None
+        self._type_combo: QComboBox | None = None
+        self._validation_status: QLabel | None = None
 
         self.setWindowTitle(tr("bibtex_wizard.title", default="BibTeX Wizard"))
         self.resize(650, 600)
@@ -499,7 +497,7 @@ class BibTeXWizardDialog(QDialog):
             existing_keys=self._existing_bibtex_keys() if check_existing_keys else None,
         )
 
-    def _update_validation_status(self, errors: Optional[list[str]] = None) -> None:
+    def _update_validation_status(self, errors: list[str] | None = None) -> None:
         if self._validation_status is None:
             return
         errors = self._validation_errors(check_existing_keys=False) if errors is None else errors

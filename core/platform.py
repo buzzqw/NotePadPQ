@@ -12,9 +12,9 @@ Uso:
     from core.platform import open_path_in_filemanager, get_default_shell
 """
 
-import sys
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 from PyQt6.QtCore import QStandardPaths
@@ -147,7 +147,6 @@ def get_monospace_font_families() -> list[str]:
     result = [f for f in preferred if f in available]
     for family in sorted(available):
         if family not in result:
-            db = QFontDatabase()
             # Controlla se è monospace controllando che sia a larghezza fissa
             if QFontDatabase.isFixedPitch(family, "Regular") or \
                QFontDatabase.isFixedPitch(family, ""):
@@ -314,7 +313,7 @@ def get_platform_info() -> dict:
 # ─── Test standalone ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print(f"=== NotePadPQ — Platform Info ===")
+    print("=== NotePadPQ — Platform Info ===")
     info = get_platform_info()
     for k, v in info.items():
         print(f"  {k:<18}: {v}")

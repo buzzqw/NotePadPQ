@@ -13,20 +13,28 @@ Dialog non modale con:
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor, QFont
+from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QLineEdit, QPlainTextEdit, QCheckBox,
-    QTableWidget, QTableWidgetItem, QTabWidget,
-    QWidget, QSplitter, QPushButton, QGroupBox,
+    QCheckBox,
+    QDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPlainTextEdit,
+    QPushButton,
     QScrollArea,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
-
 
 # Colori per i gruppi di cattura (ciclano)
 _GROUP_COLORS = [

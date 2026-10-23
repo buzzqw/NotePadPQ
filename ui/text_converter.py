@@ -1,11 +1,18 @@
 """Dialog per conversioni di testo: ROT13, URL, Base64, HTML entities."""
 import base64
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, QWidget,
-    QTextEdit, QPushButton, QLabel, QDialogButtonBox, QSizePolicy,
-)
-from PyQt6.QtCore import Qt
+
 from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from i18n.i18n import tr
 

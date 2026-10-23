@@ -13,7 +13,7 @@ API pubblica:
 from __future__ import annotations
 
 import re
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from core.latex_checks import TBLR_ENVS, count_tabular_cols, separator_positions
 
@@ -40,7 +40,7 @@ def _md_join(cells: list[str]) -> str:
     return "|" + "|".join(cells) + "|"
 
 
-def _detect_md(editor: "EditorWidget") -> Optional[dict]:
+def _detect_md(editor: EditorWidget) -> dict | None:
     cur_line, cur_col = editor.getCursorPosition()
     if not _is_md_row(editor.text(cur_line)):
         return None
@@ -76,7 +76,7 @@ def _detect_md(editor: "EditorWidget") -> Optional[dict]:
     }
 
 
-def _md_add_row(editor: "EditorWidget", where: str) -> bool:
+def _md_add_row(editor: EditorWidget, where: str) -> bool:
     info = _detect_md(editor)
     if not info:
         return False
@@ -107,7 +107,7 @@ def _md_add_row(editor: "EditorWidget", where: str) -> bool:
     return True
 
 
-def _md_add_column(editor: "EditorWidget", where: str) -> bool:
+def _md_add_column(editor: EditorWidget, where: str) -> bool:
     info = _detect_md(editor)
     if not info:
         return False
@@ -131,7 +131,7 @@ def _md_add_column(editor: "EditorWidget", where: str) -> bool:
     return True
 
 
-def _md_delete_row(editor: "EditorWidget") -> bool:
+def _md_delete_row(editor: EditorWidget) -> bool:
     info = _detect_md(editor)
     if not info:
         return False
@@ -148,7 +148,7 @@ def _md_delete_row(editor: "EditorWidget") -> bool:
     return True
 
 
-def _md_delete_column(editor: "EditorWidget") -> bool:
+def _md_delete_column(editor: EditorWidget) -> bool:
     info = _detect_md(editor)
     if not info:
         return False
@@ -188,7 +188,7 @@ _RE_COLSPEC = re.compile(r"\bcolspec\s*=\s*")
 _COL_CHARS = frozenset("lcrpLCRX")
 
 
-def _group_end(text: str, start: int) -> Optional[int]:
+def _group_end(text: str, start: int) -> int | None:
     """Indice dopo la ``}`` che chiude il gruppo aperto in ``start``."""
     if start >= len(text) or text[start] != "{":
         return None
@@ -304,7 +304,7 @@ def _split_row_terminator(line: str) -> tuple[str, str]:
     return line[:index], line[index:]
 
 
-def _detect_latex(editor: "EditorWidget") -> Optional[dict]:
+def _detect_latex(editor: EditorWidget) -> dict | None:
     cur_line, cur_col = editor.getCursorPosition()
     total = editor.lines()
 
@@ -363,7 +363,7 @@ def _detect_latex(editor: "EditorWidget") -> Optional[dict]:
     }
 
 
-def _latex_add_row(editor: "EditorWidget", where: str) -> bool:
+def _latex_add_row(editor: EditorWidget, where: str) -> bool:
     info = _detect_latex(editor)
     if not info:
         return False
@@ -392,7 +392,7 @@ def _latex_add_row(editor: "EditorWidget", where: str) -> bool:
     return True
 
 
-def _latex_add_column(editor: "EditorWidget", where: str) -> bool:
+def _latex_add_column(editor: EditorWidget, where: str) -> bool:
     info = _detect_latex(editor)
     if not info:
         return False
@@ -443,7 +443,7 @@ def _latex_add_column(editor: "EditorWidget", where: str) -> bool:
     return True
 
 
-def _latex_delete_row(editor: "EditorWidget") -> bool:
+def _latex_delete_row(editor: EditorWidget) -> bool:
     info = _detect_latex(editor)
     if not info:
         return False
@@ -459,7 +459,7 @@ def _latex_delete_row(editor: "EditorWidget") -> bool:
     return True
 
 
-def _latex_delete_column(editor: "EditorWidget") -> bool:
+def _latex_delete_column(editor: EditorWidget) -> bool:
     info = _detect_latex(editor)
     if not info:
         return False
@@ -520,26 +520,26 @@ def _latex_delete_column(editor: "EditorWidget") -> bool:
 # API pubblica
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def detect_table(editor: "EditorWidget") -> Optional[dict]:
+def detect_table(editor: EditorWidget) -> dict | None:
     """Restituisce info tabella (type, start, end, cur_line, col_count, cursor_col) o None."""
     return _detect_md(editor) or _detect_latex(editor)
 
 
-def add_row(editor: "EditorWidget", where: str = "below") -> bool:
+def add_row(editor: EditorWidget, where: str = "below") -> bool:
     """Aggiunge una riga vuota sopra/sotto quella corrente. Ritorna False se non in tabella."""
     return _md_add_row(editor, where) or _latex_add_row(editor, where)
 
 
-def add_column(editor: "EditorWidget", where: str = "right") -> bool:
+def add_column(editor: EditorWidget, where: str = "right") -> bool:
     """Aggiunge una colonna a destra/sinistra di quella corrente."""
     return _md_add_column(editor, where) or _latex_add_column(editor, where)
 
 
-def delete_row(editor: "EditorWidget") -> bool:
+def delete_row(editor: EditorWidget) -> bool:
     """Cancella la riga corrente (non cancella header/separatore)."""
     return _md_delete_row(editor) or _latex_delete_row(editor)
 
 
-def delete_column(editor: "EditorWidget") -> bool:
+def delete_column(editor: EditorWidget) -> bool:
     """Cancella la colonna corrente."""
     return _md_delete_column(editor) or _latex_delete_column(editor)

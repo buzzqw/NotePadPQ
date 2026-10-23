@@ -1,10 +1,19 @@
 """Column editor — inserisce numeri sequenziali o testo fisso su selezione rettangolare."""
-from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QGroupBox, QRadioButton, QSpinBox, QLineEdit,
-    QComboBox, QLabel, QDialogButtonBox, QButtonGroup,
-)
 from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QRadioButton,
+    QSpinBox,
+    QVBoxLayout,
+)
 
 from i18n.i18n import tr
 

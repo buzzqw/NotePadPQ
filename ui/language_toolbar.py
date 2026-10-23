@@ -15,21 +15,30 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QIcon, QKeySequence, QCursor, QPainter, QPixmap
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QColor, QCursor, QIcon, QKeySequence, QPainter, QPixmap
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QToolButton, QFrame, QMenu,
-    QInputDialog, QApplication, QSizePolicy,
-    QDialog, QDialogButtonBox, QFormLayout, QLabel, QLineEdit,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QSizePolicy,
+    QToolButton,
+    QWidget,
 )
 
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+    from ui.main_window import MainWindow
 
 
 # Mappa chiave → nome file SVG Lucide per i bottoni custom della language toolbar.
@@ -131,7 +140,7 @@ _LATEX_CITE_ITEMS: list[tuple[str, str]] = [
 
 
 
-def _make_table_icon(key: str, mw: "MainWindow") -> QIcon:
+def _make_table_icon(key: str, mw: MainWindow) -> QIcon:
     """
     Genera un'icona 20×20 stile TeXstudio: griglia 3×3 con la riga/colonna
     interessata evidenziata in verde (inserimento) o arancione (cancellazione).
@@ -145,7 +154,6 @@ def _make_table_icon(key: str, mw: "MainWindow") -> QIcon:
 
     # Colori
     pal        = mw.palette()
-    bg_color   = pal.color(QPalette.ColorRole.Window)
     grid_color = pal.color(QPalette.ColorRole.Mid)
     hi_green   = QColor("#4caf50")
     hi_orange  = QColor("#ff9800")
@@ -192,7 +200,7 @@ def _make_table_icon(key: str, mw: "MainWindow") -> QIcon:
     return QIcon(pm)
 
 
-def _make_math_icon(mw: "MainWindow") -> QIcon:
+def _make_math_icon(mw: MainWindow) -> QIcon:
     """Genera un'icona 20×20 con il simbolo Σ per il bottone matematica."""
     from PyQt6.QtGui import QFont
     size = 20
@@ -238,7 +246,7 @@ def render_svg_icon(icon_path: Path, color: str) -> QPixmap:
     return pm
 
 
-def toolbar_icon_color(mw: "MainWindow") -> str:
+def toolbar_icon_color(mw: MainWindow) -> str:
     """Restituisce il colore esadecimale da usare per le icone della toolbar.
 
     Su temi chiari (Window luminoso) scurisce il colore rispetto a WindowText
@@ -254,7 +262,7 @@ def toolbar_icon_color(mw: "MainWindow") -> str:
     return pal.color(QPalette.ColorRole.WindowText).name()
 
 
-def _load_icon(icon_key: str, mw: "MainWindow") -> QIcon:
+def _load_icon(icon_key: str, mw: MainWindow) -> QIcon:
     """Carica un'icona Lucide (o del set attivo) sostituendo currentColor con il
     colore testo corrente della palette, identico a _rebuild_toolbar()."""
     icon_file = _MD_ICON_FILES.get(icon_key, "")
@@ -280,7 +288,7 @@ def _load_icon(icon_key: str, mw: "MainWindow") -> QIcon:
 
 class LanguageToolbar:
     @staticmethod
-    def install(main_window: "MainWindow") -> None:
+    def install(main_window: MainWindow) -> None:
         tb = _LanguageToolbarWidget(main_window)
         main_window._lang_toolbar = tb
 
@@ -314,7 +322,7 @@ class LanguageToolbar:
 class _LanguageToolbarWidget(QWidget):
     visibilityChanged = pyqtSignal(bool)
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(main_window)
         self._mw = main_window
         self._current_lang: str = ""
@@ -395,7 +403,7 @@ class _LanguageToolbarWidget(QWidget):
             editor = self._mw._tab_manager.current_editor()
             self._on_editor_changed(editor)
 
-    def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
+    def _on_editor_changed(self, editor: EditorWidget | None) -> None:
         # Disconnetti language_changed dal vecchio editor
         if self._lang_editor is not None:
             try:
@@ -419,7 +427,7 @@ class _LanguageToolbarWidget(QWidget):
         editor = self._mw._tab_manager.current_editor()
         self._update_for_editor(editor)
 
-    def _update_for_editor(self, editor: Optional["EditorWidget"]) -> None:
+    def _update_for_editor(self, editor: EditorWidget | None) -> None:
         lang = ""
         if editor is not None:
             try:
@@ -642,7 +650,7 @@ class _LanguageToolbarWidget(QWidget):
         btn_html = self._add_icon_btn("md_export_html", "HTML", tip)
         btn_html.clicked.connect(self._export_html)
 
-    def _add_mermaid_menu_btn(self) -> Optional[QToolButton]:
+    def _add_mermaid_menu_btn(self) -> QToolButton | None:
         """Add Mermaid template insertion and lightweight validation actions."""
         btn = self._add_icon_btn(
             "md_mermaid", "M",
@@ -691,6 +699,7 @@ class _LanguageToolbarWidget(QWidget):
         if not editor:
             return
         from PyQt6.QtWidgets import QMessageBox
+
         from core.markdown_features import extract_mermaid_blocks, validate_mermaid
         errors = validate_mermaid(editor.text())
         if errors:
@@ -1341,7 +1350,7 @@ class _LanguageToolbarWidget(QWidget):
         editor.setFocus()
 
     def _insert_md_image(self) -> None:
-        from PyQt6.QtWidgets import QFileDialog, QCheckBox
+        from PyQt6.QtWidgets import QCheckBox, QFileDialog
         editor = self._mw._tab_manager.current_editor()
         if not editor:
             return
@@ -1539,7 +1548,7 @@ class _LanguageToolbarWidget(QWidget):
 
     def _export_pdf(self) -> None:
         """Esporta il documento Markdown corrente in PDF tramite QPrinter."""
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from PyQt6.QtWidgets import QMessageBox
         try:
             self._export_pdf_impl()
         except Exception as _top_exc:
@@ -1646,8 +1655,8 @@ class _LanguageToolbarWidget(QWidget):
                 "</body></html>"
             )
 
-        from PyQt6.QtGui import QPageLayout as _QPageLayout
         from PyQt6.QtCore import QMarginsF as _QMarginsF
+        from PyQt6.QtGui import QPageLayout as _QPageLayout
         _page_layout = self._mw._printer.pageLayout()
         # Margini estratti in mm dal page setup; minimo 20mm se non configurati
         _m = _page_layout.margins(_QPageLayout.Unit.Millimeter)
@@ -1668,7 +1677,7 @@ class _LanguageToolbarWidget(QWidget):
         # può escaparle (convertendo < in &lt;) se non le riconosce come blocco HTML.
         _img_stash: list[str] = []
 
-        def _stash_img(m: '_re.Match[str]') -> str:
+        def _stash_img(m: _re.Match[str]) -> str:
             _img_stash.append(m.group(0))
             return f'<!-- __npq_img_{len(_img_stash) - 1}__ -->'
 
@@ -1705,8 +1714,7 @@ class _LanguageToolbarWidget(QWidget):
         # Primario: QWebEngineView — preserva nl2br e formattazione HTML del Markdown
         if not _exported:
             try:
-                from PyQt6.QtWebEngineWidgets import QWebEngineView
-                from PyQt6.QtCore import QUrl, QEventLoop
+                from PyQt6.QtCore import QEventLoop, QUrl
                 _we_ok = [False]
                 from core.webengine import safe_webview as _swv
                 view = _swv()
@@ -1741,9 +1749,9 @@ class _LanguageToolbarWidget(QWidget):
         if not _exported:
             # Fallback 2: QTextDocument
             try:
-                from PyQt6.QtPrintSupport import QPrinter
-                from PyQt6.QtGui import QTextDocument
                 from PyQt6.QtCore import QUrl
+                from PyQt6.QtGui import QTextDocument
+                from PyQt6.QtPrintSupport import QPrinter
                 _pl_mm = _page_layout.paintRect(_QPageLayout.Unit.Millimeter).width()
                 _usable_px = max(200, int(_pl_mm * 96 / 25.4))
                 html_body_px = _re.sub(
@@ -1775,10 +1783,12 @@ class _LanguageToolbarWidget(QWidget):
             except Exception:
                 pass
         if not _exported:
-            import subprocess as _sp, shutil as _sh
+            import shutil as _sh
+            import subprocess as _sp
             if _sh.which("pandoc"):
                 try:
-                    import tempfile as _tf, os as _os2
+                    import os as _os2
+                    import tempfile as _tf
                     with _tf.NamedTemporaryFile(suffix=".md", delete=False,
                                                mode="w", encoding="utf-8") as _tf_md:
                         _tf_md.write(content)
@@ -1914,7 +1924,7 @@ class _LanguageToolbarWidget(QWidget):
             btn.clicked.connect(lambda c, w=where, a=action: self._table_edit(a, w))
             self._layout.insertWidget(self._layout.count() - 1, btn)
 
-    def _table_edit(self, action: str, where: Optional[str]) -> None:
+    def _table_edit(self, action: str, where: str | None) -> None:
         editor = self._mw._tab_manager.current_editor()
         if not editor:
             return
@@ -1935,7 +1945,7 @@ class _LanguageToolbarWidget(QWidget):
         editor.setFocus()
 
     @staticmethod
-    def _ensure_latex_package(editor: "EditorWidget", package: str) -> None:
+    def _ensure_latex_package(editor: EditorWidget, package: str) -> None:
         """Inserisce \\usepackage{package} nel preambolo se non già presente.
 
         L'inserimento avviene nel preambolo, ma cursore e selezione vengono

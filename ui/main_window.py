@@ -14,41 +14,56 @@ NON gestisce: logica I/O file (→ core/file_manager.py),
               find/replace (→ ui/find_replace.py)
 """
 
-import os
-import sys
-import time
-import threading
 import hashlib
+import os
 import shutil
+import sys
+import threading
+import time
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Callable
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSlot, QEvent
+from PyQt6.QtCore import QEvent, QEventLoop, Qt, QTimer, pyqtSlot
 from PyQt6.QtGui import (
-    QAction, QIcon, QKeySequence, QCloseEvent, QDragEnterEvent, QDropEvent, QPageSize,
+    QAction,
+    QCloseEvent,
+    QDragEnterEvent,
+    QDropEvent,
+    QIcon,
+    QKeySequence,
+    QPageSize,
     QShortcut,
 )
+from PyQt6.QtPrintSupport import QPageSetupDialog, QPrinter, QPrintPreviewDialog
 from PyQt6.QtWidgets import (
-    QMainWindow, QMenuBar, QMenu, QToolBar, QStatusBar, QDockWidget,
-    QWidget, QVBoxLayout, QApplication, QMessageBox,
-    QFileDialog, QInputDialog, QLabel, QSizePolicy, QPushButton, QProgressDialog,
+    QApplication,
+    QDockWidget,
+    QFileDialog,
+    QInputDialog,
+    QLabel,
+    QMainWindow,
+    QMenu,
+    QMenuBar,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QWidget,
 )
-from PyQt6.QtPrintSupport import QPrinter, QPrintPreviewDialog, QPageSetupDialog
 
+from core.diagnostics import profile_operation
+from core.external_open import open_url as _open_url
 from editor.editor_widget import EditorWidget, LineEnding
-from i18n.i18n import tr, I18n
+from i18n.i18n import I18n, tr
+from ui.busy_indicator import hide_busy, show_busy
 from ui.main_window_parts import (
     TripleClickFilter,
     _EditorSaveWorker,
     _ExportAsWorker,
     _RecentFilesMenu,
 )
-from ui.busy_indicator import show_busy, hide_busy
-from core.platform import IS_WINDOWS, get_config_dir
-from core.external_open import open_url as _open_url
-from core.diagnostics import profile_operation
 
 if TYPE_CHECKING:
     from core.lazy_loader import LazyLoader
@@ -206,7 +221,7 @@ class MainWindow(QMainWindow):
 
         self._tab_manager: SplitViewManager = SplitViewManager(self)
         self._statusbar: StatusBar    = StatusBar(self)
-        self._prev_editor: Optional[EditorWidget] = None
+        self._prev_editor: EditorWidget | None = None
         self._sentence_focus_timer = QTimer(self)
         self._sentence_focus_timer.setSingleShot(True)
         self._sentence_focus_timer.setInterval(120)
@@ -240,11 +255,11 @@ class MainWindow(QMainWindow):
 
         # Loader in corso per file grandi (lazy/paged), tenuti vivi qui
         # per poterli cancellare se il tab viene chiuso durante il caricamento.
-        self._lazy_loaders: dict[EditorWidget, "LazyLoader"] = {}
+        self._lazy_loaders: dict[EditorWidget, LazyLoader] = {}
         self._save_workers: set[_EditorSaveWorker] = set()
         # Prefetch in idle dei tab di sessione differiti (vedi _start_prefetch).
         self._last_user_activity: float = 0.0
-        self._prefetch_timer: Optional[QTimer] = None
+        self._prefetch_timer: QTimer | None = None
 
     # ── Stampante (lazy) ──────────────────────────────────────────────────────
 
@@ -316,9 +331,9 @@ class MainWindow(QMainWindow):
 
     def _setup_dock_panels(self) -> None:
         """Inizializza i pannelli dockable (build, output, file browser, terminale)."""
+        from PyQt6.QtWidgets import QTabWidget as _QTabWidget
+
         from ui.build_panel import BuildPanel
-        from ui.file_browser import FileBrowser
-        from PyQt6.QtWidgets import QTabWidget as _QTabWidget, QTreeWidget as _QTreeWidget, QTreeWidgetItem as _QTreeWidgetItem
 
         # Lascia che i dock laterali (file browser/progetti a sinistra,
         # anteprima/caratteri/minimap a destra) occupino tutta l'altezza
@@ -456,7 +471,6 @@ class MainWindow(QMainWindow):
         self._build_dock.visibilityChanged.connect(self._on_build_dock_visibility_changed)
 
         # ── Dock destra: Minimap ─────────────────────────────────────────────
-        from ui.minimap import MinimapWidget
         from config.settings import Settings as _S
         self._minimap_dock = QDockWidget(tr("dock.minimap"), self)
         self._minimap_dock.setObjectName("MinimapDock")
@@ -727,8 +741,8 @@ class MainWindow(QMainWindow):
             editor._lsp_path = None
             return
         try:
-            from editor.lsp_client import LSPClient, lang_to_id
             from editor.lexers import get_language_name
+            from editor.lsp_client import LSPClient, lang_to_id
             lang      = get_language_name(editor).lower()
             workspace = str(editor.file_path.parent)
             old_client = getattr(editor, "_lsp_client", None)
@@ -898,8 +912,8 @@ class MainWindow(QMainWindow):
     def _on_lsp_hover_text(self, text: str) -> None:
         if not text.strip():
             return
-        from PyQt6.QtWidgets import QToolTip
         from PyQt6.QtGui import QCursor
+        from PyQt6.QtWidgets import QToolTip
         QToolTip.showText(QCursor.pos(), text.strip()[:600], None, msecShowTime=6000)
 
     def _on_lsp_definition(self, uri: str, line: int, col: int) -> None:
@@ -1062,7 +1076,7 @@ class MainWindow(QMainWindow):
             pass
 
         # Fallback: apri la versione su disco in un nuovo tab affiancato
-        import tempfile, os
+        import tempfile
         suffix = editor.file_path.suffix
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=suffix, delete=False,
@@ -1129,11 +1143,11 @@ class MainWindow(QMainWindow):
             Registra l'azione in self._actions per l'editor scorciatoie.
             """
             action = QAction(tr(f"action.{key}"), self)
-            
-            # AGGIUNGI QUESTA RIGA: 
+
+            # AGGIUNGI QUESTA RIGA:
             # Scavalca la restrizione di GNOME/Debian e forza l'icona nel menu
             action.setIconVisibleInMenu(True)
-            
+
             if shortcut:
                 action.setShortcut(QKeySequence(shortcut))
                 action.setShortcutContext(
@@ -1977,6 +1991,7 @@ class MainWindow(QMainWindow):
 
     def _toolbar_context_menu(self, pos) -> None:
         from PyQt6.QtWidgets import QMenu
+
         from config.settings import Settings
         menu = QMenu(self)
         act = menu.addAction(tr("action.customize_toolbar", default="Personalizza barra degli strumenti…"))
@@ -2010,9 +2025,11 @@ class MainWindow(QMainWindow):
 
     def _rebuild_toolbar(self) -> None:
         """Carica le icone dal disco e le applica a toolbar e voci di menu."""
-        from PyQt6.QtWidgets import QStyle
-        from PyQt6.QtGui import QIcon
         from pathlib import Path
+
+        from PyQt6.QtGui import QIcon
+        from PyQt6.QtWidgets import QStyle
+
         from config.settings import Settings
 
         tb = self._toolbar
@@ -2051,7 +2068,6 @@ class MainWindow(QMainWindow):
         # l'icona nei menu. Pre-renderizzando l'SVG come QPixmap con il colore
         # testo della palette corrente (currentColor), availableSizes() riporta
         # [24x24] e le icone sono visibili su qualsiasi tema (chiaro o scuro).
-        from PyQt6.QtGui import QPixmap as _QPixmap, QPalette as _QPalette
         from ui.language_toolbar import render_svg_icon as _render_svg, toolbar_icon_color as _icon_color
         _wtext = _icon_color(self)
         for key, action in self._actions.items():
@@ -2075,6 +2091,7 @@ class MainWindow(QMainWindow):
 
         # Ricostruzione fisica toolbar dalla configurazione salvata
         from PyQt6.QtWidgets import QToolButton
+
         from ui.customize_toolbar_dialog import DEFAULT_TOOLBAR
         toolbar_items: list[str] = Settings.instance().get("toolbar/items", None)
         if not isinstance(toolbar_items, list) or not toolbar_items:
@@ -2154,7 +2171,7 @@ class MainWindow(QMainWindow):
     # ── Slot: cambio editor corrente ──────────────────────────────────────────
 
     @pyqtSlot(object)
-    def _on_editor_changed(self, editor: Optional[EditorWidget]) -> None:
+    def _on_editor_changed(self, editor: EditorWidget | None) -> None:
         """Aggiorna titolo finestra e statusbar quando cambia il tab attivo."""
         # Caricamento differito: se è uno scheletro di sessione, carica ora il
         # contenuto (sincrono sotto la soglia lazy) prima che gli altri handler
@@ -2372,7 +2389,8 @@ class MainWindow(QMainWindow):
             lambda path, ed=editor: self._insert_dropped_markdown_image(ed, path)
         )
         if hasattr(self, "_latex_references_panel"):
-            handler = lambda _ed=editor: self._schedule_latex_references_scan()
+            def handler(_ed=editor):
+                return self._schedule_latex_references_scan()
             editor._mw_latex_refs_handler = handler
             editor.textChanged.connect(handler)
             self._schedule_latex_references_scan()
@@ -2389,8 +2407,8 @@ class MainWindow(QMainWindow):
 
     def _paste_clipboard_image_as_latex(self, editor: "EditorWidget") -> None:
         """Salva l'immagine dalla clipboard su disco e apre la procedura guidata LaTeX."""
-        from PyQt6.QtWidgets import QFileDialog, QDialog
         from PyQt6.QtGui import QImage
+        from PyQt6.QtWidgets import QDialog, QFileDialog
 
         img: QImage = QApplication.clipboard().image()
         if img.isNull():
@@ -2450,6 +2468,7 @@ class MainWindow(QMainWindow):
     def _insert_dropped_latex_image(self, editor: "EditorWidget", path: Path) -> None:
         """Apre l'assistente figura per un'immagine trascinata nel LaTeX editor."""
         from PyQt6.QtWidgets import QDialog
+
         from ui.latex_insert_image_dialog import LatexInsertImageDialog
 
         base_dir = editor.file_path.parent if editor.file_path else None
@@ -2502,13 +2521,13 @@ class MainWindow(QMainWindow):
                 getattr(editor, method_name)()
         return _slot
 
-    def _current_editor(self) -> Optional[EditorWidget]:
+    def _current_editor(self) -> EditorWidget | None:
         return self._tab_manager.current_editor()
 
     # ── Funzioni Markdown avanzate ────────────────────────────────────────────
 
     @staticmethod
-    def _markdown_editor(editor: Optional[EditorWidget]) -> bool:
+    def _markdown_editor(editor: EditorWidget | None) -> bool:
         if editor is None:
             return False
         return (
@@ -2547,7 +2566,7 @@ class MainWindow(QMainWindow):
         )
 
     @staticmethod
-    def _markdown_workspace_root(editor: Optional[EditorWidget]) -> Path | None:
+    def _markdown_workspace_root(editor: EditorWidget | None) -> Path | None:
         if editor is None or editor.file_path is None:
             return None
         project_manager = getattr(editor.window(), "_project_manager", None)
@@ -3001,9 +3020,9 @@ class MainWindow(QMainWindow):
                     self._tab_manager.set_current_editor(editor)
                     self.action_save_as()
 
-    def save_paged_page(self, editor: EditorWidget, dest_path: Optional[Path] = None,
-                        on_success: Optional[Callable[[], None]] = None,
-                        on_error: Optional[Callable[[str], None]] = None) -> None:
+    def save_paged_page(self, editor: EditorWidget, dest_path: Path | None = None,
+                        on_success: Callable[[], None] | None = None,
+                        on_error: Callable[[str], None] | None = None) -> None:
         """
         Salva in streaming la pagina corrente di un tab paginato (file >200MB),
         senza mai caricare l'intero file in RAM: copia byte-a-byte le parti
@@ -3014,7 +3033,7 @@ class MainWindow(QMainWindow):
         """
         from core.lazy_loader import PagedDocument, _SaveWorker
 
-        paged_doc: Optional[PagedDocument] = getattr(editor, "_paged_doc", None)
+        paged_doc: PagedDocument | None = getattr(editor, "_paged_doc", None)
         if paged_doc is None:
             return
 
@@ -3057,7 +3076,8 @@ class MainWindow(QMainWindow):
 
         def _on_progress(pct: int) -> None:
             dlg.setValue(pct)
-            QApplication.processEvents()
+            QApplication.processEvents(
+                QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
         def _on_finished(new_start: int, new_end: int) -> None:
             dlg.close()
@@ -3092,8 +3112,9 @@ class MainWindow(QMainWindow):
 
     @profile_operation("ui.save_editor")
     def _save_editor(self, editor: EditorWidget, path: Path) -> bool:
-        from core.file_manager import FileManager
         from PyQt6.QtCore import QTimer
+
+        from core.file_manager import FileManager
         # Un salvataggio già in corso possiede già uno snapshot valido.  Non
         # avviare un secondo worker (che potrebbe terminare fuori ordine): i
         # chiamanti che devono attendere ascoltano save_finished.
@@ -3117,7 +3138,7 @@ class MainWindow(QMainWindow):
         try:
             # 1. Flag di sicurezza: avvisa il sistema che stiamo salvando noi
             editor._is_saving = True
-            
+
             # 2. Rimuovi fisicamente il file dal watcher per "accecarlo" temporaneamente
             if hasattr(editor, "_watcher"):
                 watched = editor._watcher.files()
@@ -3276,14 +3297,14 @@ class MainWindow(QMainWindow):
                         editor._watcher.addPath(str(path))
                     # Abbassa la bandiera di sicurezza
                     editor._is_saving = False
-           
+
                 # 1000 ms (1 secondo) dà al SO tutto il tempo di smaltire gli eventi file pendenti
                 QTimer.singleShot(1000, restore_watcher)
             else:
                 editor._is_saving = False
             editor.save_finished.emit(True, "")
             return True
-            
+
         except Exception as e:
             editor._is_saving = False
             editor._save_in_progress = False
@@ -3418,6 +3439,7 @@ class MainWindow(QMainWindow):
 
     def action_print(self) -> None:
         from PyQt6.QtPrintSupport import QPrintDialog
+
         from ui.print_options_dialog import PrintOptionsDialog, print_with_header_footer
         editor = self._current_editor()
         if not editor:
@@ -3470,9 +3492,10 @@ class MainWindow(QMainWindow):
         if _p.suffix.lower() != ".pdf":
             path = str(_p.with_suffix(".pdf"))
         try:
-            from PyQt6.QtPrintSupport import QPrinter as _QPrinter
-            from PyQt6.QtGui import QTextDocument as _QTextDocument
             import os as _os
+
+            from PyQt6.QtGui import QTextDocument as _QTextDocument
+            from PyQt6.QtPrintSupport import QPrinter as _QPrinter
             printer = _QPrinter(_QPrinter.PrinterMode.HighResolution)
             printer.setOutputFormat(_QPrinter.OutputFormat.PdfFormat)
             printer.setOutputFileName(path)
@@ -3480,8 +3503,8 @@ class MainWindow(QMainWindow):
             doc.setPlainText(editor.text())
             doc.print(printer)
             if _os.path.exists(path) and _os.path.getsize(path) > 0:
-                from PyQt6.QtGui import QDesktopServices as _QDS
                 from PyQt6.QtCore import QUrl as _QUrl
+                from PyQt6.QtGui import QDesktopServices as _QDS
                 _QDS.openUrl(_QUrl.fromLocalFile(path))
             else:
                 from PyQt6.QtWidgets import QMessageBox as _QMB
@@ -3492,8 +3515,9 @@ class MainWindow(QMainWindow):
             _QMB.critical(self, tr("action.export_pdf"), str(_exc))
 
     def action_export_as(self) -> None:
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox as _QMB
         from pathlib import Path as _Path
+
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox as _QMB
 
         # Se il tab corrente è un RichTextWidget, delega a save_as()
         custom = self._tab_manager.current_custom_widget()
@@ -3594,7 +3618,8 @@ class MainWindow(QMainWindow):
         del subprocess pandoc: permette al chiamante (su un altro thread)
         di annullare l'operazione con proc.terminate().
         """
-        import subprocess, tempfile
+        import subprocess
+        import tempfile
         from pathlib import Path as _Path
 
         ext = dest.suffix.lower()
@@ -3775,7 +3800,6 @@ class MainWindow(QMainWindow):
 
     def action_insert_date(self) -> None:
         from datetime import datetime
-        from core.platform import get_config_dir
         # Formato configurabile — default ISO
         fmt = "%Y-%m-%d %H:%M:%S"
         editor = self._current_editor()
@@ -3822,7 +3846,8 @@ class MainWindow(QMainWindow):
                 if col > len(line_text):
                     line_text = line_text + " " * (col - len(line_text))
                 new_text = line_text[:col] + val + line_text[col:] + eol
-                editor.setSelection(line_idx, 0, line_idx, editor.lineLength(line_idx))
+                # setSelection usa colonne in caratteri, non i byte di lineLength.
+                editor.setSelection(line_idx, 0, line_idx, len(line_text) + len(eol))
                 editor.replaceSelectedText(new_text)
         finally:
             editor.endUndoAction()
@@ -3920,7 +3945,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 tr("msg.counting_lines", default="Conteggio righe in corso..."),
             )
-            QApplication.processEvents()
+            QApplication.processEvents(
+                QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
             max_line = paged.total_lines
             current_line = (
                 paged.current_line_start
@@ -4328,6 +4354,7 @@ class MainWindow(QMainWindow):
 
     def _run_latex_auxiliary_tool(self, kind: str) -> None:
         """Esegue manualmente un tool ausiliario nel contesto output corrente."""
+        from core.build_manager import BuildManager
         from core.latex_external_tools import (
             makeglossaries_command,
             makeindex_command,
@@ -4335,7 +4362,6 @@ class MainWindow(QMainWindow):
             quote_command,
         )
         from core.latex_project import LatexProjectContext
-        from core.build_manager import BuildManager
 
         editor = self._current_editor()
         if editor is None or editor.file_path is None:
@@ -4829,8 +4855,9 @@ class MainWindow(QMainWindow):
         editor._latex_autobuild_handler = None
 
     def _trigger_build_on_edit(self, editor) -> None:
-        from core.build_manager import BuildManager
         from uuid import uuid4
+
+        from core.build_manager import BuildManager
         BuildManager.instance().run(
             "build", editor, run_id=f"autoedit_{uuid4().hex[:8]}"
         )
@@ -4840,9 +4867,10 @@ class MainWindow(QMainWindow):
         Settings.instance().set("build/unified_errors", checked)
 
     def _trigger_build_on_save(self, editor) -> None:
+        from uuid import uuid4
+
         from config.settings import Settings
         from core.build_manager import BuildManager
-        from uuid import uuid4
 
         def set_pending(value: bool) -> None:
             try:
@@ -4901,8 +4929,11 @@ class MainWindow(QMainWindow):
         self._apply_autobackup_settings()
 
     def action_open_terminal(self) -> None:
-        import subprocess, sys, shlex
+        import shlex
+        import subprocess
+        import sys
         from pathlib import Path
+
         from config.settings import Settings
 
         editor = self._tab_manager.current_editor()
@@ -4956,6 +4987,7 @@ class MainWindow(QMainWindow):
 
     def action_open_manual(self) -> None:
         from pathlib import Path
+
         from i18n.i18n import I18n
         root = Path(__file__).parent.parent
         lang = I18n.instance().current_language().upper()  # "IT", "EN", "DE", "FR", "ES"
@@ -4978,8 +5010,9 @@ class MainWindow(QMainWindow):
         QDockWidget sotto il cursore, parola nell'editor corrente.
         """
         import re
-        from PyQt6.QtWidgets import QApplication, QToolButton, QDockWidget
+
         from PyQt6.QtGui import QCursor
+        from PyQt6.QtWidgets import QApplication, QDockWidget, QToolButton
 
         widget = QApplication.widgetAt(QCursor.pos())
         while widget:
@@ -5014,12 +5047,12 @@ class MainWindow(QMainWindow):
         """F1 — ricerca nel manuale per titoli di sezione e testo in grassetto."""
         import re
         from pathlib import Path
-        from i18n.i18n import I18n
-        from PyQt6.QtWidgets import (
-            QDialog, QVBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QLabel
-        )
+
         from PyQt6.QtCore import Qt, QTimer
-        from PyQt6.QtGui import QFont, QColor
+        from PyQt6.QtGui import QFont
+        from PyQt6.QtWidgets import QDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
+
+        from i18n.i18n import I18n
 
         root = Path(__file__).parent.parent
         lang = I18n.instance().current_language().upper()
@@ -5102,7 +5135,9 @@ class MainWindow(QMainWindow):
                 item = QListWidgetItem(display)
                 item.setData(Qt.ItemDataRole.UserRole, line_num)
                 if kind == "h1":
-                    f = QFont(); f.setBold(True); item.setFont(f)
+                    f = QFont()
+                    f.setBold(True)
+                    item.setFont(f)
                 elif kind in ("h3", "h4", "bold"):
                     item.setForeground(muted)
                 lst.addItem(item)
@@ -5135,8 +5170,8 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def action_about(self) -> None:
-            from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QFrame
             from PyQt6.QtGui import QPixmap
+            from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QVBoxLayout
 
             # 1. Recuperiamo il testo tradotto dal file JSON: la prima riga
             # contiene "NotePadPQ {version}", il resto è la descrizione.
@@ -5249,25 +5284,26 @@ class MainWindow(QMainWindow):
             dlg.exec()
 
     def action_check_updates(self) -> None:
-            import urllib.request
             import json
+            import urllib.request
+
             from PyQt6.QtCore import QUrl
-    
+
             # URL delle API di GitHub per l'ultima release del tuo progetto
             api_url = "https://api.github.com/repos/buzzqw/NotePadPQ/releases/latest"
-            
+
             try:
-                # Effettuiamo la richiesta 
+                # Effettuiamo la richiesta
                 req = urllib.request.Request(api_url, headers={"User-Agent": "NotePadPQ"})
                 with urllib.request.urlopen(req, timeout=5.0) as response:
                     data = json.loads(response.read().decode('utf-8'))
-                    
+
                     latest_version = data.get("tag_name", "").lstrip("v")
                     release_url = data.get("html_url", "https://github.com/buzzqw/NotePadPQ/releases")
-                    
+
                     current_version = self.APP_VERSION
                     titolo = tr("action.check_updates")
-                    
+
                     if latest_version > current_version:
                         # Recupera il messaggio di aggiornamento disponibile dal JSON
                         testo = tr("msg.update_prompt", current=current_version, latest=latest_version)
@@ -5281,13 +5317,13 @@ class MainWindow(QMainWindow):
                         # Recupera il messaggio di software aggiornato dal JSON
                         testo = tr("msg.update_ok", current=current_version)
                         QMessageBox.information(self, titolo, testo)
-                        
+
             except Exception as e:
                 # Recupera il messaggio di errore dal JSON
                 testo_errore = tr("msg.update_error", error=str(e))
                 titolo_errore = tr("dialog.error")
                 QMessageBox.warning(self, titolo_errore, testo_errore)
-            
+
 
     def action_donate(self) -> None:
         """Apre la pagina di donazione PayPal nel browser."""
@@ -5410,8 +5446,8 @@ class MainWindow(QMainWindow):
         if not editor:
             return
         text = editor.selectedText() or editor.text()
-        from collections import Counter
         import re
+        from collections import Counter
         words = re.findall(r"\b[a-zA-ZàèìòùéÀÈÌÒÙÉ']+\b", text, re.UNICODE)
         if not words:
             QMessageBox.information(self, "Frequenza parole", "Nessuna parola trovata.")
@@ -5419,7 +5455,7 @@ class MainWindow(QMainWindow):
         freq = Counter(w.lower() for w in words)
         top = freq.most_common(50)
 
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, QLabel, QDialogButtonBox
+        from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QTableWidget, QTableWidgetItem, QVBoxLayout
         dlg = QDialog(self)
         dlg.setWindowTitle("Frequenza parole")
         dlg.resize(360, 500)
@@ -5442,7 +5478,8 @@ class MainWindow(QMainWindow):
     # ── Ordina righe (dialog) ────────────────────────────────────────────────
 
     def action_sort_lines_dialog(self) -> None:
-        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QRadioButton, QDialogButtonBox, QGroupBox
+        from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QGroupBox, QRadioButton, QVBoxLayout
+
         import core.line_operations as lo
 
         editor = self._current_editor()
@@ -5897,7 +5934,7 @@ class MainWindow(QMainWindow):
     def _toggle_function_list(self, checked: bool) -> None:
         if hasattr(self, "_function_list_dock"):
             self._function_list_dock.setVisible(checked)
-            
+
     def _on_file_changed_externally(self, editor: EditorWidget) -> None:
         """Gestisce la modifica o l'eliminazione esterna del file."""
         if not editor or not editor.file_path:
@@ -6050,7 +6087,7 @@ class MainWindow(QMainWindow):
         if editor.file_path.exists():
             editor._watcher.addPath(str(editor.file_path))
         editor._watcher.blockSignals(False)
-        
+
     # ── Orologio in alto a destra ─────────────────────────────────────────────
 
     # ── Orologio in alto a destra ─────────────────────────────────────────────
@@ -6100,9 +6137,10 @@ class MainWindow(QMainWindow):
 
     def _setup_logo_corner(self) -> None:
         """Aggiunge l'icona dell'app nel corner sinistro della menubar."""
-        from PyQt6.QtWidgets import QToolButton
-        from PyQt6.QtCore import QSize
         from pathlib import Path
+
+        from PyQt6.QtCore import QSize
+        from PyQt6.QtWidgets import QToolButton
 
         btn = QToolButton(self)
         btn.setAutoRaise(True)
@@ -6147,7 +6185,7 @@ class MainWindow(QMainWindow):
 
         # La QLocale viene ricostruita solo quando cambia la lingua, non a ogni tick.
         self._clock_locale = None
-        self._clock_locale_lang: Optional[str] = None
+        self._clock_locale_lang: str | None = None
 
         # Il testo mostra solo i minuti (HH:mm): un aggiornamento al minuto basta.
         # Un timer singolo-shot riallineato al confine del minuto evita i 59
@@ -6182,6 +6220,7 @@ class MainWindow(QMainWindow):
 
     def _update_clock(self):
         from PyQt6.QtCore import QDateTime, QLocale
+
         from i18n.i18n import I18n
 
         # 1. Lingua corrente di NotePadPQ (es. "it", "en", "es")
@@ -6199,7 +6238,7 @@ class MainWindow(QMainWindow):
         # 5. .title() capitalizza i giorni che in alcune lingue sono minuscoli ("jeudi" → "Jeudi").
         testo = self._clock_locale.toString(adesso, "yyyy-MM-dd dddd HH:mm")
         self._clock_label.setText(testo.title())
-        
+
     def _apply_markup(self, style: str):
         """Applica grassetto, corsivo o barrato in base al linguaggio (MD o LaTeX)."""
         editor = self._current_editor()
@@ -6209,7 +6248,7 @@ class MainWindow(QMainWindow):
         # 1. Identifichiamo il linguaggio corrente
         from editor.lexers import get_language_name
         lang = get_language_name(editor).lower()
-        
+
         is_md = "markdown" in lang
         is_latex = "latex" in lang or "tex" in lang
 
@@ -6226,7 +6265,7 @@ class MainWindow(QMainWindow):
         }
 
         prefix, suffix = markup_map.get(style, ("", ""))
-        
+
         # 3. Applichiamo la formattazione
         if editor.hasSelectedText():
             # Se c'è testo selezionato, lo avvolgiamo nei tag
@@ -6237,9 +6276,9 @@ class MainWindow(QMainWindow):
             line, col = editor.getCursorPosition()
             editor.insert(f"{prefix}{suffix}")
             editor.setCursorPosition(line, col + len(prefix))
-        
+
         editor.setFocus()
-    
+
     def action_wrap_env(self) -> None:
         """Avvolge il testo selezionato in un ambiente LaTeX o tag HTML."""
         editor = self._current_editor()
@@ -6248,7 +6287,7 @@ class MainWindow(QMainWindow):
 
         from editor.lexers import get_language_name
         lang = get_language_name(editor).lower()
-        
+
         # Identifica se usare la sintassi LaTeX o HTML
         is_html_md = "html" in lang or "markdown" in lang
         is_tex = not is_html_md # Fallback predefinito a LaTeX per gli altri file
@@ -6258,21 +6297,21 @@ class MainWindow(QMainWindow):
             self, "Avvolgi in Ambiente",
             "Nome ambiente (es. itemize, center, div):"
         )
-        
+
         if ok and env_name.strip():
             env = env_name.strip()
-            
+
             if editor.hasSelectedText():
                 # Se c'è testo selezionato, lo indenta e lo avvolge
                 text = editor.selectedText()
                 # Aggiunge 4 spazi di indentazione a ogni riga del testo
                 indented = "\n".join("    " + line for line in text.split("\n"))
-                
+
                 if is_tex:
                     res = f"\\begin{{{env}}}\n{indented}\n\\end{{{env}}}"
                 else:
                     res = f"<{env}>\n{indented}\n</{env}>"
-                    
+
                 editor.replaceSelectedText(res)
             else:
                 # Se non c'è selezione, crea l'ambiente vuoto e mette il cursore in mezzo
@@ -6281,12 +6320,12 @@ class MainWindow(QMainWindow):
                     editor.insert(f"\\begin{{{env}}}\n    \n\\end{{{env}}}")
                 else:
                     editor.insert(f"<{env}>\n    \n</{env}>")
-                
+
                 # Posiziona il cursore nella riga vuota indentata
                 editor.setCursorPosition(line + 1, 4)
-            
+
             editor.setFocus()
-            
+
     def action_align_table(self) -> None:
         """Allinea automaticamente le colonne di una tabella in LaTeX (&), Markdown (|) o testo generico."""
         editor = self._current_editor()
@@ -6362,7 +6401,6 @@ class MainWindow(QMainWindow):
         for line in lines:
             end_marker = ""
             if sep == "&":
-                stripped = line.strip()
                 if "&" not in line:
                     parsed.append(None)
                     continue
@@ -6648,7 +6686,7 @@ class MainWindow(QMainWindow):
             MarkdownSupport.toggle_checklist(editor)
         except Exception:
             pass
-                    
+
     # ── Monitoraggio Risorse (RAM / CPU) ──────────────────────────────────────
 
     def _setup_resource_monitor(self) -> None:

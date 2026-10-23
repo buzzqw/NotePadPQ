@@ -17,13 +17,13 @@ Uso:
 from __future__ import annotations
 
 import os
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
     from PyQt6.QtWidgets import QWidget
 
-_gl_available: Optional[bool] = None
+_gl_available: bool | None = None
 
 
 def _probe_glx() -> bool:
@@ -122,7 +122,7 @@ def gl_available() -> bool:
     return _gl_available
 
 
-def safe_webview(parent: "Optional[QWidget]" = None) -> "Optional[QWebEngineView]":
+def safe_webview(parent: QWidget | None = None) -> QWebEngineView | None:
     """
     Crea QWebEngineView solo se GL è disponibile (verificato via probe ctypes).
     Restituisce None se GL non è utilizzabile — mai crasherà per SIGABRT.

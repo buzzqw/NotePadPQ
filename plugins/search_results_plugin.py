@@ -27,20 +27,33 @@ import stat
 import tempfile
 import threading
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QFont, QKeyEvent
 from PyQt6.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QTreeWidget, QTreeWidgetItem, QPushButton, QLabel,
-    QMenu, QLineEdit, QApplication, QMessageBox,
-    QToolButton, QCheckBox, QComboBox, QFileDialog,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDockWidget,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QToolButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtGui import QColor, QBrush, QFont, QKeyEvent
 
-from plugins.base_plugin import BasePlugin
 from core.diagnostics import profile_operation
+from core.text_search import literal_search_source
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -376,16 +389,16 @@ class _SearchResultsPanel(QWidget):
     """Pannello multifunzione per i risultati di trova/sostituisci."""
     navigate_requested = pyqtSignal(str, int)
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(main_window)
         self._mw = main_window
         self._all_results: list[dict] = []
         self._current_query: str = ""
         self._search_history: list[str] = []
         self._colors = _theme_colors()
-        self._file_search_worker: Optional[_FileSearchWorker] = None
-        self._file_replace_worker: Optional[_FileReplaceWorker] = None
-        self._file_search_root: Optional[QTreeWidgetItem] = None
+        self._file_search_worker: _FileSearchWorker | None = None
+        self._file_replace_worker: _FileReplaceWorker | None = None
+        self._file_search_root: QTreeWidgetItem | None = None
         self._file_search_items: dict[str, QTreeWidgetItem] = {}
         self._file_search_generation = 0
         self._file_search_result_id = 0
@@ -860,12 +873,7 @@ class _SearchResultsPanel(QWidget):
     def _fill_indicator(self, editor, line: int, start: int, end: int, indicator: int) -> None:
         if start is None or end is None or end <= start:
             return
-        try:
-            if hasattr(editor, "char_col_to_byte_col"):
-                start = editor.char_col_to_byte_col(line, start)
-                end   = editor.char_col_to_byte_col(line, end)
-        except Exception:
-            pass
+        # start/end sono colonne in caratteri: fillIndicatorRange non usa byte.
         try:
             editor.fillIndicatorRange(line, start, line, end, indicator)
         except Exception:
@@ -1010,13 +1018,9 @@ class _SearchResultsPanel(QWidget):
         if start is None:
             start, end = 0, len(line_text)
 
-        if hasattr(editor, "char_col_to_byte_col"):
-            try:
-                start = editor.char_col_to_byte_col(line, start)
-                end   = editor.char_col_to_byte_col(line, end)
-            except Exception:
-                pass
-
+        # start/end sono offset di carattere: highlight_find_match e
+        # setSelection li vogliono così; la conversione in byte serve solo
+        # agli indicatori (gestita da _fill_indicator/highlight_find_match).
         if hasattr(editor, "highlight_find_match"):
             editor.highlight_find_match(line, start, end)
         else:
@@ -1024,7 +1028,7 @@ class _SearchResultsPanel(QWidget):
             editor.ensureLineVisible(line)
         editor.setFocus()
 
-    def _compile_query_pattern(self) -> Optional[re.Pattern]:
+    def _compile_query_pattern(self) -> re.Pattern | None:
         """Compila un pattern regex coerente con modalità e opzioni correnti."""
         query = self._current_query
         if not query:
@@ -1042,14 +1046,14 @@ class _SearchResultsPanel(QWidget):
             tokens = [t for t in query.split()
                       if not t.startswith(("-", "!"))]
             word = tokens[0] if tokens else query
-            escaped = re.escape(word)
+            escaped = literal_search_source(word)
             if whole_word:
-                escaped = rf"\b{escaped}\b"
+                escaped = rf"\b(?:{escaped})\b"
             return re.compile(escaped, flags)
         except re.error:
             return None
 
-    def _compile_full_pattern(self) -> Optional[tuple]:
+    def _compile_full_pattern(self) -> tuple | None:
         """Compila il pattern di ricerca completo per il matching reale.
 
         Restituisce (must_pats, must_not_pats, smart_mode) o None se errore.
@@ -1077,16 +1081,16 @@ class _SearchResultsPanel(QWidget):
                 must_pats = []
                 must_not_pats = []
                 if not tokens:
-                    escaped = re.escape(query)
+                    escaped = literal_search_source(query)
                     return ([re.compile(escaped, flags)], [], True)
                 for token in tokens:
                     negated = token.startswith("-") or token.startswith("!")
                     word = token[1:] if negated else token
                     if not word:
                         continue
-                    escaped = re.escape(word)
+                    escaped = literal_search_source(word)
                     if whole_word:
-                        escaped = rf"\b{escaped}\b"
+                        escaped = rf"\b(?:{escaped})\b"
                     compiled = re.compile(escaped, flags)
                     if negated:
                         must_not_pats.append(compiled)
@@ -1098,7 +1102,7 @@ class _SearchResultsPanel(QWidget):
         except re.error:
             return None
 
-    def _match_span(self, line_text: str, col: int) -> tuple[Optional[int], Optional[int]]:
+    def _match_span(self, line_text: str, col: int) -> tuple[int | None, int | None]:
         """Calcola (start, end) del match sulla riga, coerente con la ricerca."""
         if not line_text:
             return None, None
@@ -1517,7 +1521,7 @@ class _SearchResultsPanel(QWidget):
             elif ch == "_":
                 parts.append(".")
             else:
-                parts.append(re.escape(ch))
+                parts.append(literal_search_source(ch))
         return re.compile("".join(parts), re.IGNORECASE | re.DOTALL)
 
     def _build_filter_matcher(self, text=None):
@@ -1649,7 +1653,7 @@ class _SearchResultsPanel(QWidget):
 
     # ── Sostituisci ───────────────────────────────────────────────────────────
 
-    def _get_selected_result(self) -> Optional[tuple]:
+    def _get_selected_result(self) -> tuple | None:
         """Restituisce (file_path, line_0based, col) del risultato selezionato, o None."""
         item = self._tree.currentItem()
         if item is None:
@@ -2002,7 +2006,7 @@ class SearchResultsPlugin(BasePlugin):
     )
     AUTHOR      = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
 
         self._panel = _SearchResultsPanel(main_window)

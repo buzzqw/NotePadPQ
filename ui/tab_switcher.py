@@ -16,7 +16,8 @@ apertura del popup.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QListWidget, QListWidgetItem
+from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QVBoxLayout, QWidget
+
 from i18n.i18n import tr
 
 

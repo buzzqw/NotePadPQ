@@ -10,34 +10,55 @@ Supporta: testo semplice, regex PCRE, maiuscole/minuscole, parola intera,
 from __future__ import annotations
 
 import bisect
-import html
-import hashlib
-import os
 import fnmatch
+import hashlib
+import html
 import itertools
+import os
 import re
 import threading
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
-
-from core.worker_pool import ManagedWorker
-from PyQt6.QtGui import QColor, QTextCursor
+from PyQt6.Qsci import QSCINTILLA_VERSION
+from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QDockWidget, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QGridLayout, QLabel, QLineEdit, QCheckBox, QPushButton,
-    QPlainTextEdit, QTreeWidget, QTreeWidgetItem, QComboBox,
-    QGroupBox, QSplitter, QFileDialog, QApplication,
-    QRadioButton, QButtonGroup, QSpinBox, QSlider, QHeaderView, QMessageBox,
+    QCheckBox,
+    QComboBox,
+    QDockWidget,
+    QFileDialog,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QRadioButton,
+    QSlider,
+    QTabWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.Qsci import QsciScintilla
 
-from i18n.i18n import tr
-from editor.editor_widget import (
-    EditorWidget, INDICATOR_FIND, INDICATOR_MARK1, INDICATOR_FIND_LINE,
-)
 from core.file_manager import FileManager
+from core.text_search import literal_search_source
+from core.worker_pool import ManagedWorker
+from editor.editor_widget import (
+    INDICATOR_FIND,
+    INDICATOR_FIND_LINE,
+    INDICATOR_MARK1,
+    EditorWidget,
+)
+from i18n.i18n import tr
+
+# Il motore regex C++11 (Qt) gestisce classi Unicode e alternanze; quello
+# legacy/POSIX no. QScintilla lo espone da 2.13.
+_HAS_CXX11_REGEX = QSCINTILLA_VERSION >= 0x020D00
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -46,7 +67,7 @@ if TYPE_CHECKING:
 _last_find_text   = ""
 _last_replace_text= ""
 _last_flags: dict = {}
-_instance: Optional["FindReplaceDialog"] = None
+_instance: FindReplaceDialog | None = None
 
 _MAX_REPLACE_FILES = 1_000
 _MAX_REPLACE_FILE_BYTES = 50 * 1024 * 1024
@@ -180,7 +201,8 @@ class _FindInFilesWorker(QObject):
     def run(self) -> None:
         re_flags = 0 if self._case_s else re.IGNORECASE
         try:
-            pattern = re.compile(self._query if self._use_re else re.escape(self._query), re_flags)
+            source = self._query if self._use_re else literal_search_source(self._query)
+            pattern = re.compile(source, re_flags)
         except re.error as e:
             self.error.emit(str(e))
             return
@@ -350,15 +372,20 @@ class FindReplaceDialog(QWidget):
     su un altro lato o sganciato come finestra flottante.
     """
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(main_window)
         self._mw = main_window
-        self._fif_mw:      Optional[ManagedWorker] = None
-        self._fif_rif_mw:  Optional[ManagedWorker] = None
-        self._fif_rif_mw2: Optional[ManagedWorker] = None
+        self._fif_mw:      ManagedWorker | None = None
+        self._fif_rif_mw:  ManagedWorker | None = None
+        self._fif_rif_mw2: ManagedWorker | None = None
         self._fif_total_matches = 0
         self._observed_editor = None
         self._find_anchor_line: int | None = None
+        # Range della selezione in cui cercare ("Nella selezione") e ultimo
+        # match selezionato: il range va conservato tra un "Trova" e l'altro,
+        # perché dopo la ricerca la selezione diventa il match trovato.
+        self._in_selection_range: tuple[int, int, int, int] | None = None
+        self._in_selection_match: tuple[int, int, int, int] | None = None
         self._find_results_refresh_timer = QTimer(self)
         self._find_results_refresh_timer.setSingleShot(True)
         self._find_results_refresh_timer.setInterval(250)
@@ -684,6 +711,12 @@ ESEMPI
                 self._chk_case, self._chk_word, self._chk_regex,
                 self._chk_wrap, self._chk_sel, self._chk_smart):
             checkbox.toggled.connect(lambda _checked: self._search_timer.start())
+        self._chk_sel.toggled.connect(self._reset_in_selection_state)
+        for checkbox in (
+                self._chk_case, self._chk_word, self._chk_regex,
+                self._chk_wrap, self._chk_smart):
+            checkbox.toggled.connect(self._reset_in_selection_match)
+        self._find_edit.currentTextChanged.connect(self._reset_in_selection_match)
         self._chk_auto_refresh.toggled.connect(self._on_auto_refresh_toggled)
 
         return outer
@@ -949,7 +982,7 @@ ESEMPI
         }
 
     def _build_pattern(self, pattern_text: str,
-                        flags: dict) -> Optional[re.Pattern]:
+                        flags: dict) -> re.Pattern | None:
         """Compila un pattern regex unificato: regex/escape + whole_word + flag.
         Restituisce None se il pattern non è valido; in tal caso il messaggio
         d'errore è disponibile in self._last_pattern_error."""
@@ -958,9 +991,9 @@ ESEMPI
             return None
         try:
             re_flags = 0 if flags.get("case_sensitive") else re.IGNORECASE
-            pat = pattern_text if flags.get("regex") else re.escape(pattern_text)
+            pat = pattern_text if flags.get("regex") else literal_search_source(pattern_text)
             if flags.get("whole_word"):
-                pat = rf"\b{pat}\b"
+                pat = rf"\b(?:{pat})\b"
             return re.compile(pat, re_flags)
         except re.error as e:
             self._last_pattern_error = str(e)
@@ -977,7 +1010,7 @@ ESEMPI
         patterns = []
         try:
             for term in terms:
-                part = term if flags.get("regex") else re.escape(term)
+                part = term if flags.get("regex") else literal_search_source(term)
                 if flags.get("whole_word"):
                     part = rf"\b(?:{part})\b"
                 patterns.append(re.compile(part, re_flags))
@@ -1004,19 +1037,16 @@ ESEMPI
         line_text = editor.text(line).rstrip("\n").rstrip("\r")
         editor.clear_indicator(INDICATOR_FIND_LINE)
         editor.clear_indicator(INDICATOR_FIND)
-        to_byte_col = getattr(editor, "char_col_to_byte_col", lambda _line, col: col)
-        line_end = to_byte_col(line, len(line_text))
+        line_end = len(line_text)
         if line_end:
             editor.fillIndicatorRange(line, 0, line, line_end, INDICATOR_FIND_LINE)
         for match in matches:
-            start = to_byte_col(line, match.start())
-            end = to_byte_col(line, match.end())
-            if end > start:
-                editor.fillIndicatorRange(line, start, line, end, INDICATOR_FIND)
+            if match.end() > match.start():
+                editor.fillIndicatorRange(
+                    line, match.start(), line, match.end(), INDICATOR_FIND)
         first = matches[0]
-        start = to_byte_col(line, first.start())
-        end = to_byte_col(line, first.end())
-        editor.setSelection(line, start, line, end)
+        # setSelection usa colonne in caratteri; gli indicatori sopra in byte.
+        editor.setSelection(line, first.start(), line, first.end())
         editor.ensureLineVisible(line)
 
     def _do_smart_find(self, editor, pattern_text: str, flags: dict,
@@ -1083,7 +1113,7 @@ ESEMPI
         status_label.setText("")
         return True
 
-    def _current_editor(self) -> Optional[EditorWidget]:
+    def _current_editor(self) -> EditorWidget | None:
         return self._mw._tab_manager.current_editor()
 
     def _do_find_next(self) -> None:
@@ -1093,8 +1123,8 @@ ESEMPI
         self._do_find(self._find_edit, forward=False)
 
     def _do_find(self, edit_widget, forward: bool = True,
-                 highlight_all: bool = True, flags: Optional[dict] = None,
-                 status_label: Optional[QLabel] = None) -> bool:
+                 highlight_all: bool = True, flags: dict | None = None,
+                 status_label: QLabel | None = None) -> bool:
         editor = self._current_editor()
         if not editor:
             return False
@@ -1104,32 +1134,74 @@ ESEMPI
 
         flags = flags or self._get_flags()
         status_label = status_label or self._lbl_status
-        if flags.get("smart_search") and len(text.split()) >= 2:
-            if highlight_all:
-                editor.clear_indicator(INDICATOR_MARK1)
-                self._highlight_all(editor, text, flags, INDICATOR_MARK1)
-            return self._do_smart_find(editor, text, flags, forward, status_label)
 
-        # Se in_selection è attivo e c'è testo selezionato, limita la ricerca
-        # alla selezione usando setTargetRange di QScintilla
-        if flags.get("in_selection") and editor.hasSelectedText():
-            sl, sc, el, ec, _ = editor.getSelection()
-            # Sposta il cursore all'inizio della selezione per findFirst
-            editor.setCursorPosition(sl, sc)
-            if not forward:
-                editor.setCursorPosition(el, ec)
-            # QScintilla findFirst userà la posizione corrente come partenza
         if highlight_all:
             editor.clear_indicator(INDICATOR_MARK1)
             self._highlight_all(editor, text, flags, INDICATOR_MARK1)
-        found = editor.findFirst(
-            text,
-            flags["regex"],
-            flags["case_sensitive"],
-            flags["whole_word"],
-            flags["wrap"],
-            forward,
-        )
+
+        # "Nella selezione" ha la precedenza anche sulla ricerca smart: il
+        # range va conservato tra un Find e l'altro, perché dopo la ricerca la
+        # selezione diventa il match trovato.
+        if flags.get("in_selection"):
+            result = self._find_in_selection(
+                editor, text, flags, forward, status_label)
+            if result is not None:
+                return result
+
+        if flags.get("smart_search") and len(text.split()) >= 2:
+            return self._do_smart_find(editor, text, flags, forward, status_label)
+
+        # La modalità regex usa Python anche per Find Next, così si comporta
+        # come Sostituisci/Conteggio e non come il motore regex legacy di
+        # Scintilla (sintassi e risultati erano diversi).
+        if flags["regex"]:
+            return self._find_python(
+                editor, text, flags, forward, status_label)
+
+        # Query con caratteri non ASCII (accenti, virgolette tipografiche) o
+        # con a capo: il motore Python gestisce correttamente case folding
+        # Unicode e ricerche multi-riga, cosa che il motore di Scintilla non fa.
+        if not text.isascii() or "\n" in text or "\r" in text:
+            return self._find_python(
+                editor, text, flags, forward, status_label)
+
+        # Query ASCII su una riga: motore C++11 nativo (più veloce).
+        search_text = text
+        use_re = flags["regex"]
+        cxx11 = False
+        if not use_re and _HAS_CXX11_REGEX and "\n" not in text and "\r" not in text:
+            search_text = literal_search_source(text)
+            use_re = True
+            cxx11 = True
+            # In modalità regex QScintilla riparte dall'inizio della selezione
+            # corrente: per "Trova successivo" bisogna spostarsi oltre il match
+            # selezionato, come fa il motore letterale nativo.
+            if editor.hasSelectedText():
+                sel_line, sel_col, end_line, end_col = editor.getSelection()
+                if forward:
+                    editor.setCursorPosition(end_line, end_col)
+                else:
+                    editor.setCursorPosition(sel_line, sel_col)
+        try:
+            found = editor.findFirst(
+                search_text,
+                use_re,
+                flags["case_sensitive"],
+                flags["whole_word"],
+                flags["wrap"],
+                forward,
+                cxx11=cxx11,
+            )
+        except (TypeError, ValueError):
+            # QScintilla senza supporto regex C++11: fallback letterale.
+            found = editor.findFirst(
+                text,
+                False,
+                flags["case_sensitive"],
+                flags["whole_word"],
+                flags["wrap"],
+                forward,
+            )
         if found:
             status_label.setText("")
             # findFirst seleziona il match, ma QScintilla disegna la selezione
@@ -1140,6 +1212,162 @@ ESEMPI
             self._emphasize_find_selection(editor)
         else:
             status_label.setText(tr("msg.no_results", query=text))
+        return found
+
+    def _reset_in_selection_state(self, *_args) -> None:
+        self._in_selection_range = None
+        self._in_selection_match = None
+
+    def _reset_in_selection_match(self, *_args) -> None:
+        """Nuova query/opzioni: si riparte dall'inizio del range selezionato."""
+        self._in_selection_match = None
+
+    @staticmethod
+    def _line_starts(text: str) -> list[int]:
+        """Offset assoluti (in caratteri) dell'inizio di ogni riga."""
+        starts = [0]
+        position = 0
+        for line in text.split("\n"):
+            position += len(line) + 1
+            starts.append(position)
+        return starts
+
+    @staticmethod
+    def _abs_from_line_col(starts: list[int], line: int, col: int) -> int:
+        if line < 0:
+            return 0
+        if line >= len(starts):
+            return starts[-1]
+        return starts[line] + max(0, col)
+
+    @staticmethod
+    def _select_absolute_range(editor, start: int, end: int) -> None:
+        to_line_col = getattr(editor, "_char_offset_to_line_col", None)
+        if callable(to_line_col):
+            line_s, col_s = to_line_col(start)
+            line_e, col_e = to_line_col(end)
+        else:
+            text = editor.text()
+            before = text[:start]
+            line_s = before.count("\n")
+            col_s = start - (before.rfind("\n") + 1)
+            before_end = text[:end]
+            line_e = before_end.count("\n")
+            col_e = end - (before_end.rfind("\n") + 1)
+        editor.setSelection(line_s, col_s, line_e, col_e)
+        editor.ensureLineVisible(line_s)
+
+    def _find_python(self, editor, text: str, flags: dict, forward: bool,
+                     status_label: QLabel,
+                     selection_range: tuple[int, int, int, int] | None = None,
+                     first_in_range: bool = False) -> bool:
+        """Ricerca con il motore Python (regex e "nella selezione").
+
+        Usa gli stessi pattern di Sostituisci/Conteggio, quindi il comportamento
+        è coerente in tutto il dialog. Gli offset interni sono in caratteri;
+        setSelection/highlight_find_match usano anch'essi caratteri.
+        """
+        pattern = self._build_pattern(text, flags)
+        if pattern is None:
+            if self._last_pattern_error:
+                status_label.setText(tr("msg.regex_invalid", error=self._last_pattern_error))
+            else:
+                status_label.setText(tr("msg.no_results", query=text))
+            return False
+
+        document = editor.text()
+        starts = self._line_starts(document)
+        if selection_range is None:
+            range_start, range_end = 0, len(document)
+        else:
+            start_line, start_col, end_line, end_col = selection_range
+            a = self._abs_from_line_col(starts, start_line, start_col)
+            b = self._abs_from_line_col(starts, end_line, end_col)
+            range_start, range_end = (a, b) if a <= b else (b, a)
+
+        if first_in_range and selection_range is not None:
+            # Prima ricerca in un range appena selezionato: si parte dal bordo
+            # iniziale, non dalla fine della selezione che definisce il range.
+            cursor_start = cursor_end = range_start if forward else range_end
+        elif editor.hasSelectedText():
+            sel_line, sel_col, sel_end_line, sel_end_col = editor.getSelection()
+            a = self._abs_from_line_col(starts, sel_line, sel_col)
+            b = self._abs_from_line_col(starts, sel_end_line, sel_end_col)
+            cursor_start, cursor_end = min(a, b), max(a, b)
+        else:
+            line, col = editor.getCursorPosition()
+            cursor_start = cursor_end = self._abs_from_line_col(starts, line, col)
+
+        # Un solo passaggio, senza materializzare tutti i match: su documenti
+        # enormi una regex come "." potrebbe produrne milioni.
+        match = None
+        first_any = None
+        last_any = None
+        last_before = None
+        try:
+            for candidate in pattern.finditer(document, range_start, range_end):
+                if (candidate.start() < range_start
+                        or candidate.end() > range_end):
+                    continue
+                if first_any is None:
+                    first_any = candidate
+                last_any = candidate
+                if forward:
+                    if candidate.start() >= cursor_end:
+                        match = candidate
+                        break
+                elif candidate.end() <= cursor_start:
+                    last_before = candidate
+        except re.error as exc:
+            status_label.setText(tr("msg.regex_invalid", error=str(exc)))
+            return False
+
+        if first_any is None:
+            status_label.setText(tr("msg.no_results", query=text))
+            return False
+        if not forward:
+            match = last_before
+        if match is None:
+            if not flags.get("wrap"):
+                status_label.setText(tr("msg.no_results", query=text))
+                return False
+            match = first_any if forward else last_any
+        if match is None:
+            # Backward senza match precedenti e senza wrap.
+            status_label.setText(tr("msg.no_results", query=text))
+            return False
+
+        self._select_absolute_range(editor, match.start(), match.end())
+        self._emphasize_find_selection(editor)
+        status_label.setText("")
+        return True
+
+    def _find_in_selection(self, editor, text: str, flags: dict, forward: bool,
+                           status_label: QLabel) -> bool | None:
+        """Trova nel range selezionato; None = nessuna selezione, si prosegue
+        con la ricerca normale sull'intero documento."""
+        if not editor.hasSelectedText():
+            self._reset_in_selection_state()
+            return None
+
+        current = editor.getSelection()  # colonne in caratteri
+        if (self._in_selection_range is None
+                or (current != self._in_selection_match
+                    and current != self._in_selection_range)):
+            self._in_selection_range = current
+            self._in_selection_match = None
+        elif current == self._in_selection_range:
+            # L'utente ha riselezionato esattamente il range di ricerca.
+            self._in_selection_match = None
+
+        first = self._in_selection_match is None
+        found = self._find_python(
+            editor, text, flags, forward, status_label,
+            selection_range=self._in_selection_range,
+            first_in_range=first,
+        )
+        if found:
+            self._in_selection_match = editor.getSelection()
         return found
 
     def _emphasize_find_selection(self, editor) -> None:
@@ -1319,6 +1547,7 @@ ESEMPI
 
     def _on_editor_changed(self, editor) -> None:
         if self._observed_editor is not editor:
+            self._reset_in_selection_state()
             if self._observed_editor is not None:
                 try:
                     self._observed_editor.textChanged.disconnect(self._on_editor_text_changed)
@@ -1566,28 +1795,22 @@ ESEMPI
 
         line0 = max(0, data["line"] - 1)   # numero riga 0-based
         # `col`/`len` salvati da _populate_occurrences sono offset di CARATTERE
-        # (da re.finditer sulla riga). QScintilla lavora in byte: su righe con
-        # accenti vanno convertiti, altrimenti la selezione/indicatore finisce
-        # sulla parola sbagliata.
+        # (da re.finditer sulla riga): highlight_find_match e setSelection
+        # vogliono caratteri; la conversione in byte è interna agli indicatori.
         char_col = data.get("col", 0)
-        char_len = data.get("len", 0)
-        try:
-            byte_start = editor.char_col_to_byte_col(line0, char_col)
-            byte_end   = editor.char_col_to_byte_col(line0, char_col + char_len)
-        except Exception:
-            byte_start, byte_end = char_col, char_col + char_len
+        char_end = char_col + data.get("len", 0)
 
         editor.go_to_line(data["line"])
         # Evidenzia riga intera + parola trovata con gli indicatori marcati.
         if hasattr(editor, "highlight_find_match"):
             try:
-                editor.highlight_find_match(line0, byte_start, byte_end)
+                editor.highlight_find_match(line0, char_col, char_end)
             except Exception:
                 pass
         # Seleziona anche la parola, così resta evidente dopo il focus.
         try:
-            if byte_end > byte_start:
-                editor.setSelection(line0, byte_start, line0, byte_end)
+            if char_end > char_col:
+                editor.setSelection(line0, char_col, line0, char_end)
         except Exception:
             pass
         editor.setFocus()
@@ -1673,21 +1896,16 @@ ESEMPI
             return
         line0 = max(0, data["line"] - 1)
         char_col = data.get("col", 0)
-        char_len = data.get("len", 0)
-        try:
-            byte_start = editor.char_col_to_byte_col(line0, char_col)
-            byte_end   = editor.char_col_to_byte_col(line0, char_col + char_len)
-        except Exception:
-            byte_start, byte_end = char_col, char_col + char_len
+        char_end = char_col + data.get("len", 0)
         editor.go_to_line(data["line"])
         if hasattr(editor, "highlight_find_match"):
             try:
-                editor.highlight_find_match(line0, byte_start, byte_end)
+                editor.highlight_find_match(line0, char_col, char_end)
             except Exception:
                 pass
         try:
-            if byte_end > byte_start:
-                editor.setSelection(line0, byte_start, line0, byte_end)
+            if char_end > char_col:
+                editor.setSelection(line0, char_col, line0, char_end)
         except Exception:
             pass
         editor.setFocus()
@@ -1718,13 +1936,9 @@ ESEMPI
             except (re.error, IndexError):
                 pass
 
-        try:
-            byte_start = editor.char_col_to_byte_col(line0, char_col)
-            byte_end   = editor.char_col_to_byte_col(line0, char_col + char_len)
-        except Exception:
-            byte_start, byte_end = char_col, char_col + char_len
-
-        editor.setSelection(line0, byte_start, line0, byte_end)
+        # setSelection usa colonne in caratteri (char_col/char_len arrivano
+        # da re.finditer), non in byte.
+        editor.setSelection(line0, char_col, line0, char_col + char_len)
         try:
             editor.replaceSelectedText(replace_text)
         except Exception:
@@ -1751,12 +1965,9 @@ ESEMPI
                     continue
                 count += 1
                 for match in matches:
-                    start = editor.char_col_to_byte_col(line, match.start()) \
-                        if hasattr(editor, "char_col_to_byte_col") else match.start()
-                    end = editor.char_col_to_byte_col(line, match.end()) \
-                        if hasattr(editor, "char_col_to_byte_col") else match.end()
-                    if end > start:
-                        editor.fillIndicatorRange(line, start, line, end, indicator)
+                    if match.end() > match.start():
+                        editor.fillIndicatorRange(
+                            line, match.start(), line, match.end(), indicator)
             return count
 
         compiled = self._build_pattern(pattern, flags)
@@ -1776,17 +1987,15 @@ ESEMPI
             if ch == '\n':
                 line_starts.append(i + 1)
 
-        def char_to_line_bytecol(char_off: int) -> tuple[int, int]:
+        def char_to_line_col(char_off: int) -> tuple[int, int]:
             char_off = max(0, min(char_off, len(text)))
             line = bisect.bisect_right(line_starts, char_off) - 1
-            ls = line_starts[line]
-            col_bytes = len(text[ls:char_off].encode("utf-8"))
-            return line, col_bytes
+            return line, char_off - line_starts[line]
 
         truncated = len(matches) > _MAX
         for m in matches[:_MAX]:
-            ls, cs = char_to_line_bytecol(m.start())
-            le, ce = char_to_line_bytecol(m.end())
+            ls, cs = char_to_line_col(m.start())
+            le, ce = char_to_line_col(m.end())
             editor.fillIndicatorRange(ls, cs, le, ce, indicator)
         if truncated:
             self._lbl_status.setText(
@@ -1992,12 +2201,8 @@ ESEMPI
             if editor and line_num:
                 ln = int(line_num) - 1
                 if col_start is not None and col_end is not None:
-                    try:
-                        bs = editor.char_col_to_byte_col(ln, col_start)
-                        be = editor.char_col_to_byte_col(ln, col_end)
-                    except Exception:
-                        bs, be = col_start, col_end
-                    editor.setSelection(ln, bs, ln, be)
+                    # col_start/col_end arrivano da re.finditer: caratteri.
+                    editor.setSelection(ln, col_start, ln, col_end)
                 else:
                     editor.go_to_line(int(line_num))
                 editor.ensureLineVisible(ln)
@@ -2021,7 +2226,9 @@ ESEMPI
 
         re_flags = 0 if case_s else re.IGNORECASE
         try:
-            pattern = re.compile(query if use_re else re.escape(query), re_flags)
+            pattern = re.compile(
+                query if use_re else literal_search_source(query), re_flags
+            )
         except re.error as e:
             self._fif_status.setText(tr("msg.regex_error", error=str(e)))
             return
@@ -2097,7 +2304,9 @@ ESEMPI
         case_s = self._fif_case.isChecked()
         re_flags = 0 if case_s else re.IGNORECASE
         try:
-            pattern = re.compile(query if use_re else re.escape(query), re_flags)
+            pattern = re.compile(
+                query if use_re else literal_search_source(query), re_flags
+            )
         except re.error:
             return
         try:
@@ -2143,7 +2352,11 @@ ESEMPI
         query = self._fif_find.text().strip()
         re_flags = 0 if self._fif_case.isChecked() else re.IGNORECASE
         try:
-            pattern = re.compile(query if self._fif_regex.isChecked() else re.escape(query), re_flags)
+            pattern = re.compile(
+                query if self._fif_regex.isChecked()
+                else literal_search_source(query),
+                re_flags,
+            )
         except re.error as exc:
             self._fif_status.setText(tr("msg.regex_error", error=str(exc)))
             return
@@ -2226,7 +2439,7 @@ ESEMPI
     # ── Find in All Docs ──────────────────────────────────────────────────────
 
     @staticmethod
-    def _search_text_for_editor(editor) -> Optional[str]:
+    def _search_text_for_editor(editor) -> str | None:
         """Testo su cui cercare: buffer in memoria, oppure disco se differito.
 
         I tab di sessione non ancora caricati hanno il buffer vuoto; se ne legge
@@ -2448,14 +2661,14 @@ ESEMPI
     # ── API pubblica (chiamata da MainWindow) ─────────────────────────────────
 
     @classmethod
-    def _get_or_create(cls, main_window: "MainWindow") -> "FindReplaceDialog":
+    def _get_or_create(cls, main_window: MainWindow) -> FindReplaceDialog:
         global _instance
         if _instance is None or _instance._mw is not main_window:
             _instance = cls(main_window)
         return _instance
 
     @classmethod
-    def _get_selected_text(cls, main_window: "MainWindow") -> str:
+    def _get_selected_text(cls, main_window: MainWindow) -> str:
         editor = main_window._current_editor()
         if editor is None:
             return ""
@@ -2465,7 +2678,7 @@ ESEMPI
         return sel
 
     @classmethod
-    def show_find(cls, main_window: "MainWindow") -> None:
+    def show_find(cls, main_window: MainWindow) -> None:
         dlg = cls._get_or_create(main_window)
         dlg._tabs.setCurrentIndex(0)
         editor = main_window._current_editor()
@@ -2480,7 +2693,7 @@ ESEMPI
         dlg._find_edit.setFocus()
         dlg._find_edit.lineEdit().selectAll()
 
-    def _send_to_result_panel(self, query: str, tree: "QTreeWidget",
+    def _send_to_result_panel(self, query: str, tree: QTreeWidget,
                               in_docs: bool = False) -> None:
         """Invia i risultati al FindResultPanel nel pannello inferiore."""
         panel = getattr(self._mw, "_find_result_panel", None)
@@ -2515,7 +2728,7 @@ ESEMPI
             panel.add_results(query, results)
 
     @classmethod
-    def show_replace(cls, main_window: "MainWindow") -> None:
+    def show_replace(cls, main_window: MainWindow) -> None:
         dlg = cls._get_or_create(main_window)
         dlg._tabs.setCurrentIndex(1)
         sel = cls._get_selected_text(main_window)
@@ -2527,7 +2740,7 @@ ESEMPI
         dlg._find_edit2.lineEdit().selectAll()
 
     @classmethod
-    def show_find_in_files(cls, main_window: "MainWindow") -> None:
+    def show_find_in_files(cls, main_window: MainWindow) -> None:
         dlg = cls._get_or_create(main_window)
         dlg._tabs.setCurrentIndex(2)
         sel = cls._get_selected_text(main_window)
@@ -2537,7 +2750,7 @@ ESEMPI
         dlg._dock.raise_()
 
     @classmethod
-    def show_find_all_docs(cls, main_window: "MainWindow") -> None:
+    def show_find_all_docs(cls, main_window: MainWindow) -> None:
         dlg = cls._get_or_create(main_window)
         dlg._tabs.setCurrentIndex(3)
         sel = cls._get_selected_text(main_window)
@@ -2547,7 +2760,7 @@ ESEMPI
         dlg._dock.raise_()
 
     @classmethod
-    def show_replace_all_docs(cls, main_window: "MainWindow") -> None:
+    def show_replace_all_docs(cls, main_window: MainWindow) -> None:
         dlg = cls._get_or_create(main_window)
         dlg._tabs.setCurrentIndex(3)
         sel = cls._get_selected_text(main_window)
@@ -2557,16 +2770,16 @@ ESEMPI
         dlg._dock.raise_()
 
     @classmethod
-    def find_next(cls, main_window: "MainWindow") -> None:
+    def find_next(cls, main_window: MainWindow) -> None:
         dlg = cls._get_or_create(main_window)
         dlg._do_find_next()
 
     @classmethod
-    def find_prev(cls, main_window: "MainWindow") -> None:
+    def find_prev(cls, main_window: MainWindow) -> None:
         dlg = cls._get_or_create(main_window)
         dlg._do_find_prev()
 
     @classmethod
-    def mark_all(cls, main_window: "MainWindow") -> None:
+    def mark_all(cls, main_window: MainWindow) -> None:
         dlg = cls._get_or_create(main_window)
         dlg._do_mark_all()

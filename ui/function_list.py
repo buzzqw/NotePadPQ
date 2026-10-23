@@ -25,26 +25,39 @@ import bisect
 import json
 import re
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path as _Path
-from typing import Optional, List, Dict, TYPE_CHECKING
-from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, QThread, QSortFilterProxyModel, pyqtSignal
+from PyQt6.QtCore import QSortFilterProxyModel, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import (
-    QStandardItemModel, QStandardItem, QColor, QFont, QIcon, QKeySequence,
-    QAction, QPalette,
+    QAction,
+    QColor,
+    QIcon,
+    QKeySequence,
+    QPalette,
+    QStandardItem,
+    QStandardItemModel,
 )
 from PyQt6.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QTreeView, QLineEdit, QPushButton, QLabel,
-    QComboBox, QMenu, QAbstractItemView, QApplication,
+    QAbstractItemView,
+    QApplication,
+    QDockWidget,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QTreeView,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+    from ui.main_window import MainWindow
 
 
 # ─── Struttura simbolo ────────────────────────────────────────────────────────
@@ -58,7 +71,7 @@ class FuncSymbol:
     parent:    str = ""
     icon:      str = ""   # emoji usata come icona
     level:     int = 0    # livello gerarchia (1=top) per MD/LaTeX; 0 = nessuna gerarchia
-    file_path: Optional[_Path] = None
+    file_path: _Path | None = None
 
 
 # ─── Parser per linguaggio ────────────────────────────────────────────────────
@@ -67,12 +80,12 @@ class _Parser(ABC):
     """Base class astratta per i parser di linguaggio."""
 
     @abstractmethod
-    def parse(self, text: str) -> List[FuncSymbol]:
+    def parse(self, text: str) -> list[FuncSymbol]:
         ...
 
 
 class _PythonParser(_Parser):
-    def parse(self, text: str) -> List[FuncSymbol]:
+    def parse(self, text: str) -> list[FuncSymbol]:
         results = []
         lines   = text.splitlines()
         class_stack: list[str] = []
@@ -118,7 +131,7 @@ class _PythonParser(_Parser):
 
 
 class _JSParser(_Parser):
-    def parse(self, text: str) -> List[FuncSymbol]:
+    def parse(self, text: str) -> list[FuncSymbol]:
         results = []
         lines   = text.splitlines()
         patterns = [
@@ -149,7 +162,7 @@ class _JSParser(_Parser):
 
 
 class _CppParser(_Parser):
-    def parse(self, text: str) -> List[FuncSymbol]:
+    def parse(self, text: str) -> list[FuncSymbol]:
         results = []
         lines   = text.splitlines()
         patterns = [
@@ -171,7 +184,7 @@ class _CppParser(_Parser):
 
 
 class _JavaParser(_Parser):
-    def parse(self, text: str) -> List[FuncSymbol]:
+    def parse(self, text: str) -> list[FuncSymbol]:
         results = []
         lines   = text.splitlines()
         for lineno, line in enumerate(lines, 1):
@@ -199,7 +212,7 @@ class _JavaParser(_Parser):
 
 
 class _BashParser(_Parser):
-    def parse(self, text: str) -> List[FuncSymbol]:
+    def parse(self, text: str) -> list[FuncSymbol]:
         results = []
         for lineno, line in enumerate(text.splitlines(), 1):
             s = line.strip()
@@ -231,7 +244,7 @@ class _LaTeXParser(_Parser):
         (r"\\newenvironment\{(\w+)\}",          "environment",    "⬜", 0),
     ]
 
-    def parse(self, text: str) -> List[FuncSymbol]:
+    def parse(self, text: str) -> list[FuncSymbol]:
         from config.settings import Settings as _S
         hidden = set(
             k.strip() for k in
@@ -254,7 +267,7 @@ class _LaTeXParser(_Parser):
 
 
 class _SqlParser(_Parser):
-    def parse(self, text: str) -> List[FuncSymbol]:
+    def parse(self, text: str) -> list[FuncSymbol]:
         results = []
         for lineno, line in enumerate(text.splitlines(), 1):
             s = line.strip().upper()
@@ -268,11 +281,11 @@ class _SqlParser(_Parser):
                     signature=line.strip()[:80], icon="🗄"
                 ))
         return results
-        
-        
-        
+
+
+
 class _MarkdownParser(_Parser):
-    def parse(self, text: str) -> List[FuncSymbol]:
+    def parse(self, text: str) -> list[FuncSymbol]:
         results = []
         for lineno, line in enumerate(text.splitlines(), 1):
             m = re.match(r"^(#{1,6})\s+(.*)", line)
@@ -310,7 +323,7 @@ class _JsonParser(_Parser):
             except re.error:
                 pass
 
-    def parse(self, text: str) -> List[FuncSymbol]:
+    def parse(self, text: str) -> list[FuncSymbol]:
         from config.settings import Settings as _S
         try:
             hidden_all = json.loads(
@@ -344,7 +357,7 @@ class _JsonParser(_Parser):
 
 
 # Mapping linguaggio → parser
-_PARSERS: Dict[str, _Parser] = {
+_PARSERS: dict[str, _Parser] = {
     "python":     _PythonParser(),
     "javascript": _JSParser(),
     "typescript": _JSParser(),
@@ -363,7 +376,7 @@ _LANG_ALIASES = {
     "py": "python", "js": "javascript", "ts": "typescript",
     "jsx": "javascript", "tsx": "typescript",
     "h": "c/c++", "hpp": "c/c++", "cpp": "c/c++", "cc": "c/c++",
-    "rb": "python",  
+    "rb": "python",
     "sh": "bash", "bash": "bash",
     "tex": "latex", "sty": "latex",
     "md": "markdown", "markdown": "markdown", # <--- Aggiunto!
@@ -407,7 +420,7 @@ def reload_presets() -> None:
     _load_json_presets()
 
 
-def _get_parser(editor: "EditorWidget") -> Optional[_Parser]:
+def _get_parser(editor: EditorWidget) -> _Parser | None:
     """Individua il parser giusto per l'editor."""
     lang = ""
 
@@ -453,7 +466,7 @@ class _ParseWorker(QThread):
 
     done = pyqtSignal(list, int, bool)  # (symbols, generation, is_hierarchical)
 
-    def __init__(self, parser: "_Parser", text: str, generation: int,
+    def __init__(self, parser: _Parser, text: str, generation: int,
                  is_hierarchical: bool):
         super().__init__(None)
         self._parser        = parser
@@ -478,7 +491,7 @@ class _MultiFileParser(_Parser):
         self._parser = parser
         self._sources = sources
 
-    def parse(self, _text: str) -> List[FuncSymbol]:
+    def parse(self, _text: str) -> list[FuncSymbol]:
         symbols: list[FuncSymbol] = []
         for path, text in self._sources:
             for symbol in self._parser.parse(text):
@@ -490,7 +503,7 @@ class _MultiFileParser(_Parser):
 class _ProjectLaTeXParseWorker(_ParseWorker):
     r"""Legge gli \input del progetto fuori dal thread grafico."""
 
-    def __init__(self, parser: "_Parser", current_path: _Path, current_text: str,
+    def __init__(self, parser: _Parser, current_path: _Path, current_text: str,
                  generation: int, is_hierarchical: bool):
         super().__init__(parser, current_text, generation, is_hierarchical)
         self._current_path = current_path
@@ -568,13 +581,13 @@ class _ProjectLaTeXParseWorker(_ParseWorker):
 
 class _FunctionListPanel(QWidget):
 
-    def __init__(self, main_window: "MainWindow", parent=None):
+    def __init__(self, main_window: MainWindow, parent=None):
         super().__init__(parent)
         self._mw     = main_window
-        self._editor: Optional["EditorWidget"] = None
-        self._symbols: List[FuncSymbol] = []
+        self._editor: EditorWidget | None = None
+        self._symbols: list[FuncSymbol] = []
         self._needs_refresh = True
-        self._parse_worker: "_ParseWorker | None" = None
+        self._parse_worker: _ParseWorker | None = None
         self._old_parse_workers: list = []
         self._parse_gen: int = 0
 
@@ -582,7 +595,7 @@ class _FunctionListPanel(QWidget):
         # evidenziata nell'albero. Lista (line, item) ordinata per riga per
         # ricerca O(log n) con bisect, ricostruita a ogni refresh del parser.
         self._line_items: list[tuple[int, QStandardItem]] = []
-        self._current_hl_item: Optional[QStandardItem] = None
+        self._current_hl_item: QStandardItem | None = None
 
         self._build_ui()
 
@@ -657,7 +670,7 @@ class _FunctionListPanel(QWidget):
 
     # ── Aggiornamento ─────────────────────────────────────────────────────────
 
-    def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
+    def _on_editor_changed(self, editor: EditorWidget | None) -> None:
         if self._editor:
             try:
                 self._editor.textChanged.disconnect(self._on_text_changed)
@@ -707,14 +720,15 @@ class _FunctionListPanel(QWidget):
         if self.isVisible():
             self._hl_timer.start()
 
-    def _set_highlight(self, item: Optional[QStandardItem]) -> None:
+    def _set_highlight(self, item: QStandardItem | None) -> None:
         """Applica/rimuove lo sfondo di evidenziazione, senza toccare selezione o focus."""
         if self._current_hl_item is item:
             return
         if self._current_hl_item is not None:
             try:
                 self._current_hl_item.setData(None, Qt.ItemDataRole.BackgroundRole)
-                font = self._current_hl_item.font(); font.setBold(False)
+                font = self._current_hl_item.font()
+                font.setBold(False)
                 self._current_hl_item.setFont(font)
             except RuntimeError:
                 pass  # item appartenente a un modello già svuotato/ricostruito
@@ -725,7 +739,8 @@ class _FunctionListPanel(QWidget):
             ))
             color.setAlpha(70)
             item.setBackground(color)
-            font = item.font(); font.setBold(True)
+            font = item.font()
+            font.setBold(True)
             item.setFont(font)
 
     def _update_highlight(self) -> None:
@@ -765,14 +780,16 @@ class _FunctionListPanel(QWidget):
         g = QStandardItem(f"— {label.upper()} —")
         g.setEnabled(False)
         g.setData("group", Qt.ItemDataRole.UserRole)
-        font = g.font(); font.setBold(True); g.setFont(font)
+        font = g.font()
+        font.setBold(True)
+        g.setFont(font)
         g.setForeground(QColor("#888"))
         return g
 
-    def _build_hierarchical(self, symbols: List[FuncSymbol]) -> None:
+    def _build_hierarchical(self, symbols: list[FuncSymbol]) -> None:
         """Costruisce albero annidato per linguaggi con livelli (MD, LaTeX)."""
         stack: list[tuple[int, QStandardItem]] = []  # (level, item)
-        flat: List[FuncSymbol] = []   # simboli senza gerarchia (level=0)
+        flat: list[FuncSymbol] = []   # simboli senza gerarchia (level=0)
         previous_file = None
 
         for sym in symbols:
@@ -797,9 +814,9 @@ class _FunctionListPanel(QWidget):
             for sym in flat:
                 grp.appendRow(self._make_sym_item(sym))
 
-    def _build_grouped(self, symbols: List[FuncSymbol]) -> None:
+    def _build_grouped(self, symbols: list[FuncSymbol]) -> None:
         """Raggruppa simboli per kind (comportamento originale)."""
-        groups: Dict[str, QStandardItem] = {}
+        groups: dict[str, QStandardItem] = {}
         for sym in symbols:
             kind = sym.kind
             if kind not in groups:
@@ -940,7 +957,6 @@ class _FunctionListPanel(QWidget):
         src = self._proxy.mapToSource(index)
         item = self._model.itemFromIndex(src)
         line = item.data(Qt.ItemDataRole.UserRole) if item else None
-        file_ref = item.data(Qt.ItemDataRole.UserRole + 1) if item else None
 
         menu = QMenu(self)
         if isinstance(line, int):
@@ -960,7 +976,7 @@ class _FunctionListPanel(QWidget):
 
 # ─── Installazione ────────────────────────────────────────────────────────────
 
-def install(main_window: "MainWindow") -> _FunctionListPanel:
+def install(main_window: MainWindow) -> _FunctionListPanel:
     """
     Crea il pannello Function List come dock e lo aggiunge alla MainWindow.
     Aggiunge anche la voce nel menu Visualizza.
@@ -1000,6 +1016,7 @@ def install(main_window: "MainWindow") -> _FunctionListPanel:
         # Applica subito l'icona con il colore testo corrente (evita timing fragile)
         try:
             from pathlib import Path
+
             from PyQt6.QtGui import QPalette, QPixmap
             icon_path = Path(__file__).parent.parent / "icons" / "lucide" / "list-tree.svg"
             if not icon_path.exists():

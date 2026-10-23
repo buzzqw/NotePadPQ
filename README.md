@@ -254,7 +254,8 @@ The plugin system includes the following integrated extensions:
   Polish.
 - Built-in themes, live theme editor and JSON import/export.
 - Lucide, Material and system icon sets.
-- Spell checking with independently selectable dictionary language.
+- Spell checking with independently selectable dictionary language (Hunspell
+  dictionaries are used automatically when available).
 - Smart typography, paragraph focus, Markdown task toggling and YAML front
   matter highlighting.
 - Plain-text mode, distraction-free writing mode (`F11`), session restore and

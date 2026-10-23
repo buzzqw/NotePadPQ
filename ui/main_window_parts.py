@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, QObject, QThread, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QMenu
 
 from i18n.i18n import tr

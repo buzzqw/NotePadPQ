@@ -72,7 +72,7 @@ def remove_every_nth(lines: list[str], n: int) -> list[str]:
 
 # ─── Operazioni su EditorWidget ───────────────────────────────────────────────
 
-def _apply_line_op(editor: "EditorWidget", op) -> None:
+def _apply_line_op(editor: EditorWidget, op) -> None:
     """
     Applica un'operazione sulle righe al testo selezionato o all'intero documento.
     Usa beginUndoAction/endUndoAction per mantenere la stack undo di Scintilla
@@ -84,6 +84,7 @@ def _apply_line_op(editor: "EditorWidget", op) -> None:
         # non l'intero file — procedere spaccerebbe silenziosamente quella
         # pagina per l'intero documento.
         from PyQt6.QtWidgets import QMessageBox
+
         from i18n.i18n import tr
         QMessageBox.warning(
             editor.window(),
@@ -119,39 +120,39 @@ def _apply_line_op(editor: "EditorWidget", op) -> None:
         editor.endUndoAction()
 
 
-def apply_sort_asc(editor: "EditorWidget") -> None:
+def apply_sort_asc(editor: EditorWidget) -> None:
     _apply_line_op(editor, sort_lines_asc)
 
 
-def apply_sort_desc(editor: "EditorWidget") -> None:
+def apply_sort_desc(editor: EditorWidget) -> None:
     _apply_line_op(editor, sort_lines_desc)
 
 
-def apply_remove_dup_sorted(editor: "EditorWidget") -> None:
+def apply_remove_dup_sorted(editor: EditorWidget) -> None:
     _apply_line_op(editor, remove_duplicate_sorted)
 
 
-def apply_remove_dup_ordered(editor: "EditorWidget") -> None:
+def apply_remove_dup_ordered(editor: EditorWidget) -> None:
     _apply_line_op(editor, remove_duplicate_ordered)
 
 
-def apply_remove_unique(editor: "EditorWidget") -> None:
+def apply_remove_unique(editor: EditorWidget) -> None:
     _apply_line_op(editor, remove_unique_lines)
 
 
-def apply_keep_unique(editor: "EditorWidget") -> None:
+def apply_keep_unique(editor: EditorWidget) -> None:
     _apply_line_op(editor, keep_unique_lines)
 
 
-def apply_remove_empty(editor: "EditorWidget") -> None:
+def apply_remove_empty(editor: EditorWidget) -> None:
     _apply_line_op(editor, remove_empty_lines)
 
 
-def apply_remove_whitespace(editor: "EditorWidget") -> None:
+def apply_remove_whitespace(editor: EditorWidget) -> None:
     _apply_line_op(editor, remove_whitespace_lines)
 
 
-def apply_remove_every_nth(editor: "EditorWidget", n: int) -> None:
+def apply_remove_every_nth(editor: EditorWidget, n: int) -> None:
     _apply_line_op(editor, lambda lines: remove_every_nth(lines, n))
 
 
@@ -170,13 +171,13 @@ def sort_lines_random(lines: list[str]) -> list[str]:
     return result
 
 
-def apply_sort_by_length(editor: "EditorWidget") -> None:
+def apply_sort_by_length(editor: EditorWidget) -> None:
     _apply_line_op(editor, sort_lines_by_length)
 
 
-def apply_sort_by_length_desc(editor: "EditorWidget") -> None:
+def apply_sort_by_length_desc(editor: EditorWidget) -> None:
     _apply_line_op(editor, sort_lines_by_length_desc)
 
 
-def apply_sort_random(editor: "EditorWidget") -> None:
+def apply_sort_random(editor: EditorWidget) -> None:
     _apply_line_op(editor, sort_lines_random)

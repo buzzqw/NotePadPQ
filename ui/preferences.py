@@ -19,17 +19,31 @@ from __future__ import annotations
 
 import json as _json
 import os
-from typing import Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QFontDatabase
+from PyQt6.QtGui import QFontDatabase
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QTabWidget, QWidget,
-    QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
-    QLabel, QLineEdit, QCheckBox, QComboBox, QSpinBox,
-    QSlider, QPushButton, QFileDialog, QMessageBox,
-    QListWidget, QListWidgetItem, QSizePolicy,
-    QScrollArea, QFrame,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSpinBox,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from config.settings import Settings
@@ -207,7 +221,7 @@ class PreferencesDialog(QDialog):
         tl.addRow("", btn_export)
 
         vl.addWidget(grp_theme)
-        
+
         vl.addStretch()
         return w
 
@@ -594,7 +608,7 @@ class PreferencesDialog(QDialog):
 
         # Stato interno
         self._fl_kind_checks: dict[str, QCheckBox] = {}
-        self._fl_current_lang: Optional[str] = None
+        self._fl_current_lang: str | None = None
         self._fl_hidden_kinds_draft: dict[str, list] = {}
         # compat: mantieni _fl_latex_checks vuoto per non rompere vecchio codice
         self._fl_latex_checks: dict[str, QCheckBox] = {}
@@ -621,7 +635,7 @@ class PreferencesDialog(QDialog):
         hidden_for_lang = set(self._fl_hidden_kinds_draft.get(lang, []))
         self._fl_rebuild_kinds(preset_def, hidden_for_lang)
 
-    def _fl_rebuild_kinds(self, preset_def: Optional[dict], hidden: set) -> None:
+    def _fl_rebuild_kinds(self, preset_def: dict | None, hidden: set) -> None:
         """Svuota e ricostruisce i checkbox dei kind per il preset selezionato."""
         while self._fl_kinds_layout.count():
             item = self._fl_kinds_layout.takeAt(0)
@@ -868,7 +882,7 @@ class PreferencesDialog(QDialog):
         if mw_apply is not None:
             for ed in mw_apply._tab_manager.all_editors():
                 self._theme_mgr.apply_to_editor(ed, theme_name)
-        
+
         # File
         s.set("file/default_encoding",   self._default_encoding.currentText())
         s.set("file/default_line_ending",self._default_le.currentText())
@@ -886,7 +900,7 @@ class PreferencesDialog(QDialog):
         s.set("file/autobackup_dir",         self._autobackup_dir.text().strip())
         s.set("file/autoreload_on_change",   self._autoreload_on_change.isChecked())
         s.set("file/autosave_on_focus_loss", self._autosave_on_focus_loss.isChecked())
-        
+
         # Autocompletamento
         s.set("autocomplete/enabled",   self._ac_enabled.isChecked())
         s.set("autocomplete/cross_tab", self._ac_cross.isChecked())

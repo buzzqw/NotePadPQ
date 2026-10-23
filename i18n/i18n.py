@@ -167,7 +167,7 @@ class I18n(QObject):
 
         return text
 
-    def _resolve(self, key: str, data: dict) -> Optional[str]:
+    def _resolve(self, key: str, data: dict) -> str | None:
         """
         Naviga un dizionario annidato seguendo una chiave puntata.
         "menu.file" → data["menu"]["file"]
@@ -201,7 +201,7 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     i18n = I18n.instance()
-    print(f"=== NotePadPQ i18n Test ===")
+    print("=== NotePadPQ i18n Test ===")
     print(f"Lingue disponibili: {i18n.available_languages()}")
     print(f"Lingua corrente: {i18n.current_language()}")
     print()

@@ -12,19 +12,28 @@ import ast
 import hashlib
 import importlib.util
 import json
-import sys
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QHeaderView, QPushButton, QLabel, QDialogButtonBox,
-    QAbstractItemView, QTextEdit, QSplitter, QWidget,
+    QAbstractItemView,
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
-from core.platform import get_data_dir
 from core.persistence import atomic_write_json
+from core.platform import get_data_dir
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -34,18 +43,18 @@ if TYPE_CHECKING:
 class PluginManager:
     """Singleton. Carica e gestisce il ciclo di vita dei plugin."""
 
-    _instance: Optional["PluginManager"] = None
+    _instance: PluginManager | None = None
 
     def __init__(self):
         self._plugins: dict[str, dict] = {}   # name → {instance, enabled, path, meta}
-        self._main_window: Optional["MainWindow"] = None
+        self._main_window: MainWindow | None = None
         self._disabled_path = get_data_dir() / "disabled_plugins.json"
         self._disabled: set[str] = self._load_disabled()
         self._trusted_path = get_data_dir() / "trusted_plugins.json"
         self._trusted: dict[str, dict[str, str]] = self._load_trusted()
 
     @classmethod
-    def instance(cls) -> "PluginManager":
+    def instance(cls) -> PluginManager:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -129,13 +138,13 @@ class PluginManager:
         trusted = getattr(self, "_trusted", {})
         return isinstance(trusted, dict) and trusted.get(name) == self._trust_binding(path)
 
-    def load_all(self, main_window: "MainWindow") -> None:
+    def load_all(self, main_window: MainWindow) -> None:
         """Carica tutti i plugin dalla directory plugin utente."""
         self._main_window = main_window
         for plugin_file in self._plugin_files():
             self._load_plugin_file(plugin_file, main_window)
 
-    def load_all_deferred(self, main_window: "MainWindow",
+    def load_all_deferred(self, main_window: MainWindow,
                           on_done=None) -> None:
         """Carica i plugin uno per tick dell'event loop.
 
@@ -158,7 +167,7 @@ class PluginManager:
         QTimer.singleShot(0, _load_next)
 
     def _load_plugin_file(self, path: Path,
-                          main_window: "MainWindow") -> bool:
+                          main_window: MainWindow) -> bool:
         """Carica un singolo file plugin."""
         is_user_plugin = self._is_user_plugin(path)
         if is_user_plugin and path.is_symlink():
@@ -214,7 +223,7 @@ class PluginManager:
             return False
 
     @staticmethod
-    def _read_static_metadata(path: Path) -> Optional[dict]:
+    def _read_static_metadata(path: Path) -> dict | None:
         """Legge i metadata letterali senza importare o eseguire il plugin."""
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -415,7 +424,7 @@ class PluginManager:
 
 class PluginManagerDialog(QDialog):
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(main_window)
         self._mw = main_window
         self._pm = PluginManager.instance()
@@ -505,7 +514,7 @@ class PluginManagerDialog(QDialog):
         self._btn_enable.setEnabled(not enabled)
         self._btn_disable.setEnabled(enabled)
 
-    def _current_name(self) -> Optional[str]:
+    def _current_name(self) -> str | None:
         rows = self._table.selectedItems()
         return self._table.item(rows[0].row(), 0).text() if rows else None
 

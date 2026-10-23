@@ -10,9 +10,17 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QSpinBox, QComboBox, QPushButton, QTextEdit, QCheckBox,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QGridLayout,
     QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSpinBox,
+    QTextEdit,
+    QVBoxLayout,
 )
 
 from i18n.i18n import tr
@@ -91,7 +99,7 @@ def generate(
 
 class LoremIpsumDialog(QDialog):
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(main_window)
         self._mw = main_window
         self.setWindowTitle(tr("lorem_ipsum.title"))

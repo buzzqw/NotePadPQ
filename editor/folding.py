@@ -31,7 +31,7 @@ DEFAULT_STYLE = "boxed_tree"
 MARGIN_FOLD   = 1   # stesso valore di editor_widget.MARGIN_FOLD
 
 
-def apply_folding(editor: "EditorWidget",
+def apply_folding(editor: EditorWidget,
                   style: str = DEFAULT_STYLE) -> None:
     """
     Applica la configurazione di folding all'editor.
@@ -52,22 +52,22 @@ def apply_folding(editor: "EditorWidget",
         editor.setFoldMarginColors(QColor(bg), QColor(fg))
 
 
-def fold_all(editor: "EditorWidget") -> None:
+def fold_all(editor: EditorWidget) -> None:
     """Piega tutti i blocchi foldabili."""
     editor.foldAll(True)
 
 
-def unfold_all(editor: "EditorWidget") -> None:
+def unfold_all(editor: EditorWidget) -> None:
     """Espande tutti i blocchi foldabili."""
     editor.foldAll(False)
 
 
-def toggle_fold_at_line(editor: "EditorWidget", line: int) -> None:
+def toggle_fold_at_line(editor: EditorWidget, line: int) -> None:
     """Piega/espande il blocco alla riga indicata (0-based)."""
     editor.foldLine(line)
 
 
-def fold_level(editor: "EditorWidget", level: int) -> None:
+def fold_level(editor: EditorWidget, level: int) -> None:
     """
     Piega tutti i blocchi fino al livello specificato.
     level=1 → piega solo il livello più esterno
@@ -95,7 +95,7 @@ def fold_level(editor: "EditorWidget", level: int) -> None:
                     )
 
 
-def get_fold_state(editor: "EditorWidget") -> dict[int, bool]:
+def get_fold_state(editor: EditorWidget) -> dict[int, bool]:
     """
     Restituisce lo stato corrente di tutti i fold.
     {line_number: is_expanded}
@@ -112,7 +112,7 @@ def get_fold_state(editor: "EditorWidget") -> dict[int, bool]:
     return state
 
 
-def restore_fold_state(editor: "EditorWidget",
+def restore_fold_state(editor: EditorWidget,
                        state: dict[int, bool]) -> None:
     """Ripristina lo stato dei fold salvato da get_fold_state."""
     for line, expanded in state.items():

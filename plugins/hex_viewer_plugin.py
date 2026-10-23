@@ -16,17 +16,24 @@ from __future__ import annotations
 import mmap
 import threading
 from pathlib import Path
-from typing import BinaryIO, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, BinaryIO
 
-from PyQt6.QtCore import Qt, pyqtSignal, QThread
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QTextEdit, QLineEdit, QSpinBox,
+    QDockWidget,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtGui import QFont, QTextCharFormat, QColor, QTextCursor
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -96,15 +103,15 @@ class _HexSearchWorker(QThread):
 
 class _HexPanel(QWidget):
 
-    def __init__(self, main_window: "MainWindow", parent=None):
+    def __init__(self, main_window: MainWindow, parent=None):
         super().__init__(parent)
         self._mw = main_window
-        self._raw: Optional[bytes] = b""
-        self._file: Optional[BinaryIO] = None
-        self._mapped: Optional[mmap.mmap] = None
-        self._source_path: Optional[Path] = None
+        self._raw: bytes | None = b""
+        self._file: BinaryIO | None = None
+        self._mapped: mmap.mmap | None = None
+        self._source_path: Path | None = None
         self._size = 0
-        self._search_worker: Optional[_HexSearchWorker] = None
+        self._search_worker: _HexSearchWorker | None = None
         self._search_generation = 0
         self._build_ui()
 
@@ -339,7 +346,7 @@ class HexViewerPlugin(BasePlugin):
     DESCRIPTION = "Visualizza il file corrente in formato esadecimale (read-only)."
     AUTHOR      = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
         # Pannello costruito pigramente alla prima apertura del dock (nascosto
         # all'avvio): vedi _ensure_panel().

@@ -12,29 +12,29 @@ chiamato alla fine di _rebuild_menus() per re-inserire il menu ogni volta.
 from __future__ import annotations
 
 import re
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt6.QtGui import QAction, QKeySequence
-from PyQt6.QtWidgets import QMenu, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QFileDialog, QMenu, QMessageBox
 
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+    from ui.main_window import MainWindow
 
 
 class LatexMenuManager:
     """Installa e gestisce il menu LaTeX nella barra dei menu principale."""
 
     @staticmethod
-    def install(main_window: "MainWindow") -> None:
+    def install(main_window: MainWindow) -> None:
         mgr = LatexMenuManager(main_window)
         main_window._latex_menu_mgr = mgr
         main_window._tab_manager.current_editor_changed.connect(mgr._on_editor_changed)
         # Non chiamiamo _attach() qui: lo farà _rebuild_menus() in _setup_i18n()
 
-    def __init__(self, mw: "MainWindow") -> None:
+    def __init__(self, mw: MainWindow) -> None:
         self._mw = mw
         self._menu = QMenu(tr("latex_menu.title", default="La&TeX"), mw)
         self._build_menu()
@@ -53,11 +53,11 @@ class LatexMenuManager:
 
     # ── Visibilità ────────────────────────────────────────────────────────────
 
-    def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
+    def _on_editor_changed(self, editor: EditorWidget | None) -> None:
         self._menu.menuAction().setVisible(self._is_latex(editor))
 
     @staticmethod
-    def _is_latex(editor: Optional["EditorWidget"]) -> bool:
+    def _is_latex(editor: EditorWidget | None) -> bool:
         if editor is None:
             return False
         if editor.file_path and editor.file_path.suffix.lower() in {".tex", ".ltx", ".latex"}:
@@ -66,7 +66,7 @@ class LatexMenuManager:
 
     # ── Editor corrente ───────────────────────────────────────────────────────
 
-    def _ed(self) -> Optional["EditorWidget"]:
+    def _ed(self) -> EditorWidget | None:
         return self._mw._tab_manager.current_editor()
 
     # ── Helpers inserimento ───────────────────────────────────────────────────
@@ -541,8 +541,10 @@ class LatexMenuManager:
         if not ed:
             return
         from PyQt6.QtWidgets import QDialog
+
         from ui.latex_citation_dialog import (
-            LatexCitationChooserDialog, project_bibtex_keys,
+            LatexCitationChooserDialog,
+            project_bibtex_keys,
             project_bibtex_metadata,
         )
 
@@ -761,6 +763,7 @@ class LatexMenuManager:
         if not ed:
             return
         from PyQt6.QtWidgets import QDialog
+
         from ui.latex_insert_image_dialog import LatexInsertImageDialog
         base_dir = ed.file_path.parent if ed.file_path else None
         dlg = LatexInsertImageDialog(parent=self._mw, base_dir=base_dir)
@@ -789,7 +792,7 @@ class LatexMenuManager:
 
     # ── Navigazione etichette ─────────────────────────────────────────────────
 
-    def _collect_labels(self, ed: "EditorWidget") -> list[tuple[int, int, str]]:
+    def _collect_labels(self, ed: EditorWidget) -> list[tuple[int, int, str]]:
         """Restituisce [(line, col, key)] per ogni \\label{key} nel documento."""
         result = []
         for i in range(ed.lines()):
@@ -828,7 +831,7 @@ class LatexMenuManager:
 
     # ── Modifica tabelle (delega alla toolbar) ────────────────────────────────
 
-    def _table_op(self, action: str, where: Optional[str]) -> None:
+    def _table_op(self, action: str, where: str | None) -> None:
         toolbar = getattr(self._mw, "_lang_toolbar", None)
         if toolbar and hasattr(toolbar, "_table_edit"):
             toolbar._table_edit(action, where)

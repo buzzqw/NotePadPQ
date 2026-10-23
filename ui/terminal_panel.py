@@ -6,20 +6,16 @@ Pannello terminale embedded basato su QWebEngineView e xterm.js.
 Esegue una vera e propria sessione shell continua.
 """
 
-import os
 import json
+import os
 import sys
 from pathlib import Path
-from typing import Optional
+
+from PyQt6.QtCore import QObject, QProcess, QProcessEnvironment, Qt, QUrl, pyqtSignal, pyqtSlot
+from PyQt6.QtWebChannel import QWebChannel
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget
 
 from i18n.i18n import tr
-from PyQt6.QtCore import QUrl, Qt, QProcess, QProcessEnvironment, pyqtSignal, pyqtSlot, QObject
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QLabel, QMessageBox
-)
-from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebChannel import QWebChannel
-
 
 # ─── Bridge di comunicazione JS <-> Python ──────────────────────────────────
 
@@ -44,12 +40,12 @@ XTERM_HTML = r"""
     <script src="addon-fit.js"></script>
     <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <style>
-        html, body { 
+        html, body {
             margin: 0; padding: 0; height: 100%; width: 100%;
-            background-color: #1e1e1e; overflow: hidden; 
+            background-color: #1e1e1e; overflow: hidden;
         }
-        #terminal { 
-            height: 100%; width: 100%; 
+        #terminal {
+            height: 100%; width: 100%;
             padding-top: 4px; padding-left: 4px;
         }
         /* Custom scrollbar matching VS Code style */
@@ -64,8 +60,8 @@ XTERM_HTML = r"""
     <script>
         window.onload = function() {
             const term = new Terminal({
-                theme: { 
-                    background: '#1e1e1e', 
+                theme: {
+                    background: '#1e1e1e',
                     foreground: '#d4d4d4',
                     cursor: '#ffffff'
                 },
@@ -81,7 +77,7 @@ XTERM_HTML = r"""
             term.loadAddon(fitAddon);
             term.open(document.getElementById('terminal'));
             term.write('\x1b[32m[ NotePadPQ Terminal Ready ]\x1b[0m\r\n');
-            
+
             let shellStarted = false;
 
             // 🟢 FUNZIONE INTELLIGENTE: fa il fit SOLO se il tab è realmente visibile
@@ -101,22 +97,22 @@ XTERM_HTML = r"""
             if (typeof qt !== 'undefined' && qt.webChannelTransport) {
                 new QWebChannel(qt.webChannelTransport, function(channel) {
                     window.backend = channel.objects.backend;
-                    
+
                     // 🟢 LOOP DI ATTESA: Controlla ogni 100ms se il pannello è stato mostrato a video
                     let checkInterval = setInterval(() => {
                         if (safeFit()) {
                             // Il pannello è finalmente visibile! Fermiamo il loop.
                             clearInterval(checkInterval);
                             term.focus();
-                            
+
                             // Inviamo il finto Invio a Bash solo ora che lo schermo è largo il giusto
                             if (!shellStarted && window.backend) {
                                 shellStarted = true;
-                                window.backend.receive_input('\r'); 
+                                window.backend.receive_input('\r');
                             }
                         }
                     }, 100);
-                    
+
                     term.onData(data => {
                         if (window.backend) {
                             window.backend.receive_input(data);
@@ -148,10 +144,10 @@ class TerminalPanel(QWidget):
     Mantiene una sessione shell persistente.
     """
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._cwd: Path = Path.home()
-        self._process: Optional[QProcess] = None
+        self._process: QProcess | None = None
         self._restart_pending = False
         self._webview = None
         self._setup_ui()
@@ -167,7 +163,7 @@ class TerminalPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        
+
         # Barra superiore
         bar_widget = QWidget()
         bar_widget.setStyleSheet("background-color: #252526; border-bottom: 1px solid #3c3c3c;")
@@ -211,13 +207,13 @@ class TerminalPanel(QWidget):
         if self._webview is None:
             return  # is_available() → False; il plugin mostra un messaggio di errore
         self._webview.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
-        
+
         # Setup QWebChannel
         self._channel = QWebChannel()
         self._backend = TerminalBackend()
         self._channel.registerObject("backend", self._backend)
         self._webview.page().setWebChannel(self._channel)
-        
+
         # Collega l'input di xterm.js al processo
         self._backend.input_received.connect(self._write_to_process)
 
@@ -245,14 +241,14 @@ class TerminalPanel(QWidget):
 
         self._process = QProcess(self)
         self._process.setWorkingDirectory(str(self._cwd))
-        
+
         # Setup variabili d'ambiente
         env = QProcessEnvironment.systemEnvironment()
         env.insert("TERM", "xterm-256color")
         env.insert("COLORTERM", "truecolor")
         env.insert("PYTHONUNBUFFERED", "1")  # Cruciale per non bloccare l'output
         self._process.setProcessEnvironment(env)
-        
+
         # Collegamento segnali
         self._process.readyReadStandardOutput.connect(self._on_stdout)
         self._process.readyReadStandardError.connect(self._on_stderr)
@@ -282,7 +278,7 @@ class TerminalPanel(QWidget):
         if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
             self._process.kill()
             self._process.waitForFinished(1000)
-        
+
         self._write_to_js("\r\n\x1b[31m[Processo terminato]\x1b[0m\r\n")
 
     def _write_to_process(self, data: str) -> None:
@@ -329,7 +325,7 @@ class TerminalPanel(QWidget):
     def _set_cwd(self, path: Path) -> None:
         self._cwd = path
         self._update_cwd_label()
-        
+
     def _update_cwd_label(self) -> None:
         self._cwd_label.setText(f"📁 {self._cwd}")
 

@@ -9,10 +9,11 @@ reagire agli eventi dell'editor.
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from PyQt6.QtGui import QIcon
+
     from ui.main_window import MainWindow
 
 
@@ -51,10 +52,10 @@ class BasePlugin:
     AUTHOR      = ""
 
     def __init__(self):
-        self._mw: Optional["MainWindow"] = None
+        self._mw: MainWindow | None = None
         self._menu_actions = []
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         """Chiamato quando il plugin viene caricato. Override obbligatorio."""
         self._mw = main_window
 
@@ -80,13 +81,15 @@ class BasePlugin:
     # ── Helper icone ──────────────────────────────────────────────────────────
 
     @staticmethod
-    def load_plugin_icon(icon_key: str, main_window: "MainWindow") -> "QIcon":
+    def load_plugin_icon(icon_key: str, main_window: MainWindow) -> QIcon:
         """Carica l'icona Lucide corrispondente alla chiave logica (es. 'plugin_git').
         Restituisce QIcon vuota se il file non esiste."""
-        from PyQt6.QtGui import QIcon, QPalette
         from pathlib import Path
-        from ui.main_window import _ICON_MAP
+
+        from PyQt6.QtGui import QIcon, QPalette
+
         from ui.language_toolbar import render_svg_icon
+        from ui.main_window import _ICON_MAP
 
         if not icon_key:
             return QIcon()
@@ -106,14 +109,14 @@ class BasePlugin:
         return QIcon()
 
     @staticmethod
-    def _register_icon(widget, icon_key: str, main_window: "MainWindow") -> None:
+    def _register_icon(widget, icon_key: str, main_window: MainWindow) -> None:
         """Registra widget+icon_key per la ri-applicazione da _rebuild_toolbar."""
         if hasattr(main_window, "_plugin_icon_actions"):
             main_window._plugin_icon_actions.append((widget, icon_key))
 
     # ── Helper per aggiungere voci di menu ────────────────────────────────────
 
-    def add_menu_action(self, main_window: "MainWindow",
+    def add_menu_action(self, main_window: MainWindow,
                         menu_name: str, action_text: str,
                         slot, shortcut: str = "",
                         icon_key: str = "") -> None:

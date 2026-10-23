@@ -9,8 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from editor.latex_checker import (
     _LIVE_CHECK_MAX_BYTES,
     _ORPHANED_WORKERS,
-    _CheckWorker,
     LaTeXChecker,
+    _CheckWorker,
     wait_for_orphaned_workers,
 )
 from editor.latex_support import LaTeXSupport

@@ -22,23 +22,31 @@ from __future__ import annotations
 
 import html
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Set, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QThread, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QStandardItem, QStandardItemModel, QColor, QIcon, QKeySequence, QAction
+from PyQt6.QtGui import QAction, QColor, QIcon, QKeySequence, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QTreeView, QLabel, QPushButton, QLineEdit,
-    QAbstractItemView, QFileDialog, QMenu,
+    QAbstractItemView,
+    QDockWidget,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QTreeView,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+    from ui.main_window import MainWindow
 
 
 # ─── Struttura dati ───────────────────────────────────────────────────────────
@@ -84,13 +92,13 @@ class IncludeEntry:
     arg:      str    # argomento grezzo (nome file / path)
     line:     int    # 1-based
     status:   str = STATUS_UNKNOWN
-    resolved: Optional[Path] = None   # path effettivo trovato su disco
+    resolved: Path | None = None   # path effettivo trovato su disco
 
 
 # ─── Parser ───────────────────────────────────────────────────────────────────
 
 def _resolve_file(arg: str, base_dir: Path,
-                  search_exts: tuple[str, ...]) -> Optional[Path]:
+                  search_exts: tuple[str, ...]) -> Path | None:
     """Cerca il file: prima as-is, poi aggiungendo le estensioni in search_exts."""
     if not base_dir:
         return None
@@ -108,7 +116,7 @@ def _resolve_file(arg: str, base_dir: Path,
     return None
 
 
-def _determine_status(entry: IncludeEntry, base_dir: Optional[Path],
+def _determine_status(entry: IncludeEntry, base_dir: Path | None,
                       search_exts: tuple[str, ...]) -> None:
     if not base_dir:
         entry.status = STATUS_UNKNOWN
@@ -136,8 +144,8 @@ _LATEX_PATTERNS: list[tuple[re.Pattern, str, tuple]] = [
 ]
 
 
-def parse_latex(text: str, base_dir: Optional[Path]) -> List[IncludeEntry]:
-    entries: List[IncludeEntry] = []
+def parse_latex(text: str, base_dir: Path | None) -> list[IncludeEntry]:
+    entries: list[IncludeEntry] = []
     for lineno, line in enumerate(text.splitlines(), 1):
         stripped = line.lstrip()
         if stripped.startswith("%"):
@@ -170,8 +178,8 @@ _MD_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 _MD_LINK  = re.compile(r"(?<!!)\[([^\]]*)\]\(([^)]+)\)")
 
 
-def parse_markdown(text: str, base_dir: Optional[Path]) -> List[IncludeEntry]:
-    entries: List[IncludeEntry] = []
+def parse_markdown(text: str, base_dir: Path | None) -> list[IncludeEntry]:
+    entries: list[IncludeEntry] = []
     for lineno, line in enumerate(text.splitlines(), 1):
         # immagini
         for m in _MD_IMAGE.finditer(line):
@@ -192,20 +200,20 @@ def parse_markdown(text: str, base_dir: Optional[Path]) -> List[IncludeEntry]:
     return entries
 
 
-def _not_included(entries: List[IncludeEntry],
+def _not_included(entries: list[IncludeEntry],
                   ref_dir: Path,
-                  lang: str) -> List[Path]:
+                  lang: str) -> list[Path]:
     """File nella ref_dir con estensioni rilevanti che non compaiono tra gli include."""
     rel_exts = _RELEVANT_BY_KIND.get(lang, set())
     if not rel_exts or not ref_dir.is_dir():
         return []
 
-    resolved: Set[Path] = set()
+    resolved: set[Path] = set()
     for e in entries:
         if e.resolved:
             resolved.add(e.resolved)
 
-    missing: List[Path] = []
+    missing: list[Path] = []
     for p in sorted(ref_dir.iterdir()):
         if p.is_file() and p.suffix.lower() in rel_exts:
             if p not in resolved:
@@ -219,7 +227,7 @@ class _ScanWorker(QThread):
     done = pyqtSignal(list, list, int)   # entries, not_included, generation
 
     def __init__(self, text: str, lang: str,
-                 base_dir: Optional[Path], ref_dir: Optional[Path],
+                 base_dir: Path | None, ref_dir: Path | None,
                  generation: int):
         super().__init__(None)
         self._text       = text
@@ -240,7 +248,7 @@ class _ScanWorker(QThread):
         else:
             entries = []
 
-        not_inc: List[Path] = []
+        not_inc: list[Path] = []
         if not self._cancelled and self._ref_dir and entries is not None:
             not_inc = _not_included(entries, self._ref_dir, self._lang)
 
@@ -269,15 +277,15 @@ _GROUP_ORDER = [
 
 class _IncludeListPanel(QWidget):
 
-    def __init__(self, main_window: "MainWindow", parent=None):
+    def __init__(self, main_window: MainWindow, parent=None):
         super().__init__(parent)
         self._mw            = main_window
-        self._editor: Optional["EditorWidget"] = None
-        self._entries: List[IncludeEntry]  = []
-        self._not_inc: List[Path]          = []
+        self._editor: EditorWidget | None = None
+        self._entries: list[IncludeEntry]  = []
+        self._not_inc: list[Path]          = []
         self._lang: str                    = ""
-        self._ref_dir: Optional[Path]      = None
-        self._scan_worker: Optional[_ScanWorker] = None
+        self._ref_dir: Path | None      = None
+        self._scan_worker: _ScanWorker | None = None
         self._old_workers: list            = []
         self._scan_gen: int                = 0
         self._needs_refresh: bool          = True
@@ -414,7 +422,7 @@ class _IncludeListPanel(QWidget):
 
     # ── Aggiornamento ─────────────────────────────────────────────────────────
 
-    def _detect_lang(self, editor: "EditorWidget") -> str:
+    def _detect_lang(self, editor: EditorWidget) -> str:
         if editor.file_path:
             ext = editor.file_path.suffix.lower()
             if ext in (".tex", ".sty", ".cls", ".ltx"):
@@ -434,7 +442,7 @@ class _IncludeListPanel(QWidget):
             pass
         return ""
 
-    def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
+    def _on_editor_changed(self, editor: EditorWidget | None) -> None:
         if self._editor:
             try:
                 self._editor.textChanged.disconnect(self._on_text_changed)
@@ -557,7 +565,6 @@ class _IncludeListPanel(QWidget):
                 continue
             grp_items = groups.pop(kind)
             label     = _KIND_LABEL.get(kind, kind)
-            found_cnt = sum(1 for e in grp_items if e.status == STATUS_FOUND)
             miss_cnt  = sum(1 for e in grp_items if e.status == STATUS_MISSING)
             suffix    = f"  ({len(grp_items)})"
             if miss_cnt:
@@ -566,7 +573,9 @@ class _IncludeListPanel(QWidget):
             g.setEditable(False)
             g.setEnabled(True)
             g.setData("group", Qt.ItemDataRole.UserRole)
-            font = g.font(); font.setBold(True); g.setFont(font)
+            font = g.font()
+            font.setBold(True)
+            g.setFont(font)
             for e in grp_items:
                 g.appendRow(self._make_entry_item(e))
             self._model.appendRow(g)
@@ -577,7 +586,9 @@ class _IncludeListPanel(QWidget):
             g = QStandardItem(f"{label}  ({len(grp_items)})")
             g.setEditable(False)
             g.setData("group", Qt.ItemDataRole.UserRole)
-            font = g.font(); font.setBold(True); g.setFont(font)
+            font = g.font()
+            font.setBold(True)
+            g.setFont(font)
             for e in grp_items:
                 g.appendRow(self._make_entry_item(e))
             self._model.appendRow(g)
@@ -587,7 +598,9 @@ class _IncludeListPanel(QWidget):
             g = QStandardItem(f"━━ {tr('include_list.not_included', default='Non inclusi dalla cartella')}  ({len(not_inc)})")
             g.setEditable(False)
             g.setData("group_orphan", Qt.ItemDataRole.UserRole)
-            font = g.font(); font.setBold(True); g.setFont(font)
+            font = g.font()
+            font.setBold(True)
+            g.setFont(font)
             g.setForeground(QColor("#f0a040"))
             for p in not_inc:
                 it = QStandardItem(f"📄  {p.name}")
@@ -600,7 +613,6 @@ class _IncludeListPanel(QWidget):
         self._tree.expandAll()
         self._apply_filter(self._filter.text())
 
-        found = sum(1 for e in entries if e.status == STATUS_FOUND)
         miss  = sum(1 for e in entries if e.status == STATUS_MISSING)
         parts = [f"{len(entries)} include"]
         if miss:
@@ -633,7 +645,7 @@ class _IncludeListPanel(QWidget):
         return self._image_tooltip(e.resolved, path_text)
 
     @staticmethod
-    def _image_tooltip(path: Path, path_text: Optional[str] = None) -> str:
+    def _image_tooltip(path: Path, path_text: str | None = None) -> str:
         """Tooltip con anteprima per un file immagine risolto su disco."""
         path_text = path_text if path_text is not None else str(path)
         if path.suffix.lower() not in _IMG_PREVIEW_EXTS:
@@ -786,6 +798,7 @@ class _IncludeListPanel(QWidget):
         rel = self._rel_path(fpath)
 
         from PyQt6.QtWidgets import QDialog
+
         from ui.latex_insert_image_dialog import LatexInsertImageDialog
         dlg = LatexInsertImageDialog(parent=self._mw, base_dir=base_dir)
         dlg.set_image_file(rel)
@@ -823,7 +836,7 @@ class _IncludeListPanel(QWidget):
 
 # ─── Installazione ────────────────────────────────────────────────────────────
 
-def install(main_window: "MainWindow") -> _IncludeListPanel:
+def install(main_window: MainWindow) -> _IncludeListPanel:
     panel = _IncludeListPanel(main_window)
 
     dock = QDockWidget(
@@ -863,6 +876,7 @@ def install(main_window: "MainWindow") -> _IncludeListPanel:
 
         try:
             from pathlib import Path as _P
+
             from PyQt6.QtGui import QPalette, QPixmap
             icon_path = _P(__file__).parent.parent / "icons" / "lucide" / "list-checks.svg"
             if icon_path.exists():

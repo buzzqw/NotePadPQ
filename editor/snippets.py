@@ -12,13 +12,13 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject
 from PyQt6.QtWidgets import QApplication
 
-from core.platform import get_data_dir
 from core.persistence import atomic_write_json, load_json
+from core.platform import get_data_dir
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -560,7 +560,7 @@ class SnippetManager(QObject):
     Singleton. Gestisce snippet built-in e utente.
     """
 
-    _instance: Optional["SnippetManager"] = None
+    _instance: SnippetManager | None = None
 
     def __init__(self):
         super().__init__()
@@ -572,7 +572,7 @@ class SnippetManager(QObject):
         self._load_user_snippets()
 
     @classmethod
-    def instance(cls) -> "SnippetManager":
+    def instance(cls) -> SnippetManager:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -611,7 +611,7 @@ class SnippetManager(QObject):
             if "trigger" in s
         }
 
-    def expand(self, editor: "EditorWidget", language: str) -> bool:
+    def expand(self, editor: EditorWidget, language: str) -> bool:
         """
         Prova ad espandere il trigger prima del cursore.
         Restituisce True se uno snippet è stato espanso.
@@ -657,7 +657,7 @@ class SnippetManager(QObject):
             editor._jump_to_next_tabstop()
         return True
 
-    def _expand_variables(self, body: str, editor: "EditorWidget") -> str:
+    def _expand_variables(self, body: str, editor: EditorWidget) -> str:
         """Sostituisce le variabili di sistema nel corpo dello snippet."""
         path = editor.file_path
         replacements = {

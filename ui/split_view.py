@@ -26,16 +26,18 @@ Funzionalità:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, List
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QSplitter, QVBoxLayout, QHBoxLayout,
-    QLabel, QToolButton,
+    QHBoxLayout,
+    QLabel,
+    QSplitter,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
-
 
 # ─── _PanelCorner ─────────────────────────────────────────────────────────────
 
@@ -83,7 +85,7 @@ class _SplitPanel(QWidget):
         layout.addWidget(tab_manager, 1)
 
         # Il corner widget viene aggiunto al QTabWidget per stare sulla stessa riga dei tab
-        self._corner: Optional[_PanelCorner] = None
+        self._corner: _PanelCorner | None = None
         if show_header:
             self._corner = _PanelCorner(label)
             tab_manager.setCornerWidget(self._corner, Qt.Corner.TopRightCorner)
@@ -92,7 +94,7 @@ class _SplitPanel(QWidget):
         if self._corner is not None:
             self._corner.setVisible(visible)
 
-    def header(self) -> Optional[_PanelCorner]:
+    def header(self) -> _PanelCorner | None:
         return self._corner
 
 
@@ -135,7 +137,7 @@ class SplitViewManager(QWidget):
         self._primary = _SplitPanel(TabManager(self), tr("split_view.panel1"), show_header=False)
         self._splitter.addWidget(self._primary)
 
-        self._secondary: Optional[_SplitPanel] = None
+        self._secondary: _SplitPanel | None = None
         self._active: _SplitPanel = self._primary
         self._sync_cursor: bool = False
         self._sync_zoom: bool = False
@@ -201,7 +203,7 @@ class SplitViewManager(QWidget):
                 tm.set_tab_deferred(editor, deferred)
                 return
 
-    def find_tab_by_path(self, path: Path) -> Optional[int]:
+    def find_tab_by_path(self, path: Path) -> int | None:
         idx = self._primary.tab_manager.find_tab_by_path(path)
         if idx is not None:
             return idx
@@ -436,8 +438,10 @@ class SplitViewManager(QWidget):
 
         for panel in self._panels():
             for ed in panel.tab_manager.all_editors():
-                cursor_slot = lambda ln, col, e=ed: self._on_sync_cursor_from(e, ln, col)
-                scroll_slot = lambda val, e=ed: self._on_sync_scroll_from(e, val)
+                def cursor_slot(ln, col, e=ed):
+                    return self._on_sync_cursor_from(e, ln, col)
+                def scroll_slot(val, e=ed):
+                    return self._on_sync_scroll_from(e, val)
                 ed.cursor_changed.connect(cursor_slot)
                 ed.verticalScrollBar().valueChanged.connect(scroll_slot)
                 self._sync_connections[ed] = (cursor_slot, scroll_slot)
@@ -459,7 +463,8 @@ class SplitViewManager(QWidget):
 
         for panel in self._panels():
             for ed in panel.tab_manager.all_editors():
-                slot = lambda level, e=ed: self._on_sync_zoom_from(e, level)
+                def slot(level, e=ed):
+                    return self._on_sync_zoom_from(e, level)
                 ed.zoom_changed.connect(slot)
                 self._sync_zoom_connections[ed] = slot
 
@@ -533,7 +538,7 @@ class SplitViewManager(QWidget):
 
     # ── Utility ───────────────────────────────────────────────────────────────
 
-    def _panels(self) -> List[_SplitPanel]:
+    def _panels(self) -> list[_SplitPanel]:
         result = [self._primary]
         if self._secondary:
             result.append(self._secondary)

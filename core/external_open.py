@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-from typing import Union
 
 
 def clean_subprocess_env() -> dict:

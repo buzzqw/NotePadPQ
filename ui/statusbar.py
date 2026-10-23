@@ -7,13 +7,11 @@ Mostra: riga/colonna, selezione, encoding, line ending,
 """
 
 from __future__ import annotations
-from typing import Optional, TYPE_CHECKING
+
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import (
-    QStatusBar, QLabel, QFrame, QSizePolicy, QToolTip
-)
-from PyQt6.QtGui import QCursor
+from PyQt6.QtWidgets import QFrame, QLabel, QStatusBar
 
 from i18n.i18n import tr
 
@@ -81,7 +79,7 @@ class StatusBar(QStatusBar):
 
     # ── Aggiornamento ─────────────────────────────────────────────────────────
 
-    def update_from_editor(self, editor: "EditorWidget") -> None:
+    def update_from_editor(self, editor: EditorWidget) -> None:
         line, col = editor.get_cursor_position_1based()
         self.set_cursor(line, col)
         self.set_encoding(editor.encoding)
@@ -137,7 +135,7 @@ class StatusBar(QStatusBar):
             tr("label.read_only") if ro else ""
         )
 
-    def _update_lang(self, editor: "EditorWidget") -> None:
+    def _update_lang(self, editor: EditorWidget) -> None:
         from editor.lexers import get_language_name
         lang = get_language_name(editor)
         self._lbl_lang.setText(lang if lang and lang != "Text" else "Text")

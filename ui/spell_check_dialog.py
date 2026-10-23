@@ -9,25 +9,31 @@ di sostituire, ignorare o aggiungere al dizionario personale.
 
 from __future__ import annotations
 
-import re
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QFont, QTextCharFormat
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
-    QListWidget, QListWidgetItem, QPushButton,
-    QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
-    QGroupBox, QFrame, QComboBox,
+    QComboBox,
+    QDialog,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QSizePolicy,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtGui import QTextCursor, QTextCharFormat, QColor, QFont
 
+from editor.spellcheck import iter_spell_words
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
-
-# Regexp parole (stessa di editor_widget.py)
-_RE_SPELL = re.compile(r"(?<![\\])\b[^\W\d_]+\b", re.UNICODE)
 
 
 # Mappa lingua → etichetta
@@ -55,8 +61,8 @@ class SpellCheckDialog(QDialog):
 
     def __init__(
         self,
-        editor: "EditorWidget",
-        parent: Optional[QWidget] = None,
+        editor: EditorWidget,
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._editor = editor
@@ -205,12 +211,11 @@ class SpellCheckDialog(QDialog):
         seen: set[str] = set()
         word_list: list[str] = []
 
-        for m in _RE_SPELL.finditer(text):
-            word = m.group(0)
-            if len(word) <= 2 or word.isupper():
+        for start, end, word in iter_spell_words(text):
+            if word.isupper():
                 continue
             word_list.append(word)
-            positions.append((m.start(), m.end(), word))
+            positions.append((start, end, word))
             seen.add(word)
 
         unknown = checker.unknown(word_list) if word_list else set()
@@ -351,7 +356,7 @@ class SpellCheckDialog(QDialog):
         _, _, word = self._errors[self._current_idx]
         # Itera le occorrenze dall'ultima alla prima (per non invalidare le posizioni)
         text = self._editor.text()
-        matches = [(m.start(), m.end()) for m in _RE_SPELL.finditer(text) if m.group(0) == word]
+        matches = [(start, end) for start, end, found in iter_spell_words(text) if found == word]
         for start, end in reversed(matches):
             ls, cs, le, ce = self._abs_to_line_col(start, end)
             self._editor._spell_replace(ls, cs, le, ce, replacement)

@@ -9,12 +9,11 @@ i built-in.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from types import MappingProxyType
-from typing import Mapping
-
 
 _TEMPLATE_SUFFIXES = {"", ".tex", ".ltx", ".latex"}
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")

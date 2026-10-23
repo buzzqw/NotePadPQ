@@ -13,8 +13,15 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
-    QLineEdit, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QVBoxLayout,
 )
 
 from i18n.i18n import tr
@@ -50,7 +57,7 @@ def _action_label(key: str, actions: dict) -> str:
 
 
 class CustomizeToolbarDialog(QDialog):
-    def __init__(self, main_window: "MainWindow") -> None:
+    def __init__(self, main_window: MainWindow) -> None:
         super().__init__(main_window)
         self._mw = main_window
         self.setWindowTitle(tr("action.customize_toolbar", default="Personalizza barra degli strumenti"))

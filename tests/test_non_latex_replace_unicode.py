@@ -8,16 +8,20 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QLabel, QTreeWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QTreeWidget, QTreeWidgetItem
 
-from editor.editor_widget import INDICATOR_SPELL, EditorWidget
+from editor.editor_widget import INDICATOR_FIND, INDICATOR_SPELL, EditorWidget
 from ui.find_replace import (
     FindReplaceDialog,
     _nearest_result_index,
     _ReplaceInFilesWorker,
     _ReplaceWriterWorker,
 )
-from ui.incremental_search import IncrementalSearchBar, _IncrementalSearchWorker
+from ui.incremental_search import (
+    _INC_CUR_INDICATOR,
+    IncrementalSearchBar,
+    _IncrementalSearchWorker,
+)
 from ui.spell_check_dialog import SpellCheckDialog
 
 
@@ -175,6 +179,202 @@ class FindReplaceSelectionTest(unittest.TestCase):
         self.assertIsNone(editor.selection)
 
 
+class TypographySearchTest(unittest.TestCase):
+    """La ricerca letterale deve trattare come equivalenti apostrofi,
+    virgolette e trattini tipografici e gli accenti NFC/NFD."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.dialog = FindReplaceDialog.__new__(FindReplaceDialog)
+        self.flags = {
+            "case_sensitive": False,
+            "whole_word": False,
+            "regex": False,
+            "wrap": True,
+            "in_selection": False,
+            "smart_search": False,
+        }
+
+    def test_build_pattern_folds_apostrophes_and_quotes(self):
+        pattern = self.dialog._build_pattern("un po’ “casa”", self.flags)
+        self.assertTrue(pattern.search("un po' \"casa\""))
+        self.assertTrue(pattern.search("un po’ “casa”"))
+
+    def test_build_pattern_folds_ellipsis_and_double_dash(self):
+        ellipsis = self.dialog._build_pattern("...", self.flags)
+        self.assertTrue(ellipsis.search("test… fine"))
+        self.assertTrue(self.dialog._build_pattern("…", self.flags).search("test... fine"))
+
+        em_dash = self.dialog._build_pattern("--", self.flags)
+        self.assertTrue(em_dash.search("a—b"))
+        self.assertTrue(em_dash.search("a–b"))
+
+    def test_build_pattern_folds_nfc_and_nfd(self):
+        pattern = self.dialog._build_pattern("perché", self.flags)
+        self.assertTrue(pattern.search("perché"))
+        self.assertTrue(pattern.search("perche\u0301"))
+
+    def test_whole_word_and_regex_modes_still_work(self):
+        whole = self.dialog._build_pattern(
+            "casa", {**self.flags, "whole_word": True})
+        self.assertTrue(whole.search("una casa qui"))
+        self.assertFalse(whole.search("casalinga"))
+
+        regex = self.dialog._build_pattern(
+            "po.", {**self.flags, "regex": True})
+        self.assertTrue(regex.search("po’"))
+
+    def test_smart_search_folds_variants(self):
+        patterns = self.dialog._smart_patterns("serve po’ Forza", self.flags)
+        self.assertTrue(
+            self.dialog._smart_line_matches("serve un po' di Forza", patterns))
+
+    def _dialog_for(self, editor):
+        dialog = FindReplaceDialog.__new__(FindReplaceDialog)
+        dialog._lbl_status = QLabel()
+        dialog._mw = SimpleNamespace(
+            _tab_manager=SimpleNamespace(current_editor=lambda: editor))
+        dialog._do_smart_find = lambda *_a, **_k: False
+        dialog._highlight_all = lambda *_a, **_k: 0
+        dialog._emphasize_find_selection = lambda *_a, **_k: None
+        dialog._in_selection_range = None
+        dialog._in_selection_match = None
+        dialog._last_pattern_error = None
+        return dialog
+
+    def test_replace_pattern_matches_every_variant(self):
+        pattern = self.dialog._build_pattern("po’", self.flags)
+        replaced, count = pattern.subn("X", "po' e po’ e PO'")
+        self.assertEqual(count, 3)
+        self.assertEqual(replaced, "X e X e X")
+
+    def test_in_selection_stays_in_range_and_advances(self):
+        editor = EditorWidget()
+        editor.setText("foo bar foo baz foo")
+        self.addCleanup(editor.deleteLater)
+        dialog = self._dialog_for(editor)
+        flags = {**self.flags, "in_selection": True}
+        widget = SimpleNamespace(text=lambda: "foo", currentText=lambda: "foo")
+
+        editor.setSelection(0, 0, 0, 11)  # "foo bar foo"
+        self.assertTrue(dialog._do_find(
+            widget, forward=True, flags=flags,
+            status_label=dialog._lbl_status))
+        self.assertEqual(editor.getSelection(), (0, 0, 0, 3))
+
+        self.assertTrue(dialog._do_find(
+            widget, forward=True, flags=flags,
+            status_label=dialog._lbl_status))
+        self.assertEqual(editor.getSelection(), (0, 8, 0, 11))
+
+        # Il terzo "foo" (colonna 16) è fuori dalla selezione: si avvolge.
+        self.assertTrue(dialog._do_find(
+            widget, forward=True, flags=flags,
+            status_label=dialog._lbl_status))
+        self.assertEqual(editor.getSelection(), (0, 0, 0, 3))
+
+    def test_in_selection_reports_no_match_outside_range(self):
+        editor = EditorWidget()
+        editor.setText("foo bar foo")
+        self.addCleanup(editor.deleteLater)
+        dialog = self._dialog_for(editor)
+        flags = {**self.flags, "in_selection": True}
+        widget = SimpleNamespace(text=lambda: "foo", currentText=lambda: "foo")
+
+        editor.setSelection(0, 4, 0, 7)  # "bar"
+        self.assertFalse(dialog._do_find(
+            widget, forward=True, flags=flags,
+            status_label=dialog._lbl_status))
+
+    def test_regex_find_uses_python_semantics(self):
+        editor = EditorWidget()
+        editor.setText("a1 b2 c3")
+        self.addCleanup(editor.deleteLater)
+        dialog = self._dialog_for(editor)
+        flags = {**self.flags, "regex": True}
+        widget = SimpleNamespace(text=lambda: r"\d", currentText=lambda: r"\d")
+
+        self.assertTrue(dialog._do_find(
+            widget, forward=True, flags=flags,
+            status_label=dialog._lbl_status))
+        self.assertEqual(editor.selectedText(), "1")
+        self.assertTrue(dialog._do_find(
+            widget, forward=True, flags=flags,
+            status_label=dialog._lbl_status))
+        self.assertEqual(editor.selectedText(), "2")
+
+    def test_do_find_matches_variant_and_advances(self):
+        editor = EditorWidget()
+        editor.setText("un po' qui\nun po’ là")
+        self.addCleanup(editor.deleteLater)
+        dialog = self._dialog_for(editor)
+        widget = SimpleNamespace(text=lambda: "po’", currentText=lambda: "po’")
+
+        self.assertTrue(dialog._do_find(
+            widget, forward=True, flags=self.flags,
+            status_label=dialog._lbl_status))
+        self.assertEqual(editor.selectedText(), "po'")
+
+        self.assertTrue(dialog._do_find(
+            widget, forward=True, flags=self.flags,
+            status_label=dialog._lbl_status))
+        self.assertEqual(editor.selectedText(), "po’")
+
+
+class CharacterColumnAlignmentTest(unittest.TestCase):
+    """setSelection usa colonne in caratteri, gli indicatori in byte: su righe
+    con accenti prima del match i due valori devono restare distinti."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.editor = EditorWidget()
+        self.editor.setText("à parola fine\ncittà parola")
+        self.addCleanup(self.editor.deleteLater)
+
+    def test_highlight_find_match_accepts_character_columns(self):
+        self.editor.highlight_find_match(0, 2, 8)
+        self.assertEqual(self.editor.getSelection(), (0, 2, 0, 8))
+        self.assertEqual(self.editor.selectedText(), "parola")
+        # Byte: "à " occupa 3 byte, quindi la parola parte dal byte 3.
+        self.assertEqual(
+            self.editor.indicatorValueAt(
+                INDICATOR_FIND, self.editor.positionFromLineIndex(0, 2)), 1)
+        self.assertEqual(
+            self.editor.indicatorValueAt(
+                INDICATOR_FIND, self.editor.positionFromLineIndex(0, 8)), 0)
+
+    def test_goto_occurrence_selects_the_word_after_an_accent(self):
+        dialog = FindReplaceDialog.__new__(FindReplaceDialog)
+        dialog._current_editor = lambda: self.editor
+        item = QTreeWidgetItem()
+        item.setData(0, Qt.ItemDataRole.UserRole,
+                     {"line": 1, "col": 2, "len": 6})
+        dialog._goto_occurrence(item)
+        self.assertEqual(self.editor.getSelection(), (0, 2, 0, 8))
+        self.assertEqual(self.editor.selectedText(), "parola")
+
+    def test_incremental_goto_keeps_character_selection(self):
+        bar = IncrementalSearchBar.__new__(IncrementalSearchBar)
+        bar._current_editor = lambda: self.editor
+        bar._matches = [(0, 2, 0, 8)]
+        bar._current_idx = -1
+        bar._count_lbl = QLabel()
+        self.addCleanup(bar._count_lbl.deleteLater)
+        bar._goto(0)
+        self.assertEqual(self.editor.getSelection(), (0, 2, 0, 8))
+        self.assertEqual(self.editor.selectedText(), "parola")
+        self.assertEqual(
+            self.editor.indicatorValueAt(
+                _INC_CUR_INDICATOR,
+                self.editor.positionFromLineIndex(0, 2)), 1)
+
+
 class SmartSearchTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -290,6 +490,25 @@ class UnicodeCoordinateTest(unittest.TestCase):
         self.assertEqual([m.group(0) for m in bar._build_pattern("abc").finditer("Abc abc")], ["abc"])
         bar._cb_case = Check(False)
         self.assertEqual([m.group(0) for m in bar._build_pattern("abc").finditer("Abc abc")], ["Abc", "abc"])
+
+    def test_incremental_pattern_folds_typography(self):
+        bar = IncrementalSearchBar.__new__(IncrementalSearchBar)
+
+        class Check:
+            def __init__(self, checked):
+                self.checked = checked
+
+            def isChecked(self):
+                return self.checked
+
+        bar._cb_regex = Check(False)
+        bar._cb_word = Check(False)
+        bar._cb_case = Check(False)
+        pattern = bar._build_pattern("po’")
+        self.assertEqual(
+            [m.group(0) for m in pattern.finditer("po' po’")],
+            ["po'", "po’"],
+        )
 
     def test_incremental_worker_returns_snapshot_offsets(self):
         emitted = []

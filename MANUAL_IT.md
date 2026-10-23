@@ -325,7 +325,7 @@ Mostra e porta il focus sulla barra di ricerca rapida nella toolbar (si attiva a
 - `:` salta a una **riga**;
 - `@` cerca un **simbolo** (def/class/function) nel file corrente.
 
-Usa `↑`/`↓` per scorrere i risultati, `Invio` per aprire la corrispondenza e `Esc` per chiudere l'elenco. Se nell'editor c'è una selezione su una sola riga, viene riportata nel campo.
+Usa `↑`/`↓` per scorrere i risultati, `Invio` per aprire la corrispondenza e `Esc` per chiudere l'elenco. Se nell'editor c'è una selezione su una sola riga, viene riportata nel campo. La ricerca nel testo considera equivalenti apostrofi, virgolette e trattini tipografici rispetto alle versioni ASCII (`’`/`'`, `“”`/`"`, `–`/`-`) e le lettere accentate in forma composta o decomposta.
 
 ### Dialog Cerca (`Ctrl+Shift+F`)
 
@@ -343,6 +343,8 @@ Il dialog ha 4 tab.
 | Cerca circolare | Riparte dall'inizio/fine al termine del documento |
 | Nella selezione | Cerca solo nel testo selezionato |
 | Aggiorna risultati automaticamente | Ricalcola l'elenco quando cambia il documento |
+
+In modalità letterale (regex disattivata) apostrofi, virgolette e trattini tipografici sono equivalenti alle versioni ASCII (`’`/`'`, `“”`/`"`, `–`/`-`), così come le lettere accentate in forma composta o decomposta. La stessa equivalenza vale per "Cerca nei file", "Cerca in tutti i documenti" e la ricerca incrementale.
 
 **Pulsanti:**
 
@@ -591,6 +593,7 @@ Tenendo il cursore fermo per mezzo secondo su determinati elementi, NotePadPQ mo
 - **A capo automatico** (`Alt+Z`): manda a capo il testo a schermo senza modificare il file
 - **Controllo Ortografico (`F4`)**: attiva la sottolineatura a zig-zag rossa per le parole errate. La lingua del dizionario è indipendente dalla lingua dell'interfaccia e si seleziona da **Documento → Lingua dizionario** (Italiano, English, Deutsch, Français, Español, Polski). Il click destro su una parola sottolineata mostra fino a 8 suggerimenti di correzione, "Aggiungi al dizionario" e "Ignora tutto". Ignora le sigle interamente maiuscole e le parole di meno di 3 lettere.
 - **Lingua dizionario**: sottomenu di Documento che seleziona la lingua dello spell checker indipendentemente dalla lingua dell'interfaccia. La scelta viene salvata tra le sessioni.
+- **Motore ortografico**: se sul sistema è installato Hunspell con il dizionario della lingua, NotePadPQ lo usa automaticamente e riconosce anche le forme flesse; in alternativa usa `spylls` (extra `spell`) o `pyspellchecker`. I file `.aff`/`.dic` possono essere messi nella cartella `hunspell` della directory dati o indicati con la variabile `NOTEPADPQ_HUNSPELL_DIR`. Nei documenti LaTeX comandi, environment, opzioni, percorsi e blocchi matematici vengono ignorati.
 - **Tipografia intelligente**: converte automaticamente i caratteri "grezzi" in varianti tipografiche corrette: `"..."` → `"..."`, `'...'` → `'...'`, `--` → `—`, `...` → `…`. Non si attiva dentro blocchi di codice. Attivabile da **Documento → Tipografia intelligente** o da **Preferenze → Editor → Scrittura**.
 - **Focus paragrafo**: attenua il testo fuori dal paragrafo corrente (delimitato da righe vuote) per favorire la concentrazione. Il colore di attenuazione si adatta automaticamente al tema chiaro/scuro. Attivabile da **Documento → Focus paragrafo**. Si aggiorna in tempo reale mentre si scrive e al cambio tab.
 - **Segna/desegna attività (`Ctrl+Shift+L`)**: su una riga di task list Markdown (`- [ ] testo` o `- [x] testo`), alterna tra completato e non completato. Funziona con i marcatori `-`, `*`, `+`.

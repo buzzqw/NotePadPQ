@@ -6,7 +6,6 @@ NotePadPQ
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from core.persistence import atomic_write_json, load_json
 from core.platform import get_config_dir
@@ -15,7 +14,7 @@ from core.platform import get_config_dir
 class RecentFiles:
 
     MAX_ITEMS = 20
-    _instance: Optional["RecentFiles"] = None
+    _instance: RecentFiles | None = None
 
     def __init__(self):
         self._path = get_config_dir() / "recent_files.json"
@@ -24,7 +23,7 @@ class RecentFiles:
         self._list, self._pinned = self._load()
 
     @classmethod
-    def instance(cls) -> "RecentFiles":
+    def instance(cls) -> RecentFiles:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance

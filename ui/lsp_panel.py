@@ -12,13 +12,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 from i18n.i18n import tr
-from PyQt6.QtGui import QColor, QIcon
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QTreeWidget, QTreeWidgetItem,
-)
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -29,7 +34,7 @@ _SEV = {1: ("ERR",  "#f44747"), 2: ("WARN", "#ffcc00"), 3: ("INFO", "#9cdcfe"), 
 
 class DiagnosticsPanel(QWidget):
 
-    def __init__(self, main_window: "MainWindow", parent=None):
+    def __init__(self, main_window: MainWindow, parent=None):
         super().__init__(parent)
         self._mw = main_window
         self._data: dict[str, list] = {}  # uri → list of diag

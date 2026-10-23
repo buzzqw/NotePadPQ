@@ -770,6 +770,8 @@ class LanguageToolPlugin(BasePlugin):
             line_s, col_s = _absolute_to_line_col(self._snapshot, start)
             line_e, col_e = _absolute_to_line_col(self._snapshot, end)
             try:
+                # _absolute_to_line_col restituisce colonne in caratteri,
+                # come richiesto da fillIndicatorRange.
                 editor.fillIndicatorRange(
                     line_s, col_s, line_e, col_e, INDICATOR_LANGUAGETOOL
                 )

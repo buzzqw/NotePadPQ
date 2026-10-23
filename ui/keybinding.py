@@ -10,18 +10,26 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QKeySequence
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QHeaderView, QLineEdit, QPushButton, QLabel, QDialogButtonBox,
-    QMessageBox, QAbstractItemView,
+    QAbstractItemView,
+    QDialog,
+    QDialogButtonBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
 )
 
-from i18n.i18n import tr
 from core.platform import get_config_dir
+from i18n.i18n import tr
 
 # These actions used the same shipped defaults. Keep the commonly used general
 # actions unchanged and give the specialized actions deterministic alternatives.
@@ -288,7 +296,7 @@ class KeyBindingDialog(QDialog):
 
     # ── Modifica ──────────────────────────────────────────────────────────────
 
-    def _current_key(self) -> Optional[str]:
+    def _current_key(self) -> str | None:
         rows = self._table.selectedItems()
         if not rows:
             return None
@@ -370,7 +378,7 @@ class KeyBindingDialog(QDialog):
             self._save()
             self._populate()
 
-    def _find_conflict(self, seq_str: str, exclude_key: str) -> Optional[str]:
+    def _find_conflict(self, seq_str: str, exclude_key: str) -> str | None:
         """Trova un'azione che usa già questa scorciatoia."""
         if not seq_str:
             return None

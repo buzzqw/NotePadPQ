@@ -9,16 +9,22 @@ come in Notepad++. Ogni sessione salva i file aperti e le posizioni cursore.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QPushButton, QInputDialog, QMessageBox, QLabel
+    QDialog,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
 )
 
-from core.platform import get_config_dir
 from core.persistence import atomic_write_json, load_json
+from core.platform import get_config_dir
 from core.session import restore_cursor_after_load
 from i18n.i18n import tr
 
@@ -59,7 +65,7 @@ def _valid_named_session(data: object) -> bool:
     return True
 
 
-def save_named_session(name: str, main_window: "MainWindow") -> bool:
+def save_named_session(name: str, main_window: MainWindow) -> bool:
     """Salva la sessione corrente con il nome dato."""
     safe = _safe_session_name(name)
     if not safe:
@@ -87,7 +93,7 @@ def save_named_session(name: str, main_window: "MainWindow") -> bool:
         return False
 
 
-def load_named_session(name: str, main_window: "MainWindow") -> bool:
+def load_named_session(name: str, main_window: MainWindow) -> bool:
     """Carica la sessione con il nome dato."""
     safe = _safe_session_name(name)
     if not safe:
@@ -133,7 +139,7 @@ def delete_session(name: str) -> bool:
 class NamedSessionsDialog(QDialog):
     """Dialog per gestire le sessioni nominate."""
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(main_window)
         self._mw = main_window
         self.setWindowTitle(tr("named_sessions.title"))
@@ -172,7 +178,7 @@ class NamedSessionsDialog(QDialog):
         for name in list_sessions():
             self._list.addItem(QListWidgetItem(name))
 
-    def _selected_name(self) -> Optional[str]:
+    def _selected_name(self) -> str | None:
         item = self._list.currentItem()
         return item.text() if item else None
 

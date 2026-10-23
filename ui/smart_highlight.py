@@ -29,17 +29,17 @@ Uso da MainWindow:
 
 from __future__ import annotations
 
-import re
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QTimer, Qt
-from PyQt6.QtGui import QColor, QIcon, QKeySequence, QAction, QPixmap
-from PyQt6.QtWidgets import QApplication
-from i18n.i18n import tr 
+from PyQt6.QtCore import QTimer
+from PyQt6.QtGui import QAction, QColor, QIcon, QKeySequence, QPixmap
+
+from core.text_search import literal_search_pattern
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+    from ui.main_window import MainWindow
 
 # ─── Indicatori QScintilla riservati ─────────────────────────────────────────
 # editor_widget.py usa:
@@ -88,14 +88,14 @@ class SmartHighlighter:
     DELAY_MS  = 300
     MIN_LEN   = 2       # lunghezza minima parola per attivare l'highlight
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         self._mw       = main_window
         self._timer    = QTimer()
         self._timer.setSingleShot(True)
         self._timer.setInterval(self.DELAY_MS)
         self._timer.timeout.connect(self._do_highlight)
         self._last_word = ""
-        self._active_editor: Optional["EditorWidget"] = None
+        self._active_editor: EditorWidget | None = None
 
         from config.settings import Settings
         self._enabled: bool = Settings.instance().get(
@@ -126,7 +126,7 @@ class SmartHighlighter:
         except Exception:
             pass
 
-    def _clear_editor_indicators(self, editor: Optional["EditorWidget"]) -> None:
+    def _clear_editor_indicators(self, editor: EditorWidget | None) -> None:
         # Pulisce eventuali residui del vecchio indicatore oliva (n.13) lasciati
         # da versioni precedenti; il disegno ora è gestito dall'editor interno.
         if editor:
@@ -139,7 +139,7 @@ class SmartHighlighter:
             except Exception:
                 pass
 
-    def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
+    def _on_editor_changed(self, editor: EditorWidget | None) -> None:
         if self._active_editor:
             # Pulisce eventuali residui del vecchio indicatore oliva.
             self._clear_editor_indicators(self._active_editor)
@@ -147,7 +147,7 @@ class SmartHighlighter:
         self._last_word = ""
 
     @staticmethod
-    def install_into_main_window(main_window: "MainWindow") -> "SmartHighlighter":
+    def install_into_main_window(main_window: MainWindow) -> SmartHighlighter:
         """Crea lo SmartHighlighter e aggiunge il toggle nel menu Cerca."""
         hl = SmartHighlighter(main_window)
         search_menu = main_window._menus.get("search")
@@ -184,9 +184,9 @@ class MultiMarkManager:
     Ogni mark può essere applicato a: testo selezionato, parola sotto cursore.
     """
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         self._mw = main_window
-        self._active_editor: Optional["EditorWidget"] = None
+        self._active_editor: EditorWidget | None = None
 
         main_window._tab_manager.current_editor_changed.connect(
             self._on_editor_changed
@@ -195,12 +195,12 @@ class MultiMarkManager:
         if ed:
             self._on_editor_changed(ed)
 
-    def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
+    def _on_editor_changed(self, editor: EditorWidget | None) -> None:
         self._active_editor = editor
         if editor:
             self._setup_indicators(editor)
 
-    def _setup_indicators(self, editor: "EditorWidget") -> None:
+    def _setup_indicators(self, editor: EditorWidget) -> None:
         """Configura i 5 indicatori colore (indici 14-18, fuori dai range di editor_widget)."""
         for i, color in enumerate(_MARK_COLORS):
             idx = _MARK_INDICATOR_BASE + i
@@ -230,11 +230,13 @@ class MultiMarkManager:
             if word:
                 self._mark_all_occurrences(editor, real_idx, word)
 
-    def _toggle_mark(self, editor: "EditorWidget", color_idx: int,
+    def _toggle_mark(self, editor: EditorWidget, color_idx: int,
                      line_from: int, col_from: int,
                      line_to: int, col_to: int) -> None:
-        """Attiva o disattiva il mark nel range dato."""
-        # Controlla se l'indicatore è già presente nel range
+        """Attiva o disattiva il mark nel range dato (colonne in caratteri)."""
+        # getSelection()/fillIndicatorRange/clearIndicatorRange usano colonne
+        # in caratteri; solo indicatorValueAt vuole una posizione assoluta in
+        # byte, che positionFromLineIndex produce già correttamente.
         pos_start = editor.positionFromLineIndex(line_from, col_from)
         already   = editor.indicatorValueAt(color_idx, pos_start)
         if already:
@@ -242,18 +244,17 @@ class MultiMarkManager:
         else:
             editor.fillIndicatorRange(line_from, col_from, line_to, col_to, color_idx)
 
-    def _mark_all_occurrences(self, editor: "EditorWidget",
+    def _mark_all_occurrences(self, editor: EditorWidget,
                               color_idx: int, word: str) -> None:
         """Marca tutte le occorrenze di word con il colore dato calcolando i byte esatti."""
-        pattern = r"\b" + re.escape(word) + r"\b"
+        pattern = literal_search_pattern(word, whole_word=True)
         count = 0
         try:
             for line in range(editor.lines()):
                 text = editor.text(line)
-                for m in re.finditer(pattern, text):
-                    byte_start = len(text[:m.start()].encode('utf-8'))
-                    byte_end   = len(text[:m.end()].encode('utf-8'))
-                    editor.fillIndicatorRange(line, byte_start, line, byte_end, color_idx)
+                for m in pattern.finditer(text):
+                    # offset di carattere: fillIndicatorRange non usa i byte
+                    editor.fillIndicatorRange(line, m.start(), line, m.end(), color_idx)
                     count += 1
         except Exception:
             pass
@@ -280,7 +281,7 @@ class MultiMarkManager:
         msg = tr("msg.marks_cleared", default="🎨 Tutti i mark rimossi")
         self._mw.statusBar().showMessage(msg, 2000)
 
-    def _word_range(self, editor: "EditorWidget"):
+    def _word_range(self, editor: EditorWidget):
         """Restituisce (word, line_s, col_s, line_e, col_e) della parola al cursore."""
         line, col = editor.getCursorPosition()
         text = editor.text(line)
@@ -297,25 +298,25 @@ class MultiMarkManager:
     # ── Installazione shortcut in MainWindow ──────────────────────────────────
 
     @staticmethod
-    def install_into_main_window(main_window: "MainWindow") -> "MultiMarkManager":
+    def install_into_main_window(main_window: MainWindow) -> MultiMarkManager:
         mgr = MultiMarkManager(main_window)
 
         search_menu = main_window._menus.get("search")
         if search_menu:
             color_keys = ["red", "green", "blue", "orange", "purple"]
             color_defaults = ["Rosso", "Verde", "Blu", "Arancione", "Viola"]
-            
+
             for i in range(1, 6):
                 color = _MARK_COLORS[i - 1]
                 pm = QPixmap(12, 12)
                 pm.fill(color)
                 icon = QIcon(pm)
-                
+
                 # Traduciamo il nome del colore
                 c_name = tr(f"color.{color_keys[i-1]}", default=color_defaults[i-1])
                 # Traduciamo la stringa dell'azione intera
                 testo = tr("action.mark_color", default="Evidenzia in {color}  (Ctrl+{num})", color=c_name, num=i)
-                
+
                 act = QAction(icon, testo, main_window)
                 act.setShortcut(QKeySequence(f"Ctrl+{i}"))
                 act.triggered.connect(lambda checked, idx=i - 1: mgr.mark(idx))
@@ -323,8 +324,8 @@ class MultiMarkManager:
 
             testo_clear = tr("action.clear_marks", default="Rimuovi tutti i mark")
             pm_clear = QPixmap(12, 12)
-            from PyQt6.QtGui import QPainter, QPen
             from PyQt6.QtCore import Qt as _Qt
+            from PyQt6.QtGui import QPainter, QPen
             painter = QPainter(pm_clear)
             strip_h = 12 // len(_MARK_COLORS)
             for _i, _c in enumerate(_MARK_COLORS):

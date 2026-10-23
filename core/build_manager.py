@@ -30,16 +30,16 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from PyQt6.QtCore import QObject, QThread, pyqtSignal
 
-from core.platform import get_default_shell, get_shell_exec_flag, IS_WINDOWS
-from core.platform import get_config_dir
-from core.latex_project import get_output_directory
 from core.diagnostics import profile_operation
+from core.latex_project import get_output_directory
+from core.platform import IS_WINDOWS, get_config_dir, get_default_shell, get_shell_exec_flag
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -221,11 +221,8 @@ _RE_LATEX_WARN  = re.compile(r'(?:LaTeX|Package|Class)[\w\s]*Warning:\s*(.+)')
 # ─── PTY helper ───────────────────────────────────────────────────────────────
 
 def _has_pty() -> bool:
-    try:
-        import pty
-        return True
-    except ImportError:
-        return False
+    import importlib.util
+    return importlib.util.find_spec("pty") is not None
 
 
 # ─── BuildWorker ──────────────────────────────────────────────────────────────
@@ -247,7 +244,7 @@ class BuildWorker(QThread):
         self._env     = env
         self._run_id  = run_id
         self._timeout = timeout if timeout and timeout > 0 else None
-        self._proc: Optional[subprocess.Popen] = None
+        self._proc: subprocess.Popen | None = None
         self._abort   = False
         self._outcome: tuple[str, float] | None = None
         self._state = BUILD_STATE_QUEUED
@@ -375,7 +372,7 @@ class InteractiveBuildWorker(QThread):
         self._env     = env
         self._run_id  = run_id
         self._timeout = timeout if timeout and timeout > 0 else None
-        self._proc: Optional[subprocess.Popen] = None
+        self._proc: subprocess.Popen | None = None
         self._abort   = False
         self._input_queue: list[str] = []
         self._outcome: tuple[str, float] | None = None
@@ -702,7 +699,7 @@ class BuildManager(QObject):
     pipeline_step = pyqtSignal(str, int, int, str)
     build_state_changed = pyqtSignal(str, str)
 
-    _instance: Optional["BuildManager"] = None
+    _instance: BuildManager | None = None
     _MAX_OUTPUT_LINES = 10000
 
     def __init__(self):
@@ -718,7 +715,7 @@ class BuildManager(QObject):
         self._load_user_profiles()
 
     @classmethod
-    def instance(cls) -> "BuildManager":
+    def instance(cls) -> BuildManager:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -801,7 +798,7 @@ class BuildManager(QObject):
         self._profile_overrides.pop(ext, None)
         self.save_profiles()
 
-    def get_profile_for_file(self, path: Path) -> Optional[str]:
+    def get_profile_for_file(self, path: Path) -> str | None:
         ext = path.suffix.lower()
         latex_ext = ext in {".tex", ".ltx", ".latex"}
         override = self._profile_overrides.get(ext, "")
@@ -820,7 +817,7 @@ class BuildManager(QObject):
 
     # ── Configurazione di progetto (.notepadpq-build.json) ─────────────────────
 
-    def _find_project_config(self, file_path: Path) -> Optional[dict]:
+    def _find_project_config(self, file_path: Path) -> dict | None:
         current = file_path.parent
         while True:
             cfg_path = current / ".notepadpq-build.json"
@@ -879,7 +876,7 @@ class BuildManager(QObject):
     # ── Esecuzione ────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _ramdisk_build_dir(root: Path) -> Optional[Path]:
+    def _ramdisk_build_dir(root: Path) -> Path | None:
         """Directory di build su tmpfs per ``root``, o None se non disponibile.
 
         Rispecchia il percorso assoluto della directory di progetto sotto
@@ -897,7 +894,7 @@ class BuildManager(QObject):
         mirrored = Path(*parent.parts[1:]) if parent.is_absolute() else parent
         return Path(runtime_dir) / "notepadpq-latex" / mirrored
 
-    def run(self, action: str, editor: Optional["EditorWidget"],
+    def run(self, action: str, editor: EditorWidget | None,
             run_id: str = "", interactive: bool = False) -> bool:
         if editor is None or editor.file_path is None:
             return False
@@ -910,7 +907,6 @@ class BuildManager(QObject):
         from config.settings import Settings
         if Settings.instance().get("build/save_before", True):
             if editor.is_modified():
-                from ui.main_window import MainWindow
                 win = editor.window()
                 if hasattr(win, "action_save"):
                     if win.action_save() is False:
@@ -1015,8 +1011,8 @@ class BuildManager(QObject):
                 makeglossaries_command,
                 makeindex_command,
                 nomencl_command,
+                quote_command,
             )
-            from core.latex_external_tools import quote_command
             auxiliary = detect_latex_auxiliary_tools(editor.get_content())
             if auxiliary:
                 output = latex_context.output_directory
@@ -1520,7 +1516,7 @@ class BuildManager(QObject):
     # ── Espansione variabili ──────────────────────────────────────────────────
 
     def _expand_profile_command(self, command: str, path: Path | None,
-                                editor: Optional["EditorWidget"],
+                                editor: EditorWidget | None,
                                 output_dir: Path | None = None,
                                 root_file: Path | None = None) -> BuildCommand:
         # LaTeX profiles retain their established shell behavior. The argv
@@ -1532,7 +1528,7 @@ class BuildManager(QObject):
         return self._expand_command(command, path, editor, output_dir, root_file)
 
     def _expand_command(self, command: str, path: Path | None,
-                        editor: Optional["EditorWidget"],
+                        editor: EditorWidget | None,
                         output_dir: Path | None = None,
                         root_file: Path | None = None) -> BuildCommand:
         """Expand a profile into argv unless it deliberately needs a shell.
@@ -1555,7 +1551,7 @@ class BuildManager(QObject):
         ]
 
     def _expand_shell_vars(self, command: str, path: Path | None,
-                           editor: Optional["EditorWidget"],
+                           editor: EditorWidget | None,
                            output_dir: Path | None = None,
                            root_file: Path | None = None) -> str:
         """Use environment expansion for shell profiles so values are not reparsed."""
@@ -1577,7 +1573,7 @@ class BuildManager(QObject):
         return self._expand_vars(command, path, editor, output_dir, root_file)
 
     def _expand_vars(self, command: str, path: Path | None,
-                     editor: Optional["EditorWidget"],
+                     editor: EditorWidget | None,
                      output_dir: Path | None = None, root_file: Path | None = None,
                      quote_paths: bool = False) -> str:
         line, col = (1, 1)
@@ -1694,8 +1690,8 @@ class BuildManager(QObject):
         return errors
 
     @staticmethod
-    def _parse_latex_log(output: str, source_file: Optional[Path] = None,
-                         output_dir: Optional[Path] = None) -> list[dict]:
+    def _parse_latex_log(output: str, source_file: Path | None = None,
+                         output_dir: Path | None = None) -> list[dict]:
         errors: list[dict] = []
         seen: set[tuple] = set()
         fallback_file = str(source_file.name) if source_file else ""
@@ -1705,7 +1701,7 @@ class BuildManager(QObject):
             log_path = Path(log_base) / f"{source_file.stem}.log"
             if log_path.exists():
                 try:
-                    log_content = log_path.read_text(errors="replace")
+                    log_content = log_path.read_text(encoding="utf-8", errors="replace")
                     if log_content:
                         output = log_content
                 except Exception as e:
@@ -1806,7 +1802,8 @@ class BuildManager(QObject):
             makefile = directory / "makefile"
         if makefile.exists():
             try:
-                for line in makefile.read_text(errors="replace").splitlines():
+                for line in makefile.read_text(
+                        encoding="utf-8", errors="replace").splitlines():
                     m = re.match(r"^([a-zA-Z0-9_\-]+)\s*:", line)
                     if m:
                         target = m.group(1)
@@ -1819,7 +1816,7 @@ class BuildManager(QObject):
         if pkg.exists():
             try:
                 data = json.loads(pkg.read_text(encoding="utf-8"))
-                for name, cmd in data.get("scripts", {}).items():
+                for name, _cmd in data.get("scripts", {}).items():
                     tasks.append({"name": f"npm run {name}", "cmd": f"npm run {name}", "source": "package.json"})
             except Exception as e:
                 _log_warn(f"Error reading package.json: {e}")
@@ -1860,7 +1857,7 @@ class BuildManager(QObject):
         cmake_file = directory / "CMakeLists.txt"
         build_dir = directory / "build"
         if cmake_file.exists():
-            cmds = [f"cmake -S . -B build", f"cmake --build build"]
+            cmds = ["cmake -S . -B build", "cmake --build build"]
             for c in cmds:
                 tasks.append({"name": c, "cmd": c, "source": "CMake"})
             if build_dir.exists():
@@ -1913,7 +1910,8 @@ class BuildManager(QObject):
             jf = directory / ".justfile"
         if jf.exists():
             try:
-                for line in jf.read_text(errors="replace").splitlines():
+                for line in jf.read_text(
+                        encoding="utf-8", errors="replace").splitlines():
                     m = re.match(r"^([a-zA-Z0-9_\-]+)\s*:", line)
                     if m:
                         target = m.group(1)

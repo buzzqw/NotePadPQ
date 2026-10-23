@@ -539,7 +539,6 @@
     "file_matches": "{matches} corrispondenze",
     "row_n": "Riga {n}",
     "select_directory": "Seleziona directory",
-    "ready": "Pronto.",
     "ollama_unreachable": "⚠ ollama non raggiungibile",
     "macro_no_macro": "Nessuna macro registrata.",
     "macro_play_n_title": "Esegui macro N volte",

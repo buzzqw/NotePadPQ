@@ -19,33 +19,47 @@ Shortcut: Ctrl+Alt+A per aprire/chiudere il pannello.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import re
-import ssl
-import urllib.request
-import urllib.error
-import urllib.parse
 import secrets
-import hashlib
-import base64
+import ssl
 import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, Qt, QTimer, QSize
-from PyQt6.QtGui import QFont, QKeySequence, QColor, QTextCursor, QTextCharFormat
+from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QApplication,
-    QLineEdit, QTextEdit, QPlainTextEdit, QPushButton,
-    QSplitter, QDialog, QFormLayout, QDialogButtonBox,
-    QDockWidget, QMessageBox, QCheckBox, QSpinBox,
-    QGroupBox, QScrollArea, QFrame, QFileDialog,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDockWidget,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSpinBox,
+    QSplitter,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -214,12 +228,12 @@ CONTEXT_ACTIONS = [
 
 class _OAuthCallbackHandler(BaseHTTPRequestHandler):
     """Handler per il callback OAuth di JetBrains"""
-    
+
     def do_GET(self):
         """Gestisce la richiesta GET del callback OAuth"""
         parsed_url = urllib.parse.urlparse(self.path)
         query_params = urllib.parse.parse_qs(parsed_url.query)
-        
+
         if 'code' in query_params:
             # Successo: salva il codice di autorizzazione
             self.server.auth_code = query_params['code'][0]
@@ -251,7 +265,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'text/html')
             self.end_headers()
             self.wfile.write(b'<html><body><h2>Richiesta non valida</h2></body></html>')
-    
+
     def log_message(self, format, *args):
         """Disabilita i log del server HTTP"""
         pass
@@ -259,15 +273,15 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
 
 class _JetBrainsOAuth(QObject):
     """Gestisce l'autenticazione OAuth con JetBrains"""
-    
+
     auth_completed = pyqtSignal(str)  # access_token
     auth_failed = pyqtSignal(str)     # error_message
-    
+
     def __init__(self):
         super().__init__()
         self._server = None
         self._server_thread = None
-        
+
     def start_auth_flow(self, oauth_config: dict) -> None:
         """Avvia il flusso di autenticazione OAuth"""
         try:
@@ -277,15 +291,15 @@ class _JetBrainsOAuth(QObject):
             code_challenge = base64.urlsafe_b64encode(
                 hashlib.sha256(code_verifier.encode()).digest()
             ).decode().rstrip('=')
-            
+
             # Salva i parametri per il token exchange
             self._oauth_config = oauth_config
             self._state = state
             self._code_verifier = code_verifier
-            
+
             # Avvia il server locale per il callback
             self._start_callback_server()
-            
+
             # Costruisce l'URL di autorizzazione
             auth_params = {
                 'response_type': 'code',
@@ -296,66 +310,66 @@ class _JetBrainsOAuth(QObject):
                 'code_challenge': code_challenge,
                 'code_challenge_method': 'S256'
             }
-            
+
             auth_url = f"{oauth_config['auth_url']}?{urllib.parse.urlencode(auth_params)}"
-            
+
             # Apre il browser per l'autenticazione
             import webbrowser
             webbrowser.open(auth_url)
-            
+
         except Exception as e:
             self.auth_failed.emit(f"Errore nell'avvio dell'autenticazione: {str(e)}")
-    
+
     def _start_callback_server(self) -> None:
         """Avvia il server HTTP locale per ricevere il callback"""
         try:
             # Estrae porta dall'URL di redirect
             redirect_url = urllib.parse.urlparse(self._oauth_config['redirect_uri'])
             port = redirect_url.port or 8080
-            
+
             # Crea e avvia il server
             self._server = HTTPServer(('localhost', port), _OAuthCallbackHandler)
             self._server.auth_code = None
             self._server.auth_error = None
-            
+
             # Avvia il server in un thread separato
             self._server_thread = threading.Thread(target=self._run_server, daemon=True)
             self._server_thread.start()
-            
+
             # Avvia il timer per controllare il callback
             self._callback_timer = QTimer()
             self._callback_timer.timeout.connect(self._check_callback)
             self._callback_timer.start(1000)  # Controlla ogni secondo
-            
+
         except Exception as e:
             self.auth_failed.emit(f"Errore nell'avvio del server callback: {str(e)}")
-    
+
     def _run_server(self) -> None:
         """Esegue il server HTTP in un thread separato"""
         try:
             self._server.handle_request()  # Gestisce una sola richiesta
         except Exception as e:
             print(f"Errore nel server callback: {e}")
-    
+
     def _check_callback(self) -> None:
         """Controlla se il callback è stato ricevuto"""
         if not self._server:
             return
-            
+
         if hasattr(self._server, 'auth_code') and self._server.auth_code:
             # Callback ricevuto con successo
             self._callback_timer.stop()
             auth_code = self._server.auth_code
             self._cleanup_server()
             self._exchange_code_for_token(auth_code)
-            
+
         elif hasattr(self._server, 'auth_error') and self._server.auth_error:
             # Callback ricevuto con errore
             self._callback_timer.stop()
             error = self._server.auth_error
             self._cleanup_server()
             self.auth_failed.emit(f"Errore di autorizzazione: {error}")
-    
+
     def _cleanup_server(self) -> None:
         """Pulisce il server HTTP"""
         if self._server:
@@ -364,10 +378,10 @@ class _JetBrainsOAuth(QObject):
             except Exception:
                 pass
             self._server = None
-        
+
         if hasattr(self, '_callback_timer'):
             self._callback_timer.stop()
-    
+
     def _exchange_code_for_token(self, auth_code: str) -> None:
         """Scambia il codice di autorizzazione con un access token"""
         try:
@@ -378,7 +392,7 @@ class _JetBrainsOAuth(QObject):
                 'redirect_uri': self._oauth_config['redirect_uri'],
                 'code_verifier': self._code_verifier
             }
-            
+
             # Effettua la richiesta per il token
             data = urllib.parse.urlencode(token_data).encode()
             req = urllib.request.Request(
@@ -386,23 +400,23 @@ class _JetBrainsOAuth(QObject):
                 data=data,
                 headers={'Content-Type': 'application/x-www-form-urlencoded'}
             )
-            
+
             with urllib.request.urlopen(req, timeout=30, context=_make_ssl_ctx()) as response:
                 token_response = json.loads(response.read().decode())
-            
+
             if 'access_token' in token_response:
                 access_token   = token_response['access_token']
                 refresh_token  = token_response.get('refresh_token', '')
                 expires_in     = int(token_response.get('expires_in', 3600))
                 if refresh_token:
-                    from core.secrets import set_secret
                     from config.settings import Settings
+                    from core.secrets import set_secret
                     set_secret("ai/jetbrains_refresh_token", refresh_token)
                     Settings.instance().set("ai/jetbrains_token_expires", int(time.time()) + expires_in - 60)
                 self._verify_ai_license(access_token)
             else:
                 self.auth_failed.emit("Token di accesso non ricevuto")
-                
+
         except urllib.error.HTTPError as e:
             try:
                 error_body = e.read().decode()
@@ -413,7 +427,7 @@ class _JetBrainsOAuth(QObject):
             self.auth_failed.emit(f"Errore nel token exchange: {error_msg}")
         except Exception as e:
             self.auth_failed.emit(f"Errore nel token exchange: {str(e)}")
-    
+
     def _verify_ai_license(self, access_token: str) -> None:
         """Verifica la licenza AI; se l'endpoint non è raggiungibile assume licenza valida."""
         try:
@@ -1031,8 +1045,8 @@ class _AIWorker(QThread):
             new_refresh   = r.get('refresh_token', refresh_token)
             expires_in    = int(r.get('expires_in', 3600))
             if access_token:
-                from core.secrets import set_secret
                 from config.settings import Settings
+                from core.secrets import set_secret
                 set_secret("ai/jetbrains_token", access_token)
                 set_secret("ai/jetbrains_refresh_token", new_refresh)
                 Settings.instance().set(
@@ -1061,15 +1075,15 @@ class _AIWorker(QThread):
                 access_token = self._refresh_jetbrains_token(refresh_token, oauth_config)
             if not access_token:
                 raise Exception("Token JetBrains AI scaduto. Rieffettua l'autenticazione OAuth dalle impostazioni.")
-        
+
         # Endpoint JetBrains AI per chat completions
         url = "https://api.jetbrains.com/v1/chat/completions"
-        
+
         # Prepara i messaggi nel formato OpenAI-compatibile
         msgs = self._strip_images(self._messages)
         if self._system:
             msgs = [{"role": "system", "content": self._system}] + list(msgs)
-        
+
         # Corpo della richiesta
         body = json.dumps({
             "model": self._model,
@@ -1077,43 +1091,49 @@ class _AIWorker(QThread):
             "max_tokens": self._max_tokens,
             "temperature": 0.7
         }).encode()
-        
+
         # Headers con autenticazione Bearer
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {access_token}",
             "User-Agent": "NotePadPQ-AI-Assistant/1.1"
         }
-        
+
         req = urllib.request.Request(url, data=body, method="POST", headers=headers)
-        
+
         try:
             with urllib.request.urlopen(req, timeout=60, context=_make_ssl_ctx()) as resp:
                 data = json.loads(resp.read())
-            
+
             # Estrae la risposta e i token usage se disponibili
             if "choices" in data and len(data["choices"]) > 0:
                 content = data["choices"][0]["message"]["content"]
-                
+
                 # Emette usage se disponibile
                 if "usage" in data:
                     usage = data["usage"]
                     self.usage_ready.emit(
-                        usage.get("prompt_tokens", 0), 
+                        usage.get("prompt_tokens", 0),
                         usage.get("completion_tokens", 0)
                     )
-                
+
                 return content
             else:
                 raise Exception("Risposta non valida dall'API JetBrains AI")
-                
+
         except urllib.error.HTTPError as e:
             if e.code == 401:
-                raise Exception("Token JetBrains AI scaduto o non valido. Rieffettua l'autenticazione OAuth.")
+                raise Exception(
+                    "Token JetBrains AI scaduto o non valido. "
+                    "Rieffettua l'autenticazione OAuth.") from e
             elif e.code == 403:
-                raise Exception("Accesso negato. Verifica che la tua licenza JetBrains AI sia attiva.")
+                raise Exception(
+                    "Accesso negato. Verifica che la tua licenza "
+                    "JetBrains AI sia attiva.") from e
             elif e.code == 429:
-                raise Exception("Limite di richieste raggiunto. Riprova tra qualche minuto.")
+                raise Exception(
+                    "Limite di richieste raggiunto. Riprova tra qualche "
+                    "minuto.") from e
             else:
                 # Prova a leggere il messaggio di errore dal corpo della risposta
                 try:
@@ -1122,7 +1142,8 @@ class _AIWorker(QThread):
                     error_msg = error_data.get("error", {}).get("message", f"HTTP {e.code}")
                 except Exception:
                     error_msg = f"HTTP {e.code}"
-                raise Exception(f"Errore API JetBrains AI: {error_msg}")
+                raise Exception(
+                    f"Errore API JetBrains AI: {error_msg}") from e
 
 
 # ─── Dialog impostazioni ──────────────────────────────────────────────────────
@@ -1170,7 +1191,7 @@ class _SettingsDialog(QDialog):
         for name, info in PROVIDERS.items():
             pid  = info["id"]
             auth_type = info.get("auth_type", "api_key")
-            
+
             if info["key_url"]:
                 lbl_text = f"<b>{name}</b> &nbsp;<a href='{info['key_url']}'>[ottieni chiave ↗]</a>"
             else:
@@ -1243,7 +1264,7 @@ class _SettingsDialog(QDialog):
                 self._key_edits[pid] = token_edit   # riusa lo stesso meccanismo save/load
 
                 form.addRow(lbl, outer_w)
-                
+
             else:
                 # Provider con API key tradizionale
                 edit = QLineEdit()
@@ -1272,7 +1293,7 @@ class _SettingsDialog(QDialog):
 
                 form.addRow(lbl, row_widget)
                 self._key_edits[pid] = edit
-            
+
             if info.get("note"):
                 note_lbl = QLabel(f"<small><i>{info['note']}</i></small>")
                 note_lbl.setOpenExternalLinks(True)
@@ -1320,7 +1341,7 @@ class _SettingsDialog(QDialog):
             return
         self._s.set("ai/max_tokens", self._max_tok.value())
         self.accept()
-    
+
     def _update_oauth_status(self) -> None:
         """Aggiorna lo stato di autenticazione OAuth per i provider che lo supportano"""
         for pid, status_lbl in self._oauth_status.items():
@@ -1339,34 +1360,34 @@ class _SettingsDialog(QDialog):
                 self._oauth_buttons[pid].setText("🔐 Accedi con JetBrains")
                 if disc_btn:
                     disc_btn.hide()
-    
+
     def _start_oauth_login(self, provider_id: str) -> None:
         """Avvia il flusso di autenticazione OAuth per il provider specificato"""
         if provider_id != "jetbrains":
             return
-            
+
         # Ottieni la configurazione OAuth per JetBrains
         provider_info = PROVIDERS.get("JetBrains AI", {})
         oauth_config = provider_info.get("oauth_config", {})
-        
+
         if not oauth_config:
             QMessageBox.warning(self, "Errore", "Configurazione OAuth non trovata per JetBrains AI")
             return
-        
+
         # Aggiorna UI
         self._oauth_buttons[provider_id].setEnabled(False)
         self._oauth_buttons[provider_id].setText("🔄 Autenticazione in corso...")
         self._oauth_status[provider_id].setText("🔄 Apertura browser...")
         self._oauth_status[provider_id].setStyleSheet("color:#ffcc00; font-size:10px;")
-        
+
         # Crea e configura l'handler OAuth
         self._oauth_handler = _JetBrainsOAuth()
         self._oauth_handler.auth_completed.connect(self._on_oauth_success)
         self._oauth_handler.auth_failed.connect(self._on_oauth_error)
-        
+
         # Avvia il flusso OAuth
         self._oauth_handler.start_auth_flow(oauth_config)
-    
+
     def _on_oauth_success(self, access_token: str) -> None:
         """Gestisce il successo dell'autenticazione OAuth"""
         # Aggiorna UI
@@ -1374,18 +1395,18 @@ class _SettingsDialog(QDialog):
         self._oauth_status["jetbrains"].setStyleSheet("color:#2ea043; font-size:10px;")
         self._oauth_buttons["jetbrains"].setText("🔐 Riautentica")
         self._oauth_buttons["jetbrains"].setEnabled(True)
-        
+
         # Mostra messaggio di successo
         QMessageBox.information(
-            self, 
-            "Autenticazione completata", 
+            self,
+            "Autenticazione completata",
             "Autenticazione JetBrains AI completata con successo!\n"
             "Ora puoi utilizzare JetBrains AI nel pannello chat."
         )
-        
+
         # Pulisce l'handler
         self._oauth_handler = None
-    
+
     def _on_oauth_error(self, error_message: str) -> None:
         """Gestisce gli errori di autenticazione OAuth"""
         # Ripristina UI
@@ -1393,14 +1414,14 @@ class _SettingsDialog(QDialog):
         self._oauth_status["jetbrains"].setStyleSheet("color:#f44747; font-size:10px;")
         self._oauth_buttons["jetbrains"].setText("🔐 Accedi con JetBrains")
         self._oauth_buttons["jetbrains"].setEnabled(True)
-        
+
         # Mostra messaggio di errore
         QMessageBox.warning(
-            self, 
-            "Errore di autenticazione", 
+            self,
+            "Errore di autenticazione",
             f"Errore durante l'autenticazione JetBrains AI:\n\n{error_message}"
         )
-        
+
         # Pulisce l'handler
         self._oauth_handler = None
 
@@ -1429,12 +1450,12 @@ class _AIPanel(QWidget):
     _llamacpp_ready   = pyqtSignal(object)  # list[str] | None — thread-safe
     _models_prefetched = pyqtSignal()       # discovery multi-provider completata — thread-safe
 
-    def __init__(self, main_window: "MainWindow", parent=None):
+    def __init__(self, main_window: MainWindow, parent=None):
         super().__init__(parent)
         self._mw        = main_window
         self._history:  list[dict] = []
         self._shutting_down = False
-        self._worker:      Optional[_AIWorker] = None
+        self._worker:      _AIWorker | None = None
         self._old_workers: list[_AIWorker]     = []
         self._streaming_block = False
         self._stream_acc = ""
@@ -1444,7 +1465,7 @@ class _AIPanel(QWidget):
         self._think_start  = 0.0  # istante del primo chunk di pensiero (inizio ragionamento)
         self._think_chars  = 0    # caratteri di soli pensieri generati
         self._local_model  = False  # True se il provider è Ollama/llama.cpp (stima tok/s live)
-        self._inline_selection: Optional[tuple] = None  # (lf, cf, lt, ct) o None = intero file
+        self._inline_selection: tuple | None = None  # (lf, cf, lt, ct) o None = intero file
         self._pending_images: list[dict] = []  # immagini in coda, allegate al prossimo invio
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
@@ -1714,7 +1735,9 @@ class _AIPanel(QWidget):
 
     def _auto_refresh_all_models(self) -> None:
         """Fetch real model lists from all configured APIs in background threads."""
-        import threading, urllib.request as ur
+        import threading
+        import urllib.request as ur
+
         from core.secrets import get_secret
 
         def _fetch_anthropic():
@@ -1880,6 +1903,7 @@ class _AIPanel(QWidget):
     def _refresh_ollama_models(self) -> None:
         """Interroga Ollama /api/tags in background e aggiorna il combo con i modelli installati."""
         import threading
+
         from core.secrets import get_secret
         ollama_url = get_secret("ai/ollama_key") or "http://localhost:11434"
 
@@ -1896,7 +1920,7 @@ class _AIPanel(QWidget):
 
         threading.Thread(target=_fetch, daemon=True).start()
 
-    def _set_ollama_models(self, models: Optional[list[str]]) -> None:
+    def _set_ollama_models(self, models: list[str] | None) -> None:
         """Popola il combo modelli con i modelli Ollama installati (chiamato nel thread principale)."""
         if PROVIDERS.get(self._provider_combo.currentText(), {}).get("id") != "ollama":
             return
@@ -1917,6 +1941,7 @@ class _AIPanel(QWidget):
     def _refresh_anthropic_models(self) -> None:
         """Interroga /v1/models Anthropic in background e aggiorna il combo."""
         import threading
+
         from core.secrets import get_secret
         api_key = get_secret("ai/anthropic_key").strip()
         if not api_key:
@@ -1951,7 +1976,7 @@ class _AIPanel(QWidget):
 
         threading.Thread(target=_fetch, daemon=True).start()
 
-    def _set_anthropic_models(self, models: Optional[list[str]]) -> None:
+    def _set_anthropic_models(self, models: list[str] | None) -> None:
         """Popola il combo con i modelli Anthropic effettivamente disponibili."""
         self._btn_refresh_models.setEnabled(True)
         self._btn_refresh_models.setText("↻")
@@ -1971,6 +1996,7 @@ class _AIPanel(QWidget):
     def _refresh_openai_models(self) -> None:
         """Interroga /v1/models OpenAI in background e aggiorna il combo con i modelli chat."""
         import threading
+
         from core.secrets import get_secret
         api_key = get_secret("ai/openai_key").strip()
         if not api_key:
@@ -2025,6 +2051,7 @@ class _AIPanel(QWidget):
     def _refresh_gemini_models(self) -> None:
         """Interroga /v1beta/models Gemini in background e aggiorna il combo."""
         import threading
+
         from core.secrets import get_secret
         api_key = get_secret("ai/gemini_key").strip()
         if not api_key:
@@ -2075,6 +2102,7 @@ class _AIPanel(QWidget):
     def _refresh_deepseek_models(self) -> None:
         """Interroga /v1/models DeepSeek (API compatibile OpenAI) in background."""
         import threading
+
         from core.secrets import get_secret
         api_key = get_secret("ai/deepseek_key").strip()
         if not api_key:
@@ -2125,6 +2153,7 @@ class _AIPanel(QWidget):
     def _refresh_llamacpp_models(self) -> None:
         """Interroga llama-server /v1/models in background e aggiorna il combo."""
         import threading
+
         from core.secrets import get_secret
         llamacpp_url = get_secret("ai/llamacpp_key") or "http://localhost:8080"
 
@@ -2141,7 +2170,7 @@ class _AIPanel(QWidget):
 
         threading.Thread(target=_fetch, daemon=True).start()
 
-    def _set_llamacpp_models(self, models: Optional[list[str]]) -> None:
+    def _set_llamacpp_models(self, models: list[str] | None) -> None:
         """Popola il combo con i modelli LlamaCPP disponibili (chiamato nel thread principale)."""
         if PROVIDERS.get(self._provider_combo.currentText(), {}).get("id") != "llamacpp":
             return
@@ -2390,7 +2419,7 @@ class _AIPanel(QWidget):
             original, modified,
             label_a=name, label_b=f"{name} (AI)")
 
-    def _handle_slash_command(self, text: str) -> Optional[str]:
+    def _handle_slash_command(self, text: str) -> str | None:
         """Gestisce i comandi slash. Ritorna il prompt trasformato o None."""
         cmd = text.strip()
         editor = self._mw._tab_manager.current_editor()
@@ -2427,8 +2456,6 @@ class _AIPanel(QWidget):
             return
         chars = len(text)
         est_tokens = max(1, int(chars * 0.4))
-        name = self._provider_combo.currentText()
-        info = PROVIDERS.get(name, {})
         costs = MODEL_COST.get(self._model_combo.currentText(), (0, 0))
         if costs[1]:
             cost = est_tokens * costs[1] / 1_000_000
@@ -2851,7 +2878,7 @@ class _AIPanel(QWidget):
 
     # ── Inline edit / Applica / Nuovo tab ─────────────────────────────────────
 
-    def _last_assistant_response(self) -> Optional[str]:
+    def _last_assistant_response(self) -> str | None:
         """Restituisce l'ultima risposta originale conservata nella history."""
         for message in reversed(self._history):
             if message.get("role") == "assistant":
@@ -3078,7 +3105,7 @@ class AIAssistantPlugin(BasePlugin):
     DESCRIPTION = "Chat AI: Anthropic Claude (streaming + Extended Thinking), OpenAI, Gemini, Ollama, LlamaCPP"
     AUTHOR      = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
         # Il pannello è costruito pigramente alla prima apertura del dock (vedi
         # _ensure_panel): crearlo all'avvio costa ~0.3s — costruzione UI più
@@ -3141,7 +3168,6 @@ class AIAssistantPlugin(BasePlugin):
 
     def _inject_context_menu(self, menu) -> None:
         """Aggiunge le voci AI al menu contestuale dell'editor (tasto destro)."""
-        from PyQt6.QtWidgets import QMenu
         ai_menu = menu.addMenu(tr("action.context_ai"))
         ai_menu.addAction(tr("action.context_ai_ask_file"),
                           lambda *_: self._ensure_panel()._ask_about_file())

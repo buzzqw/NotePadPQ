@@ -29,21 +29,27 @@ from __future__ import annotations
 
 import re
 import threading
-from typing import Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QKeySequence, QAction, QShortcut, QPalette
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QKeySequence, QPalette, QShortcut
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QLineEdit, QPushButton,
-    QLabel, QCheckBox, QSizePolicy, QApplication,
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
 )
 
-from i18n.i18n import tr
+from core.text_search import literal_search_source
 from core.worker_pool import ManagedWorker
+from i18n.i18n import tr
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+    from ui.main_window import MainWindow
 
 # Indicatore QScintilla per la ricerca incrementale
 _INC_INDICATOR     = 9    # occorrenze non correnti
@@ -86,14 +92,14 @@ class IncrementalSearchBar(QWidget):
 
     closed = pyqtSignal()
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(main_window)
         self._mw = main_window
-        self._matches: List[tuple] = []   # [(line_from, col_from, line_to, col_to)]
+        self._matches: list[tuple] = []   # [(line_from, col_from, line_to, col_to)]
         self._current_idx = -1
         self._last_text   = ""
         self._search_generation = 0
-        self._search_worker: Optional[ManagedWorker] = None
+        self._search_worker: ManagedWorker | None = None
         self._search_workers: list[ManagedWorker] = []
         self._observed_editor = None
 
@@ -314,7 +320,9 @@ class IncrementalSearchBar(QWidget):
             import bisect
             offset = max(0, min(offset, len(doc_text)))
             line = bisect.bisect_right(line_starts, offset) - 1
-            return line, len(doc_text[line_starts[line]:offset].encode("utf-8"))
+            # Colonna in CARATTERI: setSelection lavora così; la conversione
+            # in byte avviene solo quando si disegnano gli indicatori.
+            return line, offset - line_starts[line]
 
         self._matches = [
             (*char_to_line_col(start), *char_to_line_col(end))
@@ -328,6 +336,7 @@ class IncrementalSearchBar(QWidget):
 
         self._set_field_color(False)
         self._setup_indicators(editor)
+        # fillIndicatorRange accetta colonne in caratteri come self._matches.
         for ls, cs, le, ce in self._matches:
             editor.fillIndicatorRange(ls, cs, le, ce, _INC_INDICATOR)
 
@@ -345,9 +354,9 @@ class IncrementalSearchBar(QWidget):
     def _build_pattern(self, text: str) -> re.Pattern:
         """Costruisce il pattern regex dalle opzioni selezionate."""
         if not self._cb_regex.isChecked():
-            text = re.escape(text)
+            text = literal_search_source(text)
         if self._cb_word.isChecked():
-            text = r"\b" + text + r"\b"
+            text = r"\b(?:" + text + r")\b"
         flags = 0 if self._cb_case.isChecked() else re.IGNORECASE
         # Valida che sia una regex valida
         return re.compile(text, flags)
@@ -375,18 +384,14 @@ class IncrementalSearchBar(QWidget):
 
         ls, cs, le, ce = self._matches[idx]
 
-        # Rimuove highlight corrente precedente
+        # Rimuove highlight corrente precedente (colonne in caratteri).
+        last_line = editor.lines() - 1
         editor.clearIndicatorRange(
-            0, 0,
-            editor.lines() - 1,
-            len(editor.text(editor.lines() - 1)),
-            _INC_CUR_INDICATOR
+            0, 0, last_line, len(editor.text(last_line)), _INC_CUR_INDICATOR
         )
 
-        # Segna occorrenza corrente
+        # Segna occorrenza corrente e naviga: entrambe le API usano caratteri.
         editor.fillIndicatorRange(ls, cs, le, ce, _INC_CUR_INDICATOR)
-
-        # Naviga
         editor.setSelection(ls, cs, le, ce)
         editor.ensureLineVisible(ls)
 
@@ -394,7 +399,7 @@ class IncrementalSearchBar(QWidget):
 
     # ── Highlight ─────────────────────────────────────────────────────────────
 
-    def _setup_indicators(self, editor: "EditorWidget") -> None:
+    def _setup_indicators(self, editor: EditorWidget) -> None:
         editor.indicatorDefine(
             editor.IndicatorStyle.RoundBoxIndicator, _INC_INDICATOR
         )
@@ -416,7 +421,7 @@ class IncrementalSearchBar(QWidget):
         if not editor:
             return
         last_line = editor.lines() - 1
-        last_col  = len(editor.text(last_line))
+        last_col  = len(editor.text(last_line))  # colonne in caratteri
         for ind in (_INC_INDICATOR, _INC_CUR_INDICATOR):
             editor.clearIndicatorRange(0, 0, last_line, last_col, ind)
 
@@ -429,7 +434,7 @@ class IncrementalSearchBar(QWidget):
             palette.setColor(QPalette.ColorRole.Text, palette.color(QPalette.ColorRole.HighlightedText))
         self._field.setPalette(palette)
 
-    def _current_editor(self) -> Optional["EditorWidget"]:
+    def _current_editor(self) -> EditorWidget | None:
         return self._mw._tab_manager.current_editor()
 
     def _on_editor_changed(self, editor) -> None:
@@ -451,7 +456,7 @@ class IncrementalSearchBar(QWidget):
     # ── Installazione in MainWindow ───────────────────────────────────────────
 
     @staticmethod
-    def install(main_window: "MainWindow") -> "IncrementalSearchBar":
+    def install(main_window: MainWindow) -> IncrementalSearchBar:
         """
         Crea la barra e la inserisce nel layout della MainWindow
         tra il widget centrale e la statusbar.
@@ -467,7 +472,7 @@ class IncrementalSearchBar(QWidget):
         # SOTTO il central widget tramite un QWidget wrapper.
         try:
             # Crea un container che impila: central_widget + inc_search_bar
-            from PyQt6.QtWidgets import QWidget, QVBoxLayout
+            from PyQt6.QtWidgets import QVBoxLayout, QWidget
             old_central = main_window.centralWidget()
             container   = QWidget(main_window)
             vl = QVBoxLayout(container)

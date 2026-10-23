@@ -19,28 +19,43 @@ Nuove feature:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, pyqtSlot, pyqtSignal, QSize, QTimer
+from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QAction, QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPlainTextEdit,
-    QTreeWidget, QTreeWidgetItem, QToolBar,
-    QLabel, QComboBox, QDialog, QDialogButtonBox,
-    QFormLayout, QLineEdit, QPushButton, QSplitter,
-    QGroupBox, QListWidget, QListWidgetItem, QMessageBox,
-    QStatusBar, QFrame, QTextEdit, QSpinBox, QTabWidget,
-    QProgressBar, QCheckBox, QScrollArea, QSizePolicy,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
     QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QTextEdit,
+    QToolBar,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
-from PyQt6.QtCore import Qt as QtCoreQt
 
+from core.build_manager import DEFAULT_PROFILES, BuildManager
 from i18n.i18n import tr
-from core.build_manager import BuildManager, DEFAULT_PROFILES
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
-    from editor.editor_widget import EditorWidget
 
 
 class _AIAnalyzeDialog(QDialog):
@@ -155,7 +170,10 @@ class _AIAnalyzeDialog(QDialog):
             self._refresh_anthropic()
 
     def _refresh_ollama(self) -> None:
-        import threading, urllib.request, json as _json
+        import json as _json
+        import threading
+        import urllib.request
+
         from config.settings import Settings
         url_base = Settings.instance().get("ai/ollama_key", "") or "http://localhost:11434"
         self._model_combo.setEnabled(False)
@@ -187,7 +205,10 @@ class _AIAnalyzeDialog(QDialog):
             self._model_combo.addItem(m)
 
     def _refresh_anthropic(self) -> None:
-        import threading, urllib.request, json as _json
+        import json as _json
+        import threading
+        import urllib.request
+
         from config.settings import Settings
         api_key = Settings.instance().get("ai/anthropic_key", "").strip()
         if not api_key:
@@ -255,7 +276,7 @@ class _AIAnalyzeDialog(QDialog):
 class BuildPanel(QWidget):
     error_count_changed = pyqtSignal(int)
 
-    def __init__(self, main_window: "MainWindow", parent=None):
+    def __init__(self, main_window: MainWindow, parent=None):
         super().__init__(parent)
         self._mw = main_window
         self._bm = BuildManager.instance()
@@ -477,7 +498,8 @@ class BuildPanel(QWidget):
 
     def _set_analyze_ai_icon(self) -> None:
         from pathlib import Path
-        from PyQt6.QtGui import QPalette, QPixmap, QIcon
+
+        from PyQt6.QtGui import QIcon, QPalette, QPixmap
         icons_dir = Path(__file__).parent.parent / "icons" / "lucide"
         icon_path = icons_dir / "sparkles.svg"
         if not icon_path.exists():
@@ -1192,7 +1214,7 @@ class _TaskTab(QWidget):
 # ─── Dialog configurazione profili ───────────────────────────────────────────
 
 class BuildProfilesDialog(QDialog):
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(main_window)
         self._mw = main_window
         self._bm = BuildManager.instance()

@@ -15,29 +15,52 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
-import time
 import threading
+import time
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import (
-    Qt, QThread, pyqtSignal, QRegularExpression, QStringListModel,
+    QRegularExpression,
+    QStringListModel,
+    Qt,
+    QThread,
+    pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QFont, QKeySequence, QColor,
-    QSyntaxHighlighter, QTextCharFormat, QTextCursor,
+    QColor,
+    QFont,
+    QKeySequence,
+    QSyntaxHighlighter,
+    QTextCharFormat,
+    QTextCursor,
 )
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QTreeWidget, QTreeWidgetItem, QPlainTextEdit,
-    QLabel, QPushButton, QComboBox, QLineEdit,
-    QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
-    QMessageBox, QApplication, QFileDialog,
-    QTabWidget, QFrame, QSizePolicy, QTabBar, QCompleter,
+    QApplication,
+    QComboBox,
+    QCompleter,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSizePolicy,
+    QSplitter,
+    QTabWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
@@ -229,7 +252,7 @@ class _PipInstallWorker(QThread):
     def __init__(self, package: str):
         super().__init__()
         self._package = package
-        self._proc: Optional[subprocess.Popen] = None
+        self._proc: subprocess.Popen | None = None
         self._cancelled = False
 
     def cancel(self) -> None:
@@ -268,10 +291,10 @@ class _PipInstallWorker(QThread):
 
 
 class DBDriverInstallerDialog(QDialog):
-    def __init__(self, db_type: str, parent: Optional[QWidget] = None):
+    def __init__(self, db_type: str, parent: QWidget | None = None):
         super().__init__(parent)
         self._db_type = db_type
-        self._install_worker: Optional[_PipInstallWorker] = None
+        self._install_worker: _PipInstallWorker | None = None
         drv = _DRIVERS[db_type]
         self.setWindowTitle(tr("db.driver_missing_title", default="Driver mancante"))
         self.setMinimumWidth(440)
@@ -346,8 +369,8 @@ class DBDriverInstallerDialog(QDialog):
 # ── Connect dialog ────────────────────────────────────────────────────────────
 
 class DBConnectDialog(QDialog):
-    def __init__(self, conn_info: Optional[dict] = None,
-                 parent: Optional[QWidget] = None):
+    def __init__(self, conn_info: dict | None = None,
+                 parent: QWidget | None = None):
         super().__init__(parent)
         self._initial = conn_info or {}
         self.setWindowTitle(tr("db.connect_dialog_title",
@@ -580,7 +603,7 @@ class DBConnectionsManager:
 class DBSavedConnectionsDialog(QDialog):
     connection_selected = pyqtSignal(dict)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle(tr("db.saved_conns_title",
                                default="Connessioni salvate"))
@@ -637,7 +660,7 @@ class DBSavedConnectionsDialog(QDialog):
         for i in range(3):
             self._list.resizeColumnToContents(i)
 
-    def _selected(self) -> Optional[dict]:
+    def _selected(self) -> dict | None:
         item = self._list.currentItem()
         return item.data(0, Qt.ItemDataRole.UserRole) if item else None
 
@@ -679,7 +702,7 @@ class DBSavedConnectionsDialog(QDialog):
 # ── Driver manager dialog ─────────────────────────────────────────────────────
 
 class DBDriverManagerDialog(QDialog):
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle(tr("db.driver_manager_title",
                                default="Gestione driver database"))
@@ -900,7 +923,8 @@ def _get_columns(conn, db_type: str, table: str) -> list[tuple[str, str]]:
 
 # ── Query worker ──────────────────────────────────────────────────────────────
 
-import re as _re
+import re as _re  # noqa: E402
+
 
 def _quote_ident(name: str, db_type: str) -> str:
     """Quota un identificatore (tabella/colonna) secondo il dialetto, così
@@ -1031,8 +1055,8 @@ class _ExportWorker(QThread):
     BATCH_SIZE = 1000
 
     def __init__(self, path: Path, opts: dict, conn_info: dict,
-                 sql: str = "", headers: Optional[list] = None,
-                 rows: Optional[list] = None):
+                 sql: str = "", headers: list | None = None,
+                 rows: list | None = None):
         super().__init__()
         self._path = path
         self._opts = dict(opts)
@@ -1040,7 +1064,7 @@ class _ExportWorker(QThread):
         self._sql = sql
         self._headers = list(headers or [])
         self._rows = [tuple(row) for row in rows] if rows is not None else None
-        self._active_temporary_path: Optional[Path] = None
+        self._active_temporary_path: Path | None = None
         self._connection = None
         self._connection_lock = threading.Lock()
 
@@ -1266,7 +1290,7 @@ class _SqlEditor(QPlainTextEdit):
     `set_completion_words` (schema della connessione + keyword SQL).
     """
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._completer = QCompleter(self)
         self._completer.setWidget(self)
@@ -1354,26 +1378,26 @@ class _QueryTab(QWidget):
     PAGE_SIZE = 100
 
     def __init__(self, conn, conn_info: dict,
-                 main_window: "MainWindow",
+                 main_window: MainWindow,
                  tab_index: int,
-                 parent: Optional[QWidget] = None):
+                 parent: QWidget | None = None):
         super().__init__(parent)
         self._conn         = conn
         self._conn_info    = conn_info
         self._mw           = main_window
         self._tab_index    = tab_index
-        self._worker: Optional[_QueryWorker] = None
-        self._export_worker: Optional[_ExportWorker] = None
-        self._update_worker: Optional[_UpdateWorker] = None
+        self._worker: _QueryWorker | None = None
+        self._export_worker: _ExportWorker | None = None
+        self._update_worker: _UpdateWorker | None = None
         self._closing = False
-        self._result_widget: Optional[QWidget] = None
+        self._result_widget: QWidget | None = None
         self._raw_sql:   str  = ""
         self._page_offset: int = 0
         self._has_more:  bool = False
         self._last_headers: list = []
         self._last_rows:    list = []
         # Editing in-cella risultati
-        self._editable_table: Optional[str] = None   # tabella se SELECT mono-tabella
+        self._editable_table: str | None = None   # tabella se SELECT mono-tabella
         self._edit_orig_rows: list = []
         self._edit_headers:   list = []
         self._applying_edit:  bool = False
@@ -1505,8 +1529,8 @@ class _QueryTab(QWidget):
         prow = QHBoxLayout(self._pager)
         prow.setContentsMargins(6, 2, 6, 2)
         prow.setSpacing(4)
-        from PyQt6.QtWidgets import QToolButton
         from PyQt6.QtCore import QSize as _QSize
+        from PyQt6.QtWidgets import QToolButton
         self._btn_prev = QToolButton()
         _ic_prev = _db_svg_icon(self._mw, "chevron-left.svg")
         if not _ic_prev.isNull():
@@ -1787,7 +1811,7 @@ class _QueryTab(QWidget):
                 tr("db_widget.exporting_rows", default="Export in corso: {n} righe",
                    n=count))
 
-    def _choose_export_path(self, opts: dict) -> Optional[Path]:
+    def _choose_export_path(self, opts: dict) -> Path | None:
         fmt = opts.get("format", "csv")
         ext = "." + fmt
         conn_name = self._conn_info.get("name", "query")
@@ -1830,7 +1854,7 @@ class _QueryTab(QWidget):
             self._export_worker = None
 
     @staticmethod
-    def _stop_worker(worker: Optional[QThread]) -> None:
+    def _stop_worker(worker: QThread | None) -> None:
         if worker is None:
             return
         if worker.isRunning():
@@ -1889,7 +1913,12 @@ class _QueryTab(QWidget):
         `limit` (int, valido solo per first_n).
         """
         from PyQt6.QtWidgets import (
-            QRadioButton, QSpinBox, QComboBox, QCheckBox, QFormLayout, QGroupBox,
+            QCheckBox,
+            QComboBox,
+            QFormLayout,
+            QGroupBox,
+            QRadioButton,
+            QSpinBox,
         )
         page_count = len(self._last_rows)
         has_more   = bool(getattr(self, "_has_more", False))
@@ -2015,7 +2044,7 @@ class _QueryTab(QWidget):
         else:
             typed = delim_combo.currentText()
             delimiter = typed.replace("\\t", "\t") if typed else ","
-        if opts_rows := r_all.isChecked():
+        if r_all.isChecked():
             rows_mode = "all"
         elif r_n.isChecked():
             rows_mode = "first_n"
@@ -2128,7 +2157,7 @@ class _QueryTab(QWidget):
 
     # ── Editing in-cella risultati ──────────────────────────────────────────────
 
-    def _detect_editable_table(self, sql: str) -> Optional[str]:
+    def _detect_editable_table(self, sql: str) -> str | None:
         """Se la query è una SELECT semplice da una sola tabella (no JOIN, no
         aggregazioni/GROUP BY, no UNION), restituisce il nome della tabella;
         altrimenti None (risultati non editabili).
@@ -2269,13 +2298,13 @@ class DBBrowserWidget(QWidget):
     _ai_anthropic_ready = pyqtSignal(object)   # list[str] | None
 
     def __init__(self, conn_info: dict,
-                 main_window: "MainWindow",
-                 parent: Optional[QWidget] = None):
+                 main_window: MainWindow,
+                 parent: QWidget | None = None):
         super().__init__(parent)
-        self.file_path: Optional[Path] = None
+        self.file_path: Path | None = None
         self._conn_info  = conn_info
         self._mw         = main_window
-        self._schema_worker: Optional[_SchemaWorker] = None
+        self._schema_worker: _SchemaWorker | None = None
         self._query_count = 0
         # Cache schema: {table: [col_name, ...]} — alimenta autocomplete e
         # context menu (generazione INSERT, ecc.). Popolata in _load_schema
@@ -2316,8 +2345,8 @@ class DBBrowserWidget(QWidget):
         self._status_lbl.setStyleSheet("font-size: 11px; color: gray;")
         hrow.addWidget(self._status_lbl)
 
-        from PyQt6.QtWidgets import QToolButton
         from PyQt6.QtCore import QSize as _QSize
+        from PyQt6.QtWidgets import QToolButton
 
         btn_refresh = QToolButton()
         _ic_ref = _db_svg_icon(self._mw, "refresh-cw.svg")
@@ -2509,8 +2538,8 @@ class DBBrowserWidget(QWidget):
         """Popola il combo dei provider con quelli che hanno una chiave configurata."""
         self._ai_provider_combo.clear()
         try:
-            from plugins.ai_plugin import PROVIDERS
             from config.settings import Settings
+            from plugins.ai_plugin import PROVIDERS
         except ImportError:
             return
         s = Settings.instance()
@@ -2585,7 +2614,8 @@ class DBBrowserWidget(QWidget):
 
         def _fetch():
             try:
-                import urllib.request as _ur, json as _json
+                import json as _json
+                import urllib.request as _ur
                 req = _ur.Request(f"{ollama_url.rstrip('/')}/api/tags", method="GET")
                 with _ur.urlopen(req, timeout=3) as resp:
                     data = _json.loads(resp.read())
@@ -2627,7 +2657,8 @@ class DBBrowserWidget(QWidget):
 
         def _fetch():
             try:
-                import urllib.request as _ur, json as _json
+                import json as _json
+                import urllib.request as _ur
                 req = _ur.Request(
                     "https://api.anthropic.com/v1/models",
                     method="GET",
@@ -2884,7 +2915,7 @@ class DBBrowserWidget(QWidget):
     def _db_type(self) -> str:
         return self._conn_info.get("type", "")
 
-    def _run_select(self, table: str, limit: Optional[int] = None) -> None:
+    def _run_select(self, table: str, limit: int | None = None) -> None:
         q = _quote_ident(table, self._db_type())
         sql = f"SELECT * FROM {q}"
         if limit:
@@ -2972,7 +3003,7 @@ class DBBrowserWidget(QWidget):
         self._refresh_autocomplete()
         return tab
 
-    def _current_query_tab(self) -> Optional[_QueryTab]:
+    def _current_query_tab(self) -> _QueryTab | None:
         w = self._query_tabs.currentWidget()
         return w if isinstance(w, _QueryTab) else None
 

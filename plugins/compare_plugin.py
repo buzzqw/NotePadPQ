@@ -11,26 +11,34 @@ Novità v2.1:
 """
 
 from __future__ import annotations
-from typing import Optional, TYPE_CHECKING, List, Tuple, Deque
-from collections import deque
+
 import difflib
 import re
+from collections import deque
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QRect, QSize, QTimer
+from PyQt6.QtCore import QRect, QSize, Qt, QTimer
+from PyQt6.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QShortcut, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
-    QPlainTextEdit, QPushButton, QLabel, QComboBox,
-    QDialogButtonBox, QFileDialog, QWidget, QCheckBox, QMessageBox,
-    QApplication
-)
-from PyQt6.QtGui import (
-    QColor, QTextCharFormat, QFont, QTextCursor,
-    QPainter, QPen, QKeySequence, QShortcut
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -105,9 +113,7 @@ def _get_syntax_formats(lang_name: str, theme_tokens: dict,
     if lang_name in _SYNTAX_CACHE:
         return _SYNTAX_CACHE[lang_name][1]
     try:
-        from pygments.token import (
-            Keyword, Name, String, Number, Operator, Comment, Error
-        )
+        from pygments.token import Comment, Error, Keyword, Name, Number, Operator, String
     except ImportError:
         _SYNTAX_CACHE[lang_name] = ({}, {})
         return {}
@@ -239,7 +245,7 @@ class DiffPanel(QWidget):
 class CompareDialog(QDialog):
     """Finestra di confronto e merge side-by-side (v2.1) — stile Meld."""
 
-    def __init__(self, main_window: "MainWindow", text_a: str = "",
+    def __init__(self, main_window: MainWindow, text_a: str = "",
                  text_b: str = "", label_a: str = "A", label_b: str = "B",
                  text_base: str = ""):
         super().__init__(main_window)
@@ -247,18 +253,18 @@ class CompareDialog(QDialog):
         self.setWindowTitle("Compare & Merge Files")
         self.resize(1200, 780)
 
-        self._lines_a: List[str] = []
-        self._lines_b: List[str] = []
-        self._lines_base: List[str] = []
-        self._opcodes: List[Tuple] = []
-        self._opcodes_base_a: List[Tuple] = []
-        self._opcodes_base_b: List[Tuple] = []
-        self._diff_blocks: List[int] = []
+        self._lines_a: list[str] = []
+        self._lines_b: list[str] = []
+        self._lines_base: list[str] = []
+        self._opcodes: list[tuple] = []
+        self._opcodes_base_a: list[tuple] = []
+        self._opcodes_base_b: list[tuple] = []
+        self._diff_blocks: list[int] = []
         self._diff_idx = -1
         self._source_data: dict[int, str] = {}
         self._source_names: dict[int, str] = {}
         self._next_id = 0
-        self._undo_stack: Deque[Tuple[List[str], List[str]]] = deque(maxlen=50)
+        self._undo_stack: deque[tuple[list[str], list[str]]] = deque(maxlen=50)
         self._three_way = False
         self._refreshing = False
         self._debounce_timer = QTimer(self)
@@ -664,7 +670,7 @@ class CompareDialog(QDialog):
 
     # ── Algoritmo di diff ─────────────────────────────────────────────────────
 
-    def _preprocess_lines(self, lines: List[str]) -> List[str]:
+    def _preprocess_lines(self, lines: list[str]) -> list[str]:
         mode = self._ws_mode.currentIndex()
         if mode == 0:
             return lines
@@ -878,7 +884,6 @@ class CompareDialog(QDialog):
     def _goto_diff(self, idx: int) -> None:
         if not self._diff_blocks:
             return
-        old_idx = self._diff_idx
         self._diff_idx = idx % len(self._diff_blocks)
         opcode_idx = self._diff_blocks[self._diff_idx]
         _, i1, _, _, _ = self._opcodes[opcode_idx]
@@ -1019,7 +1024,7 @@ class ComparePlugin(BasePlugin):
     DESCRIPTION = "Meld-style compare & merge with inline editing, syntax highlighting, char-level diff, undo, and three-way merge."
     AUTHOR = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
         self.add_menu_action(
             main_window, "plugins",

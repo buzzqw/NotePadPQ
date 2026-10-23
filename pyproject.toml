@@ -34,6 +34,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+spell = ["spylls>=0.1.7"]
 latex = ["pymupdf>=1.20", "matplotlib>=3.5", "sympy>=1.10"]
 spreadsheet = ["openpyxl>=3.1", "xlrd>=2.0.1", "odfpy>=1.4.1"]
 richtext = ["mammoth>=0.11", "htmldocx>=0.0.6", "pypandoc>=1.8"]
@@ -51,6 +52,7 @@ all = [
     "psycopg2-binary>=2.9", "mysql-connector-python>=8.0", "oracledb>=1.0",
     "paramiko>=3.0", "cryptography>=41.0", "black>=23.0", "ruff>=0.1", "requests>=2.28",
     "PyGithub>=1.55", "python-gitlab>=3.0", "keyring>=23.5",
+    "spylls>=0.1.7",
 ]
 
 [project.scripts]
@@ -92,6 +94,11 @@ ignore = [
     "E501",           # line too long (handled by formatter)
     "B008",           # do not perform function calls in argument defaults
     "B904",           # raise from within except
+    # Stile compatto intenzionale: piccoli one-liner e nomi brevi nei loop
+    # locali (es. `for l in lines`). Non sono difetti funzionali.
+    "E701",
+    "E702",
+    "E741",
 ]
 
 [tool.ruff.format]

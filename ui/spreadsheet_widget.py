@@ -6,24 +6,49 @@ from __future__ import annotations
 
 import csv
 import re as _re
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any, Callable, Iterable, Optional
+from typing import Any
 
 from PyQt6.QtCore import (
-    Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, QThread, QTimer,
+    QAbstractTableModel,
+    QModelIndex,
+    QSortFilterProxyModel,
+    Qt,
+    QThread,
+    QTimer,
     pyqtSignal,
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QApplication, QButtonGroup, QCheckBox, QComboBox,
-    QDialog, QDialogButtonBox, QFileDialog, QGroupBox, QHBoxLayout, QHeaderView,
-    QInputDialog, QLabel, QLineEdit, QMenu, QMessageBox, QPlainTextEdit,
-    QPushButton, QRadioButton, QSizePolicy, QTableView, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView,
+    QApplication,
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QRadioButton,
+    QSizePolicy,
+    QTableView,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
-
 
 # ─── Formula helpers ─────────────────────────────────────────────────────────
 
@@ -138,7 +163,7 @@ class FormulaEngine:
             r = r * 26 + (ord(c) - 64)
         return r - 1
 
-    def __init__(self, model: "SpreadsheetModel"):
+    def __init__(self, model: SpreadsheetModel):
         self._model = model
 
     def evaluate(self, formula: str, visited: frozenset = frozenset()) -> str:
@@ -338,7 +363,7 @@ class FormulaEngine:
                     pos[0] += 1
                 fn = _FORMULA_FUNCS.get(name)
                 if fn is None:
-                    return f"#NOME?"
+                    return "#NOME?"
                 flat = [x for a in args for x in (a if isinstance(a, list) else [a])]
                 return fn(flat)
             return 0.0  # bare identifier without ()
@@ -433,7 +458,7 @@ class ImportWizardDialog(QDialog):
 
     def _load_raw_lines(self) -> None:
         try:
-            with open(self._path, "r", encoding=self._encoding, errors="replace") as f:
+            with open(self._path, encoding=self._encoding, errors="replace") as f:
                 self._raw_lines = [f.readline() for _ in range(60)]
             self._raw_lines = [ln.rstrip("\n\r") for ln in self._raw_lines if ln.strip()]
         except Exception:
@@ -655,9 +680,9 @@ class SpreadsheetModel(QAbstractTableModel):
         self._data: list[list[str]] = data if take_ownership else [row[:] for row in data]
         self._modified = False
         self._sort_keys: list[tuple[int, Qt.SortOrder]] = []
-        self._engine: Optional[FormulaEngine] = None
+        self._engine: FormulaEngine | None = None
 
-    def _get_engine(self) -> "FormulaEngine":
+    def _get_engine(self) -> FormulaEngine:
         if self._engine is None:
             self._engine = FormulaEngine(self)
         return self._engine
@@ -876,7 +901,7 @@ class SpreadsheetIO:
     OPEN_CELL_LIMIT = 500_000
 
     @staticmethod
-    def _large_dataset_warning(headers: list[str], data: list[list[str]]) -> Optional[str]:
+    def _large_dataset_warning(headers: list[str], data: list[list[str]]) -> str | None:
         cells = len(headers) * (len(data) + 1)
         if cells < SpreadsheetIO.LARGE_DATASET_CELLS:
             return None
@@ -889,7 +914,7 @@ class SpreadsheetIO:
     @staticmethod
     def _bounded_table(
             rows: Iterable[list[str]], first_row_header: bool,
-            should_cancel: Optional[Callable[[], bool]] = None,
+            should_cancel: Callable[[], bool] | None = None,
             ) -> tuple[list[str], list[list[str]], bool]:
         """Materializza al massimo OPEN_CELL_LIMIT celle durante la lettura."""
         iterator = iter(rows)
@@ -931,7 +956,7 @@ class SpreadsheetIO:
         return headers, data, truncated
 
     @staticmethod
-    def _open_warning(headers: list[str], data: list[list[str]], truncated: bool) -> Optional[str]:
+    def _open_warning(headers: list[str], data: list[list[str]], truncated: bool) -> str | None:
         if truncated:
             return (
                 f"File aperto parzialmente: caricate {len(data):,} righe e "
@@ -941,10 +966,10 @@ class SpreadsheetIO:
 
     @staticmethod
     def load_for_open(path: Path, delimiter: str = ",", encoding: str = "utf-8-sig",
-                      first_row_header: bool = True, sheet: Optional[str] = None,
+                      first_row_header: bool = True, sheet: str | None = None,
                       defer_multi_sheet: bool = True,
-                      should_cancel: Optional[Callable[[], bool]] = None,
-                      ) -> tuple[list[str], list[list[str]], Optional[str], list[str], str]:
+                      should_cancel: Callable[[], bool] | None = None,
+                      ) -> tuple[list[str], list[list[str]], str | None, list[str], str]:
         """Ispeziona e carica con una sola apertura quando non serve scegliere un foglio."""
         ext = path.suffix.lower()
         try:
@@ -992,7 +1017,7 @@ class SpreadsheetIO:
                     wb.release_resources()
 
             if ext in (".csv", ".tsv"):
-                with open(path, "r", encoding=encoding, newline="", errors="replace") as f:
+                with open(path, encoding=encoding, newline="", errors="replace") as f:
                     rows = csv.reader(f, delimiter=delimiter)
                     headers, data, truncated = SpreadsheetIO._bounded_table(
                         rows, first_row_header, should_cancel)
@@ -1028,7 +1053,7 @@ class SpreadsheetIO:
     @staticmethod
     def load(path: Path, delimiter: str = ",", encoding: str = "utf-8-sig",
              first_row_header: bool = True,
-             sheet: Optional[str] = None) -> tuple[list[str], list[list[str]], Optional[str]]:
+             sheet: str | None = None) -> tuple[list[str], list[list[str]], str | None]:
         ext = path.suffix.lower()
         try:
             if ext in (".csv", ".tsv"):
@@ -1046,8 +1071,8 @@ class SpreadsheetIO:
 
     @staticmethod
     def _load_csv(path: Path, delimiter: str, encoding: str,
-                  first_row_header: bool) -> tuple[list[str], list[list[str]], Optional[str]]:
-        with open(path, "r", encoding=encoding, newline="", errors="replace") as f:
+                  first_row_header: bool) -> tuple[list[str], list[list[str]], str | None]:
+        with open(path, encoding=encoding, newline="", errors="replace") as f:
             reader = csv.reader(f, delimiter=delimiter)
             first = next(reader, None)
             if first is None:
@@ -1067,7 +1092,7 @@ class SpreadsheetIO:
         return headers, data, None
 
     @staticmethod
-    def _load_xlsx(path: Path, sheet: Optional[str] = None) -> tuple[list[str], list[list[str]], Optional[str]]:
+    def _load_xlsx(path: Path, sheet: str | None = None) -> tuple[list[str], list[list[str]], str | None]:
         try:
             import openpyxl
         except ImportError:
@@ -1095,7 +1120,7 @@ class SpreadsheetIO:
         return headers, data, warning
 
     @staticmethod
-    def _load_xls(path: Path, sheet: Optional[str] = None) -> tuple[list[str], list[list[str]], Optional[str]]:
+    def _load_xls(path: Path, sheet: str | None = None) -> tuple[list[str], list[list[str]], str | None]:
         try:
             import xlrd
         except ImportError:
@@ -1121,7 +1146,7 @@ class SpreadsheetIO:
         return headers, data, warning
 
     @staticmethod
-    def _load_ods(path: Path) -> tuple[list[str], list[list[str]], Optional[str]]:
+    def _load_ods(path: Path) -> tuple[list[str], list[list[str]], str | None]:
         try:
             import openpyxl
             wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
@@ -1139,7 +1164,7 @@ class SpreadsheetIO:
             pass
         try:
             from odf.opendocument import load as ods_load
-            from odf.table import Table, TableRow, TableCell
+            from odf.table import Table, TableCell, TableRow
             from odf.text import P
             doc = ods_load(str(path))
             sheets = doc.spreadsheet.getElementsByType(Table)
@@ -1164,8 +1189,8 @@ class SpreadsheetIO:
 
     @staticmethod
     def _load_ods_for_open(
-            path: Path, should_cancel: Optional[Callable[[], bool]] = None,
-            ) -> tuple[list[str], list[list[str]], Optional[str], bool]:
+            path: Path, should_cancel: Callable[[], bool] | None = None,
+            ) -> tuple[list[str], list[list[str]], str | None, bool]:
         try:
             from odf.opendocument import load as ods_load
             from odf.table import Table, TableCell, TableRow
@@ -1190,7 +1215,7 @@ class SpreadsheetIO:
 
     @staticmethod
     def save(path: Path, headers: list[str], data: list[list[str]],
-             delimiter: str = ",") -> Optional[str]:
+             delimiter: str = ",") -> str | None:
         ext = path.suffix.lower()
         try:
             if ext in (".csv", ".tsv"):
@@ -1210,7 +1235,7 @@ class SpreadsheetIO:
 
     @staticmethod
     def _save_csv(path: Path, headers: list[str], data: list[list[str]],
-                  delimiter: str) -> Optional[str]:
+                  delimiter: str) -> str | None:
         with open(path, "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f, delimiter=delimiter)
             writer.writerow(headers)
@@ -1218,7 +1243,7 @@ class SpreadsheetIO:
         return None
 
     @staticmethod
-    def _save_xlsx(path: Path, headers: list[str], data: list[list[str]]) -> Optional[str]:
+    def _save_xlsx(path: Path, headers: list[str], data: list[list[str]]) -> str | None:
         try:
             import openpyxl
         except ImportError:
@@ -1232,10 +1257,10 @@ class SpreadsheetIO:
         return None
 
     @staticmethod
-    def _save_ods(path: Path, headers: list[str], data: list[list[str]]) -> Optional[str]:
+    def _save_ods(path: Path, headers: list[str], data: list[list[str]]) -> str | None:
         try:
             from odf.opendocument import OpenDocumentSpreadsheet
-            from odf.table import Table, TableRow, TableCell
+            from odf.table import Table, TableCell, TableRow
             from odf.text import P
         except ImportError:
             return "odfpy non installato.  pip install odfpy"
@@ -1257,11 +1282,11 @@ class SpreadsheetLoadWorker(QThread):
     """Carica dati puri nel worker; nessun QObject/modello Qt viene creato qui."""
 
     loaded = pyqtSignal(list, list, str, list, str)
-    _active_workers: set["SpreadsheetLoadWorker"] = set()
+    _active_workers: set[SpreadsheetLoadWorker] = set()
     _shutdown_connected = False
 
     def __init__(self, path: Path, delimiter: str = ",", encoding: str = "utf-8-sig",
-                 first_row_header: bool = True, sheet: Optional[str] = None,
+                 first_row_header: bool = True, sheet: str | None = None,
                  defer_multi_sheet: bool = True, parent=None):
         super().__init__(parent)
         self._path = path
@@ -1475,7 +1500,7 @@ class SpreadsheetWidget(QWidget):
     def __init__(self, path: Path, headers: list[str], data: list[list[str]],
                  read_only: bool = False, delimiter: str = ",",
                  encoding: str = "utf-8-sig", first_row_header: bool = True,
-                 sheet_names: Optional[list[str]] = None, current_sheet: str = "",
+                 sheet_names: list[str] | None = None, current_sheet: str = "",
                  take_data_ownership: bool = False,
                  parent=None):
         super().__init__(parent)
@@ -1494,7 +1519,7 @@ class SpreadsheetWidget(QWidget):
         self._current_sheet: str = current_sheet
 
         self._closing = False
-        self._sheet_worker: Optional[SpreadsheetLoadWorker] = None
+        self._sheet_worker: SpreadsheetLoadWorker | None = None
         self._model = SpreadsheetModel(headers, data, take_ownership=take_data_ownership)
         self._model.modified_changed.connect(self._on_model_modified)
 
@@ -2104,7 +2129,7 @@ class SpreadsheetWidget(QWidget):
 
     # ── Barra fogli ───────────────────────────────────────────────────────────
 
-    def _build_sheet_bar(self, sheet_names: list[str], current: str) -> Optional[QWidget]:
+    def _build_sheet_bar(self, sheet_names: list[str], current: str) -> QWidget | None:
         if len(sheet_names) <= 1:
             return None
         bar = QWidget()
@@ -2345,6 +2370,7 @@ class SpreadsheetWidget(QWidget):
     def export_pdf(self) -> None:
         """Esporta il foglio corrente come PDF."""
         from pathlib import Path as _Path
+
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
         headers = self._model.get_headers()
         data = self._model.get_data()
@@ -2384,8 +2410,8 @@ class SpreadsheetWidget(QWidget):
             "</body></html>"
         )
         try:
-            from PyQt6.QtPrintSupport import QPrinter
             from PyQt6.QtGui import QTextDocument
+            from PyQt6.QtPrintSupport import QPrinter
             printer = QPrinter(QPrinter.PrinterMode.HighResolution)
             printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
             printer.setOutputFileName(str(p))
@@ -2469,7 +2495,7 @@ class SpreadsheetWidget(QWidget):
         )
         btn_curr = msg.addButton("Solo foglio corrente", QMessageBox.ButtonRole.AcceptRole)
         btn_all  = msg.addButton("Tutti i fogli",        QMessageBox.ButtonRole.ActionRole)
-        btn_cancel = msg.addButton("Annulla",            QMessageBox.ButtonRole.RejectRole)
+        msg.addButton("Annulla", QMessageBox.ButtonRole.RejectRole)
         msg.exec()
         clicked = msg.clickedButton()
         if clicked is btn_all:
@@ -2489,8 +2515,13 @@ class SpreadsheetWidget(QWidget):
         possibilità di limitare l'output (a differenza dell'export CSV/Excel).
         """
         from PyQt6.QtWidgets import (
-            QDialog, QVBoxLayout, QRadioButton, QSpinBox, QHBoxLayout,
-            QDialogButtonBox, QLabel,
+            QDialog,
+            QDialogButtonBox,
+            QHBoxLayout,
+            QLabel,
+            QRadioButton,
+            QSpinBox,
+            QVBoxLayout,
         )
         # Se c'è poco da esportare non ha senso chiedere.
         if total <= 1:

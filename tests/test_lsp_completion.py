@@ -6,10 +6,10 @@ from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QObject, pyqtSignal, Qt, QEvent
-from PyQt6.QtGui import QAction, QKeySequence, QKeyEvent
-from PyQt6.QtWidgets import QApplication
 from PyQt6.Qsci import QsciScintilla
+from PyQt6.QtCore import QEvent, QObject, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QKeyEvent, QKeySequence
+from PyQt6.QtWidgets import QApplication
 
 from core.session import restore_cursor_after_load
 from editor.autocomplete import AutoCompleteLevel, AutoCompleteManager

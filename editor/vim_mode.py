@@ -10,7 +10,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-from PyQt6.QtCore import Qt, pyqtSignal, QObject
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox
 

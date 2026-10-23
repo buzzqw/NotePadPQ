@@ -37,22 +37,48 @@ import urllib.parse
 import urllib.request
 import uuid
 import xml.dom.minidom
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
-from PyQt6.QtGui import QColor, QFont, QKeySequence, QSyntaxHighlighter, QTextCharFormat
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 from PyQt6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QDialogButtonBox, QDockWidget,
-    QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
-    QPushButton, QSizePolicy, QSplitter, QStackedWidget, QTabWidget,
-    QTableWidget, QTableWidgetItem, QTextEdit, QVBoxLayout, QWidget,
-    QWizard, QWizardPage, QSpinBox, QCheckBox, QInputDialog, QProgressBar,
-    QTreeWidget, QTreeWidgetItem, QAbstractItemView, QFrame,
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDockWidget,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QSpinBox,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+    QWizard,
+    QWizardPage,
 )
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 try:
     import requests as _requests_lib
@@ -87,7 +113,7 @@ def _is_sensitive_name(name: str) -> bool:
     return bool(_SENSITIVE_NAME.search(name))
 
 
-def _redact_mapping(values: Dict[str, str]) -> dict:
+def _redact_mapping(values: dict[str, str]) -> dict:
     return {
         str(key): "<redacted>" if _is_sensitive_name(str(key)) else value
         for key, value in values.items()
@@ -507,7 +533,7 @@ _SEND_BTN_STYLE    = _DEFAULT_STYLES["send_btn"]
 _TAB_STYLE         = _DEFAULT_STYLES["tab"]
 
 
-def _method_style(method: str, p: Optional[dict] = None) -> str:
+def _method_style(method: str, p: dict | None = None) -> str:
     """Restituisce lo stylesheet per il ComboBox/label del metodo HTTP."""
     if p is None:
         p = _get_palette()
@@ -532,7 +558,7 @@ class HttpRequest:
         self.name: str = "Nuova richiesta"
         self.method: str = "GET"
         self.url: str = ""
-        self.headers: Dict[str, str] = {}
+        self.headers: dict[str, str] = {}
         self.auth_type: str = "Nessuna"
         self.auth_value: str = ""          # token / user:pass / api-key
         self.auth_header: str = "X-Api-Key"
@@ -542,7 +568,7 @@ class HttpRequest:
         self.timeout: int = 30
         self.verify_ssl: bool = True
         self.allow_redirects: bool = True
-        self.multipart_fields: List[dict] = []
+        self.multipart_fields: list[dict] = []
         self.oauth2_client_id: str = ""
         self.oauth2_client_secret: str = ""
         self.oauth2_token_url: str = ""
@@ -576,7 +602,7 @@ class HttpRequest:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "HttpRequest":
+    def from_dict(cls, d: dict) -> HttpRequest:
         r = cls()
         for k, v in d.items():
             if k in {"auth_value", "oauth2_client_secret"}:
@@ -618,7 +644,7 @@ class HttpRequest:
 class EnvProfile:
     """Profilo variabili d'ambiente per un ambiente (dev/staging/prod)."""
 
-    def __init__(self, name: str = "dev", variables: Optional[Dict[str, str]] = None):
+    def __init__(self, name: str = "dev", variables: dict[str, str] | None = None):
         self.secret_id = uuid.uuid4().hex
         self.name      = name
         self.variables = variables or {}
@@ -637,7 +663,7 @@ class EnvProfile:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "EnvProfile":
+    def from_dict(cls, d: dict) -> EnvProfile:
         values = d.get("variables", {})
         if not isinstance(values, dict):
             values = {}
@@ -657,7 +683,7 @@ class _JsonHighlighter(QSyntaxHighlighter):
 
     def __init__(self, parent):
         super().__init__(parent)
-        self._rules: List[tuple] = []
+        self._rules: list[tuple] = []
 
         def fmt(color, bold=False):
             f = QTextCharFormat()
@@ -684,7 +710,7 @@ class _JsonHighlighter(QSyntaxHighlighter):
 class _RequestWizard(QWizard):
     """Wizard 4-step per costruire una richiesta HTTP guidata."""
 
-    def __init__(self, request: HttpRequest, envs: List[EnvProfile], parent=None):
+    def __init__(self, request: HttpRequest, envs: list[EnvProfile], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Wizard nuova richiesta HTTP")
         self.resize(620, 480)
@@ -873,7 +899,7 @@ class _RequestWizard(QWizard):
 
 class _EnvDialog(QDialog):
 
-    def __init__(self, envs: List[EnvProfile], parent=None):
+    def __init__(self, envs: list[EnvProfile], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Variabili d'ambiente")
         self.resize(540, 400)
@@ -976,7 +1002,7 @@ class _EnvDialog(QDialog):
         self._save_current()
         self.accept()
 
-    def result_envs(self) -> List[EnvProfile]:
+    def result_envs(self) -> list[EnvProfile]:
         return self._envs
 
 
@@ -1005,7 +1031,7 @@ class _RequestWorker(QObject):
                 except Exception:
                     pass
 
-    def _resolve_auth(self, headers: dict) -> Optional[str]:
+    def _resolve_auth(self, headers: dict) -> str | None:
         req = self._req
         env = self._env
         if req.auth_type == "Bearer Token" and req.auth_value:
@@ -1272,16 +1298,16 @@ class _RestPanel(QWidget):
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent)
         self._mw = main_window
-        self._collection: List[HttpRequest] = []
-        self._history:    List[HttpRequest] = []
-        self._envs:       List[EnvProfile]  = [
+        self._collection: list[HttpRequest] = []
+        self._history:    list[HttpRequest] = []
+        self._envs:       list[EnvProfile]  = [
             EnvProfile("dev",     {"base_url": "http://localhost:8000"}),
             EnvProfile("staging", {"base_url": "https://staging.esempio.com"}),
             EnvProfile("prod",    {"base_url": "https://api.esempio.com"}),
         ]
         self._current_req: HttpRequest = HttpRequest()
-        self._worker: Optional[_RequestWorker] = None
-        self._thread: Optional[threading.Thread] = None
+        self._worker: _RequestWorker | None = None
+        self._thread: threading.Thread | None = None
         self._last_response_body: str = ""
         self._build_ui()
         self._load_data()
@@ -1991,8 +2017,6 @@ class _RestPanel(QWidget):
             self._hdr_table.removeRow(r)
 
     def _add_param_row(self, k: str, v: str):
-        from PyQt6.QtWidgets import QCheckBox as _QCB
-        from PyQt6.QtWidgets import QTableWidgetItem as _TWI
         r = self._params_table.rowCount()
         self._params_table.insertRow(r)
         chk_widget = QWidget()
@@ -2183,7 +2207,6 @@ class _RestPanel(QWidget):
         else:
             parent = None
         item = QTreeWidgetItem()
-        method_color = _METHOD_COLORS.get(req.method, "#888")
         item.setText(0, f"{req.name}")
         item.setForeground(0, QColor("#d4d4d4"))
         item.setData(0, Qt.ItemDataRole.UserRole, "request")
@@ -2233,11 +2256,7 @@ class _RestPanel(QWidget):
         ) != QMessageBox.StandardButton.Yes:
             return
         # rimuovi le request dalla lista se è un item richiesta
-        if not is_folder:
-            req_idx = item.data(0, Qt.ItemDataRole.UserRole + 1)
-            # non rimuovere dalla lista self._collection per semplicità;
-            # la ricostruiamo al prossimo _refresh_collection_ui
-            pass
+        # Le richieste vengono ricostruite dall'albero subito sotto.
         parent = item.parent() or self._coll_tree.invisibleRootItem()
         parent.removeChild(item)
         # ricostruiamo self._collection dall'albero
@@ -2246,7 +2265,7 @@ class _RestPanel(QWidget):
 
     def _rebuild_collection_from_tree(self):
         """Ricostruisce self._collection percorrendo l'albero (elimina buchi)."""
-        new_coll: List[HttpRequest] = []
+        new_coll: list[HttpRequest] = []
         def _visit(node):
             for i in range(node.childCount()):
                 child = node.child(i)
@@ -2319,7 +2338,7 @@ class _RestPanel(QWidget):
             return
         try:
             if path.endswith(".json"):
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     data = json.load(f)
                 self._collection = [HttpRequest.from_dict(d) for d in data.get("requests", [])]
                 if "envs" in data:
@@ -2334,9 +2353,9 @@ class _RestPanel(QWidget):
         except Exception as exc:
             QMessageBox.critical(self, "Errore", f"Impossibile caricare:\n{exc}")
 
-    def _parse_http_file(self, path: str) -> List[HttpRequest]:
+    def _parse_http_file(self, path: str) -> list[HttpRequest]:
         """Parser minimale per file .http (formato VS Code REST Client)."""
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
         blocks = re.split(r"\n###\n", content)
         requests = []
@@ -2833,16 +2852,30 @@ class _RestPanel(QWidget):
     def _save_data(self):
         try:
             if not self._store_secrets():
+                self._notify_save_error(
+                    "keyring non disponibile: i segreti non sono stati salvati")
                 return False
             data = {
                 "collection": [r.to_dict() for r in self._collection],
                 "envs":       [e.to_dict() for e in self._envs],
                 "history":    [r.to_dict() for r in self._history[:_HISTORY_MAX]],
             }
-            self._data_path().write_text(json.dumps(data, indent=2, ensure_ascii=False))
+            self._data_path().write_text(
+                json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
             return True
-        except Exception:
+        except Exception as exc:
+            self._notify_save_error(str(exc))
             return False
+
+    def _notify_save_error(self, detail: str) -> None:
+        """Rende visibile un salvataggio fallito: prima era silenzioso."""
+        try:
+            if self._mw is not None and hasattr(self._mw, "statusBar"):
+                self._mw.statusBar().showMessage(
+                    f"⚠ REST Client: salvataggio fallito — {detail}", 6000)
+        except Exception:
+            pass
 
     @staticmethod
     def _request_secret_key(request: HttpRequest, field: str) -> str:
@@ -2958,10 +2991,10 @@ class _RestPanel(QWidget):
             self._history = [HttpRequest.from_dict(d) for d in raw_history]
             migrated = all(
                 self._load_request_secrets(request, raw)
-                for request, raw in [*zip(self._collection, raw_collection), *zip(self._history, raw_history)]
+                for request, raw in [*zip(self._collection, raw_collection, strict=False), *zip(self._history, raw_history, strict=False)]
             ) and all(
                 self._load_environment_secrets(environment, raw)
-                for environment, raw in zip(self._envs, raw_envs)
+                for environment, raw in zip(self._envs, raw_envs, strict=False)
             )
             self._refresh_collection_ui()
             for r in self._history:
@@ -2984,15 +3017,24 @@ class _RestPanel(QWidget):
 class _CollectionRunnerDialog(QDialog):
     """Esegue tutte le richieste della collection in sequenza e mostra risultati."""
 
+    runner_started  = pyqtSignal(int)
+    runner_result   = pyqtSignal(int, object)
+    runner_finished = pyqtSignal(int, int, int, bool)  # passed, total, failed, aborted
+
     def __init__(self, collection, envs, mw, parent=None):
         super().__init__(parent)
         self._collection = collection
         self._envs = envs
         self._mw = mw
         self._abort = False
+        self._current_worker = None
+        self._checked_items: list[int] = []
         self.setWindowTitle("Collection Runner")
         self.resize(700, 500)
         self._build_ui()
+        self.runner_started.connect(self._on_runner_started)
+        self.runner_result.connect(self._on_runner_result)
+        self.runner_finished.connect(self._on_runner_finished)
 
     def _build_ui(self):
         lay = QVBoxLayout(self)
@@ -3042,7 +3084,7 @@ class _CollectionRunnerDialog(QDialog):
         self._btn_stop = QPushButton("\u25a0 Stop")
         self._btn_stop.setEnabled(False)
         self._btn_stop.setStyleSheet("color:#f44747; padding:6px 16px;")
-        self._btn_stop.clicked.connect(lambda: setattr(self, '_abort', True))
+        self._btn_stop.clicked.connect(self._stop)
         btn_row.addWidget(self._btn_stop)
 
         btn_row.addStretch()
@@ -3056,93 +3098,179 @@ class _CollectionRunnerDialog(QDialog):
         lay.addWidget(self._results)
 
     def _run(self):
+        if self._checked_items:
+            return  # già in esecuzione
         self._btn_run.setEnabled(False)
         self._btn_stop.setEnabled(True)
         self._results.clear()
         self._abort = False
+        self._current_worker = None
+
+        # I widget si leggono solo nel thread GUI: al worker passiamo una copia
+        # dei dati (indice, richiesta), non riferimenti a QTreeWidget.
+        jobs = []
+        self._checked_items = []
+        for i in range(self._list.topLevelItemCount()):
+            item = self._list.topLevelItem(i)
+            if item.checkState(0) == Qt.CheckState.Checked:
+                jobs.append((i, item.data(0, Qt.ItemDataRole.UserRole)))
+                self._checked_items.append(i)
+        if not jobs:
+            self._btn_run.setEnabled(True)
+            self._btn_stop.setEnabled(False)
+            self._results.append(
+                "<span style='color:#ffcc00;'>\u26a0 Nessuna richiesta selezionata.</span>")
+            return
+
+        self._results.append(
+            f"<b style='color:#9cdcfe;'>Collection Runner</b> — "
+            f"{len(jobs)} requests\n")
 
         env_name = self._env_cb.currentText()
         env_base = next((e for e in self._envs if e.name == env_name), EnvProfile())
         delay = self._delay_spin.value() / 1000.0
+        threading.Thread(
+            target=self._run_worker, args=(jobs, env_base, delay), daemon=True
+        ).start()
 
-        total = 0
+    def _run_worker(self, jobs, env_base, delay: float) -> None:
+        """Esegue le richieste fuori dal thread grafico.
+
+        Le uniche interazioni con la UI passano dai segnali della dialog, che
+        Qt consegna nel thread principale: la finestra resta reattiva anche
+        con richieste lente o timeout.
+        """
         passed = 0
         failed = 0
-        self._results.append(f"<b style='color:#9cdcfe;'>Collection Runner</b> — {self._list.topLevelItemCount()} requests\n")
+        total = 0
+        aborted = False
+        last_index = jobs[-1][0] if jobs else -1
 
-        for i in range(self._list.topLevelItemCount()):
+        for i, req in jobs:
             if self._abort:
-                self._results.append("<span style='color:#ffcc00;'>\u26a0 Interrotto</span>")
+                aborted = True
                 break
-
-            item = self._list.topLevelItem(i)
-            if item.checkState(0) != Qt.CheckState.Checked:
+            if req is None:
                 continue
-
-            req = item.data(0, Qt.ItemDataRole.UserRole)
             env = EnvProfile(env_base.name, dict(env_base.variables))
             total += 1
-
-            self._results.append(f"\n<b>{req.method}</b> {req.url} ...")
-            item.setText(0, "\u23f3")
+            self.runner_started.emit(i)
 
             worker = _RequestWorker(req, env)
+            self._current_worker = worker
             result_holder = [None]
             error_holder = [None]
 
-            def _on_finish(rdict):
-                result_holder[0] = rdict
+            # Bind esplicito: il ciclo riusa le stesse variabili.
+            def _on_finish(rdict, holder=result_holder):
+                holder[0] = rdict
 
-            def _on_error(msg):
-                error_holder[0] = msg
+            def _on_error(msg, holder=error_holder):
+                holder[0] = msg
 
             worker.finished.connect(_on_finish)
             worker.error.connect(_on_error)
+            try:
+                worker.run()
+            except Exception as exc:  # un plugin non deve uccidere il runner
+                error_holder[0] = str(exc)
+            self._current_worker = None
 
-            t = threading.Thread(target=worker.run, daemon=True)
-            t.start()
-            t.join(timeout=60)
-
-            if t.is_alive():
-                worker.cancel()
-                t.join(timeout=2)
+            if self._abort and result_holder[0] is None and error_holder[0] is None:
+                aborted = True
+                break
 
             if error_holder[0]:
                 failed += 1
-                item.setText(0, "\u2717")
-                item.setForeground(0, QColor("#f44747"))
-                self._results.append(f"  <span style='color:#f44747;'>\u2717 ERROR: {error_holder[0][:150]}</span>")
+                self.runner_result.emit(
+                    i, {"error": str(error_holder[0])[:150]})
             elif result_holder[0]:
                 rd = result_holder[0]
                 status = rd["status"]
                 elapsed = rd["elapsed"]
                 if 200 <= status < 300:
                     passed += 1
-                    item.setText(0, "\u2713")
-                    item.setForeground(0, QColor("#4caf50"))
-                    self._results.append(f"  <span style='color:#4caf50;'>\u2713 {status}</span>  {elapsed*1000:.0f}ms")
                 else:
                     failed += 1
-                    item.setText(0, "\u2717")
-                    item.setForeground(0, QColor("#f44747"))
-                    self._results.append(f"  <span style='color:#f44747;'>\u2717 {status}</span>  {elapsed*1000:.0f}ms")
+                self.runner_result.emit(
+                    i, {"status": status, "elapsed": elapsed})
             else:
                 failed += 1
-                item.setText(0, "\u2717")
+                self.runner_result.emit(i, {"error": "nessun risultato"})
 
-            if delay > 0 and i < self._list.topLevelItemCount() - 1:
+            if delay > 0 and i != last_index and not self._abort:
                 time.sleep(delay)
 
-        # Summary
+        self.runner_finished.emit(passed, total, failed, aborted)
+
+    # ── Slot UI (thread principale) ──────────────────────────────────────────
+
+    def _on_runner_started(self, index: int) -> None:
+        item = self._list.topLevelItem(index)
+        if item is None:
+            return
+        req = item.data(0, Qt.ItemDataRole.UserRole)
+        item.setText(0, "\u23f3")
+        if req is not None:
+            self._results.append(f"\n<b>{req.method}</b> {req.url} ...")
+
+    def _on_runner_result(self, index: int, payload: object) -> None:
+        item = self._list.topLevelItem(index)
+        data = payload if isinstance(payload, dict) else {}
+        error = data.get("error")
+        status = data.get("status")
+        elapsed = data.get("elapsed")
+
+        if item is not None:
+            if error is not None or status is None:
+                item.setText(0, "\u2717")
+                item.setForeground(0, QColor("#f44747"))
+            elif 200 <= status < 300:
+                item.setText(0, "\u2713")
+                item.setForeground(0, QColor("#4caf50"))
+            else:
+                item.setText(0, "\u2717")
+                item.setForeground(0, QColor("#f44747"))
+
+        if error is not None:
+            self._results.append(
+                f"  <span style='color:#f44747;'>\u2717 ERROR: {error}</span>")
+        elif status is not None:
+            color = "#4caf50" if 200 <= status < 300 else "#f44747"
+            mark = "\u2713" if 200 <= status < 300 else "\u2717"
+            self._results.append(
+                f"  <span style='color:{color};'>{mark} {status}</span>  "
+                f"{(elapsed or 0) * 1000:.0f}ms")
+
+    def _on_runner_finished(self, passed: int, total: int, failed: int,
+                            aborted: bool) -> None:
+        if aborted:
+            self._results.append(
+                "<span style='color:#ffcc00;'>\u26a0 Interrotto</span>")
         color = "#4caf50" if failed == 0 else "#f44747" if passed == 0 else "#ffcc00"
         self._results.append(
             f"\n<hr><b style='color:{color};'>Results: {passed}/{total} passed"
             + (f", {failed} failed" if failed else "")
             + "</b>"
         )
-
+        self._checked_items = []
+        self._current_worker = None
         self._btn_run.setEnabled(True)
         self._btn_stop.setEnabled(False)
+
+    def _stop(self) -> None:
+        self._abort = True
+        worker = self._current_worker
+        if worker is not None:
+            try:
+                worker.cancel()
+            except Exception:
+                pass
+
+    def closeEvent(self, event) -> None:
+        """Non lasciare richieste in volo quando la finestra viene chiusa."""
+        self._stop()
+        super().closeEvent(event)
 
 
 # ─── Plugin entry point ───────────────────────────────────────────────────────
@@ -3153,7 +3281,7 @@ class RestClientPlugin(BasePlugin):
     DESCRIPTION = "Client HTTP/REST integrato con wizard, collection e variabili ambiente"
     AUTHOR      = "NotePadPQ"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
 
         # Il pannello è pesante (~0.3s: costruzione UI + ~60 setStyleSheet) e
@@ -3176,7 +3304,7 @@ class RestClientPlugin(BasePlugin):
             icon_key="plugin_rest",
         )
 
-    def _ensure_panel(self) -> "_RestPanel":
+    def _ensure_panel(self) -> _RestPanel:
         """Crea il pannello REST alla prima apertura del dock (lazy)."""
         if self._panel is None:
             self._panel = _RestPanel(main_window=self._mw)

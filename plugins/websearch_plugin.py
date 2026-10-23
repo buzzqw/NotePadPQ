@@ -8,13 +8,11 @@ Wikipedia apre il pannello laterale con l'estratto dell'API REST; gli altri apro
 
 import json
 import urllib.parse
-from typing import Optional
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices
-from core.external_open import open_url as _open_url
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QDialog,
     QDialogButtonBox,
     QDockWidget,
     QGroupBox,
@@ -22,7 +20,6 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QDialog,
     QProgressBar,
     QPushButton,
     QTableWidget,
@@ -32,9 +29,9 @@ from PyQt6.QtWidgets import (
 )
 
 from config.settings import Settings
+from core.external_open import open_url as _open_url
 from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
-
 
 # (id, display_name, url_template)
 # url_template "wiki" è speciale: apre il pannello laterale
@@ -76,7 +73,7 @@ _INJECT_JS = f"""
 class _WikiPanel(QWidget):
     search_requested = pyqtSignal(str)
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._desktop_url = ""
         self._build_ui()
@@ -125,8 +122,8 @@ class _WikiPanel(QWidget):
             self._view.loadFinished.connect(self._on_load_finished)
             lay.addWidget(self._view)
         else:
-            from PyQt6.QtWidgets import QLabel
             from PyQt6.QtCore import Qt
+            from PyQt6.QtWidgets import QLabel
             lbl = QLabel(tr("plugin.terminal.no_gl"))
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setWordWrap(True)
@@ -180,7 +177,7 @@ class _WikiPanel(QWidget):
 # ---------------------------------------------------------------------------
 
 class _SettingsDialog(QDialog):
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle(tr("websearch.settings_title"))
         self.setMinimumWidth(500)

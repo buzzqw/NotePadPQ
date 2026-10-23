@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox, QProgressDialog
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -44,7 +44,7 @@ class SpreadsheetPlugin(BasePlugin):
     DESCRIPTION = "Apre CSV, XLSX, XLS, ODS come foglio di calcolo con editing e ordinamento."
     AUTHOR      = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
         self._active = True
         self._load_jobs: dict = {}
@@ -55,7 +55,7 @@ class SpreadsheetPlugin(BasePlugin):
             return
 
         from PyQt6.QtGui import QAction
-        
+
         # Traduzione per il menu principale
         menu_name = tr("plugin.spreadsheet.menu", default="Foglio di calcolo")
         sub = m.addMenu(menu_name)

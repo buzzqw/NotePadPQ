@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QTimer
 
@@ -46,8 +46,8 @@ from core.latex_text import (
     is_in_math_mode as _is_in_math_mode,
 )
 from core.latex_tokenizer import (
-    scan_bibliography_references,
     scan_bib_entries,
+    scan_bibliography_references,
     scan_custom_command_definitions,
     scan_custom_environments,
     scan_hypertargets,
@@ -870,7 +870,7 @@ class LaTeXSupport:
     # ── Attivazione su EditorWidget ──────────────────────────────────────────
 
     @staticmethod
-    def activate(editor: "EditorWidget") -> None:
+    def activate(editor: EditorWidget) -> None:
         """
         Collega i segnali dell'editor per il supporto LaTeX avanzato.
         Va chiamato quando il lexer LaTeX viene impostato.
@@ -892,7 +892,7 @@ class LaTeXSupport:
         editor._latex_support_active = True
 
     @staticmethod
-    def deactivate(editor: "EditorWidget") -> None:
+    def deactivate(editor: EditorWidget) -> None:
         """Scollega tutti gli handler LaTeX installati su `editor`."""
         for signal_name, attr_name in (
                 ("SCN_CHARADDED", "_latex_char_added_handler"),
@@ -907,7 +907,7 @@ class LaTeXSupport:
         editor._latex_support_active = False
 
     @staticmethod
-    def _on_autocomplete_done(editor: "EditorWidget", selection, position: int,
+    def _on_autocomplete_done(editor: EditorWidget, selection, position: int,
                                ch: int, method: int) -> None:
         """
         Dopo la selezione di un'API LaTeX con {}, posiziona il cursore dentro
@@ -950,7 +950,7 @@ class LaTeXSupport:
                     ac.handle_latex_special("{")
 
     @staticmethod
-    def _on_char_added(editor: "EditorWidget", char_int: int) -> None:
+    def _on_char_added(editor: EditorWidget, char_int: int) -> None:
         """Gestisce i caratteri speciali LaTeX."""
         # Ignora durante operazioni di paste/insert programmatico
         if getattr(editor, "_in_paste", False):
@@ -974,7 +974,7 @@ class LaTeXSupport:
             LaTeXSupport._handle_env_word(editor)
 
     @staticmethod
-    def _handle_newline(editor: "EditorWidget") -> None:
+    def _handle_newline(editor: EditorWidget) -> None:
         """
         Su invio in ambiente LaTeX:
         - dopo \\item con testo: inserisce nuovo \\item sulla riga successiva
@@ -1053,7 +1053,7 @@ class LaTeXSupport:
             editor.endUndoAction()
 
     @staticmethod
-    def _handle_open_brace(editor: "EditorWidget") -> None:
+    def _handle_open_brace(editor: EditorWidget) -> None:
         """
         Dopo '{': attiva completamento contestuale; se nessun caso speciale,
         auto-chiude } per pattern \\cmd{.
@@ -1067,7 +1067,7 @@ class LaTeXSupport:
     _BEGIN_END_PREFIX = re.compile(r'\\(?:begin|end)\{([\w*]*)$')
 
     @staticmethod
-    def _handle_env_prefix(editor: "EditorWidget") -> None:
+    def _handle_env_prefix(editor: EditorWidget) -> None:
         """
         Dopo ogni lettera/asterisco: se il cursore è dentro \\begin{prefix} o
         \\end{prefix}, aggiorna il popup degli ambienti filtrandolo per prefix.
@@ -1086,7 +1086,7 @@ class LaTeXSupport:
     _CMD_WORD = re.compile(r'\\([a-zA-Z]*)$')
 
     @staticmethod
-    def _handle_env_word(editor: "EditorWidget") -> None:
+    def _handle_env_word(editor: EditorWidget) -> None:
         """
         Appena la parola dopo \\ e' un prefisso valido di "begin"/"end" di
         almeno 2 lettere (stessa soglia dell'autocompletamento standard, es.
@@ -1122,7 +1122,7 @@ class LaTeXSupport:
             ac.cancel_env_word_popup()
 
     @staticmethod
-    def _auto_close_generic_brace(editor: "EditorWidget") -> None:
+    def _auto_close_generic_brace(editor: EditorWidget) -> None:
         """Auto-inserisce } dopo \\cmd{ se il cursore e' immediatamente dopo la {."""
         line, col = editor.getCursorPosition()
         line_text = editor.text(line)
@@ -1146,7 +1146,7 @@ class LaTeXSupport:
     })
 
     @staticmethod
-    def insert_environment(editor: "EditorWidget", env_name: str) -> None:
+    def insert_environment(editor: EditorWidget, env_name: str) -> None:
         """
         Inserisce l'ambiente completo dopo la selezione dal popup \\begin{.
         - Cancella il prefisso parziale gia' digitato
@@ -1226,7 +1226,7 @@ class LaTeXSupport:
         editor.setCursorPosition(line + 1, cursor_col)
 
     @staticmethod
-    def _has_matching_end_below(editor: "EditorWidget", line: int, env_name: str,
+    def _has_matching_end_below(editor: EditorWidget, line: int, env_name: str,
                                  max_lines: int = 300) -> bool:
         """
         Cerca nelle righe successive un \\end{env_name} che chiuda esattamente
@@ -1250,7 +1250,7 @@ class LaTeXSupport:
         return False
 
     @staticmethod
-    def _handle_close_brace(editor: "EditorWidget") -> None:
+    def _handle_close_brace(editor: EditorWidget) -> None:
         """
         Dopo '}': se chiude \\begin{envname}, sincronizza il \\end{envname}
         corrispondente e inserisce gli argomenti obbligatori dell'ambiente
@@ -1309,7 +1309,7 @@ class LaTeXSupport:
     # ─── Sincronizzazione \end ambiente ──────────────────────────────────────
 
     @staticmethod
-    def _sync_end_environment(editor: "EditorWidget", env: str, begin_line: int) -> None:
+    def _sync_end_environment(editor: EditorWidget, env: str, begin_line: int) -> None:
         """Trova il \\end{...} corrispondente al \\begin{env} sulla riga
         begin_line e, se il nome dell'ambiente è diverso, lo aggiorna."""
         depth = 0
@@ -1355,14 +1355,14 @@ class LaTeXSupport:
         editor.endUndoAction()
 
     @staticmethod
-    def _handle_open_bracket(editor: "EditorWidget") -> None:
+    def _handle_open_bracket(editor: EditorWidget) -> None:
         """Dopo '[': suggerisce opzioni contestuali per il comando/ambiente."""
         ac = getattr(editor, "_autocomplete", None)
         if ac:
             ac.handle_latex_option("[")
 
     @staticmethod
-    def _handle_dollar(editor: "EditorWidget") -> None:
+    def _handle_dollar(editor: EditorWidget) -> None:
         """
         Dopo '$': auto-inserisce il '$' di chiusura se non già presente.
         """
@@ -1396,7 +1396,7 @@ class LaTeXSupport:
 
     @staticmethod
     def _label_reference_sources(text: str,
-                                 tex_path: Optional[Path]) -> list[tuple[Optional[Path], str]]:
+                                 tex_path: Path | None) -> list[tuple[Path | None, str]]:
         if tex_path is None:
             return [(None, text)]
         current = Path(tex_path).resolve()
@@ -1408,7 +1408,7 @@ class LaTeXSupport:
         files = LaTeXSupport.collect_project_files(root)
         if not files:
             return [(current, text)]
-        sources: list[tuple[Optional[Path], str]] = []
+        sources: list[tuple[Path | None, str]] = []
         for path in files:
             try:
                 source_text = text if path == current else _cached_read_text(path)
@@ -1419,7 +1419,7 @@ class LaTeXSupport:
 
     @staticmethod
     def analyze_label_references(text: str,
-                                 tex_path: Optional[Path] = None) -> dict:
+                                 tex_path: Path | None = None) -> dict:
         """Analyze labels and references in one document or its include tree."""
         definitions: list[dict] = []
         references: list[dict] = []
@@ -1453,19 +1453,19 @@ class LaTeXSupport:
 
     @staticmethod
     def find_duplicate_labels(text: str,
-                              tex_path: Optional[Path] = None) -> list[dict]:
+                              tex_path: Path | None = None) -> list[dict]:
         """Return duplicate label definitions after the first occurrence."""
         return LaTeXSupport.analyze_label_references(text, tex_path)["duplicates"]
 
     @staticmethod
     def find_unused_labels(text: str,
-                           tex_path: Optional[Path] = None) -> list[dict]:
+                           tex_path: Path | None = None) -> list[dict]:
         """Return labels which have no matching reference anywhere in scope."""
         return LaTeXSupport.analyze_label_references(text, tex_path)["unused"]
 
     @staticmethod
     def find_unused_references(text: str,
-                               tex_path: Optional[Path] = None) -> list[dict]:
+                               tex_path: Path | None = None) -> list[dict]:
         """Return unused labels using the checker terminology."""
         return LaTeXSupport.find_unused_labels(text, tex_path)
 
@@ -1543,7 +1543,7 @@ class LaTeXSupport:
 
     @staticmethod
     def extract_labels_with_context_multifile(
-        tex_path: Optional[Path],
+        tex_path: Path | None,
     ) -> list[tuple[str, str]]:
         """Versione multi-file di extract_labels_with_context."""
         out: list[tuple[str, str]] = []
@@ -1572,7 +1572,7 @@ class LaTeXSupport:
                        if token["kind"] == "reference"})
 
     @staticmethod
-    def extract_ref_keys_multifile(tex_path: Optional[Path]) -> list[str]:
+    def extract_ref_keys_multifile(tex_path: Path | None) -> list[str]:
         """Versione multi-file di extract_ref_keys."""
         keys: set[str] = set()
         for fpath in LaTeXSupport.collect_project_files(tex_path):
@@ -1589,7 +1589,7 @@ class LaTeXSupport:
         return sorted(scan_hypertargets(mask_latex_comments(text)))
 
     @staticmethod
-    def extract_hypertargets_multifile(tex_path: Optional[Path]) -> list[str]:
+    def extract_hypertargets_multifile(tex_path: Path | None) -> list[str]:
         """Versione multi-file di extract_hypertargets."""
         names: list[str] = []
         for fpath in LaTeXSupport.collect_project_files(tex_path):
@@ -1602,7 +1602,7 @@ class LaTeXSupport:
 
     @staticmethod
     def extract_bibtex_keys(text: str,
-                             tex_path: Optional[Path] = None) -> list[str]:
+                             tex_path: Path | None = None) -> list[str]:
         """
         Estrae le chiavi BibTeX dal testo corrente e dai file .bib referenziati.
         """
@@ -1667,7 +1667,7 @@ class LaTeXSupport:
 
     @staticmethod
     def extract_custom_environments_multifile(
-            tex_path: Optional[Path]) -> list[str]:
+            tex_path: Path | None) -> list[str]:
         """Estrae gli ambienti custom da tutti i sorgenti inclusi."""
         names: set[str] = set()
         for fpath in LaTeXSupport.collect_project_files(tex_path):
@@ -1690,7 +1690,7 @@ class LaTeXSupport:
 
     @staticmethod
     def extract_used_packages_multifile(
-            tex_path: Optional[Path]) -> list[str]:
+            tex_path: Path | None) -> list[str]:
         """Raccoglie i pacchetti dichiarati nell'intero progetto."""
         packages: set[str] = set()
         for fpath in LaTeXSupport.collect_project_files(tex_path):
@@ -1703,7 +1703,7 @@ class LaTeXSupport:
 
     @staticmethod
     def extract_package_options_multifile(
-            tex_path: Optional[Path]) -> dict[str, set[str]]:
+            tex_path: Path | None) -> dict[str, set[str]]:
         """Collect package/class options used by all project sources.
 
         CWL files use ``#ifOption`` to gate entries that only exist when a
@@ -1730,7 +1730,7 @@ class LaTeXSupport:
 
     @staticmethod
     def get_package_commands(packages: list[str],
-                             tex_path: Optional[Path] = None,
+                             tex_path: Path | None = None,
                              include_cwl: bool = True) -> list[str]:
         """
         Restituisce i comandi aggiuntivi per i pacchetti caricati.
@@ -1750,14 +1750,14 @@ class LaTeXSupport:
         return cmds
 
     @staticmethod
-    def get_cwl_model(tex_path: Optional[Path] = None):
+    def get_cwl_model(tex_path: Path | None = None):
         """Load configured CWL data lazily for this document/project."""
         from editor.cwl import load_cwl_for_project
         return load_cwl_for_project(tex_path)
 
     @staticmethod
     def get_all_environments(text: str,
-                             tex_path: Optional[Path] = None) -> list[str]:
+                             tex_path: Path | None = None) -> list[str]:
         """
         Restituisce tutti gli ambienti disponibili:
         standard + custom dal documento + ambienti dei pacchetti caricati.
@@ -1813,7 +1813,7 @@ class LaTeXSupport:
         return _find_open_environments(text, line, col)
 
     @staticmethod
-    def find_open_environments_in_editor(editor: "EditorWidget", line: int, col: int) -> list[str]:
+    def find_open_environments_in_editor(editor: EditorWidget, line: int, col: int) -> list[str]:
         """Versione lazy per il popup ``\\end``: legge solo le righe utili.
 
         Evita ``editor.text()`` (copia del documento completo) per un'azione
@@ -1882,7 +1882,7 @@ class LaTeXSupport:
     # ── Supporto multi-file ───────────────────────────────────────────────────
 
     @staticmethod
-    def collect_project_files(tex_path: Optional[Path],
+    def collect_project_files(tex_path: Path | None,
                                max_depth: int = 5) -> list[Path]:
         """
         Trova ricorsivamente i file sorgente inclusi, anche con i comandi a due
@@ -1898,7 +1898,7 @@ class LaTeXSupport:
         return collect_included_files(root, max_depth=max_depth)
 
     @staticmethod
-    def extract_labels_multifile(tex_path: Optional[Path]) -> list[str]:
+    def extract_labels_multifile(tex_path: Path | None) -> list[str]:
         """Estrae tutte le \\label{} dall'intero progetto multi-file."""
         labels: list[str] = []
         for fpath in LaTeXSupport.collect_project_files(tex_path):
@@ -1910,7 +1910,7 @@ class LaTeXSupport:
         return sorted(set(labels))
 
     @staticmethod
-    def extract_bibtex_keys_multifile(tex_path: Optional[Path]) -> list[str]:
+    def extract_bibtex_keys_multifile(tex_path: Path | None) -> list[str]:
         """Estrae le chiavi BibTeX considerando tutti i file del progetto."""
         keys: list[str] = []
         for fpath in LaTeXSupport.collect_project_files(tex_path):
@@ -1923,7 +1923,7 @@ class LaTeXSupport:
 
     @staticmethod
     def extract_bibtex_metadata_multifile(
-            tex_path: Optional[Path]) -> dict[str, dict[str, str]]:
+            tex_path: Path | None) -> dict[str, dict[str, str]]:
         """Return BibTeX entry metadata for the whole project.
 
         Only ``.bib`` resources referenced by the project sources are read;
@@ -1970,7 +1970,7 @@ class LaTeXSupport:
         return metadata
 
     @staticmethod
-    def extract_custom_commands_multifile(tex_path: Optional[Path]) -> list[str]:
+    def extract_custom_commands_multifile(tex_path: Path | None) -> list[str]:
         """Raccoglie \\newcommand da tutti i file del progetto."""
         cmds: list[str] = []
         for fpath in LaTeXSupport.collect_project_files(tex_path):
@@ -1983,7 +1983,7 @@ class LaTeXSupport:
 
     @staticmethod
     def extract_custom_command_completions_multifile(
-            tex_path: Optional[Path]) -> list[str]:
+            tex_path: Path | None) -> list[str]:
         """Raccoglie le firme delle macro custom dal progetto LaTeX."""
         completions: list[str] = []
         for fpath in LaTeXSupport.collect_project_files(tex_path):
@@ -1997,7 +1997,7 @@ class LaTeXSupport:
 
     @staticmethod
     def build_dynamic_api(text: str,
-                           tex_path: Optional[Path] = None,
+                           tex_path: Path | None = None,
                            include_cwl: bool = True) -> list[str]:
         """
         Costruisce la lista API dinamica dal documento e dal progetto:
@@ -2064,7 +2064,7 @@ class LaTeXSupport:
         return issues
 
     @staticmethod
-    def find_environment_match(text: str, line: int, col: int) -> Optional[tuple[int, int]]:
+    def find_environment_match(text: str, line: int, col: int) -> tuple[int, int] | None:
         """
         Se (line, col) cade su un token \\begin{env} o \\end{env}, restituisce
         (line, col) dell'inizio dell'occorrenza corrispondente — l'altro
@@ -2133,7 +2133,7 @@ class LaTeXSupport:
     # ── Sincronizzazione nome \begin{X}/\end{X} ──────────────────────────────
 
     @staticmethod
-    def env_token_at(line_text: str, col: int) -> Optional[dict]:
+    def env_token_at(line_text: str, col: int) -> dict | None:
         """
         Se col cade dentro l'argomento {nome} di un \\begin{nome} o
         \\end{nome} sulla riga data, ritorna un dict con kind ("begin"/"end"),
@@ -2155,7 +2155,7 @@ class LaTeXSupport:
         return None
 
     @staticmethod
-    def find_structural_match(text: str, line: int, token_start: int) -> Optional[tuple[int, int, int]]:
+    def find_structural_match(text: str, line: int, token_start: int) -> tuple[int, int, int] | None:
         """
         Come find_environment_match, ma trova l'altro capo della coppia
         \\begin/\\end per struttura (annidamento), non per nome: usata per

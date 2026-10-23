@@ -8,15 +8,28 @@ Per LaTeX:    dialog completo con scelta ambiente, bordi, merge, caption/label.
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QRect, QSize, QPoint
-from PyQt6.QtGui import QPainter, QColor, QPen, QFont
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt
+from PyQt6.QtGui import QColor, QFont, QPainter, QPen
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QDialog,
-    QDialogButtonBox, QFormLayout, QGroupBox, QSpinBox, QComboBox,
-    QCheckBox, QPushButton, QTableWidget, QTableWidgetItem, QLineEdit,
-    QHeaderView, QSizePolicy,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
@@ -131,7 +144,7 @@ class _GridWidget(QWidget):
 
 
 class _GridPopup(QFrame):
-    def __init__(self, editor: "EditorWidget", parent: Optional[QWidget] = None):
+    def __init__(self, editor: EditorWidget, parent: QWidget | None = None):
         super().__init__(parent, Qt.WindowType.Popup)
         self._editor = editor
         self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -151,7 +164,9 @@ class _GridPopup(QFrame):
         self._lbl = QLabel(tr("table_grid_picker.label_hint"))
         self._lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._lbl.setStyleSheet("color: #cccccc; font-size: 11px; padding: 2px;")
-        f = QFont(); f.setBold(True); self._lbl.setFont(f)
+        f = QFont()
+        f.setBold(True)
+        self._lbl.setFont(f)
         layout.addWidget(self._lbl)
         hint = QLabel("Click per inserire  •  Esc per annullare")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -176,7 +191,7 @@ class _GridPopup(QFrame):
 # ─── Dialog avanzato LaTeX ────────────────────────────────────────────────────
 
 class _LaTeXTableDialog(QDialog):
-    def __init__(self, editor: "EditorWidget", parent: Optional[QWidget] = None):
+    def __init__(self, editor: EditorWidget, parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle(tr("table_grid_picker.latex_dialog_title", default="Tabella rapida"))
         self.resize(780, 700)
@@ -246,7 +261,8 @@ class _LaTeXTableDialog(QDialog):
         col_grp = QGroupBox(tr("table_grid_picker.cols_group", default="Colonne"))
         col_form = QFormLayout(col_grp)
 
-        self._combo_col_sel = QComboBox(); self._combo_col_sel.setFixedWidth(90)
+        self._combo_col_sel = QComboBox()
+        self._combo_col_sel.setFixedWidth(90)
         col_form.addRow(tr("table_grid_picker.col_label", default="Colonna:"), self._combo_col_sel)
 
         self._combo_col_align = QComboBox()
@@ -280,7 +296,8 @@ class _LaTeXTableDialog(QDialog):
         row_grp = QGroupBox(tr("table_grid_picker.rows_group", default="Righe"))
         row_form = QFormLayout(row_grp)
 
-        self._combo_row_sel = QComboBox(); self._combo_row_sel.setFixedWidth(90)
+        self._combo_row_sel = QComboBox()
+        self._combo_row_sel.setFixedWidth(90)
         row_form.addRow(tr("table_grid_picker.row_label", default="Riga:"), self._combo_row_sel)
 
         self._chk_row_hline = QCheckBox(tr("table_grid_picker.top_border", default="Bordo superiore"))
@@ -289,10 +306,15 @@ class _LaTeXTableDialog(QDialog):
         # Merge
         merge_row = QHBoxLayout()
         self._chk_merge = QCheckBox(tr("table_grid_picker.merge_cols", default="Unisci colonne:"))
-        self._spin_merge_from = QSpinBox(); self._spin_merge_from.setRange(1, _MAX_TABLE); self._spin_merge_from.setFixedWidth(55)
+        self._spin_merge_from = QSpinBox()
+        self._spin_merge_from.setRange(1, _MAX_TABLE)
+        self._spin_merge_from.setFixedWidth(55)
         self._lbl_merge_arrow = QLabel("→")
-        self._spin_merge_to   = QSpinBox(); self._spin_merge_to.setRange(1, _MAX_TABLE); self._spin_merge_to.setFixedWidth(55)
-        self._combo_merge_align = QComboBox(); self._combo_merge_align.setFixedWidth(52)
+        self._spin_merge_to   = QSpinBox()
+        self._spin_merge_to.setRange(1, _MAX_TABLE)
+        self._spin_merge_to.setFixedWidth(55)
+        self._combo_merge_align = QComboBox()
+        self._combo_merge_align.setFixedWidth(52)
         for val, label in _MERGE_ALIGN_ITEMS:
             self._combo_merge_align.addItem(label, val)
         merge_row.addWidget(self._spin_merge_from)
@@ -821,7 +843,7 @@ def _build_markdown_table(rows: int, cols: int) -> str:
     return "\n".join([header, sep] + [data_row] * (rows - 1))
 
 
-def _insert_code(editor: "EditorWidget", code: str) -> None:
+def _insert_code(editor: EditorWidget, code: str) -> None:
     editor.beginUndoAction()
     if editor.hasSelectedText():
         editor.replaceSelectedText(code)
@@ -841,10 +863,10 @@ def _insert_code(editor: "EditorWidget", code: str) -> None:
 class TableGridPicker:
     @staticmethod
     def show_for_editor(
-        editor: "EditorWidget",
+        editor: EditorWidget,
         is_latex: bool,
-        parent: Optional[QWidget] = None,
-        pos: Optional[QPoint] = None,
+        parent: QWidget | None = None,
+        pos: QPoint | None = None,
     ) -> None:
         if is_latex:
             dlg = _LaTeXTableDialog(editor, parent)

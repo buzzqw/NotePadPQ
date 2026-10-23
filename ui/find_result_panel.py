@@ -1,13 +1,19 @@
 """Pannello persistente che mostra i risultati delle ricerche (Trova tutto / Cerca nei file)."""
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout,
-    QTreeWidget, QTreeWidgetItem, QPushButton, QLabel, QMenu,
-)
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QFont
+from PyQt6.QtGui import QBrush, QColor, QFont
+from PyQt6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
+from core.text_search import literal_search_pattern
 from i18n.i18n import tr
-
 
 _COL_INFO  = 0   # "file:riga" o testo risultato
 _COL_TEXT  = 1   # testo della riga
@@ -117,10 +123,12 @@ class FindResultPanel(QWidget):
         btn_clear.setFixedHeight(22)
         btn_clear.setToolTip("Rimuove tutti i risultati")
         btn_prev   = QPushButton("▲")
-        btn_prev.setFixedWidth(28); btn_prev.setFixedHeight(22)
+        btn_prev.setFixedWidth(28)
+        btn_prev.setFixedHeight(22)
         btn_prev.setToolTip(tr("find_result_panel.tooltip_prev"))
         btn_next   = QPushButton("▼")
-        btn_next.setFixedWidth(28); btn_next.setFixedHeight(22)
+        btn_next.setFixedWidth(28)
+        btn_next.setFixedHeight(22)
         btn_next.setToolTip(tr("find_result_panel.tooltip_next"))
         tb.addWidget(self._lbl_summary, 1)
         tb.addWidget(btn_prev)
@@ -296,7 +304,6 @@ class FindResultPanel(QWidget):
         il match (query sconosciuta o assente nella riga) seleziona l'intera riga.
         """
         from pathlib import Path
-        import re
         if file_path:
             self._mw.open_files([Path(file_path)])
         editor = self._mw._current_editor()
@@ -313,8 +320,8 @@ class FindResultPanel(QWidget):
         if self._current_query and line_text:
             col = max(0, min(col, len(line_text)))
             try:
-                pat = re.compile(re.escape(self._current_query), re.IGNORECASE)
-            except re.error:
+                pat = literal_search_pattern(self._current_query)
+            except Exception:
                 pat = None
             if pat is not None:
                 # `search(text, col)` cerca a partire da `col` senza creare
@@ -325,16 +332,9 @@ class FindResultPanel(QWidget):
         if start is None:
             start, end = 0, len(line_text)
 
-        # `start`/`end` sono offset di CARATTERE (calcolati con re su line_text).
-        # QScintilla lavora in byte: su righe con accenti vanno convertiti, o la
-        # selezione/indicatore finisce sulla parola sbagliata.
-        if hasattr(editor, "char_col_to_byte_col"):
-            try:
-                start = editor.char_col_to_byte_col(line, start)
-                end   = editor.char_col_to_byte_col(line, end)
-            except Exception:
-                pass
-
+        # `start`/`end` sono offset di CARATTERE (calcolati con re su line_text)
+        # e tali restano: highlight_find_match/setSelection usano i caratteri,
+        # mentre la conversione in byte avviene internamente agli indicatori.
         # Evidenziazione robusta: oltre alla selezione (attenuata da QScintilla
         # quando l'editor non ha il focus), applica l'indicatore persistente
         # sulla parola e mantiene visibile la riga corrente anche senza focus.

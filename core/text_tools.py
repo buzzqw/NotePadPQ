@@ -65,7 +65,7 @@ def wrap_lines(text: str, width: int = 80) -> str:
 
 # ─── Operazioni su EditorWidget ───────────────────────────────────────────────
 
-def toggle_comment(editor: "EditorWidget") -> None:
+def toggle_comment(editor: EditorWidget) -> None:
     """
     Commenta o decommenta le righe selezionate (o la riga corrente).
     Rileva automaticamente se commentare o decommentare in base alla
@@ -113,7 +113,7 @@ def toggle_comment(editor: "EditorWidget") -> None:
     editor.endUndoAction()
 
 
-def comment_lines(editor: "EditorWidget", uncomment: bool = False) -> None:
+def comment_lines(editor: EditorWidget, uncomment: bool = False) -> None:
     """Commenta o decommenta esplicitamente le righe selezionate."""
     from editor.lexers import get_comment_chars, get_language_name
     lang = get_language_name(editor)
@@ -148,19 +148,16 @@ def comment_lines(editor: "EditorWidget", uncomment: bool = False) -> None:
     editor.endUndoAction()
 
 
-def _replace_line(editor: "EditorWidget", line_num: int, new_text: str) -> None:
+def _replace_line(editor: EditorWidget, line_num: int, new_text: str) -> None:
     """Sostituisce il testo di una riga (senza il \\n finale)."""
     line_text = editor.text(line_num)
-    # Mantieni il terminatore di riga originale
-    eol = ""
+    # Il terminatore di riga non fa parte della selezione da sostituire:
+    # viene quindi preservato automaticamente.
     if line_text.endswith("\r\n"):
-        eol = "\r\n"
         line_text = line_text[:-2]
     elif line_text.endswith("\n"):
-        eol = "\n"
         line_text = line_text[:-1]
     elif line_text.endswith("\r"):
-        eol = "\r"
         line_text = line_text[:-1]
 
     # Rimuove il newline da new_text se presente
@@ -170,7 +167,7 @@ def _replace_line(editor: "EditorWidget", line_num: int, new_text: str) -> None:
     editor.replaceSelectedText(new_text_clean)
 
 
-def smart_indent(editor: "EditorWidget") -> None:
+def smart_indent(editor: EditorWidget) -> None:
     """
     Indentazione intelligente: adatta l'indentazione della riga corrente
     al contesto (apertura/chiusura blocchi).
@@ -181,7 +178,7 @@ def smart_indent(editor: "EditorWidget") -> None:
     editor.autoIndent()
 
 
-def duplicate_selection_or_line(editor: "EditorWidget") -> None:
+def duplicate_selection_or_line(editor: EditorWidget) -> None:
     """Duplica la selezione corrente o la riga intera."""
     if editor.hasSelectedText():
         text = editor.selectedText()

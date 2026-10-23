@@ -28,17 +28,16 @@ import codecs
 import os
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, pyqtSignal, QTimer, Qt
-from PyQt6.QtWidgets import (
-    QProgressDialog, QApplication, QLabel, QPushButton, QMessageBox, QWidget
-)
 from PyQt6.Qsci import QsciScintilla
+from PyQt6.QtCore import QEventLoop, QObject, Qt, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QLabel, QMessageBox, QProgressDialog, QPushButton, QWidget
 
-from core.file_manager import FileManager
 from core.diagnostics import operation, profile_operation
+from core.file_manager import FileManager
 from editor.editor_widget import LineEnding
 from i18n.i18n import tr
 
@@ -254,7 +253,7 @@ class PagedDocument:
         self._hist_pos: int = 0
         self.current_line_start = 0
         self.current_page_line_count = 0
-        self._total_lines: Optional[int] = None
+        self._total_lines: int | None = None
 
     @staticmethod
     def _get_file_signature(path: Path) -> tuple[int, int, int, int]:
@@ -306,7 +305,7 @@ class PagedDocument:
 
     # ── Lettura pagine ───────────────────────────────────────────────────────
 
-    def read_page_at(self, start: int, line_start: Optional[int] = None) -> str:
+    def read_page_at(self, start: int, line_start: int | None = None) -> str:
         """Legge la pagina che inizia all'offset di byte `start`, allineando
         la fine al prossimo \\n (o al tetto PAGE_LOOKAHEAD_CAP in assenza di
         \\n). Aggiorna current_start/current_end."""
@@ -345,7 +344,7 @@ class PagedDocument:
         self.current_page_line_count = text.count("\n")
         return text
 
-    def next_page(self) -> Optional[str]:
+    def next_page(self) -> str | None:
         if self._hist_pos + 1 < len(self._history):
             self._hist_pos += 1
             start, line_start = self._history[self._hist_pos]
@@ -358,7 +357,7 @@ class PagedDocument:
         self._hist_pos += 1
         return self.read_page_at(next_start, next_line)
 
-    def prev_page(self) -> Optional[str]:
+    def prev_page(self) -> str | None:
         if self._hist_pos <= 0:
             return None
         self._hist_pos -= 1
@@ -544,7 +543,7 @@ class _SaveWorker(QObject):
     finished = pyqtSignal(int, int)        # nuovo (start, end) della pagina salvata
     error    = pyqtSignal(str)
 
-    def __init__(self, doc: PagedDocument, new_text: str, dest_path: Optional[Path] = None):
+    def __init__(self, doc: PagedDocument, new_text: str, dest_path: Path | None = None):
         super().__init__()
         self._doc = doc
         self._new_text = new_text
@@ -653,18 +652,18 @@ class LazyLoader(QObject):
     THRESHOLD_LAZY  = THRESHOLD_LAZY
     THRESHOLD_PAGED = THRESHOLD_PAGED
 
-    def __init__(self, path: Path, editor: "EditorWidget",
-                 main_window: Optional["MainWindow"] = None):
+    def __init__(self, path: Path, editor: EditorWidget,
+                 main_window: MainWindow | None = None):
         super().__init__()
         self._path        = path
         self._editor      = editor
         self._mw          = main_window
         self._thread      = None
         self._worker      = None
-        self._progress_dlg: Optional[QProgressDialog] = None
+        self._progress_dlg: QProgressDialog | None = None
         self._cancelled   = False
-        self._paged_view: Optional[PagedDocument] = None
-        self._pager_widget: Optional[QWidget] = None
+        self._paged_view: PagedDocument | None = None
+        self._pager_widget: QWidget | None = None
         self._editor_load_active = False
         self._editor_wrap_restore = None
         self._last_progress_pct = -1
@@ -692,8 +691,8 @@ class LazyLoader(QObject):
     # ── Entry point statico ───────────────────────────────────────────────────
 
     @staticmethod
-    def open_file(path: Path, editor: "EditorWidget",
-                  main_window=None) -> "LazyLoader":
+    def open_file(path: Path, editor: EditorWidget,
+                  main_window=None) -> LazyLoader:
         """
         Apre path nell'editor con la strategia appropriata.
         Restituisce il LazyLoader per permettere cancel() se necessario.
@@ -804,7 +803,10 @@ class LazyLoader(QObject):
                 self.progress.emit(pct)
                 if self._progress_dlg:
                     self._progress_dlg.setValue(pct)
-                    QApplication.processEvents()
+                    # Aggiorna solo il disegno: esclude l'input utente, così
+                    # non si rientra in handler mentre il documento è a metà.
+                    QApplication.processEvents(
+                        QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
         finally:
             if self._worker:
                 self._worker.acknowledge_chunk()
@@ -920,7 +922,7 @@ class LazyLoader(QObject):
         btn_next.setFixedHeight(20)
         btn_jump.setFixedHeight(20)
 
-        def _load_page_text(text: Optional[str]) -> None:
+        def _load_page_text(text: str | None) -> None:
             if text is None:
                 return
             le = LineEnding.detect(text)
@@ -932,7 +934,7 @@ class LazyLoader(QObject):
             editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
             _update_label()
 
-        def _navigate(get_target_text: Callable[[], Optional[str]]) -> None:
+        def _navigate(get_target_text: Callable[[], str | None]) -> None:
             if not editor.isModified():
                 _load_page_text(get_target_text())
                 return
@@ -1075,5 +1077,5 @@ class LazyLoader(QObject):
     def is_paged(self) -> bool:
         return self._paged_view is not None
 
-    def paged_view(self) -> Optional[PagedDocument]:
+    def paged_view(self) -> PagedDocument | None:
         return self._paged_view

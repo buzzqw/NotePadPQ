@@ -36,7 +36,7 @@ class MarkdownSupport:
     # ── Attivazione su EditorWidget ──────────────────────────────────────────
 
     @staticmethod
-    def activate(editor: "EditorWidget") -> None:
+    def activate(editor: EditorWidget) -> None:
         """
         Collega i segnali dell'editor per il supporto Markdown avanzato.
         Va chiamato quando il lexer Markdown viene impostato.
@@ -63,7 +63,7 @@ class MarkdownSupport:
         editor._markdown_support_active = True
 
     @staticmethod
-    def deactivate(editor: "EditorWidget") -> None:
+    def deactivate(editor: EditorWidget) -> None:
         """Scollega gli handler Markdown e cancella il relativo stato visivo."""
         for signal_name, attr_name in (
                 ("SCN_CHARADDED", "_markdown_char_added_handler"),
@@ -87,11 +87,11 @@ class MarkdownSupport:
         editor._markdown_support_active = False
 
     @staticmethod
-    def _yaml_fm_slot(editor: "EditorWidget"):
+    def _yaml_fm_slot(editor: EditorWidget):
         return getattr(editor, "_md_yaml_fm_slot", None)
 
     @staticmethod
-    def _init_indicators(editor: "EditorWidget") -> None:
+    def _init_indicators(editor: EditorWidget) -> None:
         """Inizializza gli indicatori usati da MarkdownSupport sull'editor."""
         from PyQt6.Qsci import QsciScintilla
         from PyQt6.QtGui import QColor
@@ -114,7 +114,7 @@ class MarkdownSupport:
     # ── SCN_CHARADDED ────────────────────────────────────────────────────────
 
     @staticmethod
-    def _on_char_added(editor: "EditorWidget", char_int: int) -> None:
+    def _on_char_added(editor: EditorWidget, char_int: int) -> None:
         """Gestisce i caratteri speciali Markdown."""
         if getattr(editor, "_in_paste", False):
             return
@@ -138,7 +138,7 @@ class MarkdownSupport:
     # ── Toggle checklist ─────────────────────────────────────────────────────
 
     @staticmethod
-    def toggle_checklist(editor: "EditorWidget") -> bool:
+    def toggle_checklist(editor: EditorWidget) -> bool:
         """
         Alterna [ ] ↔ [x] sulla riga corrente.
         Ritorna True se ha modificato il testo, False se la riga non è una task list.
@@ -170,7 +170,7 @@ class MarkdownSupport:
     # ── YAML Front Matter highlight ──────────────────────────────────────────
 
     @staticmethod
-    def _apply_yaml_fm(editor: "EditorWidget") -> None:
+    def _apply_yaml_fm(editor: EditorWidget) -> None:
         """
         Evidenzia il blocco YAML front matter (--- ... ---) all'inizio del documento
         con uno sfondo tenue tramite INDICATOR_YAML_FM.
@@ -201,7 +201,7 @@ class MarkdownSupport:
     # ── Paragraph focus (Focus Mode) ─────────────────────────────────────────
 
     @staticmethod
-    def apply_paragraph_focus(editor: "EditorWidget") -> None:
+    def apply_paragraph_focus(editor: EditorWidget) -> None:
         """
         Attenua il testo fuori dal paragrafo corrente.
         Il paragrafo è delimitato da righe vuote (o inizio/fine documento).
@@ -251,7 +251,7 @@ class MarkdownSupport:
             editor.fillIndicatorRange(para_end + 1, 0, total - 1, last_len, indicator)
 
     @staticmethod
-    def clear_paragraph_focus(editor: "EditorWidget") -> None:
+    def clear_paragraph_focus(editor: EditorWidget) -> None:
         """Rimuove la modalità focus paragrafo dall'editor."""
         editor.clearIndicatorRange(0, 0, editor.lines(), 0, INDICATOR_SENTENCE_DIM)
         editor._paragraph_focus_range = None
@@ -259,7 +259,7 @@ class MarkdownSupport:
     # ── Tipografia intelligente ───────────────────────────────────────────────
 
     @staticmethod
-    def _handle_smart_typo(editor: "EditorWidget", char: str) -> None:
+    def _handle_smart_typo(editor: EditorWidget, char: str) -> None:
         """
         Sostituisce caratteri tipografici "grezzi" con quelli corretti:
         "  →  " o "      '  →  ' o '      --  →  —      ...  →  …
@@ -310,7 +310,7 @@ class MarkdownSupport:
     # ── Handlers originali ────────────────────────────────────────────────────
 
     @staticmethod
-    def _handle_asterisk(editor: "EditorWidget") -> None:
+    def _handle_asterisk(editor: EditorWidget) -> None:
         """
         Dopo '*': decide se inserire la chiusura automatica.
         - Se il carattere precedente è '*' (quindi digitato '**') → inserisce '**' di chiusura
@@ -349,7 +349,7 @@ class MarkdownSupport:
             editor.endUndoAction()
 
     @staticmethod
-    def _handle_backtick(editor: "EditorWidget") -> None:
+    def _handle_backtick(editor: EditorWidget) -> None:
         """
         Dopo '`':
         - Se è il terzo backtick consecutivo (``` ) → inserisce blocco codice completo
@@ -380,7 +380,7 @@ class MarkdownSupport:
             editor.endUndoAction()
 
     @staticmethod
-    def _handle_newline(editor: "EditorWidget") -> None:
+    def _handle_newline(editor: EditorWidget) -> None:
         """
         Su invio dopo una riga che inizia con '- ', '* ', '1. ' ecc.:
         continua la lista automaticamente se la riga precedente non è vuota.

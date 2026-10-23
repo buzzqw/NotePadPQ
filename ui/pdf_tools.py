@@ -5,14 +5,9 @@ NotePadPQ
 """
 from __future__ import annotations
 
-from typing import Optional, List
-from PyQt6.QtCore import Qt, QRectF, QPoint, QRect, QTimer
-from PyQt6.QtGui import (
-    QColor, QPen, QBrush, QPainter
-)
-from PyQt6.QtWidgets import (
-    QWidget, QApplication
-)
+from PyQt6.QtCore import QPoint, QRect, QRectF, Qt, QTimer
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPen
+from PyQt6.QtWidgets import QApplication, QWidget
 
 from i18n.i18n import tr  # noqa — riservato per uso futuro
 
@@ -49,7 +44,7 @@ class PdfSearchManager:
         self._scroll_to = scroll_to_fn
         self._rebuild = rebuild_fn
         self._query = ""
-        self._matches: List[dict] = []
+        self._matches: list[dict] = []
         self._current_idx = -1
         self._pages_with_matches: set = set()
         self._visible_ranges = {}
@@ -147,9 +142,9 @@ class PdfTextSelector:
         self._page = fitz_page
         self._zoom = zoom
         self._selecting = False
-        self._start_pos: Optional[QPoint] = None
-        self._end_pos: Optional[QPoint] = None
-        self._selection_rect: Optional[QRectF] = None
+        self._start_pos: QPoint | None = None
+        self._end_pos: QPoint | None = None
+        self._selection_rect: QRectF | None = None
         self._words_cache = None
 
     def _get_words(self):
@@ -202,7 +197,7 @@ class PdfTextSelector:
         except Exception:
             return ""
 
-    def get_selection_rect_px(self) -> Optional[QRect]:
+    def get_selection_rect_px(self) -> QRect | None:
         if not self._start_pos or not self._end_pos:
             return None
         x0 = min(self._start_pos.x(), self._end_pos.x())
@@ -305,7 +300,7 @@ class PdfMagnifier:
 
     def __init__(self, viewer):
         self._viewer = viewer
-        self._overlay: Optional[_MagnifierOverlay] = None
+        self._overlay: _MagnifierOverlay | None = None
         self._active = False
         self._debounce = QTimer()
         self._debounce.setSingleShot(True)

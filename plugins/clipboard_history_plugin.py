@@ -24,19 +24,26 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from cryptography.fernet import Fernet
-
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout,
-    QListWidget, QListWidgetItem, QPushButton, QLabel,
-    QLineEdit, QApplication, QMenu, QSpinBox,
+    QApplication,
+    QDockWidget,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -54,12 +61,12 @@ SAVE_DEBOUNCE  = 750            # raggruppa copie ravvicinate in una sola scritt
 
 class _ClipboardPanel(QWidget):
 
-    def __init__(self, main_window: "MainWindow", parent=None):
+    def __init__(self, main_window: MainWindow, parent=None):
         super().__init__(parent)
         self._mw       = main_window
-        self._history: List[str] = []    # testi completi
+        self._history: list[str] = []    # testi completi
         self._last_text = ""
-        self._fernet: Optional[Fernet] = None
+        self._fernet: Fernet | None = None
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
         self._save_timer.setInterval(SAVE_DEBOUNCE)
@@ -183,7 +190,7 @@ class _ClipboardPanel(QWidget):
     def _filter(self, text: str) -> None:
         self._refresh_list(text)
 
-    def _on_selection_changed(self, current: Optional[QListWidgetItem],
+    def _on_selection_changed(self, current: QListWidgetItem | None,
                               previous) -> None:
         if current is None:
             self._preview.clear()
@@ -369,7 +376,7 @@ class ClipboardHistoryPlugin(BasePlugin):
     )
     AUTHOR      = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
         self._panel = _ClipboardPanel(main_window)
 

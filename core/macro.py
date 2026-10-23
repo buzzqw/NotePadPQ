@@ -9,13 +9,13 @@ Le macro vengono salvate in JSON nella directory dati utente.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtWidgets import QInputDialog, QFileDialog
+from PyQt6.QtWidgets import QFileDialog, QInputDialog
 
-from core.platform import get_data_dir
 from core.persistence import atomic_write_json, load_json
+from core.platform import get_data_dir
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -29,16 +29,16 @@ class MacroManager(QObject):
     recording_stopped = pyqtSignal(int)  # numero di azioni registrate
     macro_played      = pyqtSignal()
 
-    _instance: Optional["MacroManager"] = None
+    _instance: MacroManager | None = None
 
     def __init__(self):
         super().__init__()
         self._recording  = False
         self._actions: list[dict] = []
-        self._current_editor: Optional["EditorWidget"] = None
+        self._current_editor: EditorWidget | None = None
 
     @classmethod
-    def instance(cls) -> "MacroManager":
+    def instance(cls) -> MacroManager:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -51,7 +51,7 @@ class MacroManager(QObject):
     def is_recording(self) -> bool:
         return self._recording
 
-    def start_recording(self, editor: Optional["EditorWidget"]) -> None:
+    def start_recording(self, editor: EditorWidget | None) -> None:
         if self._recording or editor is None:
             return
         self._recording = True
@@ -67,7 +67,6 @@ class MacroManager(QObject):
 
     def _play_actions(self, editor) -> None:
         """Riproduce la lista di azioni sull'editor dato."""
-        from PyQt6.QtCore import Qt as _Qt
         from PyQt6.Qsci import QsciScintilla
         for action in self._actions:
             t = action.get("type")
@@ -89,13 +88,13 @@ class MacroManager(QObject):
             except Exception:
                 pass
 
-    def play(self, editor: Optional["EditorWidget"]) -> None:
+    def play(self, editor: EditorWidget | None) -> None:
         if not editor or self._recording:
             return
         self._play_actions(editor)
         self.macro_played.emit()
 
-    def play_n_times(self, editor: Optional["EditorWidget"], n: int) -> None:
+    def play_n_times(self, editor: EditorWidget | None, n: int) -> None:
         """Riproduce la macro N volte."""
         if not editor or self._recording or n < 1:
             return

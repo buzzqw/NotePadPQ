@@ -14,13 +14,13 @@ Funzionalità:
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDockWidget, QLabel, QWidget
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -33,7 +33,7 @@ class TerminalPlugin(BasePlugin):
     DESCRIPTION = "Pannello dock con terminale integrato (xterm.js + shell)."
     AUTHOR      = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
 
         self._panel = None

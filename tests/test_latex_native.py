@@ -8,7 +8,6 @@ import pytest
 
 from editor.lexer_latex_custom import LaTeXLexer
 
-
 try:
     from core import _latex_native
 except ImportError:  # pragma: no cover - source-only installs
@@ -31,20 +30,20 @@ def _python_styles(text: bytes) -> bytes:
 @pytest.mark.skipif(_latex_native is None, reason="native accelerator not compiled")
 def test_native_scanner_matches_python_reference():
     text = (
-        "\\documentclass[12pt]{article}\n"
-        "\\usepackage{amsmath}\n"
-        "% a comment with $math$\n"
-        "\\begin{document}\n"
-        "\\section{Title} \\label{sec:title}\n"
-        "Text $x^2$ and $$y + 1$$ and \\[z\\].\n"
-        "\\begin{equation}\n"
-        "x = 1\n"
-        "\\end{equation}\n"
-        "\\begin{verbatim}\n"
-        "$x % \\section{raw}\n"
-        "\\end{verbatim}\n"
-        "\\end{document}\n"
-    ).encode()
+        b"\\documentclass[12pt]{article}\n"
+        b"\\usepackage{amsmath}\n"
+        b"% a comment with $math$\n"
+        b"\\begin{document}\n"
+        b"\\section{Title} \\label{sec:title}\n"
+        b"Text $x^2$ and $$y + 1$$ and \\[z\\].\n"
+        b"\\begin{equation}\n"
+        b"x = 1\n"
+        b"\\end{equation}\n"
+        b"\\begin{verbatim}\n"
+        b"$x % \\section{raw}\n"
+        b"\\end{verbatim}\n"
+        b"\\end{document}\n"
+    )
 
     safe, styles, _checkpoints = _latex_native.style(
         text, 0, len(text), "default", ()

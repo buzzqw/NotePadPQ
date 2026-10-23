@@ -25,23 +25,27 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
-import struct
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
+from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
-    QLabel, QLineEdit, QComboBox, QPushButton,
-    QDialogButtonBox, QMessageBox, QCheckBox,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QVBoxLayout,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QKeySequence
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+    from ui.main_window import MainWindow
 
 
 # ─── Algoritmi ────────────────────────────────────────────────────────────────
@@ -156,9 +160,9 @@ def _legacy_chacha20_decrypt(b64text: str, password: str) -> str:
 
 def _aes_decrypt(b64text: str, password: str, key_len: int = 32) -> str:
     """AES-CBC decrypt da Base64."""
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-    from cryptography.hazmat.primitives import padding as sym_padding
     from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import padding as sym_padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
     blob = base64.b64decode(b64text.strip())
     salt = blob[:16]
@@ -177,9 +181,9 @@ def _aes_decrypt(b64text: str, password: str, key_len: int = 32) -> str:
 
 def _des_decrypt(b64text: str, password: str, triple: bool = False) -> str:
     """DES/3DES-CBC decrypt da Base64."""
-    from cryptography.hazmat.primitives.ciphers import Cipher, modes
-    from cryptography.hazmat.primitives import padding as sym_padding
     from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import padding as sym_padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, modes
     try:
         from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
     except ImportError:
@@ -238,7 +242,7 @@ class _EncryptDialog(QDialog):
         """mode: 'encrypt' o 'decrypt'"""
         super().__init__(parent)
         self.mode   = mode
-        self.result_text: Optional[str] = None
+        self.result_text: str | None = None
         self.setWindowTitle(tr("plugin.encrypt.dialog_encrypt") if mode == "encrypt" else tr("plugin.encrypt.dialog_decrypt"))
         self.resize(400, 220)
         self._build_ui()
@@ -351,7 +355,7 @@ class _EncryptDialog(QDialog):
 
 # ─── Operazioni ───────────────────────────────────────────────────────────────
 
-def _get_target(editor: "EditorWidget"):
+def _get_target(editor: EditorWidget):
     if editor.hasSelectedText():
         return editor.selectedText(), True
     if getattr(editor, "_paged_doc", None) is not None:
@@ -370,7 +374,7 @@ def _get_target(editor: "EditorWidget"):
     return editor.text(), False
 
 
-def _apply(editor: "EditorWidget", result: str, had_sel: bool) -> None:
+def _apply(editor: EditorWidget, result: str, had_sel: bool) -> None:
     if had_sel:
         editor.replaceSelectedText(result)
     else:
@@ -380,7 +384,7 @@ def _apply(editor: "EditorWidget", result: str, had_sel: bool) -> None:
         editor.endUndoAction()
 
 
-def do_encrypt(editor: "EditorWidget", parent) -> None:
+def do_encrypt(editor: EditorWidget, parent) -> None:
     text, sel = _get_target(editor)
     if not text:
         return
@@ -406,7 +410,7 @@ def do_encrypt(editor: "EditorWidget", parent) -> None:
         QMessageBox.critical(parent, tr("plugin.encrypt.error_encrypt"), str(e))
 
 
-def do_decrypt(editor: "EditorWidget", parent) -> None:
+def do_decrypt(editor: EditorWidget, parent) -> None:
     text, sel = _get_target(editor)
     if not text:
         return
@@ -461,11 +465,11 @@ class EncryptPlugin(BasePlugin):
     )
     AUTHOR      = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
 
-        from PyQt6.QtWidgets import QMenu
         from PyQt6.QtGui import QAction
+        from PyQt6.QtWidgets import QMenu
 
         tools_menu = main_window._menus.get("tools")
         if not tools_menu:

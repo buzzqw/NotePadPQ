@@ -22,30 +22,46 @@ Opzionale:
 from __future__ import annotations
 
 import html
-import os
 import re
 import subprocess
 from pathlib import Path
-from typing import Optional, List, Tuple, TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread, QObject
-from PyQt6.QtWidgets import (
-    QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QTreeWidget, QTreeWidgetItem, QTextEdit, QPushButton, QLabel,
-    QLineEdit, QComboBox, QSplitter, QMenu, QInputDialog,
-    QMessageBox, QApplication, QCheckBox, QListWidget, QListWidgetItem,
-    QFormLayout, QGroupBox, QDialog, QDialogButtonBox, QPlainTextEdit,
-    QFileDialog,
-)
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
+from PyQt6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QDockWidget,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QTabWidget,
+    QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
-from plugins.base_plugin import BasePlugin
-from i18n.i18n import tr
 from core.git_framework import GitFramework
+from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+    from ui.main_window import MainWindow
 
 
 # ─── Helper Git CLI ───────────────────────────────────────────────────────────
@@ -56,7 +72,7 @@ class GitRunner:
     def __init__(self, repo_dir: Path):
         self.repo_dir = repo_dir
 
-    def run_raw(self, *args) -> Tuple[int, str, str]:
+    def run_raw(self, *args) -> tuple[int, str, str]:
         """Esegue git senza alterare l'output (gli spazi iniziali contano)."""
         try:
             result = subprocess.run(
@@ -76,7 +92,7 @@ class GitRunner:
         except Exception as e:
             return -1, "", str(e)
 
-    def run(self, *args, check=False) -> Tuple[int, str, str]:
+    def run(self, *args, check=False) -> tuple[int, str, str]:
         """Esegue git con gli argomenti dati. Restituisce (returncode, stdout, stderr)."""
         rc, out, err = self.run_raw(*args)
         return rc, out.strip(), err.strip()
@@ -89,7 +105,7 @@ class GitRunner:
         rc, out, _ = self.run("branch", "--show-current")
         return out if rc == 0 else "?"
 
-    def status(self) -> List[Tuple[str, str]]:
+    def status(self) -> list[tuple[str, str]]:
         """Restituisce [(status_code, filepath), ...]"""
         rc, out, _ = self.run_raw("status", "--porcelain")
         if rc != 0 or not out:
@@ -102,7 +118,7 @@ class GitRunner:
                 result.append((xy, path))
         return result
 
-    def log(self, n: int = 50) -> List[dict]:
+    def log(self, n: int = 50) -> list[dict]:
         """Restituisce gli ultimi N commit come lista di dict."""
         fmt = "%H%x1f%h%x1f%an%x1f%ae%x1f%ai%x1f%s"
         rc, out, _ = self.run("log", f"-{n}", f"--pretty=format:{fmt}")
@@ -122,7 +138,7 @@ class GitRunner:
                 })
         return commits
 
-    def diff(self, path: Optional[str] = None, staged: bool = False) -> str:
+    def diff(self, path: str | None = None, staged: bool = False) -> str:
         args = ["diff"]
         if staged:
             args.append("--cached")
@@ -154,7 +170,7 @@ class GitRunner:
                 current_line += 1
         return result
 
-    def branches(self) -> List[str]:
+    def branches(self) -> list[str]:
         rc, out, _ = self.run("branch", "-a", "--format=%(refname:short)")
         return out.splitlines() if rc == 0 else []
 
@@ -172,18 +188,18 @@ class GitRunner:
         rc, _, err = self.run("add", path)
         return rc == 0
 
-    def commit(self, message: str) -> Tuple[bool, str]:
+    def commit(self, message: str) -> tuple[bool, str]:
         rc, out, err = self.run("commit", "-m", message)
         return rc == 0, out or err
 
-    def push(self, remote="origin", branch="") -> Tuple[bool, str]:
+    def push(self, remote="origin", branch="") -> tuple[bool, str]:
         args = ["push", remote]
         if branch:
             args.append(branch)
         rc, out, err = self.run(*args)
         return rc == 0, out or err
 
-    def pull(self, remote="origin") -> Tuple[bool, str]:
+    def pull(self, remote="origin") -> tuple[bool, str]:
         rc, out, err = self.run("pull", remote)
         return rc == 0, out or err
 
@@ -198,7 +214,7 @@ class GitRunner:
         rc, _, _ = self.run("stash", "pop")
         return rc == 0
 
-    def checkout(self, branch: str, create=False) -> Tuple[bool, str]:
+    def checkout(self, branch: str, create=False) -> tuple[bool, str]:
         args = ["checkout"]
         if create:
             args.append("-b")
@@ -330,8 +346,8 @@ class _CredentialsDialog(QDialog):
 class _CommitDialog(QDialog):
     """Commit message + explicit list of files to include."""
 
-    def __init__(self, files: List[str], branch: str, parent=None,
-                 preselected: Optional[List[str]] = None):
+    def __init__(self, files: list[str], branch: str, parent=None,
+                 preselected: list[str] | None = None):
         super().__init__(parent)
         self.setWindowTitle("Git — Commit")
         self.setMinimumSize(520, 420)
@@ -401,7 +417,7 @@ class _CommitDialog(QDialog):
         self._file_list.itemChanged.connect(lambda _item: self._update_ok())
         self._update_ok()
 
-    def _selected_files(self) -> List[str]:
+    def _selected_files(self) -> list[str]:
         result = []
         for index in range(self._file_list.count()):
             item = self._file_list.item(index)
@@ -413,7 +429,7 @@ class _CommitDialog(QDialog):
         ok = bool(self._message.toPlainText().strip()) and bool(self._selected_files())
         self._buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(ok)
 
-    def values(self) -> Tuple[str, List[str]]:
+    def values(self) -> tuple[str, list[str]]:
         return self._message.toPlainText().strip(), self._selected_files()
 
 
@@ -421,12 +437,12 @@ class _CommitDialog(QDialog):
 
 class _GitPanel(QWidget):
 
-    def __init__(self, main_window: "MainWindow", parent=None):
+    def __init__(self, main_window: MainWindow, parent=None):
         super().__init__(parent)
         self._mw   = main_window
-        self._git: Optional[GitRunner] = None
-        self._git_fw: Optional[GitFramework] = None
-        self._repo_dir: Optional[Path] = None
+        self._git: GitRunner | None = None
+        self._git_fw: GitFramework | None = None
+        self._repo_dir: Path | None = None
         self._status_worker = None
         self._log_worker = None
         self._diff_worker = None
@@ -437,9 +453,9 @@ class _GitPanel(QWidget):
         self._diff_generation = 0
         self._log_detail_generation = 0
         self._decorator_generation = 0
-        self._status_entries: List[Tuple[str, str, str]] = []
+        self._status_entries: list[tuple[str, str, str]] = []
         self._populating_status = False
-        self._action_buttons: List[QPushButton] = []
+        self._action_buttons: list[QPushButton] = []
         self._build_ui()
         self._set_repo_ui_enabled(False)
         shortcut = QShortcut(QKeySequence("F5"), self, activated=self.refresh)
@@ -650,7 +666,7 @@ class _GitPanel(QWidget):
 
     # ── Rilevamento repo ──────────────────────────────────────────────────────
 
-    def set_editor(self, editor: Optional["EditorWidget"]) -> None:
+    def set_editor(self, editor: EditorWidget | None) -> None:
         """Aggiorna il repo in base al file aperto nell'editor."""
         if editor is None or editor.file_path is None:
             return
@@ -688,7 +704,7 @@ class _GitPanel(QWidget):
                 default="Nessun repository aperto. Usa 📂 per sceglierne uno.",
             ))
 
-    def _find_repo(self, path: Path) -> Optional[Path]:
+    def _find_repo(self, path: Path) -> Path | None:
         """Risale la gerarchia finché trova una .git directory."""
         current = path.parent if path.is_file() else path
         while current != current.parent:
@@ -737,6 +753,7 @@ class _GitPanel(QWidget):
         if not self._repo_dir:
             return
         from PyQt6.QtCore import QUrl
+
         from core.external_open import open_url
         open_url(QUrl.fromLocalFile(str(self._repo_dir.resolve())))
 
@@ -777,7 +794,7 @@ class _GitPanel(QWidget):
         # Preserve the currently selected file across the periodic refresh.
         selected = self._selected_status_path()
 
-        def _done(status: List[Tuple[str, str, str]]) -> None:
+        def _done(status: list[tuple[str, str, str]]) -> None:
             if (self._git_fw is not git or self._repo_dir != repo_dir
                     or self._status_generation != generation):
                 return
@@ -824,7 +841,7 @@ class _GitPanel(QWidget):
 
         self._status_worker = git.status_detailed_async(_done)
 
-    def _selected_status_path(self) -> Optional[str]:
+    def _selected_status_path(self) -> str | None:
         item = self._status_tree.currentItem()
         if item is None:
             return None
@@ -890,7 +907,7 @@ class _GitPanel(QWidget):
         self._log_generation += 1
         generation = self._log_generation
 
-        def _done(commits: List[dict]) -> None:
+        def _done(commits: list[dict]) -> None:
             if (self._git_fw is not git or self._repo_dir != repo_dir
                     or self._log_generation != generation):
                 return
@@ -1219,7 +1236,7 @@ class _GitPanel(QWidget):
 
     # ── Decoratori riga nell'editor ───────────────────────────────────────────
 
-    def apply_diff_decorators(self, editor: "EditorWidget") -> None:
+    def apply_diff_decorators(self, editor: EditorWidget) -> None:
         """
         Aggiunge indicatori colorati nei margini dell'editor
         per le righe aggiunte (verde), modificate (arancione) e
@@ -1254,7 +1271,7 @@ class _GitPanel(QWidget):
         self._decorator_worker = git.diff_file_lines_async(rel, _done)
 
     @staticmethod
-    def _apply_diff_decorators(editor: "EditorWidget", changes: dict) -> None:
+    def _apply_diff_decorators(editor: EditorWidget, changes: dict) -> None:
         """Apply already-computed gutter markers on the GUI thread."""
 
         # Usa gli indicatori QScintilla (0=aggiunto, 1=modificato, 2=eliminato)
@@ -1306,7 +1323,7 @@ class _GitPanel(QWidget):
 
     # ── Utility ───────────────────────────────────────────────────────────────
 
-    def _log(self, msg: str, success: Optional[bool] = True) -> None:
+    def _log(self, msg: str, success: bool | None = True) -> None:
         prefix = "✓" if success else "✗" if success is False else "⏳"
         color  = "#56bd5b" if success else "#e06c75" if success is False else "#61afef"
         self._log_output.append(
@@ -1323,7 +1340,7 @@ class GitPlugin(BasePlugin):
     DESCRIPTION = "Pannello Git con status, log, diff, commit, push/pull e integrazione GitHub/GitLab."
     AUTHOR      = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
         # Pannello costruito pigramente alla prima apertura del dock (nascosto
         # all'avvio): così non parte nemmeno il polling `git status` interno

@@ -18,13 +18,13 @@ from __future__ import annotations
 
 import re
 import subprocess
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QTimer, QObject, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 
 if TYPE_CHECKING:
-    from ui.main_window import MainWindow
     from editor.editor_widget import EditorWidget
+    from ui.main_window import MainWindow
 
 
 class _GitDiffWorker(QThread):
@@ -123,7 +123,7 @@ def _is_git_repo(directory) -> bool:
     return inside
 
 
-def _run_git_diff(file_path) -> Optional[str]:
+def _run_git_diff(file_path) -> str | None:
     """Esegue 'git diff HEAD -- <file>' e restituisce l'output o None."""
     try:
         result = subprocess.run(
@@ -149,11 +149,11 @@ class GitGutter(QObject):
 
     DELAY_MS = 800
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(main_window)
         self._mw = main_window
-        self._active_editor: Optional["EditorWidget"] = None
-        self._worker: Optional[_GitDiffWorker] = None
+        self._active_editor: EditorWidget | None = None
+        self._worker: _GitDiffWorker | None = None
         self._old_workers: list = []
 
         from config.settings import Settings
@@ -183,7 +183,7 @@ class GitGutter(QObject):
         else:
             self._refresh()
 
-    def _on_editor_changed(self, editor: Optional["EditorWidget"]) -> None:
+    def _on_editor_changed(self, editor: EditorWidget | None) -> None:
         if self._active_editor:
             try:
                 self._active_editor.textChanged.disconnect(self._schedule)
@@ -234,7 +234,7 @@ class GitGutter(QObject):
         worker.start()
 
     def _on_diff_done(self, added: set, modified: set, deleted: set,
-                      editor: "EditorWidget") -> None:
+                      editor: EditorWidget) -> None:
         if editor is not self._active_editor:
             return
         self._worker = None

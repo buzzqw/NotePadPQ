@@ -95,6 +95,9 @@ tests/*
 !tests/test_preferences_tooltips.py
 !tests/test_snippets.py
 !tests/test_spellcheck_personal_dict.py
+!tests/test_spellcheck_latex.py
+!tests/test_toolbar_quick_search.py
+!tests/test_latex_package_cursor.py
 !tests/test_diagnostics.py
 !tests/test_latex_caches.py
 !tests/test_latex_checks.py

@@ -9,8 +9,8 @@ agiscono su tutti i cursori simultaneamente.
 Collegamento: EditorWidget.__init__ crea self._multicursor = MultiCursorManager(self).
 """
 
-from PyQt6.QtGui import QColor
 from PyQt6.Qsci import QsciScintilla
+from PyQt6.QtGui import QColor
 
 
 class MultiCursorManager:

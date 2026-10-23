@@ -14,10 +14,14 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QSortFilterProxyModel, QTimer
-from PyQt6.QtGui import QStandardItemModel, QStandardItem
+from PyQt6.QtCore import QSortFilterProxyModel, Qt, QTimer
+from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QLineEdit, QListView, QLabel,
+    QDialog,
+    QLabel,
+    QLineEdit,
+    QListView,
+    QVBoxLayout,
 )
 
 from i18n.i18n import tr
@@ -34,7 +38,7 @@ _SYMBOL_RE = re.compile(
 
 class GotoAnythingDialog(QDialog):
 
-    def __init__(self, main_window: "MainWindow"):
+    def __init__(self, main_window: MainWindow):
         super().__init__(
             main_window,
             Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint,

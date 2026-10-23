@@ -2348,7 +2348,7 @@ LATEX_CMD_DOCS: dict[str, tuple[str, str, str, str]] = {
         "Varianti comuni: \\Gls{} (iniziale maiuscola), \\glspl{} (plurale).",
         "glossaries",
         r"La formattazione è gestita tramite \gls{latex}.",
-    ),    
+    ),
 }
 
 

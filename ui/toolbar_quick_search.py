@@ -16,12 +16,12 @@ Stessi prefissi di "Vai a..." (ui/goto_anything.py):
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QPoint, Qt, QTimer
 from PyQt6.QtWidgets import QLineEdit, QListWidget, QListWidgetItem
 
+from core.text_search import fold_typography, literal_search_pattern
 from i18n.i18n import I18n, tr
 
 if TYPE_CHECKING:
@@ -41,8 +41,8 @@ _SNIPPET_CHARS = 90
 
 def _match_score(needle: str, haystack: str) -> int:
     """Punteggio fuzzy (0 = nessuna corrispondenza, più alto = migliore)."""
-    needle = needle.strip().lower()
-    haystack = haystack.lower()
+    needle = fold_typography(needle.strip().lower())
+    haystack = fold_typography(haystack.lower())
     if not needle:
         return 1
     if haystack.startswith(needle):
@@ -160,10 +160,9 @@ class ToolbarQuickSearch(QLineEdit):
         needle = query.strip()
         if len(needle) < _MIN_CONTENT_QUERY:
             return []
-        try:
-            pattern = re.compile(re.escape(needle), re.IGNORECASE)
-        except re.error:
-            return []
+        # Apostrofi/virgolette/trattini tipografici e accenti NFC/NFD devono
+        # corrispondere alle rispettive varianti ASCII senza spostare gli offset.
+        pattern = literal_search_pattern(needle)
 
         rows: list[tuple[str, str, object]] = []
         remaining = _MAX_CONTENT_ROWS
@@ -206,9 +205,10 @@ class ToolbarQuickSearch(QLineEdit):
                     line=line + 1,
                     snippet=snippet,
                 )
-                # Colonna in byte, come richiesto da QScintilla.
-                col_start = len(text[line_start:match.start()].encode("utf-8"))
-                col_end = col_start + len(match.group(0).encode("utf-8"))
+                # Colonna in CARATTERI: setSelection usa i caratteri, non i
+                # byte. La conversione serve solo agli indicatori.
+                col_start = match.start() - line_start
+                col_end = col_start + len(match.group(0))
                 rows.append((
                     label,
                     "content",

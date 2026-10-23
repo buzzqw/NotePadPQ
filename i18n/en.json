@@ -539,7 +539,6 @@
     "file_matches": "{matches} matches",
     "row_n": "Line {n}",
     "select_directory": "Select directory",
-    "ready": "Ready.",
     "ollama_unreachable": "⚠ ollama unreachable",
     "macro_no_macro": "No macro recorded.",
     "macro_play_n_title": "Run Macro N Times",

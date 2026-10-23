@@ -12,7 +12,7 @@ Salva e ripristina:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from PyQt6.QtCore import QTimer
@@ -103,7 +103,7 @@ def restore_cursor_after_load(main_window, path: Path, line: int, col: int,
 
 class Session:
 
-    _instance: Optional["Session"] = None
+    _instance: Session | None = None
 
     # Incrementare quando cambia la disposizione predefinita dei dock
     # (es. angoli/corner di QMainWindow) in modo che un layout salvato
@@ -115,12 +115,12 @@ class Session:
         self._path = get_config_dir() / "session.json"
 
     @classmethod
-    def instance(cls) -> "Session":
+    def instance(cls) -> Session:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
 
-    def save(self, tab_manager: "TabManager") -> None:
+    def save(self, tab_manager: TabManager) -> None:
         """Salva la sessione corrente su disco."""
         data = {
             "current_index": tab_manager.currentIndex(),
@@ -317,9 +317,9 @@ class Session:
     def save_ui_state(self, main_window) -> None:
         """Salva tema, minimap, word wrap, profilo build attivo e layout dock/toolbar."""
         try:
+            from config.settings import Settings
             from config.themes import ThemeManager
             from core.build_manager import BuildManager
-            from config.settings import Settings
 
             state = {
                 "active_theme":    ThemeManager.instance().active_name(),
@@ -346,7 +346,6 @@ class Session:
             # include posizione, dimensioni e visibilità di tutti i QDockWidget
             # e QToolBar. QByteArray → base64 per serializzarlo in JSON.
             try:
-                import base64
                 layout_bytes = main_window.saveState().data()
                 geom_bytes   = main_window.saveGeometry().data()
                 layout_path  = self._path.parent / "window_layout.bin"

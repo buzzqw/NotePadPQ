@@ -1,19 +1,31 @@
 """Pannello dock per visualizzazione e formattazione di file JSON e XML."""
 from __future__ import annotations
 
-import json
 import io
+import json
 import xml.dom.minidom
 import xml.etree.ElementTree as ET
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer, QThread, QSortFilterProxyModel, pyqtSignal
+from PyQt6.QtCore import QSortFilterProxyModel, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import (
-    QAction, QBrush, QColor, QKeySequence, QStandardItem, QStandardItemModel,
+    QAction,
+    QBrush,
+    QColor,
+    QKeySequence,
+    QStandardItem,
+    QStandardItemModel,
 )
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QDockWidget, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QTreeView, QVBoxLayout, QWidget,
+    QAbstractItemView,
+    QDockWidget,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTreeView,
+    QVBoxLayout,
+    QWidget,
 )
 
 from i18n.i18n import tr
@@ -82,10 +94,10 @@ class JsonXmlPanel(QWidget):
 
     _DEBOUNCE_MS = 1500
 
-    def __init__(self, main_window: "MainWindow", parent: Optional[QWidget] = None) -> None:
+    def __init__(self, main_window: MainWindow, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._mw = main_window
-        self._editor: Optional["EditorWidget"] = None
+        self._editor: EditorWidget | None = None
         self._lang: str = ""
         self._updating_editor = False   # blocca loop textChanged ↔ itemChanged
         self._ns_map: dict[str, str] = {}   # uri → prefix per preservare i namespace XML
@@ -185,7 +197,7 @@ class JsonXmlPanel(QWidget):
 
     # ── Connessione editor ────────────────────────────────────────────────────
 
-    def set_editor(self, editor: Optional["EditorWidget"]) -> None:
+    def set_editor(self, editor: EditorWidget | None) -> None:
         if self._editor is editor:
             return
         if self._editor is not None:
@@ -438,7 +450,7 @@ class JsonXmlPanel(QWidget):
         import io
         self._ns_map = {}
         try:
-            for event, (prefix, uri) in ET.iterparse(
+            for _event, (prefix, uri) in ET.iterparse(
                 io.StringIO(text), events=["start-ns"]
             ):
                 self._ns_map[uri] = prefix
@@ -836,7 +848,7 @@ class JsonXmlPanel(QWidget):
 
 # ── Funzione di installazione ─────────────────────────────────────────────────
 
-def install(main_window: "MainWindow") -> JsonXmlPanel:
+def install(main_window: MainWindow) -> JsonXmlPanel:
     """Crea il dock JSON/XML, lo aggiunge alla finestra e al menu Visualizza."""
     panel = JsonXmlPanel(main_window)
 

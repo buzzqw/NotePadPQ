@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QMessageBox
 
-from plugins.base_plugin import BasePlugin
 from i18n.i18n import tr
+from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -25,7 +25,7 @@ class PdfViewerPlugin(BasePlugin):
     DESCRIPTION = "Apre file .pdf in un tab di sola lettura (motore Chromium)."
     AUTHOR      = "NotePadPQ Team"
 
-    def on_load(self, main_window: "MainWindow") -> None:
+    def on_load(self, main_window: MainWindow) -> None:
         super().on_load(main_window)
 
         m = main_window._menus.get("plugins")
@@ -48,7 +48,7 @@ class PdfViewerPlugin(BasePlugin):
 
     def open_document(self, path: Path) -> None:
         """Apre un PDF in un nuovo tab. Chiamato da main_window.open_files."""
-        from ui.pdf_viewer_widget import PdfViewerWidget, FITZ_OK, WEBENGINE_OK
+        from ui.pdf_viewer_widget import FITZ_OK, WEBENGINE_OK, PdfViewerWidget
 
         if not FITZ_OK and not WEBENGINE_OK:
             QMessageBox.warning(

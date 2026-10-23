@@ -4,8 +4,8 @@
 
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(2, 1, 8, 0),
-    prodvers=(2, 1, 8, 0),
+    filevers=(2, 1, 9, 0),
+    prodvers=(2, 1, 9, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -21,12 +21,12 @@ VSVersionInfo(
           [
             StringStruct(u'CompanyName',      u'NotePadPQ'),
             StringStruct(u'FileDescription',  u'NotePadPQ - Text Editor'),
-            StringStruct(u'FileVersion',      u'1.7.1.0'),
+            StringStruct(u'FileVersion',      u'2.1.9.0'),
             StringStruct(u'InternalName',     u'NotePadPQ'),
             StringStruct(u'LegalCopyright',   u'EUPL-1.2'),
             StringStruct(u'OriginalFilename', u'NotePadPQ.exe'),
             StringStruct(u'ProductName',      u'NotePadPQ'),
-            StringStruct(u'ProductVersion',   u'1.7.1'),
+            StringStruct(u'ProductVersion',   u'2.1.9'),
           ]
         )
       ]

@@ -45,6 +45,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.file_manager import FileManager
 from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
 from ui.busy_indicator import BusyIndicator
@@ -1337,7 +1338,9 @@ class _FtpPanel(QWidget):
                            "modalità paginata.")
             )
             return
-        raw = editor.get_content().encode(editor.encoding, errors="replace")
+        raw = FileManager.encode_text(
+            editor.get_content(), editor.encoding,
+            getattr(editor, "_write_bom", False), errors="replace")
 
         def _on_done(ok: bool) -> None:
             if ok:
@@ -1363,7 +1366,9 @@ class _FtpPanel(QWidget):
             QMessageBox.information(self, "FTP/SFTP/SMB", tr("plugin.ftp_browser.no_folder_open_upload"))
             return
         remote_path = self._current_dir.rstrip("/") + "/" + editor.file_path.name
-        raw = editor.get_content().encode(editor.encoding, errors="replace")
+        raw = FileManager.encode_text(
+            editor.get_content(), editor.encoding,
+            getattr(editor, "_write_bom", False), errors="replace")
 
         def _on_done(ok: bool) -> None:
             if ok:

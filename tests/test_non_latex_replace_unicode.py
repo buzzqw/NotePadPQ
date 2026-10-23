@@ -10,9 +10,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QApplication, QLabel, QTreeWidget, QTreeWidgetItem
 
+from core.safe_regex import has_catastrophic_backtracking, pattern_error
 from editor.editor_widget import INDICATOR_FIND, INDICATOR_SPELL, EditorWidget
 from ui.find_replace import (
     FindReplaceDialog,
+    _FindInFilesWorker,
     _nearest_result_index,
     _OccurrenceScanWorker,
     _ReplaceInFilesWorker,
@@ -529,6 +531,19 @@ class OccurrenceScanWorkerTest(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
 
+    def test_nested_quantifier_patterns_are_rejected(self):
+        for pattern in (r"(a+)+$", r"(.*)*", r"(\d+){2,}", r"(ab*)+"):
+            self.assertTrue(
+                has_catastrophic_backtracking(pattern), pattern)
+            self.assertIsNotNone(pattern_error(pattern))
+
+    def test_normal_regex_patterns_are_allowed(self):
+        for pattern in (
+                r"hello", r"(\w+)@(\w+)", r"(foo|bar)+", r"a+?",
+                r"(\d{1,3}\.){3}\d{1,3}"):
+            self.assertFalse(
+                has_catastrophic_backtracking(pattern), pattern)
+
     def test_scan_counts_all_matches_but_reports_one_row_per_line(self):
         worker = _OccurrenceScanWorker(
             "alfa alfa\nbeta\nalfa", re.compile("alfa"), None, 4, 2000
@@ -565,6 +580,26 @@ class OccurrenceScanWorkerTest(unittest.TestCase):
         self.assertEqual(count, 10)
         self.assertTrue(truncated)
         self.assertEqual(len(rows), 3)
+
+    def test_find_in_files_skips_binary_and_ignored_directories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "text.txt").write_text("needle\n", encoding="utf-8")
+            (root / "binary.bin").write_bytes(b"\x00" * 32 + b"needle")
+            ignored = root / ".git"
+            ignored.mkdir()
+            (ignored / "hidden.txt").write_text("needle\n", encoding="utf-8")
+
+            found = []
+            worker = _FindInFilesWorker(
+                str(root), [], "needle", False, False, True)
+            worker.file_done.connect(
+                lambda rel, abs_path, count, entries:
+                found.append((rel, count, entries)))
+            worker.run()
+
+            self.assertEqual([item[0] for item in found], ["text.txt"])
+            self.assertEqual(found[0][1], 1)
 
 
 if __name__ == "__main__":

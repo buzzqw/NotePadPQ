@@ -358,6 +358,10 @@ class IncrementalSearchBar(QWidget):
         if self._cb_word.isChecked():
             text = r"\b(?:" + text + r")\b"
         flags = 0 if self._cb_case.isChecked() else re.IGNORECASE
+        from core.safe_regex import pattern_error
+        unsafe = pattern_error(text)
+        if unsafe:
+            raise re.error(unsafe)
         # Valida che sia una regex valida
         return re.compile(text, flags)
 

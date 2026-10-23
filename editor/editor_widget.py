@@ -508,9 +508,20 @@ class LineEnding(Enum):
 
     @classmethod
     def detect(cls, text: str) -> "LineEnding":
-        if "\r\n" in text:
+        """Sceglie il line ending predominante.
+
+        La vecchia implementazione restituiva CRLF se ne esisteva anche uno
+        solo: un file quasi tutto LF con una riga incollata da Windows veniva
+        riscritto interamente in CRLF al salvataggio.
+        """
+        crlf = text.count("\r\n")
+        cr = text.count("\r") - crlf
+        lf = text.count("\n") - crlf
+        if crlf == 0 and cr == 0 and lf == 0:
+            return cls.LF
+        if crlf >= cr and crlf >= lf:
             return cls.CRLF
-        if "\r" in text:
+        if cr > lf:
             return cls.CR
         return cls.LF
 
@@ -593,9 +604,11 @@ class EditorWidget(QsciScintilla):
         self._encoding: str = (
             "UTF-8 BOM" if default_encoding == "UTF-8-BOM" else default_encoding
         )
+        self._write_bom: bool = default_encoding == "UTF-8-BOM"
         self._line_ending: LineEnding = LineEnding.LF
         self._file_path: Path | None = None
         self._document_revision: int = 0
+        self._disk_signature: tuple[int, int, int] | None = None
         self._save_in_progress: bool = False
         self._read_only_forced: bool = False
         self._zoom_level: int  = 0
@@ -1111,7 +1124,6 @@ class EditorWidget(QsciScintilla):
             return
         text = self.selectedText()
         lines = text.count("\n") + 1
-        byte_count = len(text.encode(self.encoding or "utf-8", errors="replace"))
         self.selection_changed_info.emit(len(text), lines, byte_count)
 
     def _on_zoom_changed(self) -> None:
@@ -1382,6 +1394,7 @@ class EditorWidget(QsciScintilla):
         normalized = text.replace("\r\n", "\n").replace("\r", "\n")
 
         self._encoding = encoding
+        self._write_bom = "BOM" in encoding.upper()
         self._line_ending = line_ending
         self._document_revision += 1
 
@@ -1435,6 +1448,7 @@ class EditorWidget(QsciScintilla):
 
         with operation("editor.refresh_language_support"):
             self.refresh_language_support(force_check=True)
+        self.record_disk_signature()
 
     def refresh_language_support(self, force_check: bool = False) -> None:
         """Aggiorna supporto linguaggio, API e checker dopo un load/append."""
@@ -1472,6 +1486,36 @@ class EditorWidget(QsciScintilla):
     def mark_saved(self) -> None:
         """Segna il documento come non modificato dopo il salvataggio."""
         self.setModified(False)
+
+    def record_disk_signature(self) -> None:
+        """Memorizza mtime/size/inode per rilevare modifiche esterne."""
+        if self._file_path is None:
+            self._disk_signature = None
+            return
+        try:
+            stat_result = self._file_path.stat()
+            self._disk_signature = (
+                stat_result.st_mtime_ns,
+                stat_result.st_size,
+                getattr(stat_result, "st_ino", 0),
+            )
+        except OSError:
+            self._disk_signature = None
+
+    def disk_changed_externally(self) -> bool:
+        """True se il file su disco è cambiato dall'ultima lettura/salvataggio."""
+        if self._file_path is None or self._disk_signature is None:
+            return False
+        try:
+            stat_result = self._file_path.stat()
+        except OSError:
+            return True
+        current = (
+            stat_result.st_mtime_ns,
+            stat_result.st_size,
+            getattr(stat_result, "st_ino", 0),
+        )
+        return current != self._disk_signature
 
     def apply_save_formatting(self, trim_trailing: bool,
                               add_final_newline: bool) -> None:
@@ -1649,6 +1693,7 @@ class EditorWidget(QsciScintilla):
     def set_encoding(self, encoding: str) -> None:
         """Aggiorna l'encoding registrato (la conversione è in file_manager.py)."""
         self._encoding = encoding
+        self._write_bom = "BOM" in encoding.upper()
         self.encoding_changed.emit(encoding)
 
     # ── Selezione e cursore ───────────────────────────────────────────────────

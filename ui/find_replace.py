@@ -71,6 +71,13 @@ _instance: FindReplaceDialog | None = None
 
 _MAX_REPLACE_FILES = 1_000
 _MAX_REPLACE_FILE_BYTES = 50 * 1024 * 1024
+_MAX_FIND_FILE_BYTES = 20 * 1024 * 1024
+_MAX_SMART_FIND_BYTES = 20 * 1024 * 1024
+_MAX_FIND_ENTRIES_PER_FILE = 5_000
+_SKIP_SEARCH_DIRS = frozenset({
+    ".git", ".hg", ".svn", "node_modules", "__pycache__",
+    ".venv", "venv", ".tox", ".mypy_cache", ".ruff_cache",
+})
 
 
 def _source_file_for_replace(path: Path) -> tuple[str, str, bool, bytes]:
@@ -202,6 +209,11 @@ class _FindInFilesWorker(QObject):
         re_flags = 0 if self._case_s else re.IGNORECASE
         try:
             source = self._query if self._use_re else literal_search_source(self._query)
+            from core.safe_regex import pattern_error
+            unsafe = pattern_error(source)
+            if unsafe:
+                self.error.emit(unsafe)
+                return
             pattern = re.compile(source, re_flags)
         except re.error as e:
             self.error.emit(str(e))
@@ -210,9 +222,11 @@ class _FindInFilesWorker(QObject):
         walker = os.walk(self._base_dir) if self._recurse \
             else [(self._base_dir, [], os.listdir(self._base_dir))]
 
-        for root, _, files in walker:
+        for root, dirs, files in walker:
             if self._cancelled.is_set():
                 return
+            if self._recurse:
+                dirs[:] = [d for d in dirs if d not in _SKIP_SEARCH_DIRS]
             for fname in files:
                 if self._cancelled.is_set():
                     return
@@ -220,6 +234,15 @@ class _FindInFilesWorker(QObject):
                     continue
                 fpath = Path(root) / fname
                 try:
+                    if not fpath.is_file():
+                        continue
+                    size = fpath.stat().st_size
+                    if size > _MAX_FIND_FILE_BYTES:
+                        continue
+                    with fpath.open("rb") as probe:
+                        head = probe.read(4096)
+                    if FileManager.looks_binary(head):
+                        continue
                     text, _encoding, _has_bom, _source_digest = _source_file_for_replace(fpath)
                 except Exception:
                     continue
@@ -230,14 +253,15 @@ class _FindInFilesWorker(QObject):
                     lm = list(pattern.finditer(line))
                     if lm:
                         file_match_count += len(lm)
-                        m = lm[0]
-                        try:
-                            rel = str(fpath.relative_to(self._base_dir))
-                        except ValueError:
-                            rel = str(fpath)
-                        file_line_entries.append(
-                            _FindInFilesResult(rel, str(fpath), i + 1, line, m.start(), m.end())
-                        )
+                        if len(file_line_entries) < _MAX_FIND_ENTRIES_PER_FILE:
+                            m = lm[0]
+                            try:
+                                rel = str(fpath.relative_to(self._base_dir))
+                            except ValueError:
+                                rel = str(fpath)
+                            file_line_entries.append(
+                                _FindInFilesResult(rel, str(fpath), i + 1, line, m.start(), m.end())
+                            )
                 if file_line_entries:
                     try:
                         rel = str(fpath.relative_to(self._base_dir))
@@ -271,9 +295,11 @@ class _ReplaceInFilesWorker(QObject):
 
         files_to_modify = []
         scanned_files = 0
-        for root, _, files in walker:
+        for root, dirs, files in walker:
             if self._cancelled.is_set():
                 return
+            if self._recurse:
+                dirs[:] = [d for d in dirs if d not in _SKIP_SEARCH_DIRS]
             for fname in files:
                 if self._cancelled.is_set():
                     return
@@ -288,6 +314,10 @@ class _ReplaceInFilesWorker(QObject):
                     return
                 try:
                     if not fpath.is_file() or fpath.stat().st_size > _MAX_REPLACE_FILE_BYTES:
+                        continue
+                    with fpath.open("rb") as probe:
+                        head = probe.read(4096)
+                    if FileManager.looks_binary(head):
                         continue
                     text, encoding, has_bom, source_digest = _source_file_for_replace(fpath)
                 except Exception:
@@ -1079,6 +1109,11 @@ ESEMPI
             pat = pattern_text if flags.get("regex") else literal_search_source(pattern_text)
             if flags.get("whole_word"):
                 pat = rf"\b(?:{pat})\b"
+            from core.safe_regex import pattern_error
+            unsafe = pattern_error(pat)
+            if unsafe:
+                self._last_pattern_error = unsafe
+                return None
             return re.compile(pat, re_flags)
         except re.error as e:
             self._last_pattern_error = str(e)
@@ -1094,10 +1129,15 @@ ESEMPI
         re_flags = 0 if flags.get("case_sensitive") else re.IGNORECASE
         patterns = []
         try:
+            from core.safe_regex import pattern_error
             for term in terms:
                 part = term if flags.get("regex") else literal_search_source(term)
                 if flags.get("whole_word"):
                     part = rf"\b(?:{part})\b"
+                unsafe = pattern_error(part)
+                if unsafe:
+                    self._last_pattern_error = unsafe
+                    return []
                 patterns.append(re.compile(part, re_flags))
         except re.error as exc:
             self._last_pattern_error = str(exc)
@@ -1144,6 +1184,15 @@ ESEMPI
                 if self._last_pattern_error else tr("msg.no_results", query=pattern_text)
             )
             return False
+        try:
+            if editor.length() > _MAX_SMART_FIND_BYTES:
+                status_label.setText(tr(
+                    "msg.smart_search_too_large",
+                    default="Documento troppo grande per la ricerca smart.",
+                ))
+                return False
+        except Exception:
+            pass
 
         lines = editor.text().split("\n")
         matching = {
@@ -2373,9 +2422,13 @@ ESEMPI
 
         re_flags = 0 if case_s else re.IGNORECASE
         try:
-            pattern = re.compile(
-                query if use_re else literal_search_source(query), re_flags
-            )
+            from core.safe_regex import pattern_error
+            source = query if use_re else literal_search_source(query)
+            unsafe = pattern_error(source)
+            if unsafe:
+                self._fif_status.setText(tr("msg.regex_error", error=unsafe))
+                return
+            pattern = re.compile(source, re_flags)
         except re.error as e:
             self._fif_status.setText(tr("msg.regex_error", error=str(e)))
             return
@@ -2451,9 +2504,11 @@ ESEMPI
         case_s = self._fif_case.isChecked()
         re_flags = 0 if case_s else re.IGNORECASE
         try:
-            pattern = re.compile(
-                query if use_re else literal_search_source(query), re_flags
-            )
+            from core.safe_regex import pattern_error
+            source = query if use_re else literal_search_source(query)
+            if pattern_error(source):
+                return
+            pattern = re.compile(source, re_flags)
         except re.error:
             return
         try:
@@ -2499,11 +2554,14 @@ ESEMPI
         query = self._fif_find.text().strip()
         re_flags = 0 if self._fif_case.isChecked() else re.IGNORECASE
         try:
-            pattern = re.compile(
-                query if self._fif_regex.isChecked()
-                else literal_search_source(query),
-                re_flags,
-            )
+            from core.safe_regex import pattern_error
+            source = (query if self._fif_regex.isChecked()
+                      else literal_search_source(query))
+            unsafe = pattern_error(source)
+            if unsafe:
+                self._fif_status.setText(tr("msg.regex_error", error=unsafe))
+                return
+            pattern = re.compile(source, re_flags)
         except re.error as exc:
             self._fif_status.setText(tr("msg.regex_error", error=str(exc)))
             return

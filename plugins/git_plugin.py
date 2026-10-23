@@ -27,7 +27,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -62,6 +62,10 @@ from plugins.base_plugin import BasePlugin
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
     from ui.main_window import MainWindow
+
+# Worker branch/config referenziati fino a finished anche se il pannello viene
+# chiuso mentre git è ancora in esecuzione.
+_ACTIVE_INFO_WORKERS: set = set()
 
 
 # ─── Helper Git CLI ───────────────────────────────────────────────────────────
@@ -252,6 +256,32 @@ def _load_token(service: str) -> str:
 
 
 # ─── Dialog credenziali ───────────────────────────────────────────────────────────
+
+class _GitInfoWorker(QThread):
+    """Legge branch/config in background: erano comandi git sincroni sul GUI."""
+
+    done = pyqtSignal(str, list, str, str, str)
+
+    def __init__(self, repo_dir: Path):
+        super().__init__(None)
+        self._repo_dir = repo_dir
+        _ACTIVE_INFO_WORKERS.add(self)
+        self.finished.connect(
+            lambda w=self: _ACTIVE_INFO_WORKERS.discard(w)
+        )
+
+    def run(self) -> None:
+        git = GitRunner(self._repo_dir)
+        branch = git.current_branch()
+        branches = git.branches()
+        name = git.get_config("user.name")
+        email = git.get_config("user.email")
+        rc, out, _err = git.run("config", "--local", "--list")
+        self.done.emit(
+            branch, branches, name or "", email or "",
+            out if rc == 0 else "",
+        )
+
 
 class _CredentialsDialog(QDialog):
     def __init__(self, git=None, parent=None):
@@ -446,6 +476,7 @@ class _GitPanel(QWidget):
         self._status_worker = None
         self._log_worker = None
         self._diff_worker = None
+        self._info_worker = None
         self._log_detail_worker = None
         self._decorator_worker = None
         self._status_generation = 0
@@ -454,6 +485,7 @@ class _GitPanel(QWidget):
         self._log_detail_generation = 0
         self._decorator_generation = 0
         self._status_entries: list[tuple[str, str, str]] = []
+        self._current_branch: str = ""
         self._populating_status = False
         self._action_buttons: list[QPushButton] = []
         self._build_ui()
@@ -762,11 +794,42 @@ class _GitPanel(QWidget):
     def refresh(self) -> None:
         if not self._git:
             return
-        self._branch_label.setText(f"⎇ {self._git.current_branch()}")
+        self._branch_label.setText("⎇ …")
         self._refresh_status()
         self._refresh_log()
-        self._refresh_branches()
-        self._refresh_config()
+        self._refresh_repo_info()
+
+    def _refresh_repo_info(self) -> None:
+        if not self._git:
+            return
+        if self._info_worker is not None and self._info_worker.isRunning():
+            return
+        worker = _GitInfoWorker(self._git.repo_dir)
+        self._info_worker = worker
+        worker.done.connect(self._on_repo_info)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(
+            lambda w=worker: self._on_repo_info_finished(w))
+        worker.start()
+
+    def _on_repo_info_finished(self, worker=None) -> None:
+        if worker is None or self._info_worker is worker:
+            self._info_worker = None
+
+    def _on_repo_info(self, branch: str, branches: list,
+                     name: str, email: str, config_text: str) -> None:
+        self._current_branch = branch
+        self._branch_label.setText(f"⎇ {branch}")
+        self._branch_list.clear()
+        for br in branches:
+            item = QListWidgetItem(("★ " if br == branch else "  ") + br)
+            if br == branch:
+                item.setForeground(QColor("#7ec8e3"))
+            self._branch_list.addItem(item)
+        self._cfg_name_lbl.setText(f"Nome: {name or '(non impostato)'}")
+        self._cfg_email_lbl.setText(f"Email: {email or '(non impostata)'}")
+        self._cfg_view.setPlainText(
+            config_text or "(nessuna config locale)")
 
     def _auto_refresh(self) -> None:
         """Refresh periodico silenzioso (solo quando il pannello è visibile)."""
@@ -923,7 +986,7 @@ class _GitPanel(QWidget):
         self._branch_list.clear()
         if not self._git:
             return
-        current = self._git.current_branch()
+        current = getattr(self, "_current_branch", "")
         for br in self._git.branches():
             item = QListWidgetItem(("★ " if br == current else "  ") + br)
             if br == current:
@@ -941,7 +1004,7 @@ class _GitPanel(QWidget):
     def _push(self) -> None:
         if not self._git_fw:
             return
-        branch = self._git_fw.current_branch()
+        branch = getattr(self, "_current_branch", "") or "HEAD"
         self._log(f"Push in corso ({branch})...", None)
         self._git_fw.push_async(branch=branch, callback=self._on_async_done)
 
@@ -960,7 +1023,7 @@ class _GitPanel(QWidget):
                 tr("git.nothing_to_commit", default="Nessuna modifica da committare."),
             )
             return
-        branch = self._git_fw.current_branch()
+        branch = getattr(self, "_current_branch", "")
         staged = [path for x, _y, path in self._status_entries
                   if x not in (" ", "?", "!")]
         if staged:
@@ -1033,7 +1096,7 @@ class _GitPanel(QWidget):
             br = br[2:].strip()
         if not br:
             return
-        if br == self._git_fw.current_branch():
+        if br == getattr(self, "_current_branch", ""):
             return
         reply = QMessageBox.question(
             self, "Git",
@@ -1217,7 +1280,7 @@ class _GitPanel(QWidget):
             return
         remotes = self._git.remotes()
         remote_url = remotes.get("origin", "")
-        branch = self._git.current_branch()
+        branch = getattr(self, "_current_branch", "")
 
         # Converti URL SSH → HTTPS
         m = re.match(r"git@(github\.com|gitlab\.com):(.+?)(?:\.git)?$", remote_url)
@@ -1297,6 +1360,13 @@ class _GitPanel(QWidget):
             if worker:
                 worker.cancel()
             setattr(self, attr, None)
+        info_worker = getattr(self, "_info_worker", None)
+        if info_worker is not None:
+            try:
+                info_worker.done.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            self._info_worker = None
 
     def shutdown(self) -> None:
         """Stop callbacks before the panel and its widgets are destroyed."""

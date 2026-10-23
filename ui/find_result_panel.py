@@ -18,6 +18,10 @@ from i18n.i18n import tr
 _COL_INFO  = 0   # "file:riga" o testo risultato
 _COL_TEXT  = 1   # testo della riga
 
+# Limite di righe materializzate nel QTreeWidget: oltre questa soglia la
+# creazione degli item diventa più costosa della ricerca stessa.
+_MAX_RESULT_ROWS = 5_000
+
 
 def _theme_colors() -> dict:
     """Colori del tema attivo per la lista risultati (sfondo, testo, selezione,
@@ -109,6 +113,7 @@ class FindResultPanel(QWidget):
         super().__init__(main_window)
         self._mw = main_window
         self._current_query: str = ""
+        self._result_rows: int = 0
         self._colors = _theme_colors()
 
         vl = QVBoxLayout(self)
@@ -208,14 +213,20 @@ class FindResultPanel(QWidget):
             f'Cerca: "{query}" — {total} occorrenz{"e" if total!=1 else "a"} '
             f'in {n_files} file{"" if n_files==1 else ""}'
         )
-
         root = QTreeWidgetItem(self._tree)
         root.setText(0, f'🔍 "{query}"  ({total} occorrenze in {n_files} file)')
         root.setFont(0, QFont())
         root.setForeground(0, QBrush(QColor(self._colors["header"])))
         root.setData(0, Qt.ItemDataRole.UserRole, None)
-
+        shown_total = 0
         for file_path, file_results in by_file.items():
+            remaining = _MAX_RESULT_ROWS - self._result_rows
+            if remaining <= 0:
+                break
+            if len(file_results) > remaining:
+                file_results = file_results[:remaining]
+            self._result_rows += len(file_results)
+            shown_total += len(file_results)
             import os
             fname = os.path.basename(file_path)
             file_item = QTreeWidgetItem(root)
@@ -234,6 +245,11 @@ class FindResultPanel(QWidget):
                 item.setData(0, Qt.ItemDataRole.UserRole,
                              (r["file"], r["line"], r.get("col", 0)))
 
+        if shown_total < total:
+            self._lbl_summary.setText(
+                f'Cerca: "{query}" — {total} occorrenze (mostrate {shown_total})'
+            )
+
         root.setExpanded(True)
         for i in range(root.childCount()):
             root.child(i).setExpanded(True)
@@ -244,6 +260,7 @@ class FindResultPanel(QWidget):
 
     def clear_all(self) -> None:
         self._tree.clear()
+        self._result_rows = 0
         self._lbl_summary.setText(tr("find_result_panel.no_search"))
 
     # ── Navigazione ───────────────────────────────────────────────────────────

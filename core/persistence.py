@@ -30,8 +30,23 @@ def _fsync_directory(path: Path) -> None:
         os.close(fd)
 
 
+def _write_destination(path: Path) -> Path:
+    """Follow a symlink so the link itself is preserved.
+
+    ``os.replace`` replaces the directory entry: writing through a symlink
+    would turn it into a regular file and leave the real target untouched.
+    """
+    try:
+        if path.is_symlink():
+            return path.resolve()
+    except OSError:
+        pass
+    return path
+
+
 def atomic_write_bytes(path: Path, data: bytes, *, mode: int | None = None) -> None:
     """Write *data* via a synced sibling temporary file and replace it atomically."""
+    path = _write_destination(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: Path | None = None
     try:
@@ -80,6 +95,7 @@ def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8",
     bytes object alive.  Incremental encoding preserves the same atomicity while
     keeping peak memory close to the size of the text itself.
     """
+    path = _write_destination(path)
     temporary: Path | None = None
     fd, temporary = _atomic_temp_path(path)
     try:
@@ -109,6 +125,7 @@ def atomic_write_text(path: Path, text: str, *, encoding: str = "utf-8",
 
 def atomic_copy_file(source: Path, destination: Path) -> None:
     """Copy a file atomically using bounded memory."""
+    destination = _write_destination(destination)
     temporary: Path | None = None
     fd, temporary = _atomic_temp_path(destination)
     try:

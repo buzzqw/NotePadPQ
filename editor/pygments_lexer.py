@@ -122,7 +122,9 @@ class PygmentsLexer(QsciLexerCustom):
         self._last_text_id: tuple[int, int] | None = None  # evita ri-tokenizzazione inutile
         self._load_lexer()
 
-    _LARGE_DOCUMENT_BYTES = 500_000
+    # Pygments non è incrementale: rianalizzare 100-500 KB a ogni tasto costa
+    # 0,2-0,9 s sul thread GUI. Sopra 64 KB passiamo al percorso incrementale.
+    _LARGE_DOCUMENT_BYTES = 32_000
     _INCREMENTAL_STYLE_BYTES = 32_000
 
     def _load_lexer(self) -> None:

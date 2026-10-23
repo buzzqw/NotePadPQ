@@ -1619,6 +1619,17 @@ class BuildProfilesDialog(QDialog):
             self._regex_preview.setText("")
             return
         import re
+
+        from core.safe_regex import pattern_error
+        unsafe = pattern_error(text)
+        if unsafe:
+            self._regex_preview.setText(f"⚠ {unsafe}")
+            self._regex_preview.setStyleSheet(
+                "font-family: monospace; font-size: 10px; "
+                "background: #3a1e1e; color: #ffcc00; "
+                "padding: 2px 4px; border-radius: 2px; min-height: 18px;"
+            )
+            return
         file_grp = self._file_grp_spin.value()
         line_grp = self._line_grp_spin.value()
         try:

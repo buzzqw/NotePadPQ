@@ -1039,6 +1039,9 @@ class _SearchResultsPanel(QWidget):
         flags = 0 if case_sensitive else re.IGNORECASE
         try:
             if mode == "regex":
+                from core.safe_regex import pattern_error
+                if pattern_error(query):
+                    return None
                 return re.compile(query, flags)
             if mode == "like":
                 base = self._like_to_regex(query)
@@ -1069,6 +1072,9 @@ class _SearchResultsPanel(QWidget):
         flags = 0 if case_sensitive else re.IGNORECASE
         try:
             if mode == "regex":
+                from core.safe_regex import pattern_error
+                if pattern_error(query):
+                    return None
                 pat = re.compile(query, flags)
                 return ([pat], [], False)
             elif mode == "like":
@@ -1193,6 +1199,10 @@ class _SearchResultsPanel(QWidget):
                 self._regex_indicator.setToolTip("")
             else:
                 try:
+                    from core.safe_regex import pattern_error
+                    unsafe = pattern_error(text)
+                    if unsafe:
+                        raise re.error(unsafe)
                     re.compile(text, 0 if self._chk_case.isChecked() else re.IGNORECASE)
                     self._regex_indicator.setText("✓")
                     self._regex_indicator.setStyleSheet(
@@ -1544,6 +1554,9 @@ class _SearchResultsPanel(QWidget):
             return None
         elif mode == "regex":
             try:
+                from core.safe_regex import pattern_error
+                if pattern_error(text):
+                    return None
                 pat = re.compile(text, re.IGNORECASE)
                 return lambda s: bool(pat.search(s))
             except re.error:
@@ -1584,6 +1597,9 @@ class _SearchResultsPanel(QWidget):
             return None
         elif mode == "regex":
             try:
+                from core.safe_regex import pattern_error
+                if pattern_error(text):
+                    return None
                 pat = re.compile(text, re.IGNORECASE)
             except re.error:
                 return None

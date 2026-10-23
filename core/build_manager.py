@@ -1672,6 +1672,9 @@ class BuildManager(QObject):
                           file_grp: int, line_grp: int) -> list[dict]:
         errors = []
         try:
+            from core.safe_regex import pattern_error
+            if pattern_error(pattern):
+                return errors
             compiled = re.compile(pattern, re.MULTILINE)
             for m in compiled.finditer(output):
                 groups = m.groups()

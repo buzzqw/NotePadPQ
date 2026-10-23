@@ -149,8 +149,20 @@ class Session:
                     continue
                 try:
                     buffers_dir.mkdir(parents=True, exist_ok=True)
-                    buf_path = buffers_dir / f"buffer_{uuid4().hex}.txt"
-                    atomic_write_text(buf_path, content)
+                    content_hash = hash(content)
+                    existing_name = getattr(editor, "_session_buffer_name", None)
+                    reused = (
+                        existing_name
+                        and getattr(editor, "_session_buffer_hash", None) == content_hash
+                        and (buffers_dir / existing_name).is_file()
+                    )
+                    if reused:
+                        buf_path = buffers_dir / existing_name
+                    else:
+                        buf_path = buffers_dir / f"buffer_{uuid4().hex}.txt"
+                        atomic_write_text(buf_path, content)
+                        editor._session_buffer_name = buf_path.name
+                        editor._session_buffer_hash = content_hash
                     line, col = editor.get_cursor_position_1based()
                     data["unsaved_buffers"].append({
                         "buffer_file": buf_path.name,
@@ -285,12 +297,15 @@ class Session:
                     if not content:
                         continue
                     editor = main_window._tab_manager.new_tab()
+                    editor.set_encoding(entry.get("encoding", "UTF-8"))
                     # Carica il contenuto senza resettare il flag modified
                     editor.blockSignals(True)
                     editor.setText(content)
                     editor.setModified(True)
                     editor.blockSignals(False)
                     editor.modified_changed.emit(True)
+                    editor._session_buffer_name = buf_path.name
+                    editor._session_buffer_hash = hash(content)
                     # Ripristina posizione cursore
                     line = entry.get("line", 1)
                     col  = entry.get("col", 1)

@@ -106,6 +106,12 @@ class EditorPreferenceAndFormattingTests(unittest.TestCase):
         self.assertTrue(editor.indentationsUseTabs())
         self.assertFalse(editor.autoIndent())
 
+    def test_line_ending_detection_uses_the_majority(self):
+        self.assertEqual(LineEnding.detect("a\nb\nc\r\n"), LineEnding.LF)
+        self.assertEqual(LineEnding.detect("a\r\nb\r\nc\n"), LineEnding.CRLF)
+        self.assertEqual(LineEnding.detect("a\rb\rc\n"), LineEnding.CR)
+        self.assertEqual(LineEnding.detect(""), LineEnding.LF)
+
     def test_preferences_apply_updates_open_editors(self):
         editor = EditorWidget()
         parent = QWidget()
@@ -287,7 +293,7 @@ class AutobackupTests(unittest.TestCase):
             source = root / "notes.txt"
             source.write_bytes("old\r\n".encode("utf-16"))
             window = self.Window(root / "backups")
-            editor = self.Editor(source, "new\r\n", "UTF-16-LE")
+            editor = self.Editor(source, "new\r\n", "UTF-16-LE BOM")
 
             with patch("config.settings.Settings.instance", return_value=self._settings()):
                 backup = window._write_autobackup(editor, snapshot=False)

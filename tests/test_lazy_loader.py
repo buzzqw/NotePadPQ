@@ -7,6 +7,20 @@ from core import lazy_loader
 
 
 class LazyLoaderTest(unittest.TestCase):
+    def test_large_file_encoding_detects_bomless_utf16(self):
+        raw = "Ciao\nseconda riga\n".encode("utf-16-le")
+        encoding, bom_len = lazy_loader._detect_large_file_encoding(raw)
+        self.assertEqual(encoding, "UTF-16-LE")
+        self.assertEqual(bom_len, 0)
+
+    def test_paged_document_marks_utf16_bom_in_display_encoding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "utf16.txt"
+            path.write_text("Ciao\n", encoding="utf-16")
+            document = lazy_loader.PagedDocument(path)
+            self.assertEqual(document.encoding_raw(), "UTF-16-LE")
+            self.assertEqual(document.encoding(), "UTF-16-LE BOM")
+
     def test_load_worker_bounds_a_file_without_newlines(self):
         content = "e\u0301" * 100
         with tempfile.TemporaryDirectory() as tmp:

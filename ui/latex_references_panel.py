@@ -30,6 +30,9 @@ from core.latex_references import (
     analyze_latex_project,
 )
 
+_MAX_REFERENCE_ITEMS = 5_000
+_MAX_RESIZE_ITEMS = 2_000
+
 
 class _AnalysisWorker(QThread):
     completed = pyqtSignal(int, object)
@@ -311,10 +314,10 @@ class LatexReferencesPanel(QWidget):
         category = self._category.currentData()
         if category == "toc":
             self._rebuild_toc()
-            self._tree.resizeColumnToContents(0)
-            self._tree.resizeColumnToContents(3)
             return
-        for kind, value in self._items_for_category(category):
+        items = self._items_for_category(category)
+        truncated = len(items) > _MAX_REFERENCE_ITEMS
+        for kind, value in items[:_MAX_REFERENCE_ITEMS]:
             if isinstance(value, LatexReference):
                 location = value.location
                 key = value.key
@@ -327,12 +330,19 @@ class LatexReferencesPanel(QWidget):
             item.setData(0, Qt.ItemDataRole.UserRole, location)
             item.setToolTip(2, str(location.file))
             self._tree.addTopLevelItem(item)
-        self._tree.resizeColumnToContents(0)
-        self._tree.resizeColumnToContents(3)
+        if truncated:
+            if "primi" not in self._status.text():
+                self._status.setText(
+                    self._status.text() + f"  (primi {_MAX_REFERENCE_ITEMS})")
+        if len(items) <= _MAX_RESIZE_ITEMS:
+            self._tree.resizeColumnToContents(0)
+            self._tree.resizeColumnToContents(3)
 
     def _rebuild_toc(self) -> None:
         """Show project sections, includes, labels and bibliography together."""
         analysis = self.model.analysis
+        remaining = _MAX_REFERENCE_ITEMS
+        truncated = False
         sections_by_file: dict[Path, list[LatexSection]] = {}
         for section in analysis.sections:
             sections_by_file.setdefault(section.location.file, []).append(section)
@@ -344,11 +354,18 @@ class LatexReferencesPanel(QWidget):
             includes_by_file.setdefault(include.location.file, []).append(include)
 
         for path in analysis.files:
+            if remaining <= 0:
+                truncated = True
+                break
             file_item = QTreeWidgetItem(["file", path.name, str(path.parent), ""])
             file_item.setToolTip(1, str(path))
             self._tree.addTopLevelItem(file_item)
             stack: list[tuple[int, QTreeWidgetItem]] = []
             for section in sections_by_file.get(path, ()):
+                if remaining <= 0:
+                    truncated = True
+                    break
+                remaining -= 1
                 item = QTreeWidgetItem([
                     section.kind, section.title or f"\\{section.kind}",
                     path.name, str(section.location.line),
@@ -358,26 +375,57 @@ class LatexReferencesPanel(QWidget):
                     stack.pop()
                 (stack[-1][1] if stack else file_item).addChild(item)
                 stack.append((section.depth, item))
+            if remaining <= 0:
+                break
             for label in labels_by_file.get(path, ()):
+                if remaining <= 0:
+                    truncated = True
+                    break
+                remaining -= 1
                 item = QTreeWidgetItem(["label", label.key, path.name, str(label.line)])
                 item.setData(0, Qt.ItemDataRole.UserRole, label.location)
                 file_item.addChild(item)
+            if remaining <= 0:
+                break
             for include in includes_by_file.get(path, ()):
+                if remaining <= 0:
+                    truncated = True
+                    break
+                remaining -= 1
                 target = str(include.resolved) if include.resolved else include.requested
                 item = QTreeWidgetItem([include.kind, target, path.name, str(include.line)])
                 item.setData(0, Qt.ItemDataRole.UserRole, include.location)
                 file_item.addChild(item)
 
-        if analysis.bibliography_files or analysis.bibliography_keys:
+        if remaining > 0 and (analysis.bibliography_files or analysis.bibliography_keys):
             bibliography = QTreeWidgetItem(["bibliography", "Bibliography", "", ""])
             self._tree.addTopLevelItem(bibliography)
             for path in analysis.bibliography_files:
+                if remaining <= 0:
+                    truncated = True
+                    break
+                remaining -= 1
                 bibliography.addChild(QTreeWidgetItem(
                     ["file", path.name, str(path.parent), ""],
                 ))
             for key in analysis.bibliography_keys:
+                if remaining <= 0:
+                    truncated = True
+                    break
+                remaining -= 1
                 bibliography.addChild(QTreeWidgetItem(["key", key, "", ""]))
-        self._tree.expandAll()
+        if len(analysis.bibliography_files) + len(analysis.bibliography_keys) > 0:
+            truncated = truncated or remaining <= 0
+        if truncated:
+            if "primi" not in self._status.text():
+                self._status.setText(
+                    self._status.text() + f"  (primi {_MAX_REFERENCE_ITEMS})")
+            self._tree.expandToDepth(1)
+        else:
+            self._tree.expandAll()
+        if remaining >= _MAX_RESIZE_ITEMS:
+            self._tree.resizeColumnToContents(0)
+            self._tree.resizeColumnToContents(3)
 
     def _activate(self, item: QTreeWidgetItem, _column: int) -> None:
         location = item.data(0, Qt.ItemDataRole.UserRole)

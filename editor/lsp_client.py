@@ -23,6 +23,10 @@ from PyQt6.QtCore import QObject, QThread, pyqtSignal
 if TYPE_CHECKING:
     pass
 
+# Worker LSP che non rispondono alla terminazione: restano referenziati finché
+# il QThread non finisce, evitando di distruggerlo mentre è ancora in esecuzione.
+_ORPHANED_WORKERS: set = set()
+
 # ─── Server predefiniti per linguaggio ───────────────────────────────────────
 
 LSP_SERVERS: dict[str, dict] = {
@@ -681,4 +685,10 @@ class LSPClient(QObject):
             worker.stop()
             if not worker.wait(2000):
                 worker.kill_process()
-                worker.wait()
+                if not worker.wait(1000):
+                    # Non bloccare la chiusura dell'app su un server che ignora
+                    # SIGTERM/SIGKILL: il worker resta vivo fino a finished.
+                    _ORPHANED_WORKERS.add(worker)
+                    worker.finished.connect(
+                        lambda w=worker: _ORPHANED_WORKERS.discard(w)
+                    )

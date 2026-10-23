@@ -26,6 +26,25 @@ if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
     from ui.main_window import MainWindow
 
+_ACTIVE_REPO_WORKERS: set = set()
+
+
+class _GitRepoCheckWorker(QThread):
+    """Verifica se una directory è in un repository git senza bloccare la GUI."""
+
+    done = pyqtSignal(str, bool)
+
+    def __init__(self, directory):
+        super().__init__(None)
+        self._directory = directory
+        _ACTIVE_REPO_WORKERS.add(self)
+        self.finished.connect(
+            lambda w=self: _ACTIVE_REPO_WORKERS.discard(w)
+        )
+
+    def run(self) -> None:
+        self.done.emit(str(self._directory), _is_git_repo(self._directory))
+
 
 class _GitDiffWorker(QThread):
     """Esegue 'git diff HEAD' in un thread separato per non bloccare la UI."""
@@ -155,6 +174,7 @@ class GitGutter(QObject):
         self._active_editor: EditorWidget | None = None
         self._worker: _GitDiffWorker | None = None
         self._old_workers: list = []
+        self._repo_worker: _GitRepoCheckWorker | None = None
 
         from config.settings import Settings
         self._enabled = Settings.instance().get("editor/git_gutter", True)
@@ -216,7 +236,9 @@ class GitGutter(QObject):
         if not editor or not editor.file_path:
             return
 
-        if not _is_git_repo(editor.file_path.parent):
+        parent = editor.file_path.parent
+        cached = _REPO_CACHE.get(str(parent))
+        if cached is False:
             # Fuori da un repository git: nessun diff da mostrare, nessun
             # thread/subprocess da avviare a ogni modifica.
             self._cancel_worker()
@@ -225,6 +247,19 @@ class GitGutter(QObject):
             except Exception:
                 pass
             return
+        if cached is None:
+            # Primo controllo: non lanciare `git` sul thread GUI. Il diff
+            # partirà quando il worker avrà popolato la cache.
+            self._cancel_worker()
+            if self._repo_worker is None or not self._repo_worker.isRunning():
+                self._repo_worker = _GitRepoCheckWorker(parent)
+                self._repo_worker.done.connect(self._on_repo_checked)
+                self._repo_worker.finished.connect(
+                    self._repo_worker.deleteLater)
+                self._repo_worker.finished.connect(
+                    lambda: setattr(self, "_repo_worker", None))
+                self._repo_worker.start()
+            return
 
         self._cancel_worker()
         worker = _GitDiffWorker(editor.file_path)
@@ -232,6 +267,24 @@ class GitGutter(QObject):
         self._worker = worker
         self._old_workers.append(worker)
         worker.start()
+
+    def _on_repo_checked(self, directory: str, inside: bool) -> None:
+        self._repo_worker = None
+        editor = self._active_editor
+        if not editor or not editor.file_path:
+            return
+        try:
+            if str(editor.file_path.parent) != directory:
+                return
+        except Exception:
+            return
+        if inside:
+            self._refresh()
+        else:
+            try:
+                editor.update_git_gutter(set(), set(), set())
+            except Exception:
+                pass
 
     def _on_diff_done(self, added: set, modified: set, deleted: set,
                       editor: EditorWidget) -> None:

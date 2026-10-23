@@ -461,6 +461,10 @@ def _get_parser(editor: EditorWidget) -> _Parser | None:
 
 # ─── Worker asincrono parse ───────────────────────────────────────────────────
 
+_MAX_FUNCTION_ITEMS = 5_000
+_MAX_EXPAND_ALL_ITEMS = 2_000
+
+
 class _ParseWorker(QThread):
     """Esegue parser.parse(text) in background per non bloccare la UI."""
 
@@ -881,6 +885,9 @@ class _FunctionListPanel(QWidget):
         if gen != self._parse_gen:
             return
         self._parse_worker = None
+        truncated = len(symbols) > _MAX_FUNCTION_ITEMS
+        if truncated:
+            symbols = symbols[:_MAX_FUNCTION_ITEMS]
         self._symbols = symbols
         self._model.clear()
         self._line_items = []
@@ -896,20 +903,30 @@ class _FunctionListPanel(QWidget):
             self._build_grouped(symbols)
         self._line_items.sort(key=lambda t: t[0])
 
-        self._tree.expandAll()
+        # expandAll() su decine di migliaia di nodi è più costoso del parsing.
+        if len(self._line_items) <= _MAX_EXPAND_ALL_ITEMS:
+            self._tree.expandAll()
+        else:
+            self._tree.expandToDepth(1)
         self._apply_filter(self._filter.text())
         self._update_highlight()
 
         editor = self._editor
         count = len(symbols)
         lang  = editor.file_path.suffix if editor and editor.file_path else ""
-        self._info.setText(tr("function_list.symbols_found", count=count, lang=lang))
+        info = tr("function_list.symbols_found", count=count, lang=lang)
+        if truncated:
+            info += " " + tr(
+                "function_list.truncated",
+                default=f"(primi {_MAX_FUNCTION_ITEMS})",
+            )
+        self._info.setText(info)
 
     # ── Filtro e ordinamento ──────────────────────────────────────────────────
 
     def _apply_filter(self, text: str) -> None:
         self._proxy.setFilterFixedString(text)
-        if text:
+        if text and self._tree.topLevelItemCount() <= _MAX_EXPAND_ALL_ITEMS:
             self._tree.expandAll()
 
     def _toggle_sort(self, checked: bool) -> None:

@@ -2001,6 +2001,9 @@ class PreviewPanel(QWidget):
         self._show_html(_wrap_html("<pre>" + _html.escape(text) + "</pre>"),
                         force_webengine=False)
 
+    _MAX_TREE_ITEMS = 4_000
+    _MAX_TREE_EXPAND = 1_500
+
     def _render_latex_tree(self, text: str) -> None:
         """Costruisce l'albero LaTeX corrente e dei sorgenti inclusi."""
         self._stack.setCurrentIndex(1)
@@ -2039,7 +2042,11 @@ class PreviewPanel(QWidget):
         multi_file = len(sources) > 1
         base_dir = sources[0][0].parent if sources[0][0] else None
 
+        item_count = 0
+        truncated = False
         for source_path, source_text in sources:
+            if truncated:
+                break
             parent = root
             if multi_file and source_path:
                 try:
@@ -2051,6 +2058,9 @@ class PreviewPanel(QWidget):
             stack: list[tuple[int, QTreeWidgetItem]] = []
             location = str(source_path) if source_path else ""
             for lineno, line in enumerate(source_text.split("\n")):
+                if item_count >= self._MAX_TREE_ITEMS:
+                    truncated = True
+                    break
                 heading = _latex_section_on_line(line)
                 if heading is not None:
                     cmd, title = heading
@@ -2063,9 +2073,13 @@ class PreviewPanel(QWidget):
                     item_parent = stack[-1][1] if stack else parent
                     item_parent.addChild(item)
                     stack.append((level, item))
+                    item_count += 1
                     continue
 
                 for lm in LABEL_PAT.finditer(line):
+                    if item_count >= self._MAX_TREE_ITEMS:
+                        truncated = True
+                        break
                     label_item = QTreeWidgetItem([f"🏷 {lm.group(1)}"])
                     label_item.setData(
                         0, Qt.ItemDataRole.UserRole,
@@ -2073,15 +2087,25 @@ class PreviewPanel(QWidget):
                     )
                     label_item.setToolTip(0, f"\\label  riga {lineno + 1}")
                     (stack[-1][1] if stack else parent).addChild(label_item)
+                    item_count += 1
 
+            if truncated:
+                break
             fig_count = len(FIG_PAT.findall(source_text))
             tab_count = len(TAB_PAT.findall(source_text))
             if fig_count:
                 QTreeWidgetItem(parent, [f"📷 Figure ({fig_count})"])
+                item_count += 1
             if tab_count:
                 QTreeWidgetItem(parent, [f"📊 Tabelle ({tab_count})"])
+                item_count += 1
 
-        self._tree.expandAll()
+        if truncated:
+            QTreeWidgetItem(root, [f"… (prime {self._MAX_TREE_ITEMS} voci)"])
+        if item_count <= self._MAX_TREE_EXPAND:
+            self._tree.expandAll()
+        else:
+            self._tree.expandToDepth(1)
 
     # ── Helpers visualizzazione ───────────────────────────────────────────────
 

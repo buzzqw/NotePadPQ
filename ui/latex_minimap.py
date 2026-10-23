@@ -38,6 +38,10 @@ _SECTION_ICONS: dict[str, str] = {
 }
 
 
+_MAX_STRUCTURE_ITEMS = 3_000
+_MAX_STRUCTURE_EXPAND = 1_000
+
+
 class _StructureWorker(QThread):
     """Estrae la struttura del documento LaTeX in background (regex pura, nessun Qt)."""
 
@@ -178,6 +182,10 @@ class LaTeXMinimapWidget(QWidget):
             self._tree.blockSignals(False)
             return
 
+        truncated = len(structure) > _MAX_STRUCTURE_ITEMS
+        if truncated:
+            structure = structure[:_MAX_STRUCTURE_ITEMS]
+
         stack: list[tuple] = []
         for entry in structure:
             depth    = entry["depth"]
@@ -197,7 +205,14 @@ class LaTeXMinimapWidget(QWidget):
                 self._tree.addTopLevelItem(item)
             stack.append((depth, item))
 
-        self._tree.expandAll()
+        if truncated:
+            placeholder = QTreeWidgetItem([f"(prime {_MAX_STRUCTURE_ITEMS} sezioni)"])
+            placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+            self._tree.addTopLevelItem(placeholder)
+        if len(structure) <= _MAX_STRUCTURE_EXPAND:
+            self._tree.expandAll()
+        else:
+            self._tree.expandToDepth(1)
         self._tree.blockSignals(False)
 
     # ── Navigazione ───────────────────────────────────────────────────────────

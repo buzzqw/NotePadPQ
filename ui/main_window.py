@@ -16,6 +16,7 @@ NON gestisce: logica I/O file (→ core/file_manager.py),
 
 import hashlib
 import os
+import re
 import shutil
 import sys
 import threading
@@ -63,6 +64,7 @@ from ui.main_window_parts import (
     _EditorSaveWorker,
     _ExportAsWorker,
     _RecentFilesMenu,
+    _UpdateCheckWorker,
 )
 
 if TYPE_CHECKING:
@@ -244,6 +246,7 @@ class MainWindow(QMainWindow):
         self._setup_i18n()
         self._setup_autobackup()
         self._setup_autosave()
+        self._setup_crash_recovery()
         self._setup_git_gutter()
         self._setup_lsp()
         self._setup_clock()
@@ -548,33 +551,10 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _autobackup_bytes(editor) -> bytes:
         """Encode current content exactly as the source document is configured."""
-        path = editor.file_path
-        content = editor.get_content()  # Restores the editor's original line ending.
-        encoding = editor.encoding.upper().replace(" BOM", "-SIG").replace(" ", "-")
-        source_bom = b""
-        try:
-            source = path.read_bytes()
-            for bom in (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff", b"\xff\xfe", b"\xfe\xff", b"\xef\xbb\xbf"):
-                if source.startswith(bom):
-                    source_bom = bom
-                    break
-        except OSError:
-            # The in-memory encoding remains authoritative if the source was
-            # moved or made temporarily unreadable after it was opened.
-            pass
-
-        if encoding == "UTF-8-SIG":
-            return content.encode("utf-8-sig")
-
-        expected_bom = {
-            "UTF-16-LE": b"\xff\xfe",
-            "UTF-16-BE": b"\xfe\xff",
-            "UTF-32-LE": b"\xff\xfe\x00\x00",
-            "UTF-32-BE": b"\x00\x00\xfe\xff",
-        }.get(encoding, b"")
-        if source_bom != expected_bom:
-            source_bom = expected_bom if getattr(editor, "_write_bom", False) else b""
-        return source_bom + content.encode(encoding)
+        from core.file_manager import FileManager
+        return FileManager.encode_text(
+            editor.get_content(), editor.encoding,
+            getattr(editor, "_write_bom", False))
 
     def _report_autobackup_failure(self, path: Path, error: Exception) -> None:
         message = tr(
@@ -691,6 +671,14 @@ class MainWindow(QMainWindow):
         """Salva silenziosamente tutti i file modificati che hanno già un path su disco."""
         for editor in self._tab_manager.all_editors():
             if editor.isModified() and editor.file_path:
+                # Non sovrascrivere silenziosamente una modifica esterna: il
+                # salvataggio automatico deve essere conservativo.
+                try:
+                    if editor.disk_changed_externally():
+                        editor._pending_external_change = True
+                        continue
+                except Exception:
+                    continue
                 try:
                     # action_save() opera sul tab corrente, non sull'editor
                     # iterato, e potrebbe quindi salvare/backupare più volte
@@ -701,6 +689,41 @@ class MainWindow(QMainWindow):
                         self._save_editor(editor, editor.file_path)
                 except Exception:
                     pass
+
+    def _setup_crash_recovery(self) -> None:
+        """Snapshot periodico dei buffer senza path per il recupero dopo crash.
+
+        La sessione veniva salvata solo alla chiusura: un crash perdeva i
+        documenti nuovi non ancora salvati. Il timer riusa i file buffer già
+        scritti quando il contenuto non è cambiato.
+        """
+        self._crash_recovery_timer = QTimer(self)
+        self._crash_recovery_timer.setInterval(60_000)
+        self._crash_recovery_timer.timeout.connect(self._crash_recovery_tick)
+        self._crash_recovery_timer.start()
+
+    def _crash_recovery_tick(self) -> None:
+        try:
+            editors = self._tab_manager.all_editors()
+        except Exception:
+            return
+        has_unsaved = False
+        for editor in editors:
+            if getattr(editor, "file_path", None):
+                continue
+            try:
+                if editor.length() > 0:
+                    has_unsaved = True
+                    break
+            except Exception:
+                continue
+        if not has_unsaved:
+            return
+        try:
+            from core.session import Session
+            Session.instance().save(self._tab_manager)
+        except Exception:
+            pass
 
     # ── LSP ───────────────────────────────────────────────────────────────────
 
@@ -1052,8 +1075,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(tr("msg.no_saved_file_to_compare"), 3000)
             return
         try:
-            disk_content = editor.file_path.read_text(encoding=editor.encoding or "utf-8",
-                                                       errors="replace")
+            from core.file_manager import FileManager
+            disk_content, _encoding, _line_ending = FileManager.read(
+                editor.file_path)
         except Exception as e:
             self.statusBar().showMessage(tr("msg.file_read_error_status", error=str(e)), 4000)
             return
@@ -1743,7 +1767,7 @@ class MainWindow(QMainWindow):
 
         # Codifica
         if hasattr(self, "_enc_actions"):
-            enc_key = editor.encoding.lower().replace(" ", "-")
+            enc_key = editor.encoding.lower().replace(" bom", "").replace(" ", "-")
             for key, act in self._enc_actions.items():
                 act.setChecked(key == enc_key)
 
@@ -3086,6 +3110,7 @@ class MainWindow(QMainWindow):
             from core.latex_project import invalidate_cached_text
             invalidate_cached_text(target.resolve())
             editor.file_path = target
+            editor.record_disk_signature()
             editor.mark_saved()
             self._on_tab_modified(editor, False)
             self._update_recent(target)
@@ -3195,6 +3220,7 @@ class MainWindow(QMainWindow):
                         old_ext = old_path.suffix.lower() if old_path else ""
                         new_ext = path.suffix.lower()
                         editor.file_path = path
+                        editor.record_disk_signature()
                         if new_ext != old_ext:
                             try:
                                 from editor.lexers import set_lexer_by_path
@@ -3249,6 +3275,7 @@ class MainWindow(QMainWindow):
             old_ext = old_path.suffix.lower() if old_path else ""
             new_ext = path.suffix.lower()
             editor.file_path = path
+            editor.record_disk_signature()
 
             # Aggiorna lexer e statusbar solo se l'estensione è cambiata
             # (es. Save As su file con estensione diversa o primo salvataggio
@@ -3333,7 +3360,10 @@ class MainWindow(QMainWindow):
             if not (ftp_entry and ftp_entry.get("enabled")):
                 return
             panel = ftp_entry["instance"]._panel
-            raw = editor.get_content().encode(editor.encoding, errors="replace")
+            from core.file_manager import FileManager
+            raw = FileManager.encode_text(
+                editor.get_content(), editor.encoding,
+                getattr(editor, "_write_bom", False), errors="replace")
             profile = getattr(editor, "_ftp_profile", None)
 
             def _on_done(ok: bool) -> None:
@@ -3365,7 +3395,8 @@ class MainWindow(QMainWindow):
                 return
         self._reload_editor(editor)
 
-    def _reload_editor(self, editor: EditorWidget) -> bool:
+    def _reload_editor(self, editor: EditorWidget,
+                       on_loaded=None) -> bool:
         """Reload an already-open file with the same size-aware loader as open."""
         if not editor.file_path:
             return False
@@ -3402,6 +3433,11 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 tr("msg.file_reloaded", name=path.name), 3000
             )
+            if on_loaded is not None:
+                try:
+                    on_loaded()
+                except Exception:
+                    pass
 
         def _on_error(message: str) -> None:
             if self._lazy_loaders.get(editor) is loader:
@@ -4607,7 +4643,12 @@ class MainWindow(QMainWindow):
     def _toggle_write_bom(self, checked: bool) -> None:
         editor = self._current_editor()
         if editor:
-            editor._write_bom = checked  # letto da file_manager al salvataggio
+            encoding = editor.encoding
+            if encoding.upper().startswith(("UTF-8", "UTF-16", "UTF-32")):
+                base = encoding.replace(" BOM", "")
+                editor.set_encoding(base + (" BOM" if checked else ""))
+            else:
+                editor._write_bom = checked  # letto da file_manager al salvataggio
 
     def _toggle_tail_mode(self, checked: bool) -> None:
         """
@@ -5305,45 +5346,56 @@ class MainWindow(QMainWindow):
             dlg.exec()
 
     def action_check_updates(self) -> None:
-            import json
-            import urllib.request
+        worker = getattr(self, "_update_check_worker", None)
+        if worker is not None and worker.isRunning():
+            self.statusBar().showMessage(
+                tr("msg.checking_updates",
+                   default="Verifica aggiornamenti in corso…"), 3000)
+            return
+        self.statusBar().showMessage(
+            tr("msg.checking_updates",
+               default="Verifica aggiornamenti in corso…"), 0)
+        self._update_check_worker = _UpdateCheckWorker()
+        self._update_check_worker.completed.connect(self._on_update_check_done)
+        self._update_check_worker.finished.connect(
+            self._update_check_worker.deleteLater)
+        self._update_check_worker.finished.connect(
+            lambda: setattr(self, "_update_check_worker", None))
+        self._update_check_worker.start()
 
-            from PyQt6.QtCore import QUrl
+    def _on_update_check_done(self, data) -> None:
+        self.statusBar().clearMessage()
+        title = tr("action.check_updates")
+        if not isinstance(data, dict):
+            QMessageBox.warning(
+                self, tr("dialog.error"),
+                tr("msg.update_error",
+                   default="Impossibile verificare gli aggiornamenti."),
+            )
+            return
+        latest_version = str(data.get("tag_name", "")).lstrip("v")
+        release_url = data.get(
+            "html_url", "https://github.com/buzzqw/NotePadPQ/releases")
 
-            # URL delle API di GitHub per l'ultima release del tuo progetto
-            api_url = "https://api.github.com/repos/buzzqw/NotePadPQ/releases/latest"
+        def version_key(value: str) -> tuple[int, ...]:
+            return tuple(int(part) for part in re.findall(r"\d+", value))
 
-            try:
-                # Effettuiamo la richiesta
-                req = urllib.request.Request(api_url, headers={"User-Agent": "NotePadPQ"})
-                with urllib.request.urlopen(req, timeout=5.0) as response:
-                    data = json.loads(response.read().decode('utf-8'))
-
-                    latest_version = data.get("tag_name", "").lstrip("v")
-                    release_url = data.get("html_url", "https://github.com/buzzqw/NotePadPQ/releases")
-
-                    current_version = self.APP_VERSION
-                    titolo = tr("action.check_updates")
-
-                    if latest_version > current_version:
-                        # Recupera il messaggio di aggiornamento disponibile dal JSON
-                        testo = tr("msg.update_prompt", current=current_version, latest=latest_version)
-                        reply = QMessageBox.question(
-                            self, titolo, testo,
-                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                        )
-                        if reply == QMessageBox.StandardButton.Yes:
-                            _open_url(QUrl(release_url))
-                    else:
-                        # Recupera il messaggio di software aggiornato dal JSON
-                        testo = tr("msg.update_ok", current=current_version)
-                        QMessageBox.information(self, titolo, testo)
-
-            except Exception as e:
-                # Recupera il messaggio di errore dal JSON
-                testo_errore = tr("msg.update_error", error=str(e))
-                titolo_errore = tr("dialog.error")
-                QMessageBox.warning(self, titolo_errore, testo_errore)
+        current_version = self.APP_VERSION
+        if version_key(latest_version) > version_key(current_version):
+            reply = QMessageBox.question(
+                self, title,
+                tr("msg.update_prompt",
+                   current=current_version, latest=latest_version),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                from PyQt6.QtCore import QUrl
+                _open_url(QUrl(release_url))
+        else:
+            QMessageBox.information(
+                self, title,
+                tr("msg.update_ok", current=current_version),
+            )
 
 
     def action_donate(self) -> None:
@@ -5970,14 +6022,10 @@ class MainWindow(QMainWindow):
         # senza dialoghi, e salta in fondo — ha priorità su tutto il resto.
         if getattr(editor, "_tail_mode", False) and not editor.is_modified():
             if editor.file_path.exists():
-                try:
-                    from core.file_manager import FileManager
-                    content, enc, le = FileManager.read(editor.file_path)
-                    editor.load_content(content, enc, le)
+                def _tail_loaded() -> None:
                     editor.setModified(False)
                     editor.go_to_line(editor.lines())
-                except Exception:
-                    pass
+                self._reload_editor(editor, _tail_loaded)
                 editor._watcher.addPath(str(editor.file_path))
             editor._watcher.blockSignals(False)
             return
@@ -5986,16 +6034,9 @@ class MainWindow(QMainWindow):
         from config.settings import Settings
         if (Settings.instance().get("file/autoreload_on_change", False)
                 and not editor.is_modified()):
-            try:
-                from core.file_manager import FileManager
-                content, enc, le = FileManager.read(editor.file_path)
-                editor.load_content(content, enc, le)
-                editor.setModified(False)
-                self.statusBar().showMessage(
-                    f"🔄 {editor.file_path.name} ricaricato automaticamente", 3000)
-            except Exception:
-                pass
             if editor.file_path.exists():
+                self._reload_editor(
+                    editor, lambda: editor.setModified(False))
                 editor._watcher.addPath(str(editor.file_path))
             editor._watcher.blockSignals(False)
             return
@@ -6048,16 +6089,9 @@ class MainWindow(QMainWindow):
         from config.settings import Settings
         if (Settings.instance().get("file/autoreload_on_change", False)
                 and not editor.is_modified()):
-            try:
-                from core.file_manager import FileManager
-                content, enc, le = FileManager.read(editor.file_path)
-                editor.load_content(content, enc, le)
-                editor.setModified(False)
-                self.statusBar().showMessage(
-                    f"🔄 {editor.file_path.name} ricaricato automaticamente", 3000)
-            except Exception:
-                pass
             if editor.file_path.exists():
+                self._reload_editor(
+                    editor, lambda: editor.setModified(False))
                 editor._watcher.addPath(str(editor.file_path))
             editor._watcher.blockSignals(False)
             return
@@ -6084,7 +6118,8 @@ class MainWindow(QMainWindow):
 
             with tempfile.NamedTemporaryFile(mode='w', delete=False,
                                              suffix=editor.file_path.suffix,
-                                             encoding=editor.encoding) as tmp:
+                                             encoding="utf-8",
+                                             errors="replace") as tmp:
                 tmp.write(editor.get_content())
                 tmp_path = Path(tmp.name)
 

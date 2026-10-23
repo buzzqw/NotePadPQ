@@ -91,6 +91,12 @@ def _detect_large_file_encoding(header: bytes) -> tuple[str, int]:
     if encoding:
         return encoding, bom_len
 
+    # UTF-16/32 senza BOM: riconosci il pattern prima di UTF-8/chardet, come
+    # fa FileManager.decode_bytes per i file piccoli.
+    bomless = FileManager._detect_bomless_unicode(header)
+    if bomless is not None:
+        return bomless, 0
+
     # A UTF-8 sample may end in the middle of a 2-4 byte sequence. Ignore only
     # that incomplete suffix before falling back to chardet.
     for trim in range(4):
@@ -202,6 +208,9 @@ class _LoadWorker(QObject):
 
             le_label = (detected_le.label() if detected_le else "LF")
             enc_display = encoding.upper().replace("-SIG", " BOM")
+            if bom_len and enc_display in (
+                    "UTF-16-LE", "UTF-16-BE", "UTF-32-LE", "UTF-32-BE"):
+                enc_display += " BOM"
             self.finished.emit(enc_display, le_label)
 
         except Exception as e:
@@ -298,7 +307,11 @@ class PagedDocument:
         return (self.current_start / self.file_size) if self.file_size else 0.0
 
     def encoding(self) -> str:
-        return self._encoding.upper().replace("-SIG", " BOM")
+        base = self._encoding.upper()
+        if self._bom_len and base in (
+                "UTF-16-LE", "UTF-16-BE", "UTF-32-LE", "UTF-32-BE"):
+            return base + " BOM"
+        return base.replace("-SIG", " BOM")
 
     def encoding_raw(self) -> str:
         return self._encoding

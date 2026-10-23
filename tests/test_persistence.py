@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -76,6 +77,60 @@ class PersistenceTests(unittest.TestCase):
 
             self.assertEqual(len(list(Path(directory).glob("session.json.invalid-*"))), 1)
 
+    def test_session_reuses_unchanged_unsaved_buffer_snapshot(self):
+        import json
+
+        class _Editor:
+            file_path = None
+            encoding = "UTF-8"
+
+            def __init__(self):
+                self.content = "bozza"
+
+            def text(self):
+                return self.content
+
+            def get_cursor_position_1based(self):
+                return 1, 1
+
+        class _TabManager:
+            def __init__(self, editor):
+                self._editor = editor
+
+            def all_editors(self):
+                return [self._editor]
+
+            def all_custom_tabs(self):
+                return []
+
+            def currentIndex(self):
+                return 0
+
+        with tempfile.TemporaryDirectory() as directory:
+            editor = _Editor()
+            manager = _TabManager(editor)
+            session = Session()
+            session._path = Path(directory) / "session.json"
+
+            session.save(manager)
+            first = json.loads(session._path.read_text(encoding="utf-8"))
+            first_name = first["unsaved_buffers"][0]["buffer_file"]
+
+            session.save(manager)
+            second = json.loads(session._path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                second["unsaved_buffers"][0]["buffer_file"], first_name)
+
+            editor.content = "bozza modificata"
+            session.save(manager)
+            third = json.loads(session._path.read_text(encoding="utf-8"))
+            third_name = third["unsaved_buffers"][0]["buffer_file"]
+            self.assertNotEqual(third_name, first_name)
+            self.assertEqual(
+                sorted(p.name for p in (Path(directory) / "unsaved_buffers").iterdir()),
+                [third_name],
+            )
+
     def test_named_session_rejects_invalid_manifest_and_preserves_it(self):
         with tempfile.TemporaryDirectory() as directory:
             sessions_dir = Path(directory) / "sessions"
@@ -148,6 +203,42 @@ class PersistenceTests(unittest.TestCase):
             FileManager.write(path, "new", "UTF-8")
 
             self.assertEqual(read_cached_text(path), "new")
+
+    def test_bomless_utf16_and_utf32_are_detected(self):
+        text = "Ciao àèì 😀\nseconda riga\n"
+        for encoding in ("utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be"):
+            with self.subTest(encoding=encoding):
+                decoded, detected, _line_ending = FileManager.decode_bytes(
+                    text.encode(encoding))
+                self.assertEqual(decoded, text)
+                self.assertEqual(detected, encoding.upper())
+
+    def test_encode_text_handles_display_bom_names(self):
+        self.assertEqual(
+            FileManager.encode_text("Ciao\n", "UTF-16-LE BOM"),
+            b"\xff\xfe" + "Ciao\n".encode("utf-16-le"),
+        )
+        self.assertEqual(
+            FileManager.encode_text("Ciao\n", "UTF-16-LE"),
+            "Ciao\n".encode("utf-16-le"),
+        )
+        self.assertEqual(
+            FileManager.encode_text("Ciao\n", "UTF-8 BOM"),
+            "Ciao\n".encode("utf-8-sig"),
+        )
+
+    @unittest.skipIf(sys.platform.startswith("win"), "symlink privilege varies")
+    def test_atomic_write_follows_symlink_and_preserves_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "real.txt"
+            link = Path(directory) / "link.txt"
+            target.write_text("old", encoding="utf-8")
+            link.symlink_to(target)
+
+            atomic_write_text(link, "new")
+
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(target.read_text(encoding="utf-8"), "new")
 
 
 if __name__ == "__main__":

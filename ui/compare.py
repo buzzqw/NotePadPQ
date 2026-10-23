@@ -182,9 +182,12 @@ class CompareDialog(QDialog):
         if data is None: return []
         if isinstance(data, str):
             try:
-                return Path(data).read_text(
-                    encoding="utf-8", errors="replace").splitlines(keepends=True)
+                from core.file_manager import FileManager
+                text, _encoding, _line_ending = FileManager.read(Path(data))
+                return text.splitlines(keepends=True)
             except OSError:
+                return []
+            except Exception:
                 return []
         return data.text().splitlines(keepends=True)
 

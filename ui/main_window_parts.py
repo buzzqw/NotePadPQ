@@ -133,3 +133,34 @@ class _EditorSaveWorker(QThread):
             self.completed.emit(False, str(exc))
         else:
             self.completed.emit(True, "")
+
+
+_ACTIVE_UPDATE_WORKERS: set = set()
+
+
+class _UpdateCheckWorker(QThread):
+    """Interroga l'API GitHub senza bloccare il thread GUI."""
+
+    completed = pyqtSignal(object)  # dict | None
+
+    def __init__(self):
+        super().__init__(None)
+        _ACTIVE_UPDATE_WORKERS.add(self)
+        self.finished.connect(
+            lambda w=self: _ACTIVE_UPDATE_WORKERS.discard(w)
+        )
+
+    def run(self) -> None:
+        try:
+            import json
+            import urllib.request
+
+            request = urllib.request.Request(
+                "https://api.github.com/repos/buzzqw/NotePadPQ/releases/latest",
+                headers={"User-Agent": "NotePadPQ"},
+            )
+            with urllib.request.urlopen(request, timeout=5.0) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            self.completed.emit(data if isinstance(data, dict) else None)
+        except Exception:
+            self.completed.emit(None)

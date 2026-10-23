@@ -10,9 +10,44 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox
+
+_ACTIVE_VIM_WORKERS: set = set()
+
+
+class _VimShellWorker(QThread):
+    """Esegue un comando shell Vim senza bloccare il thread GUI."""
+
+    done = pyqtSignal(str, str, int, str)  # stdout, stderr, returncode, error
+
+    def __init__(self, command: str, input_text: str, cwd: str | None):
+        super().__init__(None)
+        self._command = command
+        self._input = input_text
+        self._cwd = cwd
+        _ACTIVE_VIM_WORKERS.add(self)
+        self.finished.connect(
+            lambda w=self: _ACTIVE_VIM_WORKERS.discard(w)
+        )
+
+    def run(self) -> None:
+        try:
+            result = subprocess.run(
+                self._command,
+                shell=True,
+                input=self._input,
+                text=True,
+                capture_output=True,
+                cwd=self._cwd,
+                timeout=30,
+            )
+            self.done.emit(
+                result.stdout, result.stderr, result.returncode, "")
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            self.done.emit("", "", -1, str(exc))
+
 
 
 @dataclass
@@ -38,6 +73,8 @@ class VimMode(QObject):
         self._jumps: list[int] = []
         self._jump_index = 0
         self._last_change: tuple[str, object] | None = None
+        self._shell_worker: _VimShellWorker | None = None
+        self._filter_snapshot = None
 
     @property
     def enabled(self) -> bool:
@@ -302,19 +339,59 @@ class VimMode(QObject):
         if not self._ed.hasSelectedText():
             self._run_shell_command(command)
             return
-        try:
-            result = subprocess.run(command, shell=True, input=self._ed.selectedText(), text=True,
-                                    capture_output=True, cwd=str(self._ed.file_path.parent) if self._ed.file_path else None,
-                                    timeout=30)
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            QMessageBox.warning(self._ed, "Vim filter", str(exc)); return
-        if result.returncode:
-            QMessageBox.warning(self._ed, "Vim filter", result.stderr or f"Comando terminato con codice {result.returncode}."); return
-        preview = result.stdout[:2000]
-        answer = QMessageBox.question(self._ed, "Vim filter", f"Sostituire la selezione con questo output?\n\n{preview}")
+        self._filter_snapshot = (
+            self._ed.getSelection(), self._ed.selectedText())
+        self._start_shell_worker(
+            command, self._filter_snapshot[1], self._on_filter_done)
+
+    def _start_shell_worker(self, command: str, input_text: str,
+                            callback) -> None:
+        if self._shell_worker is not None and self._shell_worker.isRunning():
+            self._filter_snapshot = None
+            QMessageBox.information(
+                self._ed, "Vim", "Un comando shell è già in esecuzione.")
+            return
+        cwd = (str(self._ed.file_path.parent)
+               if self._ed.file_path else None)
+        worker = _VimShellWorker(command, input_text, cwd)
+        self._shell_worker = worker
+        worker.done.connect(callback)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(
+            lambda w=worker: self._forget_shell_worker(w))
+        worker.start()
+
+    def _forget_shell_worker(self, worker) -> None:
+        if self._shell_worker is worker:
+            self._shell_worker = None
+
+    def _on_filter_done(self, stdout: str, stderr: str, returncode: int,
+                        error: str) -> None:
+        snapshot = self._filter_snapshot
+        self._filter_snapshot = None
+        if snapshot is None:
+            return
+        if error:
+            QMessageBox.warning(self._ed, "Vim filter", error)
+            return
+        if returncode:
+            QMessageBox.warning(
+                self._ed, "Vim filter",
+                stderr or f"Comando terminato con codice {returncode}.")
+            return
+        if (self._ed.getSelection() != snapshot[0]
+                or self._ed.selectedText() != snapshot[1]):
+            QMessageBox.warning(
+                self._ed, "Vim filter",
+                "La selezione è cambiata durante l'esecuzione del comando.")
+            return
+        preview = stdout[:2000]
+        answer = QMessageBox.question(
+            self._ed, "Vim filter",
+            f"Sostituire la selezione con questo output?\n\n{preview}")
         if answer == QMessageBox.StandardButton.Yes:
-            self._ed.replaceSelectedText(result.stdout)
-            self._last_change = ("insert", result.stdout)
+            self._ed.replaceSelectedText(stdout)
+            self._last_change = ("insert", stdout)
 
     def _run_shell_command(self, command: str) -> None:
         """Esegue :!comando senza selezione e rende sempre visibile l'esito."""
@@ -327,20 +404,21 @@ class VimMode(QObject):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        try:
-            result = subprocess.run(
-                command, shell=True, text=True, capture_output=True,
-                cwd=str(self._ed.file_path.parent) if self._ed.file_path else None,
-                timeout=30,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            QMessageBox.warning(self._ed, "Vim command", str(exc))
+        self._start_shell_worker(command, "", self._on_shell_done)
+
+    def _on_shell_done(self, stdout: str, stderr: str, returncode: int,
+                       error: str) -> None:
+        if error:
+            QMessageBox.warning(self._ed, "Vim command", error)
             return
-        output = (result.stdout + result.stderr).strip()
-        if result.returncode:
-            QMessageBox.warning(self._ed, "Vim command", output or f"Comando terminato con codice {result.returncode}.")
+        output = (stdout + stderr).strip()
+        if returncode:
+            QMessageBox.warning(
+                self._ed, "Vim command",
+                output or f"Comando terminato con codice {returncode}.")
         else:
-            QMessageBox.information(self._ed, "Vim command", output or "Comando completato.")
+            QMessageBox.information(
+                self._ed, "Vim command", output or "Comando completato.")
 
     def _repeat_last_change(self) -> None:
         if not self._last_change: return

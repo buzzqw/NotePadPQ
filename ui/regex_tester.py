@@ -225,6 +225,12 @@ class RegexTesterDialog(QDialog):
             return
 
         try:
+            from core.safe_regex import pattern_error
+            unsafe = pattern_error(pattern_str)
+            if unsafe:
+                self._lbl_err.setText(f"⚠ {unsafe}")
+                self._clear_highlights()
+                return
             compiled = re.compile(pattern_str, self._get_flags())
         except re.error as e:
             self._lbl_err.setText(f"⚠ {e}")

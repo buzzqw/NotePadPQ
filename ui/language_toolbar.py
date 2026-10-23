@@ -82,6 +82,9 @@ _MD_ICON_FILES: dict[str, str] = {
 }
 
 _ICON_SIZE = QSize(20, 20)
+# Altezza comune a tutti i pulsanti della barra: allinea pulsanti icona,
+# pulsanti testo e split-button (la barra principale usa ~28 px).
+_BTN_HEIGHT = 28
 
 # Testo fallback per i bottoni tabella (usato se la generazione icone fallisce)
 _TABLE_BTN_TEXT: dict[str, str] = {
@@ -334,7 +337,7 @@ class _LanguageToolbarWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(4, 2, 4, 2)
+        self._layout.setContentsMargins(5, 3, 5, 3)
         self._layout.setSpacing(2)
 
         self.setStyleSheet(self._make_stylesheet())
@@ -350,10 +353,11 @@ class _LanguageToolbarWidget(QWidget):
             "  border-bottom: 1px solid palette(mid);"
             "}"
             "QToolButton {"
-            "  padding: 3px 5px;"
+            "  padding: 0 6px;"
             "  border: 1px solid rgba(128, 128, 128, 70);"
             "  border-radius: 4px;"
             "  background-color: rgba(128, 128, 128, 18);"
+            "  font-size: 9pt;"
             "}"
             "QToolButton:hover {"
             "  background-color: rgba(128, 128, 128, 60);"
@@ -367,14 +371,12 @@ class _LanguageToolbarWidget(QWidget):
             "  border-color: rgba(128, 128, 128, 150);"
             "  font-weight: bold;"
             "}"
-            "QToolButton::menu-button {"
-            "  border-left: 1px solid rgba(128, 128, 128, 80);"
-            "  width: 16px;"
-            "}"
             "QToolButton::menu-indicator { image: none; }"
-            # Split-button "sezione"/"normalsize": bordo sul contenitore, non
-            # sui due QToolButton interni, per un'unica sagoma coesa invece
-            # di due riquadri separati che si toccano.
+            # Split-button ("sezione"/"normalsize"/"Cita / Bib"/…): un unico
+            # contenitore con bordo e due aree trasparenti (testo + freccia).
+            # Evita il subcontrol nativo MenuButtonPopup, che in alcuni stili
+            # incolla la freccia al testo e usa un'altezza diversa dagli altri
+            # pulsanti.
             "QWidget#LatexSplitBtn {"
             "  border: 1px solid rgba(128, 128, 128, 70);"
             "  border-radius: 4px;"
@@ -382,8 +384,22 @@ class _LanguageToolbarWidget(QWidget):
             "}"
             "QWidget#LatexSplitBtn QToolButton {"
             "  border: none;"
-            "  border-radius: 0px;"
             "  background: transparent;"
+            "  padding: 0 7px;"
+            "}"
+            "QWidget#LatexSplitBtn QToolButton#SplitMain {"
+            "  border-top-left-radius: 3px;"
+            "  border-bottom-left-radius: 3px;"
+            "}"
+            "QWidget#LatexSplitBtn QToolButton#SplitArrow {"
+            "  border-top-right-radius: 3px;"
+            "  border-bottom-right-radius: 3px;"
+            "}"
+            "QWidget#LatexSplitBtn QToolButton:hover {"
+            "  background-color: rgba(128, 128, 128, 60);"
+            "}"
+            "QWidget#LatexSplitBtn QToolButton:pressed {"
+            "  background-color: rgba(0, 0, 0, 70);"
             "}"
         )
 
@@ -467,6 +483,7 @@ class _LanguageToolbarWidget(QWidget):
         """Bottone da QAction esistente — sempre icon-only con tooltip automatico."""
         btn = QToolButton(self)
         btn.setDefaultAction(action)
+        btn.setFixedHeight(_BTN_HEIGHT)
         btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         btn.setIconSize(_ICON_SIZE)
         self._layout.insertWidget(self._layout.count() - 1, btn)
@@ -478,6 +495,7 @@ class _LanguageToolbarWidget(QWidget):
         btn = QToolButton(self)
         btn.setCheckable(checkable)
         btn.setToolTip(tooltip)
+        btn.setFixedHeight(_BTN_HEIGHT)
         btn.setIconSize(_ICON_SIZE)
         icon = _load_icon(icon_key, self._mw)
         if not icon.isNull():
@@ -488,6 +506,71 @@ class _LanguageToolbarWidget(QWidget):
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._layout.insertWidget(self._layout.count() - 1, btn)
         return btn
+
+    def _make_split_button(self, text: str, tooltip: str,
+                           icon: QIcon | None = None,
+                           icon_key: str = "") -> tuple[QWidget, QToolButton, QToolButton]:
+        """Crea uno split-button coerente: area principale + freccia menu.
+
+        Restituisce ``(contenitore, pulsante principale, pulsante freccia)``.
+        Il bordo è disegnato dal contenitore, così testo e freccia formano
+        un'unica sagoma alta esattamente come gli altri pulsanti della barra.
+        """
+        container = QWidget(self)
+        container.setObjectName("LatexSplitBtn")
+        container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        container.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        container.setFixedHeight(_BTN_HEIGHT)
+
+        hbox = QHBoxLayout(container)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(0)
+
+        if icon is None and icon_key:
+            icon = _load_icon(icon_key, self._mw)
+        has_icon = icon is not None and not icon.isNull()
+
+        main_btn = QToolButton(container)
+        main_btn.setObjectName("SplitMain")
+        main_btn.setFixedHeight(_BTN_HEIGHT - 2)
+        main_btn.setToolTip(tooltip)
+        main_btn.setIconSize(_ICON_SIZE)
+        if has_icon:
+            main_btn.setIcon(icon)
+        if text:
+            main_btn.setText(text)
+        if has_icon and text:
+            main_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        elif has_icon:
+            main_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        else:
+            main_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+
+        sep = QFrame(container)
+        sep.setFrameShape(QFrame.Shape.NoFrame)
+        sep.setFixedWidth(1)
+        sep.setFixedHeight(_BTN_HEIGHT - 10)
+        sep.setStyleSheet("QFrame { background: rgba(128, 128, 128, 80); }")
+
+        arrow_btn = QToolButton(container)
+        arrow_btn.setObjectName("SplitArrow")
+        arrow_btn.setFixedSize(20, _BTN_HEIGHT - 2)
+        arrow_btn.setToolTip(tooltip)
+        arrow_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        arrow_icon = _load_icon("latex_chevron_down", self._mw)
+        if not arrow_icon.isNull():
+            arrow_btn.setIcon(arrow_icon)
+            arrow_btn.setIconSize(QSize(12, 12))
+            arrow_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        else:
+            arrow_btn.setText("▾")
+            arrow_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+
+        hbox.addWidget(main_btn)
+        hbox.addWidget(sep, 0, Qt.AlignmentFlag.AlignVCenter)
+        hbox.addWidget(arrow_btn)
+        self._layout.insertWidget(self._layout.count() - 1, container)
+        return container, main_btn, arrow_btn
 
     def _clear_buttons(self) -> None:
         while self._layout.count() > 1:
@@ -652,11 +735,12 @@ class _LanguageToolbarWidget(QWidget):
 
     def _add_mermaid_menu_btn(self) -> QToolButton | None:
         """Add Mermaid template insertion and lightweight validation actions."""
-        btn = self._add_icon_btn(
-            "md_mermaid", "M",
-            tr("action.markdown_mermaid", default="Inserisci diagramma Mermaid"),
+        tooltip = tr("action.markdown_mermaid", default="Inserisci diagramma Mermaid")
+        icon = _load_icon("md_mermaid", self._mw)
+        _container, btn, arrow_btn = self._make_split_button(
+            "" if not icon.isNull() else "M", tooltip, icon=icon
         )
-        menu = QMenu(btn)
+        menu = QMenu(arrow_btn)
         templates = {
             "flowchart": "Flowchart",
             "sequence": "Sequence",
@@ -673,8 +757,7 @@ class _LanguageToolbarWidget(QWidget):
             tr("action.markdown_mermaid_validate", default="Valida diagrammi Mermaid")
         )
         validate.triggered.connect(self._validate_mermaid)
-        btn.setMenu(menu)
-        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        arrow_btn.setMenu(menu)
         btn.clicked.connect(lambda: self._insert_mermaid_template("flowchart"))
         return btn
 
@@ -785,49 +868,20 @@ class _LanguageToolbarWidget(QWidget):
     def _add_latex_menu_btn(self, items: list[tuple[str, str]], default_idx: int,
                              tooltip: str, handler) -> QToolButton:
         """Split-button: bottone testo (azione corrente) + freccia separata (apre menu)."""
-        container = QWidget(self)
-        container.setObjectName("LatexSplitBtn")
-        container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        container.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        hbox = QHBoxLayout(container)
-        hbox.setContentsMargins(0, 0, 0, 0)
-        hbox.setSpacing(0)
-
         idx = default_idx if 0 <= default_idx < len(items) else 0
         _current = [items[idx][1]] if items else [""]
 
-        # Bottone principale: mostra il nome dell'elemento corrente
-        main_btn = QToolButton(container)
-        main_btn.setToolTip(tooltip)
-        main_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        main_btn.setText(items[idx][0] if items else "")
-        main_btn.clicked.connect(lambda: handler(_current[0]))
-
-        # Separatore visibile tra testo e freccia
-        sep = QFrame(container)
-        sep.setFrameShape(QFrame.Shape.NoFrame)
-        sep.setFixedWidth(1)
-        sep.setStyleSheet(
-            "QFrame { background: rgba(128, 128, 128, 80); margin: 3px 0; }"
+        container, main_btn, arrow_btn = self._make_split_button(
+            items[idx][0] if items else "", tooltip
         )
-
-        # Bottone freccia: apre il menu di selezione
-        arrow_btn = QToolButton(container)
-        arrow_btn.setToolTip(tooltip)
-        arrow_btn.setFixedWidth(16)
-        arrow_icon = _load_icon("latex_chevron_down", self._mw)
-        if not arrow_icon.isNull():
-            arrow_btn.setIcon(arrow_icon)
-            arrow_btn.setIconSize(QSize(10, 10))
-            arrow_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-        else:
-            arrow_btn.setText("▾")
-            arrow_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        arrow_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        main_btn.clicked.connect(lambda: handler(_current[0]))
 
         def _on_select(lbl: str, cmd: str) -> None:
             main_btn.setText(lbl)
             _current[0] = cmd
+            # Il contenitore ha politica Fixed: senza adjustSize il nuovo
+            # testo (es. "sottosottosezione*") resterebbe tagliato.
+            container.adjustSize()
             handler(cmd)
 
         menu = QMenu(arrow_btn)
@@ -835,25 +889,15 @@ class _LanguageToolbarWidget(QWidget):
             action = menu.addAction(label)
             action.triggered.connect(lambda checked=False, _l=label, _c=cmd: _on_select(_l, _c))
         arrow_btn.setMenu(menu)
-
-        hbox.addWidget(main_btn)
-        hbox.addWidget(sep)
-        hbox.addWidget(arrow_btn)
-        self._layout.insertWidget(self._layout.count() - 1, container)
         return main_btn
 
     def _add_latex_cite_btn(self) -> QToolButton:
-        """MenuButtonPopup: click principale = \\cite{}, freccia = varianti e bibliography."""
+        """Split-button: click principale = \\cite{}, freccia = varianti e bibliography."""
         label = tr("tooltip.latex_cite_combo", default="Cite / Bib")
-        btn = QToolButton(self)
-        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        btn.setToolTip(label)
-        btn.setFixedWidth(95)
-        btn.setText(label)
+        _container, btn, arrow_btn = self._make_split_button(label, label)
         btn.clicked.connect(lambda: self._dispatch_cite("cite"))
 
-        menu = QMenu(btn)
+        menu = QMenu(arrow_btn)
         cite_entries = [
             (r"\cite{}",              "cite"),
             (r"\citet{}",             "citet"),
@@ -865,25 +909,19 @@ class _LanguageToolbarWidget(QWidget):
         for item_label, key in cite_entries:
             action = menu.addAction(item_label)
             action.triggered.connect(lambda checked=False, k=key: self._dispatch_cite(k))
-        btn.setMenu(menu)
-        self._layout.insertWidget(self._layout.count() - 1, btn)
+        arrow_btn.setMenu(menu)
         return btn
 
     def _add_latex_math_menu_btn(self) -> QToolButton:
-        """MenuButtonPopup: click principale = inline math, freccia = altri modi."""
-        btn = QToolButton(self)
-        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        btn.setToolTip(tr("tooltip.latex_inline_math", default="Matematica inline  $…$"))
+        """Split-button: click principale = inline math, freccia = altri modi."""
+        tooltip = tr("tooltip.latex_inline_math", default="Matematica inline  $…$")
         icon = _load_icon("latex_math", self._mw)
         if icon.isNull():
             icon = _make_math_icon(self._mw)
-        btn.setIcon(icon)
-        btn.setIconSize(_ICON_SIZE)
-        btn.setText("$")
-        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        _container, btn, arrow_btn = self._make_split_button("", tooltip, icon=icon)
         btn.clicked.connect(self._insert_latex_inline_math)
 
-        menu = QMenu(btn)
+        menu = QMenu(arrow_btn)
         menu.addAction(tr("action.latex_math_inline",   default="$…$  (inline)"),
                        self._insert_latex_inline_math)
         menu.addAction(tr("action.latex_math_display",  default="\\[…\\]  (blocco)"),
@@ -895,28 +933,21 @@ class _LanguageToolbarWidget(QWidget):
                        lambda: self._wrap_latex_env("align"))
         menu.addAction(tr("action.latex_math_gather",   default="\\begin{gather}"),
                        lambda: self._wrap_latex_env("gather"))
-        btn.setMenu(menu)
-        self._layout.insertWidget(self._layout.count() - 1, btn)
+        arrow_btn.setMenu(menu)
         return btn
 
     def _add_latex_table_menu_btn(self) -> QToolButton:
-        """MenuButtonPopup: click principale = inserisci tabella, freccia = modifica."""
-        btn = QToolButton(self)
-        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        btn.setText("Table")
-        btn.setToolTip(tr("action.lang_toolbar_table", default="Tabella"))
+        """Split-button: click principale = inserisci tabella, freccia = modifica."""
+        tooltip = tr("action.lang_toolbar_table", default="Tabella")
         icon = _load_icon("latex_table", self._mw)
         if icon.isNull():
             icon = _load_icon("md_table", self._mw)
-        if not icon.isNull():
-            btn.setIcon(icon)
-            btn.setIconSize(_ICON_SIZE)
-            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        else:
-            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        _container, btn, arrow_btn = self._make_split_button(
+            "" if not icon.isNull() else tooltip, tooltip, icon=icon
+        )
         btn.clicked.connect(self._show_latex_table_picker)
 
-        menu = QMenu(btn)
+        menu = QMenu(arrow_btn)
         menu.addAction(tr("latex_menu.quick_table", default="Tabella rapida…"),
                        self._show_latex_table_picker)
         menu.addSeparator()
@@ -932,26 +963,19 @@ class _LanguageToolbarWidget(QWidget):
                        lambda: self._table_edit("del_row", None))
         menu.addAction(tr("tooltip.table_delete_col", default="Elimina colonna"),
                        lambda: self._table_edit("del_col", None))
-        btn.setMenu(menu)
-        self._layout.insertWidget(self._layout.count() - 1, btn)
+        arrow_btn.setMenu(menu)
         return btn
 
     def _add_md_table_menu_btn(self) -> QToolButton:
-        """MenuButtonPopup per Markdown: click = inserisci, freccia = modifica."""
-        btn = QToolButton(self)
-        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        btn.setText("Table")
-        btn.setToolTip(tr("action.lang_toolbar_table", default="Tabella"))
+        """Split-button per Markdown: click = inserisci, freccia = modifica."""
+        tooltip = tr("action.lang_toolbar_table", default="Tabella")
         icon = _load_icon("md_table", self._mw)
-        if not icon.isNull():
-            btn.setIcon(icon)
-            btn.setIconSize(_ICON_SIZE)
-            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        else:
-            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        _container, btn, arrow_btn = self._make_split_button(
+            "" if not icon.isNull() else tooltip, tooltip, icon=icon
+        )
         btn.clicked.connect(self._show_md_table_picker)
 
-        menu = QMenu(btn)
+        menu = QMenu(arrow_btn)
         menu.addAction(tr("action.latex_insert_table", default="Inserisci tabella…"),
                        self._show_md_table_picker)
         menu.addSeparator()
@@ -967,17 +991,15 @@ class _LanguageToolbarWidget(QWidget):
                        lambda: self._table_edit("del_row", None))
         menu.addAction(tr("tooltip.table_delete_col", default="Elimina colonna"),
                        lambda: self._table_edit("del_col", None))
-        btn.setMenu(menu)
-        self._layout.insertWidget(self._layout.count() - 1, btn)
+        arrow_btn.setMenu(menu)
         return btn
 
     def _add_latex_wrap_menu_btn(self) -> QToolButton:
-        """MenuButtonPopup: click principale = avvolgi con l'ultimo ambiente usato, freccia = scegli."""
-        btn = QToolButton(self)
-        btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        btn.setText(tr("latex_menu.wrap_label", default="Ambiente"))
-        btn.setToolTip(tr("tooltip.latex_wrap_menu", default="Avvolgi in ambiente"))
+        """Split-button: click principale = avvolgi con l'ultimo ambiente usato, freccia = scegli."""
+        _container, btn, arrow_btn = self._make_split_button(
+            tr("latex_menu.wrap_label", default="Ambiente"),
+            tr("tooltip.latex_wrap_menu", default="Avvolgi in ambiente"),
+        )
         _last_env = ["center"]
         btn.clicked.connect(lambda: self._wrap_latex_env(_last_env[0]))
 
@@ -985,7 +1007,7 @@ class _LanguageToolbarWidget(QWidget):
             _last_env[0] = env
             self._wrap_latex_env(env)
 
-        menu = QMenu(btn)
+        menu = QMenu(arrow_btn)
         menu.addAction("center  (↔)",      lambda: _wrap("center"))
         menu.addAction("flushleft  (←)",   lambda: _wrap("flushleft"))
         menu.addAction("flushright  (→)",  lambda: _wrap("flushright"))
@@ -1000,8 +1022,7 @@ class _LanguageToolbarWidget(QWidget):
         menu.addSeparator()
         menu.addAction(tr("action.latex_wrap_custom", default="Personalizzato…"),
                        self._latex_wrap_custom)
-        btn.setMenu(menu)
-        self._layout.insertWidget(self._layout.count() - 1, btn)
+        arrow_btn.setMenu(menu)
         return btn
 
     def _dispatch_cite(self, key: str) -> None:

@@ -2014,6 +2014,7 @@
     "ams_packages": "Pacchetti AMS",
     "sectioning": "Sezionamento",
     "environments": "Ambienti",
+    "wrap_label": "Ambiente",
     "list_envs": "Ambienti lista",
     "boxes": "Scatole",
     "char_styles": "Stili di carattere",

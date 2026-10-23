@@ -1815,6 +1815,7 @@
     "ams_packages": "Pakiety AMS",
     "sectioning": "Sekcjonowanie",
     "environments": "Środowiska",
+    "wrap_label": "Środowisko",
     "list_envs": "Środowiska list",
     "boxes": "Ramki",
     "char_styles": "Style znaków",

@@ -2016,6 +2016,7 @@
     "ams_packages": "AMS Packages",
     "sectioning": "Sectioning",
     "environments": "Environments",
+    "wrap_label": "Environment",
     "list_envs": "List Environments",
     "boxes": "Boxes",
     "char_styles": "Character Styles",

@@ -1815,6 +1815,7 @@
     "ams_packages": "AMS-Pakete",
     "sectioning": "Gliederung",
     "environments": "Umgebungen",
+    "wrap_label": "Umgebung",
     "list_envs": "Listenumgebungen",
     "boxes": "Boxen",
     "char_styles": "Zeichenstile",

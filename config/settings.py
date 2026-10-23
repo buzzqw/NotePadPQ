@@ -71,6 +71,7 @@ _DEFAULTS: dict[str, Any] = {
     "build/trigger_on_edit":   False,
     "build/trigger_on_edit_delay_ms": 900,
     "build/latex_auxiliary_auto": False,
+    "build/latex_auto_clean_retry": True,
     "build/output_max_lines":  10000,
     "build/timeout_seconds":    300,
     "build/unified_errors":    True,

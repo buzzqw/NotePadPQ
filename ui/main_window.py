@@ -1885,6 +1885,13 @@ class MainWindow(QMainWindow):
             "Esegue automaticamente makeindex, makeglossaries e nomencl durante Build"
         )
         m.addAction(auxiliary_act)
+        retry_checked = Settings.instance().get("build/latex_auto_clean_retry", True)
+        retry_act = self._act(
+            "build_latex_auto_clean_retry", "", self._toggle_latex_auto_clean_retry,
+            checkable=True, checked=retry_checked,
+        )
+        retry_act.setToolTip(tr("tooltip.build_latex_auto_clean_retry"))
+        m.addAction(retry_act)
         self._sep(m)
 
         build_on_save_checked = Settings.instance().get("build/trigger_on_save", False)
@@ -4854,6 +4861,10 @@ class MainWindow(QMainWindow):
     def _toggle_latex_auxiliary_auto(self, checked: bool) -> None:
         from config.settings import Settings
         Settings.instance().set("build/latex_auxiliary_auto", checked)
+
+    def _toggle_latex_auto_clean_retry(self, checked: bool) -> None:
+        from config.settings import Settings
+        Settings.instance().set("build/latex_auto_clean_retry", checked)
 
     def _toggle_build_on_save(self, checked: bool) -> None:
         from config.settings import Settings

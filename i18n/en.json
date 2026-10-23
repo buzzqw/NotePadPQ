@@ -105,6 +105,7 @@
     "build_clean_aux_toggle": "Clean LaTeX auxiliary files after compiling",
     "build_keep_synctex_toggle": "Keep the .synctex.gz file",
     "build_latex_auxiliary_auto": "Run LaTeX auxiliary tools automatically",
+    "build_latex_auto_clean_retry": "Auto-clean stale LaTeX auxiliary files and retry",
     "build_trigger_on_save": "Build on Save",
     "build_trigger_on_edit": "Build while editing",
     "build_unified_errors": "Unified Errors (LSP + Build)",
@@ -1293,6 +1294,7 @@
     "build_clean_aux_before_toggle": "Clean auxiliary files before compilation",
     "build_clean_aux_toggle": "Clean auxiliary files after successful compilation",
     "build_keep_synctex_toggle": "Keep .synctex.gz files when cleaning aux files",
+    "build_latex_auto_clean_retry": "Automatically removes corrupted .aux/.toc/.lot/.lof/.out files and retries compilation once.",
     "build_interactive": "Interactive mode (PTY) — enables process input",
     "build_trigger_on_save": "Automatically run build command when saving a file",
     "build_trigger_on_edit": "Run the LaTeX build after a short pause while typing",
@@ -2126,6 +2128,7 @@
     "pipeline_complete": "Pipeline completed successfully",
     "pipeline_success": "Pipeline: all steps passed",
     "pipeline_failed": "Pipeline: stopped due to error",
+    "latex_aux_retry": "Stale LaTeX auxiliary files removed ({files}); retrying compilation...",
     "pre_hook": "Pre-hook: {cmd}",
     "pre_hook_failed": "Pre-hook failed",
     "post_hook": "Post-hook: {cmd}"

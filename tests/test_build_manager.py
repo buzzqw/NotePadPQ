@@ -810,6 +810,83 @@ class TestAuxFileCleaning(unittest.TestCase):
             self.assertEqual(removed, ["child.aux"])
 
 
+class TestLatexStaleAuxRecovery(unittest.TestCase):
+
+    def test_detects_file_line_error_reported_on_aux(self):
+        from core.build_manager import is_stale_aux_error
+        output = "./SADE.aux:3: Missing \\begin{document}."
+        self.assertTrue(is_stale_aux_error(output))
+
+    def test_detects_extra_brace_while_reading_toc(self):
+        from core.build_manager import is_stale_aux_error
+        output = (
+            "(./SADE.toc\n"
+            "\\contentsline {section}{Introduzione}{1}\n"
+            "! Extra }, or forgotten \\endgroup.\n"
+            "l.12 \\contentsline\n"
+        )
+        self.assertTrue(is_stale_aux_error(output))
+
+    def test_ignores_genuine_source_error(self):
+        from core.build_manager import is_stale_aux_error
+        output = (
+            "! Missing \\begin{document}.\n"
+            "<inserted text>\n"
+            "l.1 \\documentclass{article}\n"
+        )
+        self.assertFalse(is_stale_aux_error(output))
+
+    def test_retry_cleans_stale_aux_and_reruns_once(self):
+        from config.settings import Settings
+        from core.build_manager import BuildManager
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "SADE.tex"
+            root.write_text("\\documentclass{article}\n", encoding="utf-8")
+            for suffix in (".aux", ".toc", ".bbl"):
+                (Path(td) / f"SADE{suffix}").write_text("stale", encoding="utf-8")
+
+            bm = BuildManager()
+            bm._do_run = mock.Mock(return_value=True)
+            worker = mock.Mock()
+            worker._outcome = ("error", 1.0)
+            worker._output_tail = ["./SADE.aux:3: Missing \\begin{document}."]
+            worker._latex_retry_meta = {
+                "kind": "direct",
+                "attempt": 0,
+                "command": "xelatex SADE.tex",
+                "cwd": td,
+                "env": {},
+                "profile": {},
+                "file_path": root,
+                "editor": None,
+                "interactive": False,
+                "pre_hook": "",
+                "post_hook": "",
+                "output_dir": Path(td),
+            }
+
+            with mock.patch.object(
+                    Settings, "instance",
+                    return_value=mock.Mock(get=lambda *a, **k: True)):
+                self.assertTrue(bm._maybe_retry_after_stale_aux("build_x", worker))
+
+            self.assertFalse((Path(td) / "SADE.aux").exists())
+            self.assertFalse((Path(td) / "SADE.toc").exists())
+            self.assertTrue((Path(td) / "SADE.bbl").exists(),
+                            "bibliography files must survive the recovery")
+            bm._do_run.assert_called_once()
+            self.assertFalse(bm._do_run.call_args.kwargs["announce"])
+            self.assertEqual(bm._do_run.call_args.kwargs["latex_retry_attempt"], 1)
+
+            # A second failure with the same signature must not loop.
+            worker._latex_retry_meta["attempt"] = 1
+            with mock.patch.object(
+                    Settings, "instance",
+                    return_value=mock.Mock(get=lambda *a, **k: True)):
+                self.assertFalse(bm._maybe_retry_after_stale_aux("build_x", worker))
+
+
 class TestDraftMode(unittest.TestCase):
 
     def test_add_draftmode_flag(self):

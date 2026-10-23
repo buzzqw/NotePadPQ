@@ -687,6 +687,8 @@ The following variables are available in commands, accepted in both `${VAR}` and
 
 **Auxiliary-file cleanup**: auxiliary LaTeX files can be removed before and/or after compilation. The **Keep SyncTeX** option preserves `.synctex.gz`, so editor cursor ↔ PDF synchronization remains available.
 
+**Automatic recovery from corrupt auxiliary files**: when compilation fails with an error attributable to a `.aux`, `.toc`, `.lot`, `.lof`, or `.out` file (for example `Missing \begin{document}` or `Extra }`), NotePadPQ deletes only those files and retries compilation once, leaving `.bbl`, `.bcf`, and index files untouched. The feature is enabled by default and can be turned off from the **Build** menu. The automatic retry is limited to one per build, so a genuine source error cannot cause a loop.
+
 **Error navigation**: after a build with errors, use `Alt+↑` and `Alt+↓`, or the ▲/▼ buttons in the panel, to move to the previous or next error.
 
 Example: LaTeX compilation with pdflatex:

@@ -105,6 +105,7 @@
     "build_clean_aux_toggle": "Pulisci file ausiliari LaTeX dopo la compilazione",
     "build_keep_synctex_toggle": "Mantieni il file .synctex.gz",
     "build_latex_auxiliary_auto": "Esegui automaticamente i tool ausiliari LaTeX",
+    "build_latex_auto_clean_retry": "Pulisci e rilancia automaticamente se gli ausiliari LaTeX sono corrotti",
     "build_trigger_on_save": "Compila al salvataggio",
     "build_trigger_on_edit": "Compila durante la modifica",
     "build_unified_errors": "Errori unificati (LSP + Build)",
@@ -1293,6 +1294,7 @@
     "build_clean_aux_before_toggle": "Pulisci i file ausiliari prima della compilazione",
     "build_clean_aux_toggle": "Pulisci i file ausiliari dopo una compilazione riuscita",
     "build_keep_synctex_toggle": "Mantieni i file .synctex.gz durante la pulizia",
+    "build_latex_auto_clean_retry": "Rimuove automaticamente gli ausiliari .aux/.toc/.lot/.lof/.out corrotti e rilancia la compilazione una sola volta.",
     "build_interactive": "Modalit\u00e0 interattiva (PTY) \u2014 abilita l'input del processo",
     "build_trigger_on_save": "Esegui automaticamente il build al salvataggio del file",
     "build_trigger_on_edit": "Esegui il build LaTeX dopo una breve pausa nella digitazione",
@@ -2124,6 +2126,7 @@
     "pipeline_complete": "Pipeline completata con successo",
     "pipeline_success": "Pipeline: tutti i passi superati",
     "pipeline_failed": "Pipeline: fermata per errore",
+    "latex_aux_retry": "Rimossi file ausiliari LaTeX non più validi ({files}); rilancio la compilazione...",
     "pre_hook": "Pre-hook: {cmd}",
     "pre_hook_failed": "Pre-hook fallito",
     "post_hook": "Post-hook: {cmd}"

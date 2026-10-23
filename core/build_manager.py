@@ -30,6 +30,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -684,6 +685,66 @@ def clean_aux_files(base_path: Path, keep_synctex: bool = True,
     return removed
 
 
+# File la cui corruzione produce gli errori "Missing \begin{document}" o
+# "Extra }" durante la lettura degli ausiliari. La lista è volutamente
+# ristretta: .bbl, .bcf e gli indici non vanno persi in un tentativo di
+# recupero, altrimenti la ricompilazione può fallire per citazioni mancanti.
+STALE_AUX_EXTENSIONS: tuple[str, ...] = (".aux", ".toc", ".lot", ".lof", ".out")
+
+_STALE_AUX_FATAL_RE = re.compile(
+    r"(?:Missing\s+\\begin\{document\}|Extra\s*\}|Runaway\s+argument|"
+    r"Emergency\s+stop|File\s+ended\s+while\s+scanning\s+use\s+of)",
+    re.IGNORECASE,
+)
+_STALE_AUX_FILE_RE = re.compile(
+    r"(?i)(?:\./)?[^\s()]+\.(?:aux|toc|lot|lof|out):\d+:"
+)
+_STALE_AUX_HINT_RE = re.compile(
+    r"(?i)(?:\.(?:aux|toc|lot|lof|out)\b|\\@input\b|\\@writefile\b|"
+    r"\\contentsline\b|\\@starttoc\b|\\addtocontents\b)"
+)
+
+
+def clean_stale_aux_files(base_path: Path,
+                          extra_bases: list[Path] | None = None) -> list[str]:
+    """Rimuove solo gli ausiliari che possono restare corrotti tra due build."""
+    removed = []
+    seen: set[Path] = set()
+    for base in [base_path, *(extra_bases or [])]:
+        for ext in STALE_AUX_EXTENSIONS:
+            candidate = base.with_name(base.name + ext)
+            if candidate in seen or not candidate.exists():
+                continue
+            seen.add(candidate)
+            try:
+                candidate.unlink()
+                removed.append(candidate.name)
+            except OSError as e:
+                _log_warn(f"Could not remove stale aux file {candidate}: {e}")
+    return removed
+
+
+def is_stale_aux_error(output: str) -> bool:
+    """Riconosce un errore LaTeX causato da .aux/.toc/.lot/.lof/.out corrotti.
+
+    Con ``-file-line-error`` il file ausiliario compare direttamente nella
+    riga dell'errore; nei log tradizionali può invece comparire poco prima
+    dell'errore, quando TeX lo sta leggendo. In entrambi i casi la firma
+    fatale deve riguardare un ausiliario, così un errore realmente presente
+    nel sorgente non provoca una pulizia inutile.
+    """
+    lines = output.splitlines()
+    for index, line in enumerate(lines):
+        if not _STALE_AUX_FATAL_RE.search(line):
+            continue
+        if _STALE_AUX_FILE_RE.search(line):
+            return True
+        context = "\n".join(lines[max(0, index - 30):index + 3])
+        if _STALE_AUX_HINT_RE.search(context):
+            return True
+    return False
+
+
 # ─── BuildManager ─────────────────────────────────────────────────────────────
 
 class BuildManager(QObject):
@@ -1139,12 +1200,14 @@ class BuildManager(QObject):
 
     def _run_pipeline(self, run_id: str, pipeline: list, file_path: Path,
                       editor, profile: dict, interactive: bool,
-                      output_dir: Path | None = None) -> bool:
+                      output_dir: Path | None = None, announce: bool = True,
+                      latex_retry_attempt: int = 0) -> bool:
         command = self._expand_profile_command(
             pipeline[0].get("cmd", ""), file_path, editor, output_dir=output_dir)
         env = self._build_env(file_path, profile, output_dir=output_dir)
 
-        self.build_started.emit(run_id, "pipeline")
+        if announce:
+            self.build_started.emit(run_id, "pipeline")
         self.pipeline_step.emit(run_id, 1, len(pipeline), pipeline[0].get("name", "Step 1"))
         self.build_output.emit(run_id, tr("build.pipeline_started",
                                           step=pipeline[0].get("name", ""),
@@ -1160,6 +1223,16 @@ class BuildManager(QObject):
             worker._pipeline_interactive = interactive
             worker._pipeline_env = env
             worker._pipeline_output_dir = output_dir
+            worker._latex_retry_meta = {
+                "kind": "pipeline",
+                "attempt": latex_retry_attempt,
+                "pipeline": pipeline,
+                "file_path": file_path,
+                "editor": editor,
+                "profile": profile,
+                "interactive": interactive,
+                "output_dir": output_dir,
+            }
 
         self._spawn_worker(run_id, command, str(file_path.parent), env, interactive,
                            setup=configure_worker)
@@ -1223,6 +1296,9 @@ class BuildManager(QObject):
             next_worker._pipeline_interactive = interactive
             next_worker._pipeline_env = env
             next_worker._pipeline_output_dir = output_dir
+            metadata = getattr(worker, "_latex_retry_meta", None)
+            if isinstance(metadata, dict):
+                next_worker._latex_retry_meta = dict(metadata)
 
         self._spawn_worker(run_id, cmd, str(file_path.parent) if file_path else ".",
                            env, interactive, setup=configure_next)
@@ -1268,7 +1344,8 @@ class BuildManager(QObject):
     def _do_run(self, run_id: str, command: BuildCommand, cwd: str, env: dict,
                 profile: dict, file_path: Path, editor,
                 interactive: bool, pre_hook: str = "", post_hook: str = "",
-                output_dir: Path | None = None) -> bool:
+                output_dir: Path | None = None, announce: bool = True,
+                latex_retry_attempt: int = 0) -> bool:
 
         from config.settings import Settings
         self._set_build_state(run_id, BUILD_STATE_QUEUED)
@@ -1278,8 +1355,9 @@ class BuildManager(QObject):
                     and Settings.instance().get("build/draft_mode", False)):
                 cmd = self._add_draftmode_flag(cmd)
 
-            self.build_started.emit(run_id, "build")
-            self.build_output.emit(run_id, tr("msg.build_started", command=cmd))
+            if announce:
+                self.build_started.emit(run_id, "build")
+                self.build_output.emit(run_id, tr("msg.build_started", command=cmd))
 
             if Settings.instance().get("build/clean_aux_before_compile", False):
                 aux_base = (output_dir / file_path.stem
@@ -1305,6 +1383,20 @@ class BuildManager(QObject):
                         tr("build_panel.aux_cleaned", n=len(removed), files=", ".join(removed)))
 
             def configure_main(worker: BuildWorker | InteractiveBuildWorker) -> None:
+                worker._latex_retry_meta = {
+                    "kind": "direct",
+                    "attempt": latex_retry_attempt,
+                    "command": cmd,
+                    "cwd": cwd,
+                    "env": env,
+                    "profile": profile,
+                    "file_path": file_path,
+                    "editor": editor,
+                    "interactive": interactive,
+                    "pre_hook": "",
+                    "post_hook": post_hook,
+                    "output_dir": output_dir,
+                }
                 if post_hook:
                     worker._post_hook = post_hook
                     worker._post_hook_file_path = file_path
@@ -1350,6 +1442,12 @@ class BuildManager(QObject):
         cls = InteractiveBuildWorker if interactive else BuildWorker
         worker = cls(command, cwd, env, run_id, timeout=self.get_build_timeout())
         self._set_build_state(run_id, BUILD_STATE_QUEUED)
+        # Conserva la coda dell'output per riconoscere gli errori da file
+        # ausiliari corrotti una volta terminato il worker.
+        worker._output_tail = deque(maxlen=800)
+        worker.output_line.connect(
+            lambda line, w=worker: w._output_tail.append(line)
+        )
         worker.output_line.connect(lambda line, rid=run_id: self.build_output.emit(rid, line))
         if hasattr(worker, "state_changed"):
             worker.state_changed.connect(
@@ -1399,6 +1497,87 @@ class BuildManager(QObject):
         self._on_worker_done(run_id, worker, outcome[0] == "ok", outcome[1])
         self._delete_worker(worker)
 
+    def _maybe_retry_after_stale_aux(
+            self, run_id: str,
+            worker: BuildWorker | InteractiveBuildWorker) -> bool:
+        """Pulisce gli ausiliari corrotti e rilancia una volta la compilazione.
+
+        Si attiva solo quando l'output contiene un errore fatale che TeX
+        attribuisce a un file .aux/.toc/.lot/.lof/.out. Il tentativo extra è
+        limitato a uno per build per evitare cicli se l'errore è reale.
+        """
+        outcome = getattr(worker, "_outcome", None) or ()
+        if not outcome or outcome[0] != "error":
+            return False
+        meta = getattr(worker, "_latex_retry_meta", None)
+        if not isinstance(meta, dict) or int(meta.get("attempt", 0)) >= 1:
+            return False
+        if meta.get("interactive"):
+            return False
+
+        file_path = meta.get("file_path")
+        if not file_path:
+            return False
+        file_path = Path(file_path)
+        if file_path.suffix.lower() not in {".tex", ".ltx", ".latex"}:
+            return False
+
+        from config.settings import Settings
+        if not Settings.instance().get("build/latex_auto_clean_retry", True):
+            return False
+
+        output = "\n".join(getattr(worker, "_output_tail", ()))
+        if not is_stale_aux_error(output):
+            return False
+
+        output_dir = meta.get("output_dir")
+        output_dir = Path(output_dir) if output_dir else None
+        aux_base = (output_dir / file_path.stem
+                    if output_dir else file_path.with_suffix(""))
+        extra_bases: list[Path] = []
+        context = self._build_contexts.get(run_id)
+        if context is not None:
+            try:
+                for source in context.included_files():
+                    extra_bases.append(source.with_suffix(""))
+                    if output_dir:
+                        extra_bases.append(output_dir / source.stem)
+            except (OSError, RuntimeError):
+                pass
+
+        removed = clean_stale_aux_files(aux_base, extra_bases)
+        if not removed:
+            return False
+
+        self.build_output.emit(
+            run_id,
+            tr("build.latex_aux_retry", files=", ".join(removed),
+               default="Stale LaTeX auxiliary files removed ({files}); "
+                       "retrying compilation..."),
+        )
+
+        # Il nuovo worker porta attempt=1, quindi un secondo fallimento con la
+        # stessa firma non innesca un altro ciclo.
+        meta["attempt"] = 1
+        if meta.get("kind") == "pipeline":
+            self._run_pipeline(
+                run_id, meta.get("pipeline", []), file_path,
+                meta.get("editor"), meta.get("profile", {}),
+                bool(meta.get("interactive")), output_dir,
+                announce=False, latex_retry_attempt=1,
+            )
+        else:
+            self._do_run(
+                run_id, meta.get("command", ""),
+                meta.get("cwd", str(file_path.parent)),
+                meta.get("env", {}), meta.get("profile", {}), file_path,
+                meta.get("editor"), bool(meta.get("interactive")),
+                pre_hook="", post_hook=meta.get("post_hook", ""),
+                output_dir=output_dir, announce=False,
+                latex_retry_attempt=1,
+            )
+        return True
+
     def _on_worker_done(self, run_id: str, worker: BuildWorker | InteractiveBuildWorker,
                         ok: bool, secs: float) -> None:
 
@@ -1442,7 +1621,14 @@ class BuildManager(QObject):
             return
 
         if hasattr(worker, "_pipeline"):
+            idx = getattr(worker, "_pipeline_index", 0)
+            if (not ok and idx == 0
+                    and self._maybe_retry_after_stale_aux(run_id, worker)):
+                return
             self._continue_pipeline(run_id, worker, ok)
+            return
+
+        if not ok and self._maybe_retry_after_stale_aux(run_id, worker):
             return
 
         if ok:

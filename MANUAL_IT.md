@@ -707,6 +707,8 @@ Nei comandi sono disponibili le seguenti variabili, accettate sia nella forma `$
 
 **Pulizia file ausiliari**: puoi eliminare i file ausiliari LaTeX prima e/o dopo la compilazione. L'opzione **Mantieni SyncTeX** conserva `.synctex.gz`, così la sincronizzazione cursore ↔ PDF resta disponibile.
 
+**Recupero automatico da ausiliari corrotti**: se la compilazione fallisce con un errore riconducibile a un file `.aux`, `.toc`, `.lot`, `.lof` o `.out` (per esempio `Missing \begin{document}` o `Extra }`), NotePadPQ elimina solo quegli ausiliari e rilancia la compilazione una volta, senza toccare `.bbl`, `.bcf` o gli indici. La funzione è attiva di default e si può disattivare dal menu **Build**. Il tentativo automatico è limitato a uno per build, per non entrare in un ciclo se l'errore è realmente nel sorgente.
+
 **Navigazione errori**: dopo una compilazione con errori usa `Alt+↑` e `Alt+↓`, oppure i pulsanti ▲/▼ nel pannello, per passare all'errore precedente o successivo.
 
 Esempio: compilazione LaTeX con pdflatex:

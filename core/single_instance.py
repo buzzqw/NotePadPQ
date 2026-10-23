@@ -117,10 +117,14 @@ class SingleInstance(QObject):
         self._conn_seq += 1
         cid = self._conn_seq
         self._buffers[cid] = b""
-        def ready_read(c=conn, i=cid):
-            return self._on_ready_read(c, i)
-        def disconnected(c=conn, i=cid):
-            return self._cleanup_connection(c, i)
+        # self/conn/cid sono legati come default argomenti: Qt puo' consegnare
+        # questi segnali anche durante lo shutdown dell'interprete, quando la
+        # cella di 'self' nella closure e' gia' stata svuotata e l'accesso
+        # fallirebbe con "cannot access free variable 'self'".
+        def ready_read(_self=self, c=conn, i=cid):
+            return _self._on_ready_read(c, i)
+        def disconnected(_self=self, c=conn, i=cid):
+            return _self._cleanup_connection(c, i)
         self._connection_slots[cid] = (ready_read, disconnected)
         conn.readyRead.connect(ready_read)
         conn.disconnected.connect(disconnected)

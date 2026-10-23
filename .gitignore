@@ -106,6 +106,7 @@ tests/*
 !tests/test_latex_native.py
 !tests/test_latex_tokenizer.py
 !tests/test_markdown_features.py
+!tests/test_preview_paste_safety.py
 !tests/test_resource_optimizations.py
 !tests/test_spreadsheet_db_workers.py
 retroactive_notes.sh

@@ -275,6 +275,178 @@ def _inject_md_line_anchors(text: str):
     return '\n'.join(result), anchor_lines
 
 
+# ─── Sicurezza del rendering Markdown ───────────────────────────────────────────
+#
+# Python-Markdown usa espressioni regolari che diventano quadratiche (o
+# peggiori) su input patologici: parentesi quadre non chiuse, '<' senza tag
+# chiuso, sequenze molto dense di marcatori di enfasi o backtick. Un testo
+# incollato di poche decine di KB può quindi saturare una CPU per minuti.
+# Le regex sono in C e non rilasciano il GIL, perciò il worker QThread non
+# basta: la GUI resta bloccata esattamente come se il rendering avvenisse sul
+# thread principale. Neutralizziamo i pattern noti prima del rendering e,
+# quando la densità di marcatori è troppo alta, ripieghiamo sul testo semplice
+# invece di rischiare un blocco.
+
+_MD_MIN_SANITIZE_CHARS = 10_000
+_MD_MARKER_DENSITY_LIMIT = 0.20
+_MD_BACKTICK_DENSITY_LIMIT = 0.25
+_MD_MAX_BRACKET_DEPTH = 256
+_MD_TOC_MAX_HEADINGS = 1000
+
+_MD_FENCE_LINE_RE = re.compile(r"[ \t]{0,3}(`{3,}|~{3,})")
+_MD_HEADING_RE = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+\S", re.MULTILINE)
+
+
+def _markdown_code_mask(text: str) -> bytearray:
+    """Marca con 1 i caratteri dentro blocchi/inline code (approssimativo).
+
+    Serve solo a non alterare il codice quando neutralizziamo i pattern
+    patologici: una stima leggermente conservativa va bene, l'importante è
+    restare O(n).
+    """
+    n = len(text)
+    mask = bytearray(n)
+    in_fence = False
+    fence_char = ""
+    i = 0
+    line_start = 0
+    while i < n:
+        if i == line_start:
+            match = _MD_FENCE_LINE_RE.match(text, i)
+            if match:
+                char = match.group(1)[0]
+                if not in_fence:
+                    in_fence = True
+                    fence_char = char
+                elif char == fence_char:
+                    in_fence = False
+                end = text.find("\n", i)
+                if end < 0:
+                    end = n
+                mask[i:end] = b"\x01" * (end - i)
+                i = end
+                continue
+        if in_fence:
+            mask[i] = 1
+            if text[i] == "\n":
+                line_start = i + 1
+            i += 1
+            continue
+        if text[i] == "`":
+            run = 1
+            while i + run < n and text[i + run] == "`":
+                run += 1
+            end = text.find("`" * run, i + run)
+            if end >= 0:
+                mask[i:end + run] = b"\x01" * (end + run - i)
+                i = end + run
+                continue
+        if text[i] == "\n":
+            line_start = i + 1
+        i += 1
+    return mask
+
+
+def _sanitize_markdown_source(text: str) -> tuple[str, bool]:
+    """Rende innocuo il Markdown prima di passarlo a python-markdown.
+
+    Ritorna ``(testo, troppo_complesso)``. Se ``troppo_complesso`` è True il
+    chiamante deve mostrare il testo semplice: il rendering Markdown di quel
+    contenuto non può essere interrotto in modo sicuro.
+    """
+    if not text:
+        return text, False
+
+    # Backtick: il processore inline di python-markdown è quadratico anche
+    # quando le coppie sono formalmente chiuse, quindi contiamo anche quelli
+    # dentro il codice.
+    if len(text) >= _MD_MIN_SANITIZE_CHARS:
+        if text.count("`") / len(text) > _MD_BACKTICK_DENSITY_LIMIT:
+            return text, True
+
+    mask = _markdown_code_mask(text)
+
+    if len(text) >= _MD_MIN_SANITIZE_CHARS:
+        content_chars = len(text) - sum(mask)
+        if content_chars > 0:
+            markers = sum(
+                1 for index, char in enumerate(text)
+                if not mask[index] and char in "_*"
+            )
+            if markers / content_chars > _MD_MARKER_DENSITY_LIMIT:
+                return text, True
+
+    # Parentesi quadre non chiuse: il parser dei link le prova a chiudere
+    # ripetutamente, con costo quadratico. Renderle letterali non cambia
+    # l'aspetto finale.
+    unmatched_brackets: list[int] = []
+    max_bracket_depth = 0
+    for index, char in enumerate(text):
+        if mask[index]:
+            continue
+        if char == "[":
+            unmatched_brackets.append(index)
+            if len(unmatched_brackets) > max_bracket_depth:
+                max_bracket_depth = len(unmatched_brackets)
+        elif char == "]" and unmatched_brackets:
+            unmatched_brackets.pop()
+
+    # Parentesi annidate molto in profondità: anche se formalmente chiuse il
+    # parser dei link ha costo quadratico. Le parentesi non chiuse vengono
+    # neutralizzate sotto, quindi valutiamo solo l'annidamento che rimane
+    # davvero bilanciato dopo la sanificazione.
+    if unmatched_brackets:
+        unmatched = set(unmatched_brackets)
+        depth = 0
+        balanced_depth = 0
+        for index, char in enumerate(text):
+            if mask[index] or index in unmatched:
+                continue
+            if char == "[":
+                depth += 1
+                if depth > balanced_depth:
+                    balanced_depth = depth
+            elif char == "]" and depth:
+                depth -= 1
+    else:
+        balanced_depth = max_bracket_depth
+    if balanced_depth > _MD_MAX_BRACKET_DEPTH:
+        return text, True
+
+    # '<' senza un '>' successivo sulla stessa riga: il parser HTML inline
+    # tenta di interpretarlo come tag. L'entità &lt; ha lo stesso aspetto.
+    angles: list[int] = []
+    for index, char in enumerate(text):
+        if char != "<" or mask[index]:
+            continue
+        line_end = text.find("\n", index)
+        if line_end < 0:
+            line_end = len(text)
+        if text.find(">", index + 1, line_end) < 0:
+            angles.append(index)
+
+    if not unmatched_brackets and not angles:
+        return text, False
+
+    chars = list(text)
+    for index in unmatched_brackets:
+        chars[index] = "\\["
+    for index in angles:
+        chars[index] = "&lt;"
+    return "".join(chars), False
+
+
+def _markdown_heading_count(text: str) -> int:
+    """Conta i titoli veri, escludendo quelli dentro blocchi di codice."""
+    if not text:
+        return 0
+    mask = _markdown_code_mask(text)
+    return sum(
+        1 for match in _MD_HEADING_RE.finditer(text)
+        if not mask[match.start()]
+    )
+
+
 # ─── Worker thread per rendering Markdown ────────────────────────────────────────
 
 class _MarkdownWorker(QThread):
@@ -292,7 +464,20 @@ class _MarkdownWorker(QThread):
     def run(self) -> None:
         try:
             import re as _re
-            preprocessed, anchor_lines = _inject_md_line_anchors(self._text)
+            safe_text, too_complex = _sanitize_markdown_source(self._text)
+            if too_complex:
+                # Il rendering Markdown di questo contenuto non può essere
+                # interrotto in modo sicuro: mostriamo il testo semplice
+                # invece di bloccare la GUI per minuti.
+                import html as _html
+                self.result_ready.emit(
+                    _wrap_html("<pre>" + _html.escape(safe_text) + "</pre>"),
+                    [],
+                    False,
+                )
+                return
+
+            preprocessed, anchor_lines = _inject_md_line_anchors(safe_text)
             from core.markdown_features import expand_wikilinks_for_preview
             preprocessed = expand_wikilinks_for_preview(preprocessed)
             markdown_lib = _get_markdown()
@@ -305,13 +490,17 @@ class _MarkdownWorker(QThread):
                               if 'markdown=' not in (m.group(2) or '') else m.group(0),
                     preprocessed,
                 )
-                body = markdown_lib.markdown(
-                    preprocessed,
-                    extensions=["tables", "fenced_code", "toc", "md_in_html"],
-                )
+                # L'estensione toc diventa quadratica con migliaia di titoli:
+                # sugli indici grandi la disattiviamo (le ancore di sync sono
+                # comunque iniettate da _inject_md_line_anchors).
+                extensions = ["tables", "fenced_code"]
+                if _markdown_heading_count(safe_text) <= _MD_TOC_MAX_HEADINGS:
+                    extensions.append("toc")
+                extensions.append("md_in_html")
+                body = markdown_lib.markdown(preprocessed, extensions=extensions)
             else:
                 import html as _html
-                body = "<pre>" + _html.escape(self._text) + "</pre>"
+                body = "<pre>" + _html.escape(safe_text) + "</pre>"
                 anchor_lines = []
 
             has_math = bool(
@@ -1818,11 +2007,6 @@ class PreviewPanel(QWidget):
         self._tree.clear()
 
         # Pattern: \chapter, \section, \subsection, \subsubsection, \label
-        SECT_PAT = re.compile(
-            r"^[^%]*\\(chapter|section|subsection|subsubsection|paragraph)"
-            r"\*?\s*\{([^}]*)\}",
-            re.MULTILINE
-        )
         LABEL_PAT = re.compile(r"\\label\{([^}]+)\}", re.MULTILINE)
         FIG_PAT   = re.compile(r"\\begin\{figure\}", re.MULTILINE)
         TAB_PAT   = re.compile(r"\\begin\{table\}", re.MULTILINE)
@@ -1867,9 +2051,9 @@ class PreviewPanel(QWidget):
             stack: list[tuple[int, QTreeWidgetItem]] = []
             location = str(source_path) if source_path else ""
             for lineno, line in enumerate(source_text.split("\n")):
-                m = SECT_PAT.match(line)
-                if m:
-                    cmd, title = m.group(1), m.group(2)
+                heading = _latex_section_on_line(line)
+                if heading is not None:
+                    cmd, title = heading
                     level = level_map.get(cmd, 1)
                     item = QTreeWidgetItem([f"{_sect_prefix(cmd)} {title}"])
                     item.setData(0, Qt.ItemDataRole.UserRole, {"file": location, "line": lineno})
@@ -3523,6 +3707,52 @@ def _sect_prefix(cmd: str) -> str:
         "subsubsection": "·",
         "paragraph":     "▸",
     }.get(cmd, "•")
+
+
+# Il vecchio pattern ``^[^%]*\\(chapter|section|...)`` veniva applicato con
+# re.match a ogni riga: su una singola riga lunghissima senza comandi (o con
+# comandi malformati) il motore regex tornava indietro per ogni posizione,
+# con costo quadratico e blocco della GUI durante l'aggiornamento
+# dell'anteprima. Cerchiamo prima il comando con una regex lineare e poi
+# leggiamo il titolo con str.find, che è O(n) e non può andare in backtracking.
+_LATEX_SECTION_RE = re.compile(
+    r"(?<!\\)\\(chapter|section|subsection|subsubsection|paragraph)\b\*?\s*"
+)
+
+
+def _strip_latex_comment(line: str) -> str:
+    """Rimuove un commento ``%`` rispettando i percentuali escapati (``\\%``)."""
+    index = 0
+    while True:
+        index = line.find("%", index)
+        if index < 0:
+            return line
+        backslashes = 0
+        cursor = index - 1
+        while cursor >= 0 and line[cursor] == "\\":
+            backslashes += 1
+            cursor -= 1
+        if backslashes % 2 == 0:
+            return line[:index]
+        index += 1
+
+
+def _latex_section_on_line(line: str) -> tuple[str, str] | None:
+    """Estrae il primo comando di sezione non commentato della riga."""
+    code = _strip_latex_comment(line)
+    match = _LATEX_SECTION_RE.search(code)
+    if match is None:
+        return None
+    index = match.end()
+    length = len(code)
+    while index < length and code[index] in " \t":
+        index += 1
+    if index >= length or code[index] != "{":
+        return None
+    end = code.find("}", index + 1)
+    if end < 0:
+        return None
+    return match.group(1), code[index + 1:end]
 
 
 def _item_level(item: QTreeWidgetItem) -> int:

@@ -148,6 +148,7 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
+      actions: write   # serve per avviare AppImage/.deb con workflow_dispatch
 
     steps:
       - name: Checkout (per le release notes)
@@ -198,3 +199,26 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           files: release-assets/*
+
+      # La release creata con GITHUB_TOKEN non emette l'evento
+      # release:published (protezione anti-ricorsione di GitHub), quindi
+      # Build AppImage e Build .deb non partirebbero da soli: li avviamo qui.
+      # Se la release e' stata creata da versiona.sh (token utente) i due run
+      # release:published esistono gia' e questo step li salta.
+      - name: Avvia build AppImage e .deb per il tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          for wf in release.yml build-deb.yml; do
+            existing=$(gh run list --workflow "$wf" --limit 30 \
+              --json headBranch,event \
+              --jq "[.[] | select(.headBranch == \"$TAG\" and .event == \"release\")] | length")
+            if [ "$existing" -gt 0 ]; then
+              echo "$wf: run release:published gia' presente per $TAG, salto il dispatch"
+            else
+              gh workflow run "$wf" --ref "$TAG" -f tag="$TAG"
+              echo "$wf: dispatch avviato per $TAG"
+            fi
+          done

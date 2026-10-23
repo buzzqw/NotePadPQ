@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PyQt6.Qsci import QSCINTILLA_VERSION
-from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -338,6 +338,88 @@ class _ReplaceWriterWorker(QObject):
         self.finished.emit(written_matches, written_files, errors)
 
 
+class _OccurrenceScanWorker(QThread):
+    """Scansiona le occorrenze in background.
+
+    Prima ``_populate_occurrences`` copiava e analizzava l'intero documento
+    sul thread GUI: con l'auto-refresh attivo e file da diversi MB la finestra
+    si bloccava a ogni pausa di digitazione.
+    """
+
+    done = pyqtSignal(int, int, bool, list)  # gen, count, truncated, rows
+
+    def __init__(self, text: str, compiled, smart_patterns, generation: int,
+                 max_items: int):
+        super().__init__(None)
+        self._text = text
+        self._compiled = compiled
+        self._smart_patterns = smart_patterns
+        self._gen = generation
+        self._max_items = max_items
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        count, truncated, rows = _scan_occurrences(
+            self._text, self._compiled, self._smart_patterns, self._max_items,
+            should_cancel=lambda: self._cancelled,
+        )
+        if not self._cancelled:
+            self.done.emit(self._gen, count, truncated, rows)
+
+
+def _scan_occurrences(text: str, compiled, smart_patterns,
+                      max_items: int, should_cancel=None
+                      ) -> tuple[int, bool, list]:
+    """Restituisce ``(count, truncated, rows)`` senza toccare la GUI.
+
+    ``rows`` contiene al massimo ``max_items`` tuple
+    ``(line_idx, col, length, snippet_start, snippet)``: il testo della riga è
+    limitato a una finestra attorno al match per non duplicare righe enormi.
+    """
+    rows: list[tuple[int, int, int, int, str]] = []
+    count = 0
+    truncated = False
+    snippet_chars = 8_000
+    for line_idx, line_text in enumerate(text.split("\n")):
+        if should_cancel is not None and should_cancel():
+            break
+        if smart_patterns is not None:
+            line_matches = []
+            for pattern in smart_patterns:
+                term_matches = list(pattern.finditer(line_text))
+                if not term_matches:
+                    line_matches = []
+                    break
+                line_matches.extend(term_matches)
+            line_matches.sort(key=lambda match: (match.start(), match.end()))
+            if line_matches:
+                count += 1
+        else:
+            line_matches = list(compiled.finditer(line_text))
+            count += len(line_matches)
+        if not line_matches:
+            continue
+        if len(rows) < max_items:
+            match = line_matches[0]
+            snippet_start = 0
+            snippet = line_text
+            if len(line_text) > snippet_chars:
+                snippet_start = max(0, match.start() - snippet_chars // 2)
+                snippet_end = min(
+                    len(line_text), match.end() + snippet_chars // 2)
+                snippet = line_text[snippet_start:snippet_end]
+            rows.append((
+                line_idx, match.start(), match.end() - match.start(),
+                snippet_start, snippet,
+            ))
+        else:
+            truncated = True
+    return count, truncated, rows
+
+
 class _ElasticTreeWidget(QTreeWidget):
     """QTreeWidget con una colonna che riempie lo spazio residuo come farebbe
     ResizeMode.Stretch, ma restando comunque ridimensionabile a mano
@@ -379,6 +461,9 @@ class FindReplaceDialog(QWidget):
         self._fif_rif_mw:  ManagedWorker | None = None
         self._fif_rif_mw2: ManagedWorker | None = None
         self._fif_total_matches = 0
+        self._occurrence_worker: _OccurrenceScanWorker | None = None
+        self._old_occurrence_workers: list = []
+        self._occurrence_gen = 0
         self._observed_editor = None
         self._find_anchor_line: int | None = None
         # Range della selezione in cui cercare ("Nella selezione") e ultimo
@@ -1493,6 +1578,7 @@ ESEMPI
         except Exception:
             pass
         self._cancel_find_in_files()
+        self._cancel_occurrence_worker()
         self._find_results_refresh_timer.stop()
         self._find_anchor_line = None
         if self._fif_rif_mw is not None:
@@ -1692,11 +1778,17 @@ ESEMPI
         label.setStyleSheet("font-family: monospace; font-size: 12px; padding: 0 2px;")
         return label
 
+    _MAX_OCCURRENCE_ITEMS = 2_000
+    # Sotto questa soglia la scansione è abbastanza rapida da restare sincrona
+    # (e mantenere immediata la lista); sopra, passa al worker.
+    _SYNC_OCCURRENCE_MAX_CHARS = 200_000
+
     def _populate_occurrences(self, editor, pattern_text: str, flags: dict,
                                publish_panel: bool = True,
                                cursor_line: int | None = None) -> None:
-        """Popola la lista occorrenze nel tab Cerca."""
+        """Popola la lista occorrenze, in background sui documenti grandi."""
         self._find_occurrences.clear()
+        self._cancel_occurrence_worker()
         if not pattern_text:
             self._lbl_status.setText("")
             return
@@ -1710,50 +1802,86 @@ ESEMPI
                     tr("msg.regex_error", error=self._last_pattern_error))
             return
 
-        _ROLE = Qt.ItemDataRole.UserRole
         if cursor_line is None:
             cursor_line = self._find_anchor_line
             if cursor_line is None:
                 cursor_line, _ = editor.getCursorPosition()
-        lines = editor.text().split("\n")
-        count = 0
+
+        try:
+            text = editor.text()
+        except Exception:
+            return
+        file_path = str(editor.file_path) if editor.file_path else ""
+
+        self._occurrence_gen += 1
+        generation = self._occurrence_gen
+        if len(text) <= self._SYNC_OCCURRENCE_MAX_CHARS:
+            count, truncated, rows = _scan_occurrences(
+                text, compiled, smart_patterns, self._MAX_OCCURRENCE_ITEMS)
+            self._on_occurrences_ready(
+                generation, count, truncated, rows,
+                publish_panel, cursor_line, file_path, pattern_text,
+            )
+            return
+
+        worker = _OccurrenceScanWorker(
+            text, compiled, smart_patterns, generation,
+            self._MAX_OCCURRENCE_ITEMS,
+        )
+        worker.done.connect(
+            lambda gen, count, truncated, rows:
+            self._on_occurrences_ready(
+                gen, count, truncated, rows,
+                publish_panel, cursor_line, file_path, pattern_text,
+            )
+        )
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(
+            lambda w=worker: self._forget_occurrence_worker(w)
+        )
+        self._occurrence_worker = worker
+        self._old_occurrence_workers.append(worker)
+        worker.start()
+
+    def _forget_occurrence_worker(self, worker) -> None:
+        try:
+            self._old_occurrence_workers.remove(worker)
+        except ValueError:
+            pass
+        if self._occurrence_worker is worker:
+            self._occurrence_worker = None
+
+    def _on_occurrences_ready(self, generation: int, count: int,
+                               truncated: bool, rows: list,
+                               publish_panel: bool,
+                               cursor_line: int,
+                               file_path: str, pattern_text: str) -> None:
+        if generation != self._occurrence_gen:
+            return
+        self._occurrence_worker = None
+        _ROLE = Qt.ItemDataRole.UserRole
         panel_results = []
         items_to_add = []
-        file_path = str(editor.file_path) if editor.file_path else ""
-        _MAX_ITEMS = 2_000
-        truncated = False
-        for line_idx, line_text in enumerate(lines):
-            if smart_patterns is not None:
-                line_matches = self._smart_line_matches(line_text, smart_patterns)
-                if line_matches:
-                    count += 1
-            else:
-                line_matches = list(compiled.finditer(line_text))
-                count += len(line_matches)
-            if not line_matches:
-                continue
-            # Count all normal occurrences but add only one list entry per line
-            # (standard behaviour: Notepad++, VS Code, Sublime Text). Smart
-            # search counts matching lines, since all terms form one result.
-            if len(items_to_add) < _MAX_ITEMS:
-                m = line_matches[0]
-                item = QTreeWidgetItem([str(line_idx + 1), ""])
-                item.setTextAlignment(0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                item.setData(0, _ROLE, {
-                    "line": line_idx + 1,
-                    "col":  m.start(),
-                    "len":  m.end() - m.start(),
-                })
-                label = self._context_snippet_label(line_text, m.start(), m.end())
-                items_to_add.append((item, label))
-                panel_results.append({
-                    "file": file_path,
-                    "line": line_idx,
-                    "text": line_text,
-                    "col":  m.start(),
-                })
-            else:
-                truncated = True
+        for line_idx, col, length, snippet_start, snippet in rows:
+            item = QTreeWidgetItem([str(line_idx + 1), ""])
+            item.setTextAlignment(
+                0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            item.setData(0, _ROLE, {
+                "line": line_idx + 1,
+                "col":  col,
+                "len":  length,
+            })
+            label = self._context_snippet_label(
+                snippet, col - snippet_start,
+                col - snippet_start + length,
+            )
+            items_to_add.append((item, label))
+            panel_results.append({
+                "file": file_path,
+                "line": line_idx,
+                "text": snippet,
+                "col":  col,
+            })
 
         # Inserimento batch per evitare repaint per ogni riga
         self._find_occurrences.setUpdatesEnabled(False)
@@ -1774,13 +1902,15 @@ ESEMPI
         if count:
             msg = tr("msg.occurrences_n", count=count)
             if truncated:
-                msg += "  " + tr("msg.truncated", max_items=_MAX_ITEMS)
+                msg += "  " + tr(
+                    "msg.truncated", max_items=self._MAX_OCCURRENCE_ITEMS)
             self._lbl_status.setText(msg)
             panel = getattr(self._mw, "_find_result_panel", None)
             if publish_panel and panel and file_path:
                 panel.add_results(pattern_text, panel_results)
         else:
-            self._lbl_status.setText(tr("msg.no_results_query", query=pattern_text))
+            self._lbl_status.setText(
+                tr("msg.no_results_query", query=pattern_text))
 
     def _goto_occurrence(self, item: QTreeWidgetItem) -> None:
         """Vai alla riga dell'occorrenza cliccata, evidenziando in modo marcato
@@ -2131,6 +2261,23 @@ ESEMPI
         worker.error.connect(self._on_fif_error)
         self._fif_mw.thread.started.connect(worker.run)
         self._fif_mw.start()
+
+    def _cancel_occurrence_worker(self) -> None:
+        self._occurrence_gen = getattr(self, "_occurrence_gen", 0) + 1
+        worker = getattr(self, "_occurrence_worker", None)
+        if worker is not None:
+            try:
+                worker.done.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                worker.cancel()
+            except RuntimeError:
+                pass
+            if not hasattr(self, "_old_occurrence_workers"):
+                self._old_occurrence_workers = []
+            self._old_occurrence_workers.append(worker)
+            self._occurrence_worker = None
 
     def _cancel_find_in_files(self) -> None:
         if self._fif_mw is not None:

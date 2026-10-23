@@ -122,6 +122,20 @@ class LatexSupportTest(unittest.TestCase):
         )
         editor.deleteLater()
 
+    def test_sync_end_environment_stops_after_bounded_scan(self):
+        # Su documenti enormi la sincronizzazione non deve scandire fino alla
+        # fine del file: oltre il budget si rinuncia alla rinomina automatica.
+        editor = EditorWidget()
+        editor.setText(
+            "\\begin{itemize}\n" + ("riga di testo\n" * 6000)
+            + "\\end{itemize}\n"
+        )
+
+        LaTeXSupport._sync_end_environment(editor, "newname", 0)
+
+        self.assertIn("\\end{itemize}", editor.text())
+        editor.deleteLater()
+
     def test_environment_balance_is_source_ordered_without_pop_cascade(self):
         errors = LaTeXSupport.check_environment_balance(
             r"\begin{a} \begin{b} \end{a} \end{b}"

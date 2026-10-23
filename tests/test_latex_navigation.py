@@ -9,7 +9,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtWidgets import QApplication, QDialog
 
 from editor.autocomplete import AutoCompleteManager, _format_bibtex_completion
-from editor.editor_widget import EditorWidget, extract_latex_citation_occurrences
+from editor.editor_widget import (
+    EditorWidget,
+    _LatexSemanticWorker,
+    extract_latex_citation_occurrences,
+)
 from editor.latex_support import LaTeXSupport
 from ui.latex_citation_dialog import (
     LatexCitationChooserDialog,
@@ -130,8 +134,20 @@ class LatexNavigationTest(unittest.TestCase):
 
             reference = editor._latex_semantic_at_position(source.index("sec:chapter"))
             citation = editor._latex_semantic_at_position(source.index("paper"))
-            ref_info = editor._latex_semantic_info(reference)
-            cite_info = editor._latex_semantic_info(citation)
+            ref_worker = _LatexSemanticWorker(
+                0, reference["kind"], reference["key"], source, main)
+            cite_worker = _LatexSemanticWorker(
+                0, citation["kind"], citation["key"], source, main)
+            ref_results = []
+            cite_results = []
+            ref_worker.done.connect(
+                lambda _gen, info: ref_results.append(info))
+            cite_worker.done.connect(
+                lambda _gen, info: cite_results.append(info))
+            ref_worker.run()
+            cite_worker.run()
+            ref_info = ref_results[0]
+            cite_info = cite_results[0]
 
             self.assertEqual(reference["kind"], "reference")
             self.assertEqual(ref_info[0], child.resolve())

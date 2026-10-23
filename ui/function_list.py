@@ -854,7 +854,9 @@ class _FunctionListPanel(QWidget):
             self._model.appendRow(item)
             return
 
-        text = editor.get_content() if hasattr(editor, "get_content") else editor.text()
+        # Snapshot per il parser: text() evita la conversione dei line ending
+        # fatta da get_content(), che duplica inutilmente tutto il documento.
+        text = editor.text()
         is_hier = (isinstance(parser, _JsonParser) and parser._hierarchical) \
                   or isinstance(parser, self._HIERARCHICAL_PARSERS)
         self._cancel_parse_worker()

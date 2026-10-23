@@ -14,6 +14,7 @@ from editor.editor_widget import INDICATOR_FIND, INDICATOR_SPELL, EditorWidget
 from ui.find_replace import (
     FindReplaceDialog,
     _nearest_result_index,
+    _OccurrenceScanWorker,
     _ReplaceInFilesWorker,
     _ReplaceWriterWorker,
 )
@@ -92,6 +93,9 @@ class FindReplaceSelectionTest(unittest.TestCase):
         dialog._find_occurrences = QTreeWidget()
         dialog._lbl_status = QLabel()
         dialog._find_anchor_line = 9
+        dialog._occurrence_gen = 0
+        dialog._occurrence_worker = None
+        dialog._old_occurrence_workers = []
 
         class Editor:
             file_path = None
@@ -518,6 +522,49 @@ class UnicodeCoordinateTest(unittest.TestCase):
         worker.run()
 
         self.assertEqual(emitted, [[(0, 5), (6, 11)]])
+
+
+class OccurrenceScanWorkerTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_scan_counts_all_matches_but_reports_one_row_per_line(self):
+        worker = _OccurrenceScanWorker(
+            "alfa alfa\nbeta\nalfa", re.compile("alfa"), None, 4, 2000
+        )
+        captured = []
+        worker.done.connect(
+            lambda gen, count, truncated, rows:
+            captured.append((gen, count, truncated, rows))
+        )
+
+        worker.run()
+
+        generation, count, truncated, rows = captured[0]
+        self.assertEqual(generation, 4)
+        self.assertEqual(count, 3)
+        self.assertFalse(truncated)
+        self.assertEqual([row[0] for row in rows], [0, 2])
+        self.assertEqual(rows[0][1:3], (0, 4))
+
+    def test_scan_truncates_rows_but_keeps_count(self):
+        text = "\n".join(f"alfa {index}" for index in range(10))
+        worker = _OccurrenceScanWorker(
+            text, re.compile("alfa"), None, 1, 3
+        )
+        captured = []
+        worker.done.connect(
+            lambda gen, count, truncated, rows:
+            captured.append((gen, count, truncated, rows))
+        )
+
+        worker.run()
+
+        _gen, count, truncated, rows = captured[0]
+        self.assertEqual(count, 10)
+        self.assertTrue(truncated)
+        self.assertEqual(len(rows), 3)
 
 
 if __name__ == "__main__":

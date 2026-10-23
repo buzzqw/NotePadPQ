@@ -119,7 +119,7 @@ class PygmentsLexer(QsciLexerCustom):
         self._alias = alias
         self._lang_name = lang_name
         self._pygments_lexer = None
-        self._last_text_id: int = -1  # evita ri-tokenizzazione inutile
+        self._last_text_id: tuple[int, int] | None = None  # evita ri-tokenizzazione inutile
         self._load_lexer()
 
     _LARGE_DOCUMENT_BYTES = 500_000
@@ -142,23 +142,34 @@ class PygmentsLexer(QsciLexerCustom):
     def description(self, style: int) -> str:
         return _STYLE_NAMES.get(style, "")
 
+    _PROBE_BYTES = 131_072
+
     def styleText(self, start: int, end: int) -> None:
         if not self._pygments_lexer:
             return
         editor = self.parent()
         if not editor:
             return
+        try:
+            total_bytes = editor.SendScintilla(editor.SCI_GETLENGTH)
+        except Exception:
+            total_bytes = -1
+        if total_bytes >= self._LARGE_DOCUMENT_BYTES:
+            # Non copiare/encodare l'intero documento solo per ristilare la
+            # finestra corrente: leggiamo da Scintilla solo i byte necessari.
+            self._style_incremental_from_editor(editor, start, end, total_bytes)
+            return
+
         text = editor.text()
         if not text:
             return
 
-        encoded = text.encode("utf-8")
-        if len(encoded) >= self._LARGE_DOCUMENT_BYTES:
-            self._style_incremental(encoded, start, end)
-            return
-
-        # Salta se il testo non è cambiato dall'ultima tokenizzazione
-        tid = id(text) ^ hash(text)
+        # Salta se il testo non è cambiato dall'ultima tokenizzazione. Usare
+        # id(text) nella chiave rendeva la cache inutile: ogni chiamata crea
+        # una nuova stringa con un id diverso e ri-tokenizzava tutto il file.
+        revision = getattr(editor, "document_revision", None)
+        tid = ((revision, len(text)) if revision is not None
+               else (len(text), hash(text)))
         if tid == self._last_text_id:
             return
         self._last_text_id = tid
@@ -170,21 +181,50 @@ class PygmentsLexer(QsciLexerCustom):
         for ttype, value in lex(text, self._pygments_lexer):
             self.setStyling(len(value.encode("utf-8")), _token_to_style(ttype))
 
-    def _style_incremental(self, encoded: bytes, start: int, end: int) -> None:
-        """Style a bounded range for large files instead of retokenizing all text.
+    @staticmethod
+    def _read_range_bytes(editor, start: int, end: int) -> bytes:
+        """Legge ``[start, end)`` byte dal documento senza copiarlo tutto."""
+        if end <= start:
+            return b""
+        try:
+            buf = bytearray(end - start + 1)
+            editor.SendScintilla(editor.SCI_GETTEXTRANGE, start, end, buf)
+            return bytes(buf[:end - start])
+        except Exception:
+            return b""
 
-        Pygments is context-sensitive, so the scan starts at the previous line
-        boundary. This keeps typing responsive while retaining useful context
-        for multiline constructs in the common case.
-        """
-        if start >= len(encoded):
+    def _style_incremental_from_editor(self, editor, start: int, end: int,
+                                       total_bytes: int) -> None:
+        if start >= total_bytes:
             return
-        context_start = encoded.rfind(b"\n", 0, start) + 1
-        limit = min(len(encoded), max(start + 1, end),
-                    context_start + self._INCREMENTAL_STYLE_BYTES)
+        # Trova l'inizio della riga precedente leggendo solo una finestra
+        # limitata all'indietro (una riga più lunga di _PROBE_BYTES usa il
+        # bordo della finestra come contesto, compromesso accettabile).
+        probe_start = max(0, start - self._PROBE_BYTES)
+        probe = self._read_range_bytes(editor, probe_start, start)
+        newline = probe.rfind(b"\n")
+        context_start = probe_start + (newline + 1 if newline >= 0 else 0)
+
+        limit = min(
+            total_bytes,
+            max(start + 1, end),
+            context_start + self._INCREMENTAL_STYLE_BYTES,
+        )
+        if limit <= start:
+            # Riga precedente più lunga del budget di contesto: parti da una
+            # finestra comunque utile invece di non stilarla affatto.
+            context_start = max(0, start - self._INCREMENTAL_STYLE_BYTES)
+            limit = min(
+                total_bytes,
+                max(start + 1, end),
+                context_start + self._INCREMENTAL_STYLE_BYTES,
+            )
         if limit <= context_start:
             return
-        source = encoded[context_start:limit].decode("utf-8", "replace")
+        source_bytes = self._read_range_bytes(editor, context_start, limit)
+        if not source_bytes:
+            return
+        source = source_bytes.decode("utf-8", "replace")
         from pygments import lex
 
         self.startStyling(context_start)

@@ -36,6 +36,9 @@ _SEARCH_DELAY = 120     # ms di debounce mentre si digita
 _MIN_CONTENT_QUERY = 3  # sotto questa lunghezza niente ricerca nel testo
 _MAX_CONTENT_ROWS = 25  # risultati di testo totali
 _MAX_MATCHES_PER_FILE = 5
+# Budget complessivo per la ricerca nel testo: evita di copiare e scansionare
+# centinaia di MB quando ci sono molti tab grandi aperti.
+_MAX_CONTENT_SCAN_BYTES = 8_000_000
 _SNIPPET_CHARS = 90
 
 
@@ -166,19 +169,45 @@ class ToolbarQuickSearch(QLineEdit):
 
         rows: list[tuple[str, str, object]] = []
         remaining = _MAX_CONTENT_ROWS
+        remaining_bytes = _MAX_CONTENT_SCAN_BYTES
         tm = getattr(self._mw, "_tab_manager", None)
         editors = tm.all_editors() if tm is not None else []
 
         for editor in editors:
-            if remaining <= 0:
+            if remaining <= 0 or remaining_bytes <= 0:
                 break
             # I tab di sessione non ancora caricati non hanno testo in memoria.
             if getattr(editor, "_deferred_load", False):
                 continue
             try:
-                text = editor.text()
+                doc_bytes = editor.SendScintilla(editor.SCI_GETLENGTH)
             except Exception:
-                continue
+                doc_bytes = None
+            if doc_bytes is None:
+                # Editor di test/alternativi senza API Scintilla.
+                try:
+                    text = editor.text()
+                except Exception:
+                    continue
+                text_bytes = len(text.encode("utf-8"))
+                take = min(text_bytes, remaining_bytes)
+                if take < text_bytes:
+                    text = text[:take]
+                remaining_bytes -= take
+            else:
+                if doc_bytes <= 0:
+                    continue
+                take = min(doc_bytes, remaining_bytes)
+                try:
+                    if take < doc_bytes:
+                        getter = getattr(editor, "text_prefix", None)
+                        text = (getter(take) if getter is not None
+                                else editor.text()[:take])
+                    else:
+                        text = editor.text()
+                except Exception:
+                    continue
+                remaining_bytes -= take
             if not text:
                 continue
 

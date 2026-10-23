@@ -2,12 +2,20 @@
 
 import os
 import unittest
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtWidgets import QApplication
 
-from editor.autocomplete import AutoCompleteManager, _code_language_terms
+from editor import autocomplete as autocomplete_module
+from editor.autocomplete import (
+    AutoCompleteLevel,
+    AutoCompleteManager,
+    _ApiRebuildWorker,
+    _code_language_terms,
+    _DocumentWordsWorker,
+)
 from editor.editor_widget import EditorWidget
 
 
@@ -70,6 +78,68 @@ class CodeLanguageCompletionTest(unittest.TestCase):
             self.assertTrue(manager.handle_latex_option("["))
             self.assertEqual(shown[-1][0], 14)
             self.assertEqual(shown[-1][1][0], "py")
+        finally:
+            manager.shutdown()
+            editor.deleteLater()
+            self.app.processEvents()
+
+
+class DocumentWordCompletionTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_worker_emits_document_words_for_non_latex_languages(self):
+        worker = _ApiRebuildWorker(
+            "python", AutoCompleteLevel.DOCUMENT,
+            "alfa beta gamma alfa", None, [], 7,
+        )
+        captured = []
+        worker.document_words.connect(
+            lambda words, gen: captured.append((words, gen))
+        )
+
+        worker.run()
+
+        self.assertEqual(len(captured), 1)
+        words, generation = captured[0]
+        self.assertEqual(generation, 7)
+        self.assertEqual(words, ["alfa", "beta", "gamma"])
+
+    def test_document_terms_use_cached_words_without_rescanning(self):
+        editor = EditorWidget()
+        manager = AutoCompleteManager(editor)
+        manager._document_words_cache = ["alfa", "beta"]
+        try:
+            with mock.patch.object(
+                autocomplete_module.re, "findall",
+                side_effect=AssertionError("full document scan"),
+            ):
+                self.assertEqual(
+                    manager._document_completion_terms(), ["alfa", "beta"]
+                )
+        finally:
+            manager.shutdown()
+            editor.deleteLater()
+            self.app.processEvents()
+
+    def test_light_worker_emits_unique_document_words(self):
+        worker = _DocumentWordsWorker("alfa beta gamma alfa", 3)
+        captured = []
+        worker.done.connect(lambda words, gen: captured.append((words, gen)))
+
+        worker.run()
+
+        self.assertEqual(captured, [(["alfa", "beta", "gamma"], 3)])
+
+    def test_non_latex_edits_schedule_light_document_word_refresh(self):
+        editor = EditorWidget()
+        manager = AutoCompleteManager(editor)
+        manager.set_language("python")
+        try:
+            manager.on_document_changed()
+            self.assertTrue(manager._doc_words_timer.isActive())
+            self.assertFalse(manager._doc_change_timer.isActive())
         finally:
             manager.shutdown()
             editor.deleteLater()

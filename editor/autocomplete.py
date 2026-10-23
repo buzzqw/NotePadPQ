@@ -557,6 +557,14 @@ _API_JSON_KW: list[str] = [
 ]
 
 _MAX_DYNAMIC_API_TERMS = 5_000
+# Le parole del documento corrente vengono calcolate nel worker e riusate a
+# ogni tasto: un `re.findall` sull'intero buffer a ogni carattere costa
+# centinaia di ms sui file grandi. Il limite tiene il filtro del popup veloce
+# anche su documenti con decine di migliaia di identificatori unici.
+_MAX_DOCUMENT_COMPLETION_WORDS = 50_000
+# Fallback per editor senza lexer (es. file nuovo non salvato): scansiona solo
+# un prefisso invece di copiare/analizzare tutto il documento a ogni tasto.
+_DOCUMENT_COMPLETION_PREFIX_BYTES = 200_000
 
 
 def _format_bibtex_completion(
@@ -666,6 +674,7 @@ class _ApiRebuildWorker(QThread):
     done        = pyqtSignal(list)         # list[str] — termini autocomplete
     latex_cache = pyqtSignal(list, list, list, list)  # labels, bibtex, hypertargets, environments
     latex_document_words = pyqtSignal(list, int)
+    document_words = pyqtSignal(list, int)  # parole del documento (non-LaTeX)
 
     def __init__(self, language: str, levels, text: str, file_path,
                  all_docs_words: list, generation: int, cwl_enabled: bool = False):
@@ -792,6 +801,17 @@ class _ApiRebuildWorker(QThread):
             if not self._cancelled:
                 self.latex_cache.emit(labels, bibtex, hypertargets, environments)
 
+        if (self._language != "latex"
+                and self._levels & AutoCompleteLevel.DOCUMENT
+                and not self._cancelled):
+            try:
+                words = list(dict.fromkeys(
+                    re.findall(r"(?u)[\w\\]{2,}", self._text)
+                ))[:_MAX_DOCUMENT_COMPLETION_WORDS]
+                self.document_words.emit(words, self._gen)
+            except Exception:
+                pass
+
         if not self._cancelled:
             # Una lista API enorme blocca il thread GUI nel successivo
             # QsciAPIs.prepare(). Le voci statiche precedono quelle dinamiche,
@@ -800,6 +820,38 @@ class _ApiRebuildWorker(QThread):
 
 
 # ─── AutoCompleteManager ──────────────────────────────────────────────────────
+
+class _DocumentWordsWorker(QThread):
+    """Calcola in background le parole del documento per il completamento.
+
+    Il popup veniva popolato con un ``re.findall`` sull'intero buffer a ogni
+    carattere: su un file da 5 MB sono ~100 ms di thread GUI per tasto. Qui la
+    scansione gira una sola volta dopo una breve pausa di digitazione e il
+    risultato viene riusato fino al termine della successiva.
+    """
+
+    done = pyqtSignal(list, int)
+
+    def __init__(self, text: str, generation: int):
+        super().__init__(None)
+        self._text = text
+        self._gen = generation
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        try:
+            words = list(dict.fromkeys(
+                re.findall(r"(?u)[\w\\]{2,}", self._text)
+            ))[:_MAX_DOCUMENT_COMPLETION_WORDS]
+            if not self._cancelled:
+                self.done.emit(words, self._gen)
+        except Exception:
+            if not self._cancelled:
+                self.done.emit([], self._gen)
+
 
 class AutoCompleteManager(QObject):
     """
@@ -820,6 +872,10 @@ class AutoCompleteManager(QObject):
         self._api_worker: _ApiRebuildWorker | None = None
         self._old_api_workers: list = []
         self._api_gen: int = 0
+        self._doc_words_worker: _DocumentWordsWorker | None = None
+        self._old_doc_words_workers: list = []
+        self._doc_words_gen: int = 0
+        self._document_words_revision: int | None = None
         self._shutting_down = False
         self._cross_tab_connected = False
         self._local_completion_keys: set[str] = set()
@@ -876,6 +932,13 @@ class AutoCompleteManager(QObject):
         self._doc_change_timer.setSingleShot(True)
         self._doc_change_timer.setInterval(2000)
         self._doc_change_timer.timeout.connect(self._rebuild_api)
+
+        # Timer leggero per le parole del documento negli altri linguaggi:
+        # aggiorna la cache senza ricostruire l'intero dizionario API.
+        self._doc_words_timer = QTimer(self)
+        self._doc_words_timer.setSingleShot(True)
+        self._doc_words_timer.setInterval(1200)
+        self._doc_words_timer.timeout.connect(self._rebuild_document_words)
 
         # Debounce per le richieste di completion LSP: senza, ogni carattere
         # digitato genera una richiesta JSON-RPC al server, la maggior parte
@@ -1107,6 +1170,7 @@ class AutoCompleteManager(QObject):
             lambda lbl, bib, ht, envs, g=gen: self._on_latex_cache(lbl, bib, ht, envs, g)
         )
         worker.latex_document_words.connect(self._on_latex_document_words)
+        worker.document_words.connect(self._on_document_words)
         self._api_worker = worker
         self._old_api_workers.append(worker)
         worker.start()
@@ -1147,6 +1211,58 @@ class AutoCompleteManager(QObject):
         if gen == self._api_gen:
             self._document_words_cache = list(words)
 
+    def _on_document_words(self, words: list, gen: int) -> None:
+        """Cache delle parole del documento calcolata dal worker."""
+        if gen == self._api_gen:
+            self._document_words_cache = list(words)
+
+    def _rebuild_document_words(self) -> None:
+        """Avvia il worker leggero che aggiorna le parole del documento."""
+        if self._shutting_down:
+            return
+        revision = getattr(self._editor, "document_revision", None)
+        if revision is not None and revision == self._document_words_revision:
+            return
+        self._document_words_revision = revision
+        try:
+            text = self._editor.text()
+        except Exception:
+            return
+
+        self._old_doc_words_workers[:] = [
+            w for w in self._old_doc_words_workers if w.isRunning()
+        ]
+        if self._doc_words_worker is not None:
+            try:
+                self._doc_words_worker.cancel()
+            except RuntimeError:
+                pass
+            self._old_doc_words_workers.append(self._doc_words_worker)
+            self._doc_words_worker = None
+
+        self._doc_words_gen += 1
+        worker = _DocumentWordsWorker(text, self._doc_words_gen)
+        worker.done.connect(self._on_doc_words_ready)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(
+            lambda w=worker: self._forget_doc_words_worker(w)
+        )
+        self._doc_words_worker = worker
+        self._old_doc_words_workers.append(worker)
+        worker.start()
+
+    def _forget_doc_words_worker(self, worker) -> None:
+        try:
+            self._old_doc_words_workers.remove(worker)
+        except ValueError:
+            pass
+        if self._doc_words_worker is worker:
+            self._doc_words_worker = None
+
+    def _on_doc_words_ready(self, words: list, gen: int) -> None:
+        if gen == self._doc_words_gen:
+            self._document_words_cache = list(words)
+
     def _collect_all_docs_words(self) -> list:
         """Estrae le parole da tutti gli altri tab (main thread, snapshot)."""
         if not (self._levels & AutoCompleteLevel.ALL_DOCS) or not self._tab_manager_ref:
@@ -1165,7 +1281,17 @@ class AutoCompleteManager(QObject):
         for editor in self._tab_manager_ref.all_editors():
             if editor is self._editor:
                 continue
-            for w in re.findall(r'\b[a-zA-Z_]\w{2,}\b', editor.text()):
+            # Preferisci la cache già calcolata dal worker di quell'editor:
+            # altrimenti, con ALL_DOCS attivo, ogni tasto copierebbe e
+            # scandirebbe tutti gli altri tab sul thread GUI.
+            other_ac = getattr(editor, "_autocomplete", None)
+            cached = getattr(other_ac, "_document_words_cache", None) \
+                if other_ac is not None else None
+            if cached:
+                source_words = cached
+            else:
+                source_words = re.findall(r'\b[a-zA-Z_]\w{2,}\b', editor.text())
+            for w in source_words:
                 if w not in seen:
                     seen.add(w)
                     words.append(w)
@@ -1204,10 +1330,19 @@ class AutoCompleteManager(QObject):
     def _document_completion_terms(self) -> list[str]:
         if not (self._levels & AutoCompleteLevel.DOCUMENT):
             return []
-        if self._language in ("latex", "bibtex") and self._document_words_cache:
+        # Il worker aggiorna la cache in background (2-3 s di debounce). Prima
+        # che sia pronta non scansioniamo l'intero documento a ogni tasto:
+        # per i file senza lexer al massimo leggiamo un prefisso limitato.
+        if self._document_words_cache:
             return list(self._document_words_cache)
         try:
-            return re.findall(r"(?u)[\w\\]{2,}", self._editor.text())
+            getter = getattr(self._editor, "text_prefix", None)
+            text = getter(_DOCUMENT_COMPLETION_PREFIX_BYTES) if getter else ""
+            if not text:
+                return []
+            return list(dict.fromkeys(
+                re.findall(r"(?u)[\w\\]{2,}", text)
+            ))[:_MAX_DOCUMENT_COMPLETION_WORDS]
         except Exception:
             return []
 
@@ -2455,13 +2590,19 @@ class AutoCompleteManager(QObject):
     # ── Rebuild su modifica documento (pacchetti/label cambiano) ─────────────
 
     def on_document_changed(self) -> None:
+        """Pianifica l'aggiornamento delle cache di completamento.
+
+        LaTeX/BibTeX ricostruiscono l'indice API (timer più lungo); gli altri
+        linguaggi aggiornano solo la lista di parole del documento, in un
+        worker leggero, così il popup non deve scansionare il buffer a ogni
+        tasto.
         """
-        Chiamato dopo una modifica al documento LaTeX.
-        Pianifica un rebuild dell'API per aggiornare label/comandi custom.
-        Solo per LaTeX: usa un timer per non rallentare la digitazione.
-        """
-        if not self._shutting_down and self._language in ("latex", "bibtex"):
+        if self._shutting_down:
+            return
+        if self._language in ("latex", "bibtex"):
             self._doc_change_timer.start()
+        elif self._levels & AutoCompleteLevel.DOCUMENT:
+            self._doc_words_timer.start()
 
     # ── Soglia e trigger ──────────────────────────────────────────────────────
 
@@ -2486,8 +2627,10 @@ class AutoCompleteManager(QObject):
         self._shutting_down = True
         self._cross_tab_timer.stop()
         self._doc_change_timer.stop()
+        self._doc_words_timer.stop()
         self._lsp_completion_timer.stop()
         self._api_gen += 1
+        self._doc_words_gen += 1
         if self._cross_tab_connected:
             try:
                 self._editor.textChanged.disconnect(self._cross_tab_timer.start)
@@ -2501,6 +2644,11 @@ class AutoCompleteManager(QObject):
             self._api_worker = None
         workers.extend(self._old_api_workers)
         self._old_api_workers.clear()
+        if self._doc_words_worker is not None:
+            workers.append(self._doc_words_worker)
+            self._doc_words_worker = None
+        workers.extend(self._old_doc_words_workers)
+        self._old_doc_words_workers.clear()
         seen = set()
         for worker in workers:
             if worker in seen:

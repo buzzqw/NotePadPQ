@@ -43,6 +43,22 @@ from plugins.base_plugin import BasePlugin
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
 
+# difflib.SequenceMatcher con autojunk=False è quadratico su sequenze con
+# molte righe/caratteri ripetuti: confrontare due file generati da qualche
+# migliaio di righe identiche può bloccare la GUI per minuti. Sopra queste
+# soglie lasciamo attivo l'euristica autojunk (diff leggermente meno preciso
+# ma con tempo di esecuzione accettabile).
+_DIFF_AUTOJUNK_MAX_LINES = 2_000
+_DIFF_AUTOJUNK_MAX_CHARS = 10_000
+
+
+def _sequence_matcher(left, right) -> difflib.SequenceMatcher:
+    autojunk = max(len(left), len(right)) > (
+        _DIFF_AUTOJUNK_MAX_CHARS
+        if isinstance(left, str) else _DIFF_AUTOJUNK_MAX_LINES
+    )
+    return difflib.SequenceMatcher(None, left, right, autojunk=autojunk)
+
 # ─── Colori ───────────────────────────────────────────────────────────────────
 _COLOR_ADD       = QColor("#e6ffed")
 _COLOR_DEL       = QColor("#ffeef0")
@@ -693,7 +709,7 @@ class CompareDialog(QDialog):
         cmp_a = self._preprocess_lines(self._lines_a)
         cmp_b = self._preprocess_lines(self._lines_b)
 
-        matcher = difflib.SequenceMatcher(None, cmp_a, cmp_b, autojunk=False)
+        matcher = _sequence_matcher(cmp_a, cmp_b)
         self._opcodes = matcher.get_opcodes()
         self._diff_blocks = [i for i, op in enumerate(self._opcodes)
                              if op[0] != 'equal']
@@ -702,9 +718,9 @@ class CompareDialog(QDialog):
             text_base = self._source_data.get(self._current_id("base"), "")
             self._lines_base = text_base.splitlines(keepends=True)
             cmp_base = self._preprocess_lines(self._lines_base)
-            m1 = difflib.SequenceMatcher(None, cmp_base, cmp_a, autojunk=False)
+            m1 = _sequence_matcher(cmp_base, cmp_a)
             self._opcodes_base_a = m1.get_opcodes()
-            m2 = difflib.SequenceMatcher(None, cmp_base, cmp_b, autojunk=False)
+            m2 = _sequence_matcher(cmp_base, cmp_b)
             self._opcodes_base_b = m2.get_opcodes()
 
         if not self._diff_blocks:
@@ -996,7 +1012,7 @@ def _append_plain(cursor: QTextCursor, text: str, bg: QColor,
 def _append_char_diff(cursor: QTextCursor, text: str,
                       other: str, self_style: QColor,
                       other_style: QColor, block_bg: QColor) -> None:
-    matcher = difflib.SequenceMatcher(None, text, other, autojunk=False)
+    matcher = _sequence_matcher(text, other)
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == "equal":
             _append_plain(cursor, text[i1:i2], block_bg)

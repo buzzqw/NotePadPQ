@@ -21,6 +21,7 @@ Uso:
 
 import re
 import sys
+import threading
 from enum import Enum
 from html import escape as _html_escape
 from pathlib import Path
@@ -39,7 +40,6 @@ from core.latex_citations import (
 )
 from core.latex_parser import (
     is_latex_escaped,
-    mask_latex_comments as _latex_scan_text,
     read_latex_group,
 )
 from core.platform import get_data_dir, get_preferred_monospace_font
@@ -50,12 +50,9 @@ _latex_escaped = is_latex_escaped
 _latex_balanced_group = read_latex_group
 
 # Dipendenze opzionali per hover preview — caricate in lazy loading al primo utilizzo
-_fitz = None          # PyMuPDF — importato solo se richiesto
-_HAS_FITZ: bool | None = None   # None = non ancora verificato
-_plt = None           # matplotlib.pyplot — importato solo se richiesto
-_HAS_MATPLOTLIB: bool | None = None
 _MATH_HOVER_CACHE: dict[tuple[str, str], object] = {}
 _MATH_HOVER_CACHE_MAX = 64
+_MATH_RENDER_LOCK = threading.Lock()
 
 _MATH_PATTERNS: tuple[tuple[re.Pattern, int], ...] = (
     # Display formulas.  The environment patterns are single-line friendly;
@@ -221,6 +218,149 @@ class _SpellWorker(QThread):
 
         if not self._cancelled:
             self.done.emit(self._generation, result)
+
+
+# ─── Risoluzione asincrona riferimenti/citazioni LaTeX ───────────────────────
+
+# I worker possono sopravvivere alla chiusura del tab: tenerli referenziati
+# finché non terminano evita di distruggere un QThread ancora in esecuzione.
+_ACTIVE_SEMANTIC_WORKERS: set = set()
+_ACTIVE_HOVER_WORKERS: set = set()
+
+
+class _LatexSemanticWorker(QThread):
+    """Risolve label/ref/citazione in background.
+
+    ``analyze_label_references`` e la ricerca BibTeX leggono l'intero progetto
+    (anche file inclusi): eseguirle sul thread GUI a ogni hover, Ctrl+clic o
+    tasto destro bloccava l'editor sui progetti grandi.
+    """
+
+    done = pyqtSignal(int, object)  # generation, (path, line, column, kind, key) | None
+
+    def __init__(self, generation: int, kind: str, key: str, text: str, path):
+        super().__init__(None)
+        self._gen = generation
+        self._kind = kind
+        self._key = key
+        self._text = text
+        self._path = path
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        info = None
+        try:
+            from editor.latex_support import LaTeXSupport
+            if self._kind in {"label", "reference"}:
+                analysis = LaTeXSupport.analyze_label_references(
+                    self._text, self._path)
+                target = next(
+                    (item for item in analysis["definitions"]
+                     if item["key"] == self._key),
+                    None,
+                )
+                if target is not None:
+                    info = (
+                        target.get("file"), target["line"], target["column"],
+                        self._kind, self._key,
+                    )
+                else:
+                    info = (None, None, None, self._kind, self._key)
+            elif self._kind == "citation":
+                target = LaTeXSupport.find_bibtex_entry(
+                    self._key, self._path, self._text)
+                if target is not None:
+                    info = (target[0], target[1], target[2],
+                            self._kind, self._key)
+                else:
+                    info = (None, None, None, self._kind, self._key)
+        except Exception:
+            info = None
+        if not self._cancelled:
+            self.done.emit(self._gen, info)
+
+
+# ─── Rendering asincrono dell'hover (immagini/PDF/formule) ────────────────────
+
+class _HoverRenderWorker(QThread):
+    """Prepara QImage per il tooltip senza bloccare il thread GUI."""
+
+    done = pyqtSignal(int, object)  # generation, QImage | None
+
+    def __init__(self, generation: int, kind: str, payload):
+        super().__init__(None)
+        self._gen = generation
+        self._kind = kind
+        self._payload = payload
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        image = None
+        try:
+            from PyQt6.QtCore import Qt
+            from PyQt6.QtGui import QImage, QImageReader
+
+            if self._kind == "image":
+                reader = QImageReader(str(self._payload))
+                size = reader.size()
+                if size.isValid() and (
+                        size.width() > 350 or size.height() > 250):
+                    reader.setScaledSize(size.scaled(
+                        350, 250,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                    ))
+                image = reader.read()
+            elif self._kind == "pdf":
+                import fitz
+                doc = fitz.open(str(self._payload))
+                try:
+                    page = doc.load_page(0)
+                    pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+                    image = QImage(
+                        bytes(pix.samples), pix.width, pix.height,
+                        pix.stride, QImage.Format.Format_RGB888,
+                    ).copy()
+                finally:
+                    doc.close()
+                if (image is not None and not image.isNull()
+                        and (image.width() > 350 or image.height() > 250)):
+                    image = image.scaled(
+                        350, 250,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+            elif self._kind == "math":
+                formula, color = self._payload
+                import io
+
+                with _MATH_RENDER_LOCK:
+                    from matplotlib.backends.backend_agg import FigureCanvasAgg
+                    from matplotlib.figure import Figure
+
+                    figure = Figure(figsize=(0.01, 0.01))
+                    FigureCanvasAgg(figure)
+                    figure.text(
+                        0, 0, f"${formula}$", fontsize=16,
+                        color=color, ha="center", va="center",
+                    )
+                    buffer = io.BytesIO()
+                    figure.savefig(
+                        buffer, format="png", dpi=150,
+                        bbox_inches="tight", pad_inches=0.1,
+                        transparent=True,
+                    )
+                    data = buffer.getvalue()
+                image = QImage.fromData(data, "PNG")
+        except Exception:
+            image = None
+        if not self._cancelled:
+            self.done.emit(self._gen, image)
 
 
 # ─── Utilità conversione testo → tabella ──────────────────────────────────────
@@ -516,6 +656,12 @@ class EditorWidget(QsciScintilla):
         self._spell_check_range: tuple[int, int] | None = None
         self._spell_marked_range: tuple[int, int] | None = None
         self._old_spell_workers: set = set()
+        self._semantic_worker: _LatexSemanticWorker | None = None
+        self._old_semantic_workers: list = []
+        self._semantic_gen: int = 0
+        self._hover_render_worker: _HoverRenderWorker | None = None
+        self._old_hover_render_workers: list = []
+        self._hover_render_gen: int = 0
         self.textChanged.connect(self._on_spell_text_changed)
         self.textChanged.connect(self._on_document_changed)
         self.verticalScrollBar().valueChanged.connect(
@@ -2628,23 +2774,19 @@ class EditorWidget(QsciScintilla):
 
             semantic = self._latex_semantic_at_position(click_pos)
             if semantic is not None:
-                semantic_info = self._latex_semantic_info(semantic)
-                if semantic_info is not None:
-                    target_path, target_line, target_col, _description = semantic_info
-                    action_label = {
-                        "label": "Vai alla definizione dell'etichetta",
-                        "reference": "Vai alla definizione del riferimento",
-                        "citation": "Apri la voce BibTeX",
-                    }.get(semantic["kind"], "Vai alla destinazione")
-                    semantic_action = menu.addAction(
-                        f"{action_label}: {semantic['key']}"
-                    )
-                    semantic_action.setEnabled(target_line is not None)
-                    semantic_action.triggered.connect(
-                        lambda _checked, token=semantic:
-                        self._navigate_latex_semantic(token)
-                    )
-                    menu.addSeparator()
+                action_label = {
+                    "label": "Vai alla definizione dell'etichetta",
+                    "reference": "Vai alla definizione del riferimento",
+                    "citation": "Apri la voce BibTeX",
+                }.get(semantic["kind"], "Vai alla destinazione")
+                semantic_action = menu.addAction(
+                    f"{action_label}: {semantic['key']}"
+                )
+                semantic_action.triggered.connect(
+                    lambda _checked, token=semantic:
+                    self._navigate_latex_semantic(token)
+                )
+                menu.addSeparator()
 
             documentation = self._latex_documentation_target(click_pos)
             if documentation is not None:
@@ -2671,7 +2813,12 @@ class EditorWidget(QsciScintilla):
         menu.exec(event.globalPos())
 
     def _latex_semantic_at_position(self, position: int) -> dict | None:
-        """Return the local semantic token under a Scintilla position."""
+        """Return the local semantic token under a Scintilla position.
+
+        Scansiona solo una piccola finestra di righe attorno al click: la
+        versione precedente copiava e analizzava l'intero documento a ogni
+        Ctrl+clic o tasto destro.
+        """
         if position < 0:
             return None
         path = self.file_path
@@ -2679,12 +2826,35 @@ class EditorWidget(QsciScintilla):
         if not ((path and path.suffix.lower() in {".tex", ".ltx", ".latex"})
                 or language in {"latex", "tex", "plain tex", "plaintex"}):
             return None
-        text = self.text()
-        from editor.latex_support import LaTeXSupport
-        occurrences = LaTeXSupport.extract_label_reference_occurrences(text)
-        occurrences.extend(extract_latex_citation_occurrences(text))
-        return next((item for item in occurrences
-                     if item["command_start"] <= position < item["end"]), None)
+        try:
+            line, byte_col = self.lineIndexFromPosition(position)
+        except Exception:
+            return None
+        total = self.lines()
+        if line < 0 or line >= total:
+            return None
+        line_start = max(0, line - 4)
+        line_end = min(total, line + 5)
+        window_lines = [self.text(i) for i in range(line_start, line_end)]
+        window = "\n".join(window_lines)
+        line_text = self.text(line)
+        # lineIndexFromPosition restituisce la colonna in caratteri (Qt
+        # converte internamente dalla posizione byte di Scintilla).
+        char_col = max(0, min(byte_col, len(line_text)))
+        local_pos = (
+            sum(len(self.text(i)) + 1 for i in range(line_start, line))
+            + char_col
+        )
+
+        from core.latex_citations import extract_latex_citation_occurrences
+        from core.latex_parser import extract_label_reference_occurrences
+
+        occurrences = extract_label_reference_occurrences(window)
+        occurrences.extend(extract_latex_citation_occurrences(window))
+        for item in occurrences:
+            if item["command_start"] <= local_pos < item["end"]:
+                return dict(item)
+        return None
 
     @staticmethod
     def _same_path(left: Path | None, right: Path | None) -> bool:
@@ -2695,122 +2865,85 @@ class EditorWidget(QsciScintilla):
         except OSError:
             return left == right
 
-    def _latex_text_for_path(self, path: Path) -> str:
-        """Prefer open, possibly unsaved tabs when inspecting project files."""
-        if self._same_path(self.file_path, path):
-            return self.text()
-        window = self.window()
-        tab_manager = getattr(window, "_tab_manager", None)
-        for editor in (tab_manager.all_editors() if tab_manager and
-                       hasattr(tab_manager, "all_editors") else []):
-            if self._same_path(getattr(editor, "file_path", None), path):
-                return editor.text()
-        try:
-            return path.read_text(encoding="utf-8", errors="replace")
-        except (OSError, UnicodeError):
-            return ""
-
-    def _bibtex_target(self, key: str) -> tuple[Path, int, int] | None:
-        """Find a cited key in the BibTeX files referenced by this project."""
-        if not self.file_path:
-            return None
-        from editor.latex_support import LaTeXSupport
-
-        source_files = LaTeXSupport.collect_project_files(self.file_path)
-        if not source_files:
-            source_files = [self.file_path.resolve()]
-        bib_files: list[Path] = []
-        seen: set[Path] = set()
-        resource_re = re.compile(
-            r"\\(?:bibliography|addbibresource)\s*"
-            r"(?:\[[^\]]*\]\s*)?\{([^{}]*)\}"
+    def _semantic_hover_text(self, token: dict) -> str:
+        """Tooltip leggero: non legge file inclusi né l'intero progetto."""
+        kind = "Citation" if token["kind"] == "citation" else "Label"
+        return (
+            f"<b>{kind}:</b> {_html_escape(token['key'])}<br>"
+            "Ctrl+clic per aprire la definizione"
         )
-        for source_path in source_files:
-            source_text = self._latex_text_for_path(source_path)
-            # Keep the public extractor as the authority for which keys belong
-            # to a TeX source; this scan only supplies the source location.
-            if key not in set(LaTeXSupport.extract_bibtex_keys(source_text, source_path)):
-                continue
-            for match in resource_re.finditer(_latex_scan_text(source_text)):
-                for name in match.group(1).split(","):
-                    resource = Path(name.strip())
-                    candidates = [source_path.parent / resource]
-                    if resource.suffix.lower() != ".bib":
-                        candidates.append((source_path.parent / resource).with_suffix(".bib"))
-                    for candidate in candidates:
-                        try:
-                            candidate = candidate.resolve()
-                        except OSError:
-                            continue
-                        if candidate.is_file() and candidate not in seen:
-                            seen.add(candidate)
-                            bib_files.append(candidate)
-                            break
 
-        entry_re = re.compile(r"@[A-Za-z][\w-]*\s*[({]\s*([^,\s]+)\s*,")
-        for bib_path in bib_files:
-            bib_text = self._latex_text_for_path(bib_path)
-            for match in entry_re.finditer(_latex_scan_text(bib_text)):
-                if match.group(1) != key:
-                    continue
-                position = match.start(1)
-                line = bib_text.count("\n", 0, position)
-                line_start = bib_text.rfind("\n", 0, position)
-                return bib_path, line, position - line_start - 1
-        return None
-
-    def _latex_semantic_info(
-        self, token: dict
-    ) -> tuple[Path | None, int | None, int | None, str] | None:
-        """Resolve a token and create plain HTML-safe hover text."""
-        key = token["key"]
-        safe_key = _html_escape(key)
-        if token["kind"] in {"label", "reference"}:
-            from editor.latex_support import LaTeXSupport
-            analysis = LaTeXSupport.analyze_label_references(
-                self.text(), self.file_path
-            )
-            target = next((item for item in analysis["definitions"]
-                           if item["key"] == key), None)
-            if target is None:
-                return None, None, None, f"<b>Label:</b> {safe_key}<br>Non definita"
-            target_path = target.get("file")
-            location = f"{target_path.name}: {target['line'] + 1}" if target_path else (
-                f"riga {target['line'] + 1}"
-            )
-            description = f"<b>Label:</b> {safe_key}<br>{_html_escape(location)}"
-            return target_path, target["line"], target["column"], description
-
-        if token["kind"] == "citation":
-            target = self._bibtex_target(key)
-            if target is None:
-                return None, None, None, f"<b>Citation:</b> {safe_key}<br>Non trovata"
-            target_path, line, column = target
-            description = (
-                f"<b>Citation:</b> {safe_key}<br>"
-                f"{_html_escape(target_path.name)}: {line + 1}"
-            )
-            return target_path, line, column, description
-        return None
+    def _cancel_semantic_worker(self) -> None:
+        self._semantic_gen += 1
+        worker = self._semantic_worker
+        if worker is None:
+            return
+        try:
+            worker.done.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        try:
+            worker.cancel()
+        except RuntimeError:
+            pass
+        self._old_semantic_workers.append(worker)
+        self._semantic_worker = None
 
     def _navigate_latex_semantic(self, token: dict) -> bool:
-        """Open and focus a local LaTeX label or BibTeX entry."""
-        info = self._latex_semantic_info(token)
-        if info is None:
+        """Risolve il riferimento in background e naviga quando è pronto."""
+        if token.get("kind") not in {"label", "reference", "citation"}:
             return False
-        target_path, line, column, _description = info
+        self._cancel_semantic_worker()
+        generation = self._semantic_gen
+        worker = _LatexSemanticWorker(
+            generation, token["kind"], token["key"],
+            self.text(), self.file_path,
+        )
+        worker.done.connect(self._on_semantic_resolved)
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(
+            lambda w=worker: self._forget_semantic_worker(w)
+        )
+        self._semantic_worker = worker
+        self._old_semantic_workers.append(worker)
+        _ACTIVE_SEMANTIC_WORKERS.add(worker)
+        worker.finished.connect(
+            lambda w=worker: _ACTIVE_SEMANTIC_WORKERS.discard(w)
+        )
+        worker.start()
+        return True
+
+    def _forget_semantic_worker(self, worker) -> None:
+        try:
+            self._old_semantic_workers.remove(worker)
+        except ValueError:
+            pass
+        if self._semantic_worker is worker:
+            self._semantic_worker = None
+
+    def _on_semantic_resolved(self, generation: int, info) -> None:
+        if generation != self._semantic_gen:
+            return
+        self._semantic_worker = None
+        if not info:
+            return
+        target_path, line, column, _kind, _key = info
         if line is None or column is None:
-            return False
+            return
+        self._navigate_to_semantic_target(target_path, line, column)
+
+    def _navigate_to_semantic_target(self, target_path, line: int,
+                                     column: int) -> None:
         if target_path is None or self._same_path(target_path, self.file_path):
             self.setCursorPosition(line, column)
             self.ensureLineVisible(line)
             self.SendScintilla(QsciScintilla.SCI_SCROLLCARET)
-            return True
+            return
 
         window = self.window()
         tab_manager = getattr(window, "_tab_manager", None)
         if tab_manager is None:
-            return False
+            return
 
         def find_editor():
             for editor in (tab_manager.all_editors()
@@ -2836,15 +2969,15 @@ class EditorWidget(QsciScintilla):
                 loader.load_finished.connect(focus_target)
             else:
                 focus_target()
-            return True
+            return
 
         opener = getattr(window, "open_files", None)
         if not callable(opener):
-            return False
+            return
         try:
             opener([target_path])
         except (OSError, RuntimeError, ValueError):
-            return False
+            return
 
         def prepare_target() -> None:
             editor = find_editor()
@@ -2857,7 +2990,6 @@ class EditorWidget(QsciScintilla):
                 focus_target()
 
         QTimer.singleShot(0, prepare_target)
-        return True
 
     def _latex_documentation_target(self, position: int) -> tuple[str, str | None] | None:
         """Restituisce comando/pacchetto sotto il cursore per la documentazione."""
@@ -3133,6 +3265,7 @@ class EditorWidget(QsciScintilla):
 
     def _hide_hover_popup(self) -> None:
         """Distrugge il popup dell'immagine se esiste."""
+        self._cancel_hover_render()
         self._hover_popup_timer.stop()
         if hasattr(self, '_hover_popup') and self._hover_popup:
             self._hover_popup.hide()
@@ -3141,17 +3274,75 @@ class EditorWidget(QsciScintilla):
 
     def _on_dwell_end(self, position: int, x: int, y: int) -> None:
         """Il mouse si è spostato, nascondi l'immagine."""
+        self._cancel_hover_render()
         self._hide_hover_popup()
+
+    def _cancel_hover_render(self) -> None:
+        self._hover_render_gen += 1
+        worker = self._hover_render_worker
+        if worker is None:
+            return
+        try:
+            worker.done.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        try:
+            worker.cancel()
+        except RuntimeError:
+            pass
+        self._old_hover_render_workers.append(worker)
+        self._hover_render_worker = None
+
+    def _start_hover_render(self, kind: str, payload, x: int, y: int,
+                            cache_key=None) -> None:
+        self._cancel_hover_render()
+        generation = self._hover_render_gen
+        worker = _HoverRenderWorker(generation, kind, payload)
+        worker.done.connect(
+            lambda gen, image, xx=x, yy=y, key=cache_key:
+            self._on_hover_render_done(gen, image, xx, yy, key)
+        )
+        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(
+            lambda w=worker: self._forget_hover_render_worker(w)
+        )
+        self._hover_render_worker = worker
+        self._old_hover_render_workers.append(worker)
+        _ACTIVE_HOVER_WORKERS.add(worker)
+        worker.finished.connect(
+            lambda w=worker: _ACTIVE_HOVER_WORKERS.discard(w)
+        )
+        worker.start()
+
+    def _forget_hover_render_worker(self, worker) -> None:
+        try:
+            self._old_hover_render_workers.remove(worker)
+        except ValueError:
+            pass
+        if self._hover_render_worker is worker:
+            self._hover_render_worker = None
+
+    def _on_hover_render_done(self, generation: int, image, x: int, y: int,
+                              cache_key=None) -> None:
+        if generation != self._hover_render_gen:
+            return
+        self._hover_render_worker = None
+        if image is None or image.isNull():
+            return
+        if cache_key is not None:
+            if len(_MATH_HOVER_CACHE) >= _MATH_HOVER_CACHE_MAX:
+                _MATH_HOVER_CACHE.pop(next(iter(_MATH_HOVER_CACHE)))
+            _MATH_HOVER_CACHE[cache_key] = image
+        from PyQt6.QtGui import QPixmap
+        self._create_tooltip_popup(QPixmap.fromImage(image), x, y)
 
     def _on_dwell_start(self, position: int, x: int, y: int) -> None:
         """Il mouse è fermo su una posizione, mostra l'immagine o l'equazione renderizzata."""
         if position < 0:
             return
 
+        self._cancel_hover_render()
         self._hide_hover_popup()
-
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QImage, QPixmap
 
         from editor.lexers import get_language_name
 
@@ -3191,35 +3382,9 @@ class EditorWidget(QsciScintilla):
                         break
 
             if img_path.exists():
-                pixmap = None
-                if img_path.suffix.lower() == '.pdf':
-                    try:
-                        global _fitz, _HAS_FITZ
-                        if _HAS_FITZ is None:
-                            try:
-                                import fitz as _fitz
-                                _HAS_FITZ = True
-                            except ImportError:
-                                _fitz = None
-                                _HAS_FITZ = False
-                        if not _HAS_FITZ:
-                            raise ImportError("PyMuPDF non installato")
-                        doc = _fitz.open(str(img_path))
-                        page = doc.load_page(0)
-                        pix = page.get_pixmap(matrix=_fitz.Matrix(1.5, 1.5))
-                        img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
-                        pixmap = QPixmap.fromImage(img)
-                    except Exception as e:
-                        print(f"[Hover] Errore lettura PDF: {e}")
-                else:
-                    pixmap = QPixmap(str(img_path))
-
-                if pixmap and not pixmap.isNull():
-                    if pixmap.width() > 350 or pixmap.height() > 250:
-                        pixmap = pixmap.scaled(350, 250, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-
-                    self._create_tooltip_popup(pixmap, x, y)
-                    return
+                kind = "pdf" if img_path.suffix.lower() == ".pdf" else "image"
+                self._start_hover_render(kind, str(img_path), x, y)
+                return
 
         # ---------------------------------------------------------
         # PARTE 2: RICERCA FORMULE MATEMATICHE (LaTeX Math)
@@ -3233,56 +3398,27 @@ class EditorWidget(QsciScintilla):
         formula_text = _extract_math_formula(text, relative_pos)
 
         if formula_text:
-            try:
-                global _plt, _HAS_MATPLOTLIB
-                color = self.palette().color(self.foregroundRole()).name()
-                cache_key = (formula_text, color)
-                pixmap = _MATH_HOVER_CACHE.get(cache_key)
-                if pixmap is None:
-                    if _HAS_MATPLOTLIB is None:
-                        try:
-                            import matplotlib as _mpl
-                            _mpl.use('Agg')
-                            import matplotlib.pyplot as _plt
-                            _HAS_MATPLOTLIB = True
-                        except ImportError:
-                            _plt = None
-                            _HAS_MATPLOTLIB = False
-                    if not _HAS_MATPLOTLIB:
-                        raise ImportError("matplotlib non installato")
-                    import io
-                    fig = _plt.figure(figsize=(0.01, 0.01))
-                    fig.text(0, 0, f"${formula_text}$", fontsize=16,
-                             color=color, ha='center', va='center')
-                    buf = io.BytesIO()
-                    fig.savefig(buf, format='png', dpi=150,
-                                bbox_inches='tight', pad_inches=0.1,
-                                transparent=True)
-                    _plt.close(fig)
-                    buf.seek(0)
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(buf.read())
-                    if not pixmap.isNull():
-                        if len(_MATH_HOVER_CACHE) >= _MATH_HOVER_CACHE_MAX:
-                            _MATH_HOVER_CACHE.pop(next(iter(_MATH_HOVER_CACHE)))
-                        _MATH_HOVER_CACHE[cache_key] = pixmap
-                if pixmap is not None and not pixmap.isNull():
-                    self._create_tooltip_popup(pixmap, x, y)
-                    return
-            except Exception as e:
-                print(f"[Math Hover] Impossibile renderizzare la formula: {e}")
+            from PyQt6.QtGui import QPixmap
+            color = self.palette().color(self.foregroundRole()).name()
+            cache_key = (formula_text, color)
+            image = _MATH_HOVER_CACHE.get(cache_key)
+            if image is not None and not image.isNull():
+                self._create_tooltip_popup(QPixmap.fromImage(image), x, y)
+                return
+            self._start_hover_render(
+                "math", (formula_text, color), x, y, cache_key
+            )
+            return
 
         # ---------------------------------------------------------
         # PARTE 3: RIFERIMENTI LOCALI E CITAZIONI
         # ---------------------------------------------------------
         semantic = self._latex_semantic_at_position(position)
         if semantic is not None:
-            semantic_info = self._latex_semantic_info(semantic)
-            if semantic_info is not None:
-                self._create_html_tooltip_popup(
-                    semantic_info[3], x, y
-                )
-                return
+            self._create_html_tooltip_popup(
+                self._semantic_hover_text(semantic), x, y
+            )
+            return
 
         # ---------------------------------------------------------
         # PARTE 4: DOCUMENTAZIONE COMANDI LaTeX

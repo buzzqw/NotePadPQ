@@ -514,7 +514,9 @@ class _IncludeListPanel(QWidget):
         self._lang = lang
         self.setMaximumHeight(16777215)
         base_dir   = editor.file_path.parent if editor.file_path else None
-        text       = editor.get_content() if hasattr(editor, "get_content") else editor.text()
+        # Snapshot per il parser: text() evita la conversione dei line ending
+        # fatta da get_content(), che duplica inutilmente tutto il documento.
+        text       = editor.text()
 
         self._cancel_worker()
         self._scan_gen += 1

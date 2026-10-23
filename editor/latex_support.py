@@ -18,6 +18,7 @@ Uso:
 
 from __future__ import annotations
 
+import bisect
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -60,6 +61,13 @@ if TYPE_CHECKING:
 
 
 # ─── Regex compilate a livello modulo (usa frequente: ~100-10k chiamate/sessione)
+
+# Limite di righe scandite per sincronizzare/rinominare un ambiente: su
+# documenti enormi una scansione fino a fine file a ogni '}' o spostamento del
+# cursore bloccherebbe la GUI per centinaia di millisecondi. Oltre il limite
+# si rinuncia alla sincronizzazione automatica (il documento resta valido).
+_ENV_SYNC_MAX_LINES = 5_000
+_ENV_STRUCTURAL_MAX_LINES = 5_000
 
 _cached_read_text = read_cached_text
 _cached_read_text_stripped = read_cached_text_stripped
@@ -1311,22 +1319,48 @@ class LaTeXSupport:
     @staticmethod
     def _sync_end_environment(editor: EditorWidget, env: str, begin_line: int) -> None:
         """Trova il \\end{...} corrispondente al \\begin{env} sulla riga
-        begin_line e, se il nome dell'ambiente è diverso, lo aggiorna."""
+        begin_line e, se il nome dell'ambiente è diverso, lo aggiorna.
+
+        La ricerca è limitata a _ENV_SYNC_MAX_LINES righe e legge la finestra
+        in un'unica chiamata Scintilla: la versione precedente copiava una riga
+        per volta fino alla fine del documento, bloccando la GUI sui file
+        grandi a ogni '}' dopo un \\begin{...}.
+        """
         depth = 0
         total = editor.lines()
+        if begin_line < 0 or begin_line >= total:
+            return
+        last_line = min(total, begin_line + _ENV_SYNC_MAX_LINES + 1)
         end_line = -1
         end_col_start = -1
         end_col_end = -1
         old_env = ""
 
-        for r in range(begin_line, total):
+        try:
+            start_pos = editor.SendScintilla(
+                editor.SCI_POSITIONFROMLINE, begin_line)
+            last = last_line - 1
+            end_pos = editor.SendScintilla(
+                editor.SCI_POSITIONFROMLINE, last)
+            end_pos += editor.SendScintilla(editor.SCI_LINELENGTH, last)
+            if end_pos <= start_pos:
+                return
+            buf = bytearray(end_pos - start_pos + 1)
+            editor.SendScintilla(
+                editor.SCI_GETTEXTRANGE, start_pos, end_pos, buf)
+            block = bytes(buf[:end_pos - start_pos]).decode("utf-8", "replace")
+        except Exception:
+            return
+
+        for offset, raw_line in enumerate(block.split("\n")):
+            r = begin_line + offset
             # strip_latex_comments rimuove solo la coda della riga dopo un
             # '%' non escaped: un \begin/\end che appare prima di un
             # eventuale commento sulla stessa riga mantiene lo stesso
             # offset, quindi bm.start()/bm.end() restano validi anche sul
             # testo originale (vedi anche _has_matching_end_below, che usa
             # lo stesso approccio per lo stesso motivo).
-            line_text = strip_latex_comments(editor.text(r))
+            line_text = strip_latex_comments(raw_line.rstrip("\r"))
             # Conta \begin e \end su questa riga
             for bm in re.finditer(r'\\(begin|end)\{([^}]+)\}', line_text):
                 cmd, name = bm.group(1), bm.group(2)
@@ -1922,6 +1956,75 @@ class LaTeXSupport:
         return sorted(set(keys))
 
     @staticmethod
+    def find_bibtex_entry(key: str, tex_path: Path | None,
+                          current_text: str = "") -> tuple[Path, int, int] | None:
+        """Trova la voce BibTeX ``key`` nel progetto, senza toccare Qt.
+
+        Usa ``current_text`` per il documento attivo (anche non salvato) e la
+        cache di lettura per gli altri file. Pensata per girare in un worker:
+        la versione precedente faceva le stesse letture sul thread GUI a ogni
+        hover/click su una citazione.
+        """
+        if not tex_path:
+            return None
+        current = Path(tex_path).resolve()
+        source_files = LaTeXSupport.collect_project_files(current) or [current]
+        bib_files: list[Path] = []
+        seen: set[Path] = set()
+        resource_re = re.compile(
+            r"\\(?:bibliography|addbibresource)\s*"
+            r"(?:\[[^\]]*\]\s*)?\{([^{}]*)\}"
+        )
+        for source_path in source_files:
+            try:
+                if source_path == current and current_text:
+                    source_text = current_text
+                else:
+                    source_text = _cached_read_text(source_path)
+            except (OSError, UnicodeError):
+                continue
+            if key not in set(
+                    LaTeXSupport.extract_bibtex_keys(source_text, source_path)):
+                continue
+            for match in resource_re.finditer(mask_latex_comments(source_text)):
+                for name in match.group(1).split(","):
+                    resource = Path(name.strip())
+                    candidates = [source_path.parent / resource]
+                    if resource.suffix.lower() != ".bib":
+                        candidates.append(
+                            (source_path.parent / resource).with_suffix(".bib"))
+                    for candidate in candidates:
+                        try:
+                            candidate = candidate.resolve()
+                        except OSError:
+                            continue
+                        if candidate.is_file() and candidate not in seen:
+                            seen.add(candidate)
+                            bib_files.append(candidate)
+                            break
+
+        entry_re = re.compile(r"@[A-Za-z][\w-]*\s*[({]\s*([^,\s]+)\s*,")
+        for bib_path in bib_files:
+            try:
+                bib_text = _cached_read_text(bib_path)
+            except (OSError, UnicodeError):
+                continue
+            newlines = [match.start() for match in re.finditer("\n", bib_text)]
+            for match in entry_re.finditer(mask_latex_comments(bib_text)):
+                if match.group(1) != key:
+                    continue
+                position = match.start(1)
+                line = bisect.bisect_left(newlines, position)
+                previous_newline = newlines[line - 1] if line else -1
+                return (
+                    bib_path,
+                    line,
+                    position if previous_newline < 0
+                    else position - previous_newline - 1,
+                )
+        return None
+
+    @staticmethod
     def extract_bibtex_metadata_multifile(
             tex_path: Path | None) -> dict[str, dict[str, str]]:
         """Return BibTeX entry metadata for the whole project.
@@ -2183,7 +2286,8 @@ class LaTeXSupport:
 
         if kind == "begin":
             depth = 0
-            for ln in range(line, nlines):
+            last = min(nlines, line + _ENV_STRUCTURAL_MAX_LINES)
+            for ln in range(line, last):
                 row = strip_latex_comments(lines[ln])
                 for m2 in _RE_BEGIN_END.finditer(row):
                     if ln == line and m2.start() < token_start:
@@ -2197,7 +2301,8 @@ class LaTeXSupport:
             return None
         else:
             depth = 0
-            for ln in range(line, -1, -1):
+            first = max(-1, line - _ENV_STRUCTURAL_MAX_LINES)
+            for ln in range(line, first, -1):
                 row = strip_latex_comments(lines[ln])
                 matches = list(_RE_BEGIN_END.finditer(row))
                 if ln == line:

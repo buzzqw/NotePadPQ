@@ -309,6 +309,7 @@ def scan_annotations(
     found_citations: list[LatexOccurrence] = []
     length = len(text)
     skip_until = 0
+    newline_positions: list[int] | None = None
     for match in _SCAN_RE.finditer(text):
         index = match.start()
         if index < skip_until:
@@ -372,15 +373,27 @@ def scan_annotations(
                     while key_end > key_start and text[key_end - 1].isspace():
                         key_end -= 1
                     if key_start < key_end:
-                        line_start = text.rfind("\n", 0, key_start)
+                        # Precalcola gli a capo una sola volta: text.count/rfind
+                        # dall'inizio per ogni citazione rendevano il parsing
+                        # quadratico (un documento con migliaia di \cite
+                        # bloccava il thread per decine di secondi).
+                        if newline_positions is None:
+                            newline_positions = [
+                                m.start() for m in re.finditer("\n", text)
+                            ]
+                        line = bisect.bisect_left(
+                            newline_positions, key_start)
+                        previous_newline = (
+                            newline_positions[line - 1] if line else -1
+                        )
                         found_citations.append({
                             "kind": "citation",
                             "key": text[key_start:key_end],
                             "start": key_start, "end": key_end,
                             "command_start": command_start,
-                            "line": text.count("\n", 0, key_start),
-                            "column": (key_start if line_start < 0
-                                       else key_start - line_start - 1),
+                            "line": line,
+                            "column": (key_start if previous_newline < 0
+                                       else key_start - previous_newline - 1),
                         })
                     part_start = position + 1
                 if group[1] + 1 > skip_until:
@@ -476,8 +489,15 @@ def extract_sections(text: str) -> list[tuple[str, str, int]]:
 
     code = mask_latex_comments(text)
     sections: list[tuple[str, str, int]] = []
+    # Precalcola gli a capo una volta: count("\n", 0, offset) per ogni sezione
+    # rendeva l'estrazione quadratica sui documenti con migliaia di titoli.
+    newline_positions = [m.start() for m in re.finditer("\n", code)]
     for section in scan_sections(code):
-        sections.append((section.kind, section.name, code.count("\n", 0, section.offset)))
+        sections.append((
+            section.kind,
+            section.name,
+            bisect.bisect_left(newline_positions, section.offset),
+        ))
     return sections
 
 

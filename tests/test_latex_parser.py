@@ -1,3 +1,4 @@
+import time
 import unittest
 
 from core.latex_citations import extract_latex_citation_occurrences
@@ -73,6 +74,44 @@ class LatexParserTests(unittest.TestCase):
         self.assertEqual([item["key"] for item in occurrences], ["first", "second"])
         self.assertEqual(occurrences[1]["line"], 0)
         self.assertEqual(occurrences[1]["column"], text.index("second"))
+
+    def test_citation_locations_use_zero_based_lines_after_first(self):
+        text = (
+            "prima riga\n"
+            "seconda riga con \\cite{alpha}\n"
+            "terza riga con \\citep[p. 1]{beta}\n"
+        )
+
+        occurrences = extract_latex_citation_occurrences(text)
+
+        self.assertEqual(
+            [(item["key"], item["line"], item["column"]) for item in occurrences],
+            [
+                ("alpha", 1, text.splitlines()[1].index("alpha")),
+                ("beta", 2, text.splitlines()[2].index("beta")),
+            ],
+        )
+
+    def test_many_citations_are_scanned_in_linear_time(self):
+        text = ("testo con \\cite{key}\n" * 50_000)
+        started = time.perf_counter()
+        occurrences = extract_latex_citation_occurrences(text)
+
+        self.assertEqual(len(occurrences), 50_000)
+        # La versione precedente ricalcolava riga/colonna dall'inizio per ogni
+        # citazione e impiegava diversi secondi su questo input.
+        self.assertLess(time.perf_counter() - started, 2.0)
+
+    def test_many_sections_report_lines_in_linear_time(self):
+        text = ("\\section{Sezione}\n" + "testo " * 15 + "\n") * 20_000
+        started = time.perf_counter()
+        sections = extract_sections(text)
+
+        self.assertEqual(len(sections), 20_000)
+        self.assertEqual(sections[10_000][2], 20_000)
+        # La versione precedente contava i newline dall'inizio per ogni
+        # sezione, con costo quadratico.
+        self.assertLess(time.perf_counter() - started, 2.0)
 
 
 if __name__ == "__main__":

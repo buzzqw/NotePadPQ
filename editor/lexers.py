@@ -261,7 +261,8 @@ def set_lexer_by_path(editor: EditorWidget, path: Path) -> bool:
 
     # Shebang / content detection
     try:
-        content = editor.text()[:200] if editor.text() else ""
+        getter = getattr(editor, "text_prefix", None)
+        content = getter(200) if getter else editor.text()[:200]
         detected = _detect_from_content(content)
         if detected:
             return set_lexer_by_extension(editor, detected)
@@ -279,7 +280,8 @@ def set_lexer_auto(editor: EditorWidget) -> bool:
             return True
     # Nessun path: prova dal contenuto
     try:
-        content = editor.text()[:500] if editor.text() else ""
+        getter = getattr(editor, "text_prefix", None)
+        content = getter(500) if getter else editor.text()[:500]
         detected = _detect_from_content(content)
         if detected:
             return set_lexer_by_extension(editor, detected)
@@ -534,17 +536,6 @@ def _apply_lexer(editor: EditorWidget,
             LaTeXSupport.activate(editor)
         except Exception:
             pass
-        # Collega il rebuild dell'API alle modifiche del documento
-        try:
-            ac = getattr(editor, "_autocomplete", None)
-            if ac:
-                try:
-                    editor.textChanged.disconnect(ac.on_document_changed)
-                except Exception:
-                    pass
-                editor.textChanged.connect(ac.on_document_changed)
-        except Exception:
-            pass
         # Avvia il checker sintattico in tempo reale
         try:
             from editor.latex_checker import LaTeXChecker
@@ -553,6 +544,20 @@ def _apply_lexer(editor: EditorWidget,
             editor._latex_checker = checker
         except Exception:
             pass
+
+    # Aggiorna la cache dei completamenti a ogni modifica. Per LaTeX/BibTeX
+    # ricostruisce l'indice API; per gli altri linguaggi avvia solo il worker
+    # leggero delle parole del documento.
+    try:
+        ac = getattr(editor, "_autocomplete", None)
+        if ac:
+            try:
+                editor.textChanged.disconnect(ac.on_document_changed)
+            except Exception:
+                pass
+            editor.textChanged.connect(ac.on_document_changed)
+    except Exception:
+        pass
 
     try:
         editor.language_changed.emit(lang_name)

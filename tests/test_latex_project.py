@@ -16,6 +16,7 @@ from core.latex_project import (
     resolve_project_root,
     resolve_relative_path,
 )
+from ui.latex_project_dashboard import _DashboardAnalysisWorker
 
 
 class TestLatexProject(unittest.TestCase):
@@ -146,6 +147,32 @@ class TestLatexProject(unittest.TestCase):
             invalidate_cached_text(root)
 
             self.assertEqual(resolve_project_root(current), root.resolve())
+
+    def test_dashboard_analysis_worker_collects_the_project(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp)
+            main = project / "main.tex"
+            child = project / "chapter.tex"
+            content = (
+                "\\documentclass{article}\n"
+                "\\begin{document}\n"
+                "\\input{chapter}\n"
+                "\\end{document}\n"
+            )
+            main.write_text(content)
+            child.write_text("\\section{Chapter}\\label{sec:chapter}\n")
+
+            results = []
+            worker = _DashboardAnalysisWorker(main, content)
+            worker.completed.connect(results.append)
+
+            worker.run()
+
+            self.assertEqual(len(results), 1)
+            context, analysis, auxiliary = results[0]
+            self.assertEqual(context.root, main.resolve())
+            self.assertGreaterEqual(len(analysis.files), 2)
+            self.assertIsInstance(auxiliary, tuple)
 
 
 if __name__ == "__main__":

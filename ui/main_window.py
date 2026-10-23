@@ -4252,7 +4252,18 @@ class MainWindow(QMainWindow):
             return
         if not self._latex_references_dock.isVisible():
             return
-        self._latex_references_timer.start(250)
+        editor = self._current_editor()
+        try:
+            length = editor.SendScintilla(editor.SCI_GETLENGTH) if editor else 0
+        except Exception:
+            length = 0
+        if length > 4_000_000:
+            delay = 1200
+        elif length > 1_000_000:
+            delay = 600
+        else:
+            delay = 250
+        self._latex_references_timer.start(delay)
 
     def _refresh_latex_references(self) -> None:
         editor = self._current_editor()
@@ -4262,10 +4273,20 @@ class MainWindow(QMainWindow):
             editor.file_path is not None
             and editor.file_path.suffix.lower() in {".tex", ".ltx", ".latex"}
         ) or "latex" in getattr(editor, "_current_language", "").lower()
-        if is_latex:
-            self._latex_references_panel.set_project(
-                editor.file_path, editor.get_content(), asynchronous=True
-            )
+        if not is_latex:
+            return
+        revision = getattr(editor, "document_revision", None)
+        same_editor = getattr(self, "_latex_references_editor", None) is editor
+        if (same_editor and revision is not None
+                and revision == getattr(self, "_latex_references_revision", None)):
+            return
+        self._latex_references_editor = editor
+        self._latex_references_revision = revision
+        # text() è sufficiente per l'analisi e non duplica il documento
+        # per convertire i line ending come farebbe get_content().
+        self._latex_references_panel.set_project(
+            editor.file_path, editor.text(), asynchronous=True
+        )
 
     def _on_latex_reference_navigation(self, path, line: int, column: int) -> None:
         try:
@@ -6107,7 +6128,10 @@ class MainWindow(QMainWindow):
         if not editor:
             self._statusbar.hide_word_goal()
             return
-        words = len(editor.text().split())
+        import re
+        # Evita di materializzare una lista con una voce per parola (su
+        # documenti grandi può pesare decine di MB).
+        words = sum(1 for _ in re.finditer(r"\S+", editor.text()))
         self._statusbar.set_word_goal(words, self._writing_goal)
 
     def action_writing_goal(self) -> None:

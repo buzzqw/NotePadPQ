@@ -8,6 +8,7 @@ attivato automaticamente: l'utente deve selezionare esplicitamente
 
 from __future__ import annotations
 
+import bisect
 import json
 import os
 import re
@@ -72,25 +73,43 @@ _LATEX_MATH_ENV_RE = re.compile(
 )
 
 
+class _LineIndex:
+    """Indice riga<->offset costruito una sola volta per documento.
+
+    Ricalcolare ``text.count("\\n", 0, pos)`` a ogni diagnostico rendeva il
+    rendering quadratico; questo indice precalcola gli inizi riga e usa
+    ``bisect``.
+    """
+
+    def __init__(self, text: str):
+        self._text = text
+        self._starts = [0]
+        position = text.find("\n")
+        while position >= 0:
+            self._starts.append(position + 1)
+            position = text.find("\n", position + 1)
+
+    def line_col(self, position: int) -> tuple[int, int]:
+        position = max(0, min(position, len(self._text)))
+        line = bisect.bisect_right(self._starts, position) - 1
+        return line, position - self._starts[line]
+
+    def absolute(self, line: int, column: int) -> int:
+        if line < 0:
+            return max(0, min(column, len(self._text)))
+        if line >= len(self._starts):
+            return len(self._text)
+        return max(0, min(self._starts[line] + column, len(self._text)))
+
+
 def _absolute_to_line_col(text: str, position: int) -> tuple[int, int]:
-    """Converte un offset Python in coordinate line/col di QScintilla."""
-    position = max(0, min(position, len(text)))
-    line = text.count("\n", 0, position)
-    line_start = text.rfind("\n", 0, position) + 1
-    return line, position - line_start
+    """Compatibilità: conversione singola offset → (riga, colonna)."""
+    return _LineIndex(text).line_col(position)
 
 
 def _line_col_to_absolute(text: str, line: int, column: int) -> int:
-    """Converte coordinate line/col in un offset Python."""
-    if line <= 0:
-        return max(0, min(column, len(text)))
-    start = 0
-    for _ in range(line):
-        next_break = text.find("\n", start)
-        if next_break < 0:
-            return len(text)
-        start = next_break + 1
-    return max(0, min(start + column, len(text)))
+    """Compatibilità: conversione singola (riga, colonna) → offset."""
+    return _LineIndex(text).absolute(line, column)
 
 
 def _parse_matches(payload: object) -> list[dict]:
@@ -362,9 +381,12 @@ class _LanguageToolPanel(QWidget):
 
     def set_diagnostics(self, text: str, diagnostics: list[dict]) -> None:
         self._list.clear()
+        if not diagnostics:
+            return
+        index_map = _LineIndex(text)
         for index, diagnostic in enumerate(diagnostics):
-            line, column = _absolute_to_line_col(
-                text, diagnostic.get("absolute_start", diagnostic.get("offset", 0))
+            line, column = index_map.line_col(
+                diagnostic.get("absolute_start", diagnostic.get("offset", 0))
             )
             short = diagnostic.get("short_message", "")
             message = diagnostic.get("message", "")
@@ -762,15 +784,16 @@ class LanguageToolPlugin(BasePlugin):
         if editor is None:
             return
         self._clear_indicator()
+        index_map = _LineIndex(self._snapshot)
         for diagnostic in self._diagnostics:
             start = diagnostic.get("absolute_start", -1)
             end = diagnostic.get("absolute_end", -1)
             if start < 0 or end <= start:
                 continue
-            line_s, col_s = _absolute_to_line_col(self._snapshot, start)
-            line_e, col_e = _absolute_to_line_col(self._snapshot, end)
+            line_s, col_s = index_map.line_col(start)
+            line_e, col_e = index_map.line_col(end)
             try:
-                # _absolute_to_line_col restituisce colonne in caratteri,
+                # _LineIndex.line_col restituisce colonne in caratteri,
                 # come richiesto da fillIndicatorRange.
                 editor.fillIndicatorRange(
                     line_s, col_s, line_e, col_e, INDICATOR_LANGUAGETOOL
@@ -787,8 +810,9 @@ class LanguageToolPlugin(BasePlugin):
             return
         start = diagnostic["absolute_start"]
         end = diagnostic["absolute_end"]
-        line_s, col_s = _absolute_to_line_col(self._snapshot, start)
-        line_e, col_e = _absolute_to_line_col(self._snapshot, end)
+        index_map = _LineIndex(self._snapshot)
+        line_s, col_s = index_map.line_col(start)
+        line_e, col_e = index_map.line_col(end)
         editor.setSelection(line_s, col_s, line_e, col_e)
         editor.setFocus()
 
@@ -800,8 +824,9 @@ class LanguageToolPlugin(BasePlugin):
             self._panel.set_status("Il documento e' cambiato: controllo nuovamente il testo.")
             return
         diagnostic = self._diagnostics[index]
-        line_s, col_s = _absolute_to_line_col(self._snapshot, diagnostic["absolute_start"])
-        line_e, col_e = _absolute_to_line_col(self._snapshot, diagnostic["absolute_end"])
+        index_map = _LineIndex(self._snapshot)
+        line_s, col_s = index_map.line_col(diagnostic["absolute_start"])
+        line_e, col_e = index_map.line_col(diagnostic["absolute_end"])
         editor.beginUndoAction()
         try:
             editor.setSelection(line_s, col_s, line_e, col_e)
@@ -816,7 +841,7 @@ class LanguageToolPlugin(BasePlugin):
         if editor.text() != self._snapshot:
             return
         line, column = editor.getCursorPosition()
-        cursor_abs = _line_col_to_absolute(editor.text(), line, column)
+        cursor_abs = _LineIndex(self._snapshot).absolute(line, column)
         index = next(
             (
                 i for i, diagnostic in enumerate(self._diagnostics)

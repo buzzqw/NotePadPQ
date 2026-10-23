@@ -1466,17 +1466,23 @@ class AutoCompleteManager(QObject):
         if self._levels & AutoCompleteLevel.ALL_DOCS:
             terms.extend(self._collect_all_docs_words())
 
+        prefix_key = prefix.casefold()
         seen: set[str] = set()
         labels: list[str] = []
+        # Voce identica a quanto già digitato: viene scartata quando è l'unica
+        # corrispondenza (nessun completamento da offrire), ma se esistono
+        # completamenti più lunghi va mostrata per prima. Altrimenti, digitando
+        # ``\vfill`` con ``\vfill\null`` nel documento, resterebbe solo la
+        # variante lunga e Invio inserirebbe quella senza possibilità di scelta.
+        exact_label: str | None = None
         for term in terms:
             label = self._completion_label(term)
             key = label.casefold()
-            if (
-                not label
-                or key in seen
-                or key == prefix.casefold()
-                or not key.startswith(prefix.casefold())
-            ):
+            if not label or key in seen or not key.startswith(prefix_key):
+                continue
+            if key == prefix_key:
+                if exact_label is None:
+                    exact_label = label
                 continue
             seen.add(key)
             labels.append(label)
@@ -1486,7 +1492,17 @@ class AutoCompleteManager(QObject):
         if not labels:
             self._cancel_custom_popup()
             return
+        # L'opzione "esatta" ha senso solo per i comandi LaTeX: negli altri
+        # linguaggi il completamento più utile è quello più lungo (es.
+        # ``print()`` per ``print``) e non va scavalcato.
+        if exact_label is not None and prefix.startswith("\\"):
+            labels.insert(0, exact_label)
         labels = self._sort_by_usage(labels, "cmd", self._usage_command)
+        if exact_label is not None and prefix.startswith("\\"):
+            # La voce identica al prefisso resta sempre in cima, anche se una
+            # variante più lunga è stata scelta più spesso in passato.
+            labels.remove(exact_label)
+            labels.insert(0, exact_label)
         self._custom_popup_items = {label: label for label in labels}
         self._context_popup = None
         self._context_shown = None

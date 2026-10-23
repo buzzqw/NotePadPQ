@@ -104,6 +104,31 @@ class AutocompletePopupTest(unittest.TestCase):
         self.assertEqual(self._last_show()[0], 30)
         self.assertTrue(self._last_show()[1])
 
+    def test_exact_latex_command_is_offered_before_longer_variant(self):
+        # Il documento contiene ``\vfill\null`` (token unico per il
+        # completamento dalle parole del documento): digitando ``\vfill``
+        # devono comparire entrambe le voci, con quella esatta per prima.
+        autocomplete_module._USAGE_COUNTS_CACHE = {
+            "cmd:\\vfill": 1,
+            "cmd:\\vfill\\null": 9,
+        }
+        text = "\\vfill\\null"
+        self.editor.setText(text)
+        self.editor.setCursorPosition(0, len("\\vfill"))
+        self.events.clear()
+        self.editor.SCN_CHARADDED.emit(ord("l"))
+        labels = self._last_show()[1]
+        self.assertEqual(labels[0], "\\vfill")
+        self.assertIn("\\vfill\\null", labels)
+
+    def test_exact_latex_command_alone_does_not_open_popup(self):
+        text = "\\vfill"
+        self.editor.setText(text)
+        self.editor.setCursorPosition(0, len(text))
+        self.events.clear()
+        self.editor.SCN_CHARADDED.emit(ord("l"))
+        self.assertIsNone(self._last_show())
+
     def test_selection_places_caret_inside_braces(self):
         self.editor.setText(r"\sec")
         self.editor.setCursorPosition(0, 4)

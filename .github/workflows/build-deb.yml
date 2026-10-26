@@ -37,7 +37,7 @@ jobs:
 
       # ── Checkout al tag specificato ───────────────────────────────────────
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.tag.outputs.value }}
 

@@ -528,15 +528,22 @@ class LaTeXChecker(QObject):
                 current_file = Path(current_file).resolve()
             except (OSError, TypeError, ValueError):
                 current_file = None
+        # resolve() fa una lstat per componente del percorso: con migliaia di
+        # segnalazioni sul thread GUI bloccava l'interfaccia per centinaia di ms.
+        same_file: dict[object, bool] = {}
         for issue in issues:
             issue_file = issue.get("file")
             if issue_file is not None and current_file is None:
                 continue
             if issue_file is not None and current_file is not None:
-                try:
-                    if Path(issue_file).resolve() != current_file:
-                        continue
-                except (OSError, TypeError, ValueError):
+                is_current = same_file.get(issue_file)
+                if is_current is None:
+                    try:
+                        is_current = Path(issue_file).resolve() == current_file
+                    except (OSError, TypeError, ValueError):
+                        is_current = False
+                    same_file[issue_file] = is_current
+                if not is_current:
                     continue
             line = issue.get("line", 0)
             marker = (_MARKER_ERROR

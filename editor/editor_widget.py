@@ -19,9 +19,11 @@ Uso:
     editor.load_content("testo", encoding="utf-8", line_ending="LF")
 """
 
+import os
 import re
 import sys
 import threading
+from contextlib import contextmanager
 from enum import Enum
 from html import escape as _html_escape
 from pathlib import Path
@@ -501,6 +503,14 @@ def _split_rows_for_table(all_rows: list[list[str]], first_row_is_header: bool):
 
 # ─── Costanti ─────────────────────────────────────────────────────────────────
 
+# Sopra questa dimensione QScintilla diventa percepibilmente lento per tasto.
+_FAST_TYPING_MIN_BYTES = 512 * 1024
+# Tutti i bit presenti nelle notifiche di inserimento/cancellazione: la maschera
+# passa una notifica se anche uno solo coincide. Restano attive le altre (fold,
+# marker, indicatori), mentre savepoint e charadded non dipendono dalla maschera.
+_TEXT_EDIT_EVENT_BITS = 0x3DF3
+
+
 class LineEnding(Enum):
     LF   = "\n"       # Unix / Linux / FreeBSD
     CRLF = "\r\n"     # Windows
@@ -637,6 +647,8 @@ class EditorWidget(QsciScintilla):
         # bulk come Trova in tutti i file). Vedi MainWindow._load_deferred.
         self._deferred_load: bool = False
         self._pending_cursor: tuple[int, int] | None = None
+        self._silent_edit: dict | None = None
+        self._fast_typing = self._fast_typing_setting()
         # Wrap da riapplicare alla prima visualizzazione (editor nascosto).
         self._pending_wrap_restore = None
         self._smart_hl_timer: QTimer = QTimer(self)
@@ -731,6 +743,16 @@ class EditorWidget(QsciScintilla):
         self.set_font_family(get_preferred_monospace_font(), 11)
 
     # ── Setup ─────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _fast_typing_setting() -> bool:
+        if os.environ.get("QT_LINUX_ACCESSIBILITY_ALWAYS_ON") == "1":
+            return False  # tecnologia assistiva richiesta esplicitamente
+        try:
+            from config.settings import Settings
+            return bool(Settings.instance().get("editor/fast_typing", True))
+        except Exception:
+            return True
 
     def _setup_base(self) -> None:
         """Configurazione base comportamento editor."""
@@ -964,6 +986,10 @@ class EditorWidget(QsciScintilla):
 
     def _setup_connections(self) -> None:
         """Connette i segnali Scintilla ai segnali pubblici del widget."""
+        # Prima degli altri slot: chi reagisce a SCN_CHARADDED (autocompletamento,
+        # supporto LaTeX) deve trovare textChanged già emesso e la maschera
+        # ripristinata, come se la modifica fosse stata notificata normalmente.
+        self.SCN_CHARADDED.connect(self._end_silent_edit)
         self.modificationChanged.connect(self._on_modification_changed)
         self.cursorPositionChanged.connect(self._on_cursor_position_changed)
         self.selectionChanged.connect(self._on_selection_changed)
@@ -991,6 +1017,85 @@ class EditorWidget(QsciScintilla):
         # --- FINE HOVER IMMAGINI ---
 
     # ── Slot interni ──────────────────────────────────────────────────────────
+
+    # ── Modifiche senza notifiche per carattere ──────────────────────────────
+    #
+    # A ogni notifica di inserimento QScintilla esegue
+    # QsciAccessibleScintillaBase::positionAsOffset(), che conta i caratteri dal
+    # primo byte al cursore anche senza screen reader: costo O(posizione) per
+    # tasto (~20 ms in fondo a 3 MB), o quadratico sulle modifiche multiple.
+    # L'unico modo per evitarlo è non generare la notifica, ed emettere qui gli
+    # stessi segnali a modifica conclusa.
+
+    def _begin_silent_edit(self, from_position: int | None = None) -> bool:
+        if self._silent_edit is not None:
+            return False
+        if from_position is None:
+            from_position = self.SendScintilla(self.SCI_GETSELECTIONSTART)
+        self._silent_edit = {
+            "mask": self.SendScintilla(self.SCI_GETMODEVENTMASK),
+            "length": self.SendScintilla(self.SCI_GETLENGTH),
+            "lines": self.lines(),
+            "position": from_position,
+            "replaces": self.hasSelectedText() or self.overwriteMode(),
+        }
+        self._invalidate_lexer_from(from_position)
+        self.SendScintilla(
+            self.SCI_SETMODEVENTMASK,
+            self._silent_edit["mask"] & ~_TEXT_EDIT_EVENT_BITS,
+        )
+        return True
+
+    def _end_silent_edit(self, *_args) -> None:
+        state = self._silent_edit
+        if state is None:
+            return
+        self._silent_edit = None
+        self.SendScintilla(self.SCI_SETMODEVENTMASK, state["mask"])
+        length = self.SendScintilla(self.SCI_GETLENGTH)
+        if not state["replaces"] and length == state["length"]:
+            return  # nessuna modifica (es. Backspace a inizio documento)
+        self._invalidate_lexer_from(state["position"])
+        self.textChanged.emit()
+        if self.lines() != state["lines"]:
+            self.linesChanged.emit()
+
+    def _invalidate_lexer_from(self, position: int) -> None:
+        """Lo stile può essere richiesto prima di textChanged: niente cache vecchie."""
+        lexer = self.lexer()
+        if hasattr(lexer, "_invalidate_state_from"):
+            lexer._bytes_cache = None
+            lexer._invalidate_state_from(position)
+
+    @contextmanager
+    def bulk_edit(self):
+        """Raggruppa molte modifiche: niente costo per notifica, un solo textChanged."""
+        started = self._begin_silent_edit(0)
+        if started:
+            self._silent_edit["replaces"] = True
+        try:
+            yield
+        finally:
+            if started:
+                self._end_silent_edit()
+
+    def _fast_typing_applies(self, event) -> bool:
+        if not self._fast_typing or self._silent_edit is not None:
+            return False
+        if self.SendScintilla(self.SCI_GETLENGTH) < _FAST_TYPING_MIN_BYTES:
+            return False
+        if (self.isReadOnly() or self.isListActive()
+                or self.SendScintilla(self.SCI_GETSELECTIONS) > 1):
+            return False
+        modifiers = event.modifiers()
+        if modifiers & (Qt.KeyboardModifier.ControlModifier
+                        | Qt.KeyboardModifier.MetaModifier):
+            return False
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Backspace,
+                           Qt.Key.Key_Delete, Qt.Key.Key_Tab):
+            return True
+        text = event.text()
+        return bool(text) and text.isprintable()
 
     def _on_modification_changed(self, modified: bool) -> None:
         self.modified_changed.emit(modified)
@@ -2234,6 +2339,13 @@ class EditorWidget(QsciScintilla):
                     self._in_paste = False
                 return
 
+        if self._fast_typing_applies(event):
+            self._begin_silent_edit()
+            try:
+                super().keyPressEvent(event)
+            finally:
+                self._end_silent_edit()
+            return
         super().keyPressEvent(event)
 
     def showUserList(self, list_id: int, strings) -> None:  # noqa: N802 - QScintilla API

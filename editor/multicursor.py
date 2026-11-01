@@ -104,12 +104,13 @@ class MultiCursorManager:
         # Inserisce dal basso verso l'alto così le posizioni precedenti rimangono valide
         ed.beginUndoAction()
         try:
-            for idx, (start, end) in enumerate(reversed(ranges)):
-                number = str(len(ranges) - idx)
-                lf, cf = ed.lineIndexFromPosition(start)
-                lt, ct = ed.lineIndexFromPosition(end)
-                ed.setSelection(lf, cf, lt, ct)
-                ed.replaceSelectedText(number)
+            with ed.bulk_edit():
+                for idx, (start, end) in enumerate(reversed(ranges)):
+                    number = str(len(ranges) - idx)
+                    lf, cf = ed.lineIndexFromPosition(start)
+                    lt, ct = ed.lineIndexFromPosition(end)
+                    ed.setSelection(lf, cf, lt, ct)
+                    ed.replaceSelectedText(number)
         finally:
             ed.endUndoAction()
 

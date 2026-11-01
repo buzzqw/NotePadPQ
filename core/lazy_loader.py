@@ -58,13 +58,11 @@ THRESHOLD_LAZY     = 4 * MB       # 4 MB
 # tocca mai tutto. Sotto, il file viene caricato interamente in RAM (a
 # chunk, in background) restando liberamente modificabile ovunque.
 #
-# Il limite reale qui non è la RAM ma QScintilla stesso: ogni append() su
-# un documento che cresce costa via via di più (misurato ~0,05s a 8MB fino
-# a ~0,46s a 126MB, con lo stesso pattern indipendentemente da undo/
-# folding/scroll-tracking/segnali disattivati — è intrinseco al buffer
-# interno dell'editor). Il totale cresce quindi più che linearmente con la
-# dimensione del file: 200MB tiene il caricamento sotto la decina di
-# secondi, oltre diventa rapidamente questione di minuti.
+# Il limite storico era il costo per append() di QScintilla, che cresceva con
+# la dimensione del documento: il suo handler di accessibilità conta i caratteri
+# da inizio file a ogni inserimento. Ora il caricamento a chunk maschera quelle
+# notifiche (vedi _on_chunk_ready), quindi 190 MB richiedono circa un secondo; la
+# soglia resta qui perché oltre conta soprattutto la RAM occupata dal documento.
 THRESHOLD_PAGED    = 200 * MB
 
 # Dimensione chunk per loading progressivo (in bytes)
@@ -791,6 +789,13 @@ class LazyLoader(QObject):
                 # documento e rende il caricamento piu lento.
                 self._editor.SendScintilla(QsciScintilla.SCI_SETUNDOCOLLECTION, 0)
                 self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
+                # blockSignals non ferma QScintilla: per ogni inserimento il suo
+                # handler di accessibilità conta i caratteri da inizio file, e
+                # append() inserisce sempre in fondo (costo quadratico sul
+                # totale). Senza notifiche 100 MB passano da ~8,5 s a ~0,6 s.
+                self._saved_mod_mask = self._editor.SendScintilla(
+                    QsciScintilla.SCI_GETMODEVENTMASK)
+                self._editor.SendScintilla(QsciScintilla.SCI_SETMODEVENTMASK, 0)
                 self._disable_editor_wrap()
                 self._editor_load_active = True
             else:
@@ -824,10 +829,17 @@ class LazyLoader(QObject):
             if self._worker:
                 self._worker.acknowledge_chunk()
 
+    def _restore_mod_event_mask(self) -> None:
+        mask = getattr(self, "_saved_mod_mask", None)
+        if mask is not None:
+            self._saved_mod_mask = None
+            self._editor.SendScintilla(QsciScintilla.SCI_SETMODEVENTMASK, mask)
+
     def _on_lazy_finished(self, encoding: str, le_label: str) -> None:
         if self._cancelled:
             return
         if self._editor_load_active:
+            self._restore_mod_event_mask()
             self._editor.SendScintilla(QsciScintilla.SCI_SETUNDOCOLLECTION, 1)
             self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
             self._editor.setModified(False)
@@ -1031,6 +1043,10 @@ class LazyLoader(QObject):
     def cancel(self) -> None:
         """Annulla il caricamento (da chiamare quando il tab viene chiuso)."""
         self._cancelled = True
+        try:
+            self._restore_mod_event_mask()
+        except RuntimeError:
+            pass  # editor già distrutto insieme al tab
         if self._worker:
             self._worker.cancel()
         if self._editor_load_active:
@@ -1067,6 +1083,7 @@ class LazyLoader(QObject):
 
     def _on_error(self, msg: str) -> None:
         if self._editor_load_active:
+            self._restore_mod_event_mask()
             self._editor.SendScintilla(QsciScintilla.SCI_SETUNDOCOLLECTION, 1)
             self._editor.SendScintilla(QsciScintilla.SCI_EMPTYUNDOBUFFER)
             self._editor.blockSignals(False)

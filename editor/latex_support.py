@@ -55,6 +55,7 @@ from core.latex_tokenizer import (
     scan_package_options,
     scan_used_packages,
 )
+from editor.text_access import text_before_cursor
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -1085,7 +1086,7 @@ class LaTeXSupport:
         if not ac or not ac._env_cache:
             return
         line, col = editor.getCursorPosition()
-        text_before = editor.text(line)[:col]
+        text_before = text_before_cursor(editor, line, col)
         m = LaTeXSupport._BEGIN_END_PREFIX.search(text_before)
         if m:
             ac.refresh_env_popup(m.group(1))
@@ -1107,7 +1108,7 @@ class LaTeXSupport:
         if not ac:
             return
         line, col = editor.getCursorPosition()
-        text_before = editor.text(line)[:col]
+        text_before = text_before_cursor(editor, line, col)
         m = LaTeXSupport._CMD_WORD.search(text_before)
         word = m.group(1) if m else ""
 
@@ -1265,7 +1266,7 @@ class LaTeXSupport:
         (es. multicols → {2}). Usa i tab-stop per navigare tra argomenti.
         """
         line, col = editor.getCursorPosition()
-        line_text = editor.text(line)[:col]
+        line_text = text_before_cursor(editor, line, col)
 
         m = re.search(r'\\begin\{([^}]+)\}$', line_text)
         if not m:

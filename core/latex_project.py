@@ -342,6 +342,12 @@ def resolve_project_root(current_file: str | Path, content: str | None = None) -
     disponibile, viene restituito il file corrente.
     """
     current = _resolved(current_file)
+    if not content:
+        # Un buffer vuoto su un file esistente è un tab non ancora caricato:
+        # i worker partono prima della fine del caricamento. Trattarlo come
+        # documento vuoto faceva scegliere come radice il primo .tex della
+        # cartella (e indicizzarlo tutto, anche se enorme e non correlato).
+        content = None
     if content is None:
         # Nessun contenuto "live" passato dal chiamante (caso comune per
         # collect_project_files, cwl.py, ecc.): usa la cache condivisa per

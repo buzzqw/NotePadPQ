@@ -24,6 +24,9 @@ _DEFAULTS: dict[str, Any] = {
     "editor/show_whitespace":  False,
     "editor/show_eol":         False,
     "editor/word_wrap":        False,
+    # Digitazione rapida sui documenti grandi. Disattivare con uno screen reader:
+    # sopra 512 KB i singoli tasti non generano eventi di accessibilità sul testo.
+    "editor/fast_typing":      True,
     "editor/show_minimap":     False,
     "editor/vim_mode_enabled": False,
     # Tema

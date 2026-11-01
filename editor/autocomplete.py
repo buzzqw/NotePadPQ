@@ -20,12 +20,16 @@ from __future__ import annotations
 
 import json
 import re
+from array import array
+from bisect import bisect_left
 from enum import IntFlag, auto
 from typing import TYPE_CHECKING
 
 from PyQt6.Qsci import QsciAPIs, QsciScintilla
 from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor
+
+from editor.text_access import text_before_cursor
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -853,6 +857,39 @@ class _DocumentWordsWorker(QThread):
                 self.done.emit([], self._gen)
 
 
+class _CompletionIndex:
+    """Termini ordinati per chiave: un prefisso è un intervallo trovato con bisect.
+
+    Lo stesso oggetto serve finché la lista di origine non cambia. Scorrere le
+    ~25.000 voci di un documento grande a ogni tasto costava ~8 ms sul thread GUI.
+    """
+
+    __slots__ = ("source", "keys", "labels", "order")
+
+    def __init__(self, terms: list[str]) -> None:
+        self.source = terms
+        entries = []
+        for position, term in enumerate(terms):
+            label = str(term).split("?", 1)[0].split("\n", 1)[0].strip()
+            if label:
+                entries.append((label.casefold(), position, label))
+        entries.sort()
+        self.keys = [entry[0] for entry in entries]
+        self.order = array("I", (entry[1] for entry in entries))
+        self.labels = [entry[2] for entry in entries]
+
+    def matches(self, prefix_key: str) -> list[tuple[str, str]]:
+        """Le coppie (chiave, etichetta) col prefisso, nell'ordine originale."""
+        keys = self.keys
+        start = bisect_left(keys, prefix_key)
+        stop = start
+        total = len(keys)
+        while stop < total and keys[stop].startswith(prefix_key):
+            stop += 1
+        hits = sorted(range(start, stop), key=self.order.__getitem__)
+        return [(keys[i], self.labels[i]) for i in hits]
+
+
 class AutoCompleteManager(QObject):
     """
     Gestisce i livelli di autocompletamento per un EditorWidget.
@@ -880,8 +917,7 @@ class AutoCompleteManager(QObject):
         self._cross_tab_connected = False
         self._local_completion_keys: set[str] = set()
         self._local_completion_terms: list[str] = []
-        self._snapshot_revision: int | None = None
-        self._snapshot_text: str | None = None
+        self._completion_indexes: dict[str, _CompletionIndex] = {}
         self._all_docs_words_key: tuple = ()
         self._all_docs_words_cache: list[str] = []
         self._custom_popup_open = False
@@ -1144,13 +1180,9 @@ class AutoCompleteManager(QObject):
 
         # Snapshot sul main thread (QScintilla non è thread-safe). Riutilizza
         # quello precedente se il documento non è cambiato.
-        revision = getattr(self._editor, "document_revision", None)
-        if revision is not None and revision == self._snapshot_revision:
-            text = self._snapshot_text or ""
-        else:
-            text = self._editor.text()
-            self._snapshot_revision = revision
-            self._snapshot_text = text
+        # Nessuna copia trattenuta: su documenti grandi occupava il doppio del
+        # file per ogni tab, solo per evitare un rebuild raro a testo invariato.
+        text = self._editor.text()
         fp   = getattr(self._editor, "file_path", None)
         all_docs_words = self._collect_all_docs_words()
 
@@ -1334,7 +1366,11 @@ class AutoCompleteManager(QObject):
         # che sia pronta non scansioniamo l'intero documento a ogni tasto:
         # per i file senza lexer al massimo leggiamo un prefisso limitato.
         if self._document_words_cache:
-            return list(self._document_words_cache)
+            return self._document_words_cache
+        # Il caricamento ha i segnali bloccati: senza questo il worker partirebbe
+        # solo alla prima pausa di digitazione.
+        if self._language not in ("latex", "bibtex") and not self._doc_words_timer.isActive():
+            self._doc_words_timer.start()
         try:
             getter = getattr(self._editor, "text_prefix", None)
             text = getter(_DOCUMENT_COMPLETION_PREFIX_BYTES) if getter else ""
@@ -1445,6 +1481,13 @@ class AutoCompleteManager(QObject):
             self._track_completion_usage(category, value)
         # list_id 3 (ambienti) è già conteggiato da insert_environment.
 
+    def _completion_index(self, slot: str, terms: list[str]) -> _CompletionIndex:
+        index = self._completion_indexes.get(slot)
+        if index is None or (index.source is not terms and index.source != terms):
+            index = _CompletionIndex(terms)
+            self._completion_indexes[slot] = index
+        return index
+
     def _show_custom_completion(self, force: bool = False) -> None:
         """Mostra il completamento ordinario senza il popup API nativo."""
         if self._shutting_down:
@@ -1456,15 +1499,15 @@ class AutoCompleteManager(QObject):
             self._cancel_custom_popup()
             return
 
-        terms = list(self._local_completion_terms)
+        sources = [("local", self._local_completion_terms)]
         if self._levels & AutoCompleteLevel.API_DICT:
             # Il worker aggiorna la lista completa in modo asincrono; usare
             # subito il dizionario statico evita che il primo popup dopo
             # l'apertura resti vuoto mentre il worker non ha ancora finito.
-            terms.extend(_LANGUAGE_APIS.get(self._language, []))
-        terms.extend(self._document_completion_terms())
+            sources.append(("api", _LANGUAGE_APIS.get(self._language, [])))
+        sources.append(("document", self._document_completion_terms()))
         if self._levels & AutoCompleteLevel.ALL_DOCS:
-            terms.extend(self._collect_all_docs_words())
+            sources.append(("all_docs", self._collect_all_docs_words()))
 
         prefix_key = prefix.casefold()
         seen: set[str] = set()
@@ -1475,17 +1518,18 @@ class AutoCompleteManager(QObject):
         # ``\vfill`` con ``\vfill\null`` nel documento, resterebbe solo la
         # variante lunga e Invio inserirebbe quella senza possibilità di scelta.
         exact_label: str | None = None
-        for term in terms:
-            label = self._completion_label(term)
-            key = label.casefold()
-            if not label or key in seen or not key.startswith(prefix_key):
-                continue
-            if key == prefix_key:
-                if exact_label is None:
-                    exact_label = label
-                continue
-            seen.add(key)
-            labels.append(label)
+        for slot, terms in sources:
+            for key, label in self._completion_index(slot, terms).matches(prefix_key):
+                if key in seen:
+                    continue
+                if key == prefix_key:
+                    if exact_label is None:
+                        exact_label = label
+                    continue
+                seen.add(key)
+                labels.append(label)
+                if len(labels) >= 80:
+                    break
             if len(labels) >= 80:
                 break
 
@@ -1646,7 +1690,7 @@ class AutoCompleteManager(QObject):
             return False
         line, col = self._editor.getCursorPosition()
         try:
-            line_text = self._editor.text(line)[:col]
+            line_text = text_before_cursor(self._editor, line, col)
         except Exception:
             return False
 
@@ -1841,7 +1885,7 @@ class AutoCompleteManager(QObject):
         if self._language != "latex" or self._cwl_enabled:
             return
         line, col = self._editor.getCursorPosition()
-        if force or re.search(r"\\[A-Za-z@]*$", self._editor.text(line)[:col]):
+        if force or re.search(r"\\[A-Za-z@]*$", text_before_cursor(self._editor, line, col)):
             self._cwl_enabled = True
             self._rebuild_api()
 
@@ -1926,7 +1970,7 @@ class AutoCompleteManager(QObject):
 
     def _completion_prefix(self, line: int, col: int) -> str:
         try:
-            text = self._editor.text(line)[:col]
+            text = text_before_cursor(self._editor, line, col)
         except Exception:
             return ""
         match = re.search(r"[\w\\]*$", text, re.UNICODE)
@@ -2038,7 +2082,7 @@ class AutoCompleteManager(QObject):
 
         ed = self._editor
         line, col = ed.getCursorPosition()
-        line_text = ed.text(line)[:col]
+        line_text = text_before_cursor(ed, line, col)
 
         # minted: il primo argomento è il linguaggio Pygments.
         minted_env = re.search(
@@ -2145,7 +2189,7 @@ class AutoCompleteManager(QObject):
 
         ed = self._editor
         line, col = ed.getCursorPosition()
-        line_text = ed.text(line)[:col]
+        line_text = text_before_cursor(ed, line, col)
 
         if bracket != "[":
             return self._complete_active_latex_option(line_text, col)
@@ -2449,7 +2493,7 @@ class AutoCompleteManager(QObject):
             return
         try:
             line, col = self._editor.getCursorPosition()
-            if not self._editor.text(line)[:col].endswith(f"\\{command}"):
+            if not text_before_cursor(self._editor, line, col).endswith(f"\\{command}"):
                 return
             self._show_context_list(
                 ("env", "end" if command == "end" else "begin"),

@@ -314,7 +314,7 @@ class LatexIndex:
         return self._by_path.get(path.resolve())
 
 
-_MAX_INDEX_CACHE = 8
+_MAX_INDEX_CACHE = 4
 _MAX_SOURCE_CACHE = 64
 
 

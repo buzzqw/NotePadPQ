@@ -30,10 +30,12 @@ import bisect
 # find_spec; le classi si importano solo quando serve creare davvero la view.
 import importlib.util as _importlib_util
 import json
+import os
 import re
+import threading
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QEvent, QPoint, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
@@ -53,6 +55,7 @@ from PyQt6.QtWidgets import (
 from config.settings import Settings
 from core.diagnostics import profile_operation
 from core.external_open import open_url as _open_url
+from core.memory import schedule_trim
 from i18n.i18n import tr
 
 _HAS_WEBENGINE = _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
@@ -674,6 +677,73 @@ class _SyncTeXSelWorker(QThread):
             return None
 
 
+class _PdfDocumentPool:
+    """Documenti aperti riusati dai worker, uno per thread alla volta.
+
+    Riaprire il PDF per ogni pagina costava più del rendering stesso (~43 ms
+    contro ~18 ms su un file da 576 pagine). Il prestito è esclusivo perché un
+    documento PyMuPDF non può essere usato da due thread insieme; la firma del
+    file scarta i documenti superati da una ricompilazione.
+    """
+
+    MAX_IDLE = 2
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._idle: list[tuple[tuple, object]] = []
+        self._generation = 0
+
+    @staticmethod
+    def _signature(path: str) -> tuple:
+        try:
+            stat = os.stat(path)
+        except OSError:
+            return None  # lascia a fitz.open() il compito di segnalare l'errore
+        return (path, stat.st_mtime_ns, stat.st_size)
+
+    def acquire(self, path: str):
+        """Restituisce (documento, gettone da ripassare a release)."""
+        import fitz as _fitz
+
+        signature = self._signature(path)
+        stale = []
+        document = None
+        with self._lock:
+            keep = []
+            for item in self._idle:
+                if item[0] != signature:
+                    stale.append(item[1])
+                elif document is None:
+                    document = item[1]
+                else:
+                    keep.append(item)
+            self._idle = keep
+            token = (signature, self._generation)
+        for old in stale:
+            old.close()
+        return (document if document is not None else _fitz.open(path)), token
+
+    def release(self, document, token: tuple) -> None:
+        signature, generation = token
+        with self._lock:
+            if (signature is not None and generation == self._generation
+                    and len(self._idle) < self.MAX_IDLE):
+                self._idle.append((signature, document))
+                return
+        document.close()
+
+    def clear(self) -> None:
+        """Chiude gli inattivi; quelli in prestito si chiudono alla restituzione."""
+        with self._lock:
+            self._generation += 1
+            idle, self._idle = self._idle, []
+        for _signature, document in idle:
+            document.close()
+
+
+_PDF_DOCUMENT_POOL = _PdfDocumentPool()
+
+
 class _PdfRenderWorker(QThread):
     """Rasterizza una pagina PDF con fitz in background.
     Emette done(gen, page_idx, QImage_or_None, clip_rect, links)."""
@@ -703,7 +773,8 @@ class _PdfRenderWorker(QThread):
             import fitz as _fitz
             from PyQt6.QtGui import QBrush, QColor, QImage, QPainter, QPen
 
-            doc = _fitz.open(self._path)
+            doc, lease = _PDF_DOCUMENT_POOL.acquire(self._path)
+            rendered = False
             try:
                 page = doc[self._page_idx]
 
@@ -738,10 +809,17 @@ class _PdfRenderWorker(QThread):
                 del pix
 
                 links = page.get_links()
+                rendered = True
             finally:
-                # PyMuPDF owns native resources outside Python's allocator.
-                # Always close the per-render document, including failures.
-                doc.close()
+                # La pagina appartiene al documento: va lasciata prima di
+                # restituirlo, perché un altro worker può riusarlo subito.
+                page = None
+                if rendered:
+                    _PDF_DOCUMENT_POOL.release(doc, lease)
+                else:
+                    # Anche il ramo "annullato" passa da qui: costa una riapertura
+                    # ma non rimette in circolo un documento dopo un errore.
+                    doc.close()
 
             if self._cancelled:
                 return
@@ -826,27 +904,146 @@ def _retain_pdf_worker(worker: _PdfRenderWorker) -> None:
     worker.finished.connect(worker.deleteLater)
 
 
+class _PdfVirtualPage:
+    """Pagina dello scroll continuo: solo geometria e pixmap, nessun widget.
+
+    Espone la piccola parte dell'interfaccia di QLabel usata dal pannello. Con
+    un widget per pagina (più un separatore) un PDF da 576 pagine bloccava la GUI
+    per ~3 s al primo show, per il polish di oltre 1.100 widget con stile.
+    """
+
+    __slots__ = ("_owner", "index", "left", "top", "_width", "_height", "_pixmap")
+
+    def __init__(self, owner: _PdfContContainer, index: int) -> None:
+        self._owner = owner
+        self.index = index
+        self.left = 0
+        self.top = 0
+        self._width = 1
+        self._height = 1
+        self._pixmap = None
+
+    def x(self) -> int:
+        return self.left
+
+    def y(self) -> int:
+        return self.top
+
+    def pos(self) -> QPoint:
+        return QPoint(self.left, self.top)
+
+    def width(self) -> int:
+        return self._width
+
+    def height(self) -> int:
+        return self._height
+
+    def setFixedSize(self, width: int, height: int) -> None:  # noqa: N802 - come QLabel
+        """Le posizioni si aggiornano con _PdfContContainer.relayout()."""
+        self._width = width
+        self._height = height
+
+    def pixmap(self):
+        return self._pixmap
+
+    def setPixmap(self, pixmap) -> None:  # noqa: N802 - come QLabel
+        self._pixmap = pixmap if pixmap is not None and not pixmap.isNull() else None
+        self._owner.update(self.left, self.top, self._width, self._height)
+
+    def clear(self) -> None:
+        self.setPixmap(None)
+
+
 class _PdfContContainer(QWidget):
-    """Container per lo scroll continuo PDF con sizeHint() limitata.
-    QScrollArea.sizeHint() usa la sizeHint() del widget contenuto, e un
-    QVBoxLayout con centinaia di label ha una sizeHint() = somma altezze
-    (= centinaia di migliaia di pixel). Questo farebbe diventare enorme
-    il dock di anteprima e causerebbe flash/resize ad ogni cambio modalità.
-    Restituiamo una sizeHint() fissa piccola: la scroll area userà quella
-    per il suo sizeHint, ma il layout interno gestirà comunque tutte le
-    label e la scrollbar apparirà quando il contenuto eccede il viewport."""
+    """Area dello scroll continuo: disegna solo le pagine visibili.
+
+    La sizeHint() resta piccola: QScrollArea.sizeHint() usa quella del contenuto
+    e, con la somma delle altezze, il dock di anteprima diventerebbe enorme a ogni
+    cambio modalità. L'estensione reale passa da minimumSize, che la scroll area
+    rispetta anche con widgetResizable."""
+
+    _MARGIN = 8
+    # Spazio tra le pagine, con il separatore disegnato a metà.
+    _GAP = 17
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        from PyQt6.QtCore import QSize
+        self._size_hint = QSize(400, 480)
+        self._pages: list[_PdfVirtualPage] = []
+        self._tops: list[int] = []
+        self.on_page_clicked = None
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
 
     def sizeHint(self):
         return self._size_hint
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._size_hint = self._default_size_hint()
+    def create_pages(self, count: int) -> list[_PdfVirtualPage]:
+        self._pages = [_PdfVirtualPage(self, index) for index in range(count)]
+        return self._pages
 
-    @staticmethod
-    def _default_size_hint():
-        from PyQt6.QtCore import QSize
-        return QSize(400, 480)
+    def relayout(self) -> None:
+        """Ricalcola le posizioni e l'estensione totale (come layout.activate())."""
+        top = self._MARGIN
+        widest = 0
+        self._tops = []
+        for page in self._pages:
+            page.top = top
+            self._tops.append(top)
+            top += page.height() + self._GAP
+            widest = max(widest, page.width())
+        total_height = top - self._GAP + self._MARGIN if self._pages else 0
+        total_width = widest + 2 * self._MARGIN
+        self.setMinimumSize(total_width, total_height)
+        self._center_pages(max(self.width(), total_width))
+        # resize() aggiorna subito il range della scrollbar: chi chiama relayout
+        # può scorrere alla pagina corrente senza attendere il layout asincrono.
+        self.resize(max(self.width(), total_width), total_height)
+        self.update()
+
+    def _center_pages(self, width: int) -> None:
+        for page in self._pages:
+            page.left = max(self._MARGIN, (width - page.width()) // 2)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._center_pages(event.size().width())
+
+    def _pages_between(self, top: int, bottom: int) -> list[_PdfVirtualPage]:
+        first = max(0, bisect.bisect_right(self._tops, top) - 1)
+        last = bisect.bisect_right(self._tops, bottom)
+        return self._pages[first:last]
+
+    def paintEvent(self, event) -> None:
+        from PyQt6.QtGui import QColor, QPainter
+
+        area = event.rect()
+        painter = QPainter(self)
+        painter.fillRect(area, QColor("#404040"))
+        white = QColor("white")
+        separator = QColor("#555555")
+        for page in self._pages_between(area.top(), area.bottom()):
+            painter.fillRect(page.left, page.top, page.width(), page.height(), white)
+            pixmap = page.pixmap()
+            if pixmap is not None:
+                offset = max(0, (page.width() - pixmap.width()) // 2)
+                painter.drawPixmap(page.left + offset, page.top, pixmap)
+            if page.index > 0:
+                line_y = page.top - self._GAP // 2 - 1
+                painter.fillRect(self._MARGIN, line_y, self.width() - 2 * self._MARGIN,
+                                 1, separator)
+        painter.end()
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton and self.on_page_clicked:
+            x = int(event.position().x())
+            y = int(event.position().y())
+            for page in self._pages_between(y, y):
+                if (page.top <= y < page.top + page.height()
+                        and page.left <= x < page.left + page.width()):
+                    self.on_page_clicked(page.index, x - page.left, y - page.top)
+                    break
+        super().mousePressEvent(event)
 
 
 class PreviewPanel(QWidget):
@@ -1174,7 +1371,7 @@ class PreviewPanel(QWidget):
         pdf_vl.addWidget(self._crop_widget)
         # --- FINE AGGIUNTA CONTATORI TAGLIO ---
 
-        from PyQt6.QtWidgets import QScrollArea, QVBoxLayout as _QVBoxLayout2
+        from PyQt6.QtWidgets import QScrollArea
         self._pdf_scroll = QScrollArea()
         self._pdf_scroll.setWidgetResizable(True)
         self._pdf_scroll.setStyleSheet(
@@ -1207,10 +1404,7 @@ class PreviewPanel(QWidget):
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         self._pdf_scroll_cont.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._pdf_cont_container = _PdfContContainer()
-        self._pdf_cont_container.setStyleSheet("background: #404040;")
-        self._pdf_cont_layout = _QVBoxLayout2(self._pdf_cont_container)
-        self._pdf_cont_layout.setContentsMargins(8, 8, 8, 8)
-        self._pdf_cont_layout.setSpacing(8)
+        self._pdf_cont_container.on_page_clicked = self._pdf_cont_clicked
         self._pdf_scroll_cont.setWidget(self._pdf_cont_container)
         self._pdf_scroll_cont.verticalScrollBar().valueChanged.connect(
             self._pdf_on_cont_scrollbar_changed)
@@ -1235,7 +1429,14 @@ class PreviewPanel(QWidget):
         self._pdf_cursor_highlight: tuple | None = None  # (page_0based, y_pt, h_pt, W_pt)
         self._pdf_continuous  = False   # True = scroll continuo
         self._pdf_building    = False   # guardia contro valueChanged durante rebuild
-        self._pdf_cont_page_labels: list = []   # _ClickableLabel per ogni pagina in modo continuo
+        self._pdf_cont_page_labels: list = []   # _PdfVirtualPage per ogni pagina in modo continuo
+        self._pdf_sizes_signature = None
+        self._pdf_page_sizes: list = []
+        self._pdf_auto_clips: dict = {}
+        self._pdf_idle_timer = QTimer(self)
+        self._pdf_idle_timer.setSingleShot(True)
+        self._pdf_idle_timer.setInterval(5000)
+        self._pdf_idle_timer.timeout.connect(self._pdf_release_idle_resources)
         self._pdf_cont_clip_rects: list = []    # fitz.Rect clip per ogni pagina (coordinate conversion)
         self._pdf_cont_rendered: set = set()    # indici delle pagine già rasterizzate (rendering lazy)
         self._pdf_cont_render_workers: dict = {}  # worker -> indice pagina
@@ -2367,12 +2568,61 @@ class PreviewPanel(QWidget):
                     page.rect.x1-c_r, page.rect.y1-c_b)
         return clip_rect
 
+    def _pdf_refresh_page_sizes(self) -> None:
+        """Legge le dimensioni delle pagine senza caricarle, una volta per file.
+
+        Caricare ogni pagina solo per misurarla bloccava la GUI a ogni zoom e
+        ricompilazione su documenti lunghi. Una pagina con rotazione diversa
+        dalla prima viene corretta quando arriva il suo rendering.
+        """
+        doc = self._pdf_doc
+        try:
+            stat = os.stat(self._pdf_path)
+            signature = (self._pdf_path, stat.st_mtime_ns, stat.st_size, len(doc))
+        except (OSError, TypeError):
+            signature = None
+        if signature is not None and signature == self._pdf_sizes_signature:
+            return
+        self._pdf_sizes_signature = signature
+        self._pdf_auto_clips = {}
+        self._pdf_page_sizes = []
+        try:
+            first = doc[0]
+            swap = first.rotation in (90, 270)
+            first = None
+            for index in range(len(doc)):
+                box = doc.page_cropbox(index)
+                self._pdf_page_sizes.append(
+                    (box.height, box.width) if swap else (box.width, box.height))
+        except (AttributeError, IndexError, RuntimeError, ValueError):
+            self._pdf_page_sizes = []
+
+    def _pdf_cached_clip_rect(self, page_idx: int):
+        sizes = self._pdf_page_sizes
+        crop = getattr(self, "_pdf_crop_margins", False)
+        crop_values = (
+            (self._crop_t.value(), self._crop_b.value(),
+             self._crop_l.value(), self._crop_r.value())
+            if crop else (0, 0, 0, 0)
+        )
+        if crop and not any(crop_values):
+            # Ritaglio automatico: dipende dal testo, ma non dallo zoom.
+            clip = self._pdf_auto_clips.get(page_idx)
+            if clip is None:
+                clip = self._compute_clip_rect(self._pdf_doc[page_idx])
+                self._pdf_auto_clips[page_idx] = clip
+            return clip
+        if page_idx < len(sizes):
+            width, height = sizes[page_idx]
+            top, bottom, left, right = crop_values
+            return _fitz.Rect(left, top, width - right, height - bottom)
+        return self._compute_clip_rect(self._pdf_doc[page_idx])
+
     def _pdf_page_placeholder_size(self, page_idx: int):
         """Dimensioni (in pixel, allo zoom corrente) e clip_rect di una
         pagina SENZA rasterizzarla. Usato per dimensionare correttamente i
         placeholder in modo continuo prima del rendering lazy vero e proprio."""
-        page = self._pdf_doc[page_idx]
-        clip_rect = self._compute_clip_rect(page)
+        clip_rect = self._pdf_cached_clip_rect(page_idx)
         z = self._pdf_zoom
         w_px = max(1, int(round(clip_rect.width * z)))
         h_px = max(1, int(round(clip_rect.height * z)))
@@ -2587,6 +2837,7 @@ class PreviewPanel(QWidget):
             QTimer.singleShot(0, _do_scroll)
 
     def _on_pdf_render_worker_finished(self) -> None:
+        self._pdf_idle_timer.start()
         worker = self.sender()
         if worker is self._render_worker:
             self._render_worker = None
@@ -2740,7 +2991,7 @@ class PreviewPanel(QWidget):
             # Costruisce le pagine mentre _pdf_scroll_cont è ancora nascosto
             self._pdf_show_all_pages()
             # Forza il calcolo del layout prima di rendere visibile la scroll area
-            self._pdf_cont_layout.activate()
+            self._pdf_cont_container.relayout()
             # Rende visibile la scroll continua: Qt aggiorna il range della scrollbar
             self._pdf_scroll_cont.setVisible(True)
             # Posiziona subito alla pagina corretta — prima che avvenga qualsiasi repaint
@@ -2781,50 +3032,20 @@ class PreviewPanel(QWidget):
         self._pdf_cancel_cont_renders(invalidate=True)
         self._pdf_building = True
         try:
-            # Scollega tutti i segnali dai vecchi widget prima di rimuoverli:
-            # ogni label ha un clicked.connect(lambda) che crea un reference cycle
-            # (label → lambda → self → _pdf_cont_page_labels → label).
-            # Senza disconnect, i vecchi label e i loro QPixmap sopravvivono
-            # al GC per un tempo indefinito, accumulando memoria ad ogni rebuild.
-            for lbl in self._pdf_cont_page_labels:
-                try:
-                    lbl.clicked.disconnect()
-                except Exception:
-                    pass
-            while self._pdf_cont_layout.count():
-                item = self._pdf_cont_layout.takeAt(0)
-                w = item.widget()
-                if w:
-                    w.setParent(None)
-                    w.deleteLater()
-            self._pdf_cont_page_labels = []
-            self._pdf_cont_clip_rects  = []
-            self._pdf_cont_rendered    = set()
-
-            from PyQt6.QtWidgets import QFrame as _QF
+            self._pdf_refresh_page_sizes()
             total = len(self._pdf_doc)
-            for i in range(total):
-                try:
-                    clip_rect, w_px, h_px = self._pdf_page_placeholder_size(i)
-                except Exception:
-                    continue
-                lbl = _ClickableLabel()
-                lbl.setFixedSize(w_px, h_px)
-                lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-                lbl.setStyleSheet("background: white; margin: 0;")
-                lbl.clicked.connect(lambda x, y, idx=i: self._pdf_cont_clicked(idx, x, y))
-                if i > 0:
-                    sep = _QF()
-                    sep.setFrameShape(_QF.Shape.HLine)
-                    sep.setStyleSheet("color: #555; margin: 0 8px;")
-                    self._pdf_cont_layout.addWidget(sep)
-                self._pdf_cont_layout.addWidget(lbl)
-                self._pdf_cont_page_labels.append(lbl)
-                self._pdf_cont_clip_rects.append(clip_rect)
+            pages = self._pdf_cont_container.create_pages(total)
+            self._pdf_cont_page_labels = pages
+            self._pdf_cont_clip_rects = [None] * total
+            self._pdf_cont_rendered = set()
+            for i, page in enumerate(pages):
+                clip_rect, w_px, h_px = self._pdf_page_placeholder_size(i)
+                page.setFixedSize(w_px, h_px)
+                self._pdf_cont_clip_rects[i] = clip_rect
             self._stack.setCurrentIndex(3)
-            # Calcola subito posizione/dimensioni reali dei label: servono a
+            # Calcola subito le posizioni: servono a
             # _pdf_cont_render_visible() per sapere cosa è a schermo.
-            self._pdf_cont_layout.activate()
+            self._pdf_cont_container.relayout()
         finally:
             self._pdf_building = False
         self._pdf_cont_render_visible()
@@ -2975,7 +3196,12 @@ class PreviewPanel(QWidget):
                 or page_idx >= len(self._pdf_cont_page_labels)):
             return
         from PyQt6.QtGui import QPixmap
-        self._pdf_cont_page_labels[page_idx].setPixmap(QPixmap.fromImage(img))
+        page = self._pdf_cont_page_labels[page_idx]
+        if page.width() != img.width() or page.height() != img.height():
+            # Dimensione stimata errata (rotazione o box diversi dalla prima pagina).
+            page.setFixedSize(img.width(), img.height())
+            self._pdf_cont_container.relayout()
+        page.setPixmap(QPixmap.fromImage(img))
         self._pdf_cont_rendered.add(page_idx)
         self._pdf_cont_priority.discard(page_idx)
         if clip_rect is not None and page_idx < len(self._pdf_cont_clip_rects):
@@ -2998,6 +3224,26 @@ class PreviewPanel(QWidget):
             self._pdf_show_page()
         elif not self._closing:
             self._pdf_start_cont_render_workers()
+        if not self._closing and not self._pdf_cont_render_workers:
+            self._pdf_idle_timer.start()
+
+    def _pdf_release_idle_resources(self) -> None:
+        """A rendering fermo: chiude i documenti in cache e svuota lo store MuPDF.
+
+        Lo store nativo arriva a 256 MB e non si riduce da solo: scorrendo un PDF
+        con molte immagini la memoria restava occupata anche con poche pagine in
+        cache. Il file non resta nemmeno aperto (conta su Windows durante la build).
+        """
+        if self._pdf_running_worker_count():
+            self._pdf_idle_timer.start()
+            return
+        _PDF_DOCUMENT_POOL.clear()
+        if _get_fitz():
+            try:
+                _fitz.TOOLS.store_shrink(100)
+            except (AttributeError, RuntimeError):
+                pass
+        schedule_trim()
 
     def _pdf_cancel_cont_renders(self, invalidate: bool = False) -> None:
         """Invalida coda/risultati senza attendere i thread in esecuzione."""
@@ -3031,6 +3277,7 @@ class PreviewPanel(QWidget):
         try:
             self._stack.setCurrentIndex(3)
             self._pdf_cont_rendered = set()
+            self._pdf_refresh_page_sizes()
             for i, lbl in enumerate(self._pdf_cont_page_labels):
                 try:
                     clip_rect, w_px, h_px = self._pdf_page_placeholder_size(i)
@@ -3039,7 +3286,7 @@ class PreviewPanel(QWidget):
                 lbl.setFixedSize(w_px, h_px)
                 lbl.clear()   # rimuove il pixmap alla vecchia scala
                 self._pdf_cont_clip_rects[i] = clip_rect
-            self._pdf_cont_layout.activate()
+            self._pdf_cont_container.relayout()
         finally:
             self._pdf_building = False
         self._pdf_cont_render_visible()
@@ -3491,6 +3738,8 @@ class PreviewPanel(QWidget):
             super().closeEvent(event)
             return
         self._closing = True
+        self._pdf_idle_timer.stop()
+        _PDF_DOCUMENT_POOL.clear()
         self._pdf_cancel_cont_renders(invalidate=True)
         # Attendi i vecchi worker ancora in esecuzione
         for w in list(self._md_old_workers):

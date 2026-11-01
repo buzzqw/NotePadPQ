@@ -56,6 +56,7 @@ from PyQt6.QtWidgets import (
 
 from core.diagnostics import profile_operation
 from core.external_open import open_url as _open_url
+from core.memory import schedule_trim
 from editor.editor_widget import EditorWidget, LineEnding
 from i18n.i18n import I18n, tr
 from ui.busy_indicator import hide_busy, show_busy
@@ -2881,6 +2882,7 @@ class MainWindow(QMainWindow):
         """Post-caricamento comune a un nuovo tab e a un tab differito."""
         self._lazy_loaders.pop(tab, None)
         tab._deferred_load = False
+        schedule_trim()
         self._tab_manager.set_tab_deferred(tab, False)
         self._autosave_file_to_backup(tab)
         # Notifica plugin: file aperto

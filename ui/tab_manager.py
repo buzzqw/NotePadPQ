@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.memory import schedule_trim
 from editor.editor_widget import EditorWidget
 from i18n.i18n import tr
 
@@ -514,6 +515,7 @@ class TabManager(QTabWidget):
         return True
 
     def _close_tab_at(self, index: int) -> None:
+        schedule_trim()
         container = self.widget(index)
         editor = self._editors.get(container)
         if editor is not None and getattr(editor, "_save_in_progress", False):

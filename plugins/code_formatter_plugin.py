@@ -36,7 +36,6 @@ import os
 import shutil
 import subprocess
 import sys
-import xml.dom.minidom
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -209,7 +208,8 @@ def _format_json(text: str) -> tuple[bool, str]:
 
 def _format_xml(text: str) -> tuple[bool, str]:
     try:
-        dom    = xml.dom.minidom.parseString(text.encode("utf-8"))
+        from xml.dom import minidom  # solo per il formato XML
+        dom    = minidom.parseString(text.encode("utf-8"))
         result = dom.toprettyxml(indent="  ", encoding=None)
         # rimuove la riga <?xml…?> ridondante se già presente nel testo originale
         lines  = result.splitlines()

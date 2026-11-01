@@ -329,6 +329,7 @@ class _LanguageToolbarWidget(QWidget):
         super().__init__(main_window)
         self._mw = main_window
         self._current_lang: str = ""
+        self._built_for: tuple[bool, bool] | None = None
         self._user_hidden: bool = False
         self._fl_conn = None
         self._lang_editor = None  # editor di cui stiamo ascoltando language_changed
@@ -460,7 +461,11 @@ class _LanguageToolbarWidget(QWidget):
         if self._user_hidden or (not is_md and not is_tex):
             self.setVisible(False)
         else:
-            self._rebuild(is_md=is_md, is_tex=is_tex)
+            # La barra dipende solo dal tipo di documento: ricostruirla (decine
+            # di widget e icone) a ogni apertura o cambio tab bloccava la GUI.
+            if self._built_for != (is_md, is_tex):
+                self._rebuild(is_md=is_md, is_tex=is_tex)
+                self._built_for = (is_md, is_tex)
             self.setVisible(True)
 
     # ── Costruzione ───────────────────────────────────────────────────────────

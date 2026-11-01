@@ -26,7 +26,6 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from cryptography.fernet import Fernet
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QApplication,
@@ -46,6 +45,8 @@ from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
 
 if TYPE_CHECKING:
+    from cryptography.fernet import Fernet
+
     from ui.main_window import MainWindow
 
 
@@ -72,7 +73,9 @@ class _ClipboardPanel(QWidget):
         self._save_timer.setInterval(SAVE_DEBOUNCE)
         self._save_timer.timeout.connect(self._write_history)
 
-        self._load_history()
+        # keyring e cryptography pesano ~35 MB e la cronologia serve solo al
+        # primo appunto o quando si apre il pannello.
+        self._history_loaded = False
         self._build_ui()
 
         self._clipboard = QApplication.clipboard()
@@ -136,6 +139,7 @@ class _ClipboardPanel(QWidget):
     # ── Notifiche appunti ─────────────────────────────────────────────────────
 
     def _on_clipboard_changed(self) -> None:
+        self._ensure_history_loaded()
         """Acquisisce il testo quando Qt notifica un reale cambiamento."""
         mime = self._clipboard.mimeData()
         if not mime or not mime.hasText():
@@ -268,6 +272,8 @@ class _ClipboardPanel(QWidget):
     def _get_fernet(self) -> Fernet:
         """Carica o genera la chiave Fernet usando il keyring di sistema (come FTP/Git).
         Fallback su file .key se keyring non è disponibile."""
+        from cryptography.fernet import Fernet  # pesante: solo se la cronologia viene usata
+
         if self._fernet is not None:
             return self._fernet
 
@@ -319,6 +325,17 @@ class _ClipboardPanel(QWidget):
                     os.unlink(tmp_name)
                 except FileNotFoundError:
                     pass
+
+    def _ensure_history_loaded(self) -> None:
+        if not self._history_loaded:
+            self._history_loaded = True
+            self._load_history()
+
+    def showEvent(self, event) -> None:  # noqa: N802 - Qt API
+        if not self._history_loaded:
+            self._ensure_history_loaded()
+            self._refresh_list()
+        super().showEvent(event)
 
     def _load_history(self) -> None:
         try:

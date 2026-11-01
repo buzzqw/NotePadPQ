@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import io
 import os
-import ssl
 import threading
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
@@ -46,9 +45,12 @@ from PyQt6.QtWidgets import (
 )
 
 from core.file_manager import FileManager
+from core.lazy_import import LazyModule
 from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
 from ui.busy_indicator import BusyIndicator
+
+ssl = LazyModule("ssl")
 
 _ORPHANED_FTP_WORKERS: set[QThread] = set()
 _MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024

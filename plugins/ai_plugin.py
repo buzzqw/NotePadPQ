@@ -21,16 +21,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib.util
 import json
 import re
 import secrets
-import ssl
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -58,8 +54,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.lazy_import import LazyModule
 from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
+
+ssl = LazyModule("ssl")
+urllib = LazyModule("urllib")
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -226,49 +226,55 @@ CONTEXT_ACTIONS = [
 
 # ─── OAuth JetBrains ───────────────────────────────────────────────────────────
 
-class _OAuthCallbackHandler(BaseHTTPRequestHandler):
-    """Handler per il callback OAuth di JetBrains"""
+def _oauth_callback_handler():
+    """Classe creata al primo login: http.server pesa e serve solo all'OAuth."""
+    from http.server import BaseHTTPRequestHandler
 
-    def do_GET(self):
-        """Gestisce la richiesta GET del callback OAuth"""
-        parsed_url = urllib.parse.urlparse(self.path)
-        query_params = urllib.parse.parse_qs(parsed_url.query)
+    class _OAuthCallbackHandler(BaseHTTPRequestHandler):
+        """Handler per il callback OAuth di JetBrains"""
 
-        if 'code' in query_params:
-            # Successo: salva il codice di autorizzazione
-            self.server.auth_code = query_params['code'][0]
-            self.send_response(200)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            self.wfile.write(b'''
-                <html><body>
-                <h2>Autenticazione JetBrains completata!</h2>
-                <p>Puoi chiudere questa finestra e tornare a NotePadPQ.</p>
-                <script>window.close();</script>
-                </body></html>
-            ''')
-        elif 'error' in query_params:
-            # Errore: salva l'errore
-            self.server.auth_error = query_params.get('error_description', ['Errore sconosciuto'])[0]
-            self.send_response(400)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            self.wfile.write(f'''
-                <html><body>
-                <h2>Errore di autenticazione</h2>
-                <p>{self.server.auth_error}</p>
-                <p>Puoi chiudere questa finestra e riprovare.</p>
-                </body></html>
-            '''.encode())
-        else:
-            self.send_response(400)
-            self.send_header('Content-type', 'text/html')
-            self.end_headers()
-            self.wfile.write(b'<html><body><h2>Richiesta non valida</h2></body></html>')
+        def do_GET(self):
+            """Gestisce la richiesta GET del callback OAuth"""
+            parsed_url = urllib.parse.urlparse(self.path)
+            query_params = urllib.parse.parse_qs(parsed_url.query)
 
-    def log_message(self, format, *args):
-        """Disabilita i log del server HTTP"""
-        pass
+            if 'code' in query_params:
+                # Successo: salva il codice di autorizzazione
+                self.server.auth_code = query_params['code'][0]
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                self.wfile.write(b'''
+                    <html><body>
+                    <h2>Autenticazione JetBrains completata!</h2>
+                    <p>Puoi chiudere questa finestra e tornare a NotePadPQ.</p>
+                    <script>window.close();</script>
+                    </body></html>
+                ''')
+            elif 'error' in query_params:
+                # Errore: salva l'errore
+                self.server.auth_error = query_params.get('error_description', ['Errore sconosciuto'])[0]
+                self.send_response(400)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                self.wfile.write(f'''
+                    <html><body>
+                    <h2>Errore di autenticazione</h2>
+                    <p>{self.server.auth_error}</p>
+                    <p>Puoi chiudere questa finestra e riprovare.</p>
+                    </body></html>
+                '''.encode())
+            else:
+                self.send_response(400)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                self.wfile.write(b'<html><body><h2>Richiesta non valida</h2></body></html>')
+
+        def log_message(self, format, *args):
+            """Disabilita i log del server HTTP"""
+            pass
+
+    return _OAuthCallbackHandler
 
 
 class _JetBrainsOAuth(QObject):
@@ -328,7 +334,8 @@ class _JetBrainsOAuth(QObject):
             port = redirect_url.port or 8080
 
             # Crea e avvia il server
-            self._server = HTTPServer(('localhost', port), _OAuthCallbackHandler)
+            from http.server import HTTPServer
+            self._server = HTTPServer(('localhost', port), _oauth_callback_handler())
             self._server.auth_code = None
             self._server.auth_error = None
 
@@ -3040,12 +3047,8 @@ def _chat_palette() -> dict:
 
 
 # python-markdown opzionale (riuso della stessa libreria di ui/preview_panel.py)
-try:
-    import markdown as _md_lib
-    _HAS_MD = True
-except Exception:
-    _md_lib = None
-    _HAS_MD = False
+_HAS_MD = importlib.util.find_spec("markdown") is not None
+_md_lib = LazyModule("markdown") if _HAS_MD else None
 
 
 def _render_markdown_to_html(text: str, pal: dict) -> str:

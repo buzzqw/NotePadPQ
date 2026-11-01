@@ -26,17 +26,13 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 import re
-import ssl
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
-import xml.dom.minidom
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QObject, Qt, pyqtSignal
@@ -77,14 +73,15 @@ from PyQt6.QtWidgets import (
     QWizardPage,
 )
 
+from core.lazy_import import LazyModule
 from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
 
-try:
-    import requests as _requests_lib
-    _HAS_REQUESTS = True
-except ImportError:
-    _HAS_REQUESTS = False
+ssl = LazyModule("ssl")
+urllib = LazyModule("urllib")
+
+_HAS_REQUESTS = importlib.util.find_spec("requests") is not None
+_requests_lib = LazyModule("requests")
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow
@@ -2643,7 +2640,8 @@ class _RestPanel(QWidget):
                 pass
         elif "xml" in ct:
             try:
-                pretty = xml.dom.minidom.parseString(body.encode()).toprettyxml(indent="  ")
+                from xml.dom import minidom  # solo per il formato XML
+                pretty = minidom.parseString(body.encode()).toprettyxml(indent="  ")
             except Exception:
                 pass
         self._resp_body.setPlainText(pretty)
@@ -2753,7 +2751,8 @@ class _RestPanel(QWidget):
             self._body_edit.setPlainText(pretty)
         except Exception:
             try:
-                pretty = xml.dom.minidom.parseString(text.encode()).toprettyxml(indent="  ")
+                from xml.dom import minidom  # solo per il formato XML
+                pretty = minidom.parseString(text.encode()).toprettyxml(indent="  ")
                 self._body_edit.setPlainText(pretty)
             except Exception:
                 QMessageBox.information(self, "Formatta", "Non è possibile formattare il testo (non è JSON/XML valido).")

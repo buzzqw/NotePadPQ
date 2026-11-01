@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import io
 import json
-import xml.dom.minidom
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
@@ -594,7 +593,8 @@ class JsonXmlPanel(QWidget):
 
         # Ri-serializza con pretty print
         raw = ET.tostring(root_elem, encoding="unicode", xml_declaration=False)
-        dom = xml.dom.minidom.parseString(raw.encode("utf-8"))
+        from xml.dom import minidom  # solo per il formato XML
+        dom = minidom.parseString(raw.encode("utf-8"))
         ugly = dom.toprettyxml(indent="  ")
         lines = [l for l in ugly.splitlines() if l.strip()]
         if lines and lines[0].startswith("<?xml") and not original.lstrip().startswith("<?xml"):
@@ -838,7 +838,8 @@ class JsonXmlPanel(QWidget):
         if self._lang == "json":
             data = json.loads(text)
             return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-        dom = xml.dom.minidom.parseString(text.encode("utf-8"))
+        from xml.dom import minidom  # solo per il formato XML
+        dom = minidom.parseString(text.encode("utf-8"))
         ugly = dom.toprettyxml(indent="  ")
         lines = [l for l in ugly.splitlines() if l.strip()]
         if not text.lstrip().startswith("<?xml") and lines and lines[0].startswith("<?xml"):

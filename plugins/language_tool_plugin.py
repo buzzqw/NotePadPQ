@@ -16,9 +16,6 @@ import shlex
 import shutil
 import signal
 import subprocess
-import urllib.error
-import urllib.parse
-import urllib.request
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
@@ -39,8 +36,11 @@ from PyQt6.QtWidgets import (
 )
 
 from config.settings import Settings
+from core.lazy_import import LazyModule
 from editor.editor_widget import INDICATOR_LANGUAGETOOL
 from plugins.base_plugin import BasePlugin
+
+urllib = LazyModule("urllib")
 
 if TYPE_CHECKING:
     from ui.main_window import MainWindow

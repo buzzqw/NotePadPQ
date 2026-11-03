@@ -47,6 +47,14 @@ installation when a C++ compiler is available. It keeps the existing PyQt6
 lexer API while moving the hot syntax-highlighting loop out of Python; systems
 that cannot build extensions transparently use the compatible Python fallback.
 
+The same optional build adds a C++ scanner for Go, Rust, Kotlin, Swift, Scala
+and Dart, which otherwise use Pygments. It reproduces the Pygments colours
+(its keyword tables are generated from Pygments by
+`native/generate_code_tables.py`) and styles text 60-140× faster, so jumping
+to the end of a 10 MB Go file takes about 90 ms instead of almost 6 s. Without
+a compiler these languages keep using Pygments, which now restyles only the
+region around an edit instead of the whole file.
+
 Large LaTeX documents also use a shared, debounced analysis snapshot for the
 checker, autocomplete and Function List. The snapshot is rebuilt only after
 the user pauses, not on every keystroke, and is cached by document revision
@@ -424,6 +432,9 @@ Le aree principali sono:
   (circa 3,0 MB e 44.929 righe) lo scanner C++ ha ridotto il tempo di scansione
   da **625,1 ms** a **47,5 ms**, circa **13,2× più veloce** del fallback Python,
   con stili verificati equivalenti;
+- scanner C++ opzionale anche per Go, Rust, Kotlin, Swift, Scala e Dart, con
+  gli stessi colori di Pygments e 60-140× più veloce; senza compilatore resta
+  Pygments, che ora ricolora solo la zona modificata e non l'intero file;
 - Build Panel con 11 profili built-in, profili personalizzati, variabili,
   pipeline, task discovery, PTY, build concorrenti e lista errori cliccabile;
 - anteprima live Markdown/HTML/reStructuredText, visualizzatore PDF, hover di

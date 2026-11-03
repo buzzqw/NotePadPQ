@@ -35,13 +35,14 @@ class OptionalBuildExt(build_ext):
             super().run()
         except Exception as exc:  # pragma: no cover - compiler/platform dependent
             self.announce(
-                f"NotePadPQ: native LaTeX accelerator unavailable ({exc}); using Python fallback",
+                f"NotePadPQ: native accelerators unavailable ({exc}); using Python fallback",
                 level=3,
             )
 
     def build_extension(self, extension):
         try:
-            _generate_native_tables()
+            if extension.name == "core._latex_native":
+                _generate_native_tables()
         except Exception as exc:  # pragma: no cover - keep the committed include
             self.announce(
                 f"NotePadPQ: could not regenerate native command tables ({exc}); "
@@ -66,7 +67,13 @@ setup(
             ["native/latex_native.cpp"],
             language="c++",
             extra_compile_args=compile_args,
-        )
+        ),
+        Extension(
+            "core._code_native",
+            ["native/code_native.cpp"],
+            language="c++",
+            extra_compile_args=compile_args + (["/std:c++17"] if sys.platform == "win32" else ["-std=c++17"]),
+        ),
     ],
     cmdclass={"build_ext": OptionalBuildExt},
 )

@@ -15,11 +15,12 @@ block_cipher = None
 # SPECPATH è la directory dello spec (packaging/appimage/).
 # La root del progetto è due livelli sopra.
 ROOT = os.path.abspath(os.path.join(SPECPATH, '..', '..'))
-native_hidden_imports = (
-    ['core._latex_native']
-    if glob.glob(os.path.join(ROOT, 'core', '_latex_native*'))
-    else []
-)
+# Acceleratori C++ opzionali: inclusi solo se compilati (setup.py build_ext).
+native_hidden_imports = [
+    module
+    for module in ('core._latex_native', 'core._code_native')
+    if glob.glob(os.path.join(ROOT, 'core', module.split('.')[-1] + '*'))
+]
 
 def R(*parts):
     """Percorso assoluto relativo alla root del progetto."""

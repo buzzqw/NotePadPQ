@@ -73,6 +73,9 @@ tests/*
 !tests/test_latex_index.py
 !tests/test_latex_templates.py
 !tests/test_bibtex_wizard_validation.py
+!tests/test_pygments_lexer.py
+!tests/test_find_in_files_search.py
+!tests/test_result_list_delegates.py
 !tests/test_function_list_multifile.py
 !tests/test_latex_toolchain.py
 !tests/test_latex_external_tools.py

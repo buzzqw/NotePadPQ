@@ -146,6 +146,11 @@ _build_latex_accelerator() {
         else
             echo "   Acceleratore non caricabile: uso il fallback Python"
         fi
+        if (cd "${PROJECT_DIR}" && "$pybin" -c 'import core._code_native'); then
+            echo "   Acceleratore sintassi Go/Rust/Kotlin/Swift/Scala/Dart C++: OK"
+        else
+            echo "   Acceleratore sintassi non caricabile: uso Pygments"
+        fi
     else
         echo "   Compilazione acceleratore fallita: uso il fallback Python"
     fi

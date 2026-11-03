@@ -195,3 +195,94 @@ def test_virtual_pdf_pages_layout_and_clicks(qtbot):
     pages[1].clear()
     assert pages[1].pixmap() is None
     container.grab()  # paintEvent senza errori
+
+
+def test_pygments_edit_restyles_only_the_window_near_the_change(qtbot):
+    """Un tasto in un file Pygments da ~30 KB non deve ritokenizzare tutto.
+
+    Prima, sotto i 32 KB, styleText rilanciava Pygments sull'intero
+    documento a ogni modifica (32 ms per tasto contro i 7 dei lexer nativi).
+    Contiamo i token prodotti invece di misurare tempi, così il test resta
+    deterministico.
+    """
+    from editor import pygments_lexer
+    from editor.pygments_lexer import PygmentsLexer
+
+    editor = QsciScintilla()
+    qtbot.addWidget(editor)
+    editor.setUtf8(True)
+    lexer = PygmentsLexer("go", "Go", editor)
+    lexer._native_enabled = False  # percorso Pygments; quello nativo sotto
+    editor.setLexer(lexer)
+    body = "".join(f"func f{i}(a int) int {{ return a * {i} }} // c\n" for i in range(700))
+    editor.setText("package main\n" + body)
+    editor.SendScintilla(editor.SCI_COLOURISE, 0, -1)
+
+    produced = []
+    original = lexer._pygments_lexer.get_tokens_unprocessed
+
+    def counting(text, *args, **kwargs):
+        for token in original(text, *args, **kwargs):
+            produced.append(token)
+            yield token
+
+    full_tokens = sum(1 for _ in original(editor.text()))
+    middle = len(editor.text().encode()) // 2
+    with mock.patch.object(lexer._pygments_lexer, "get_tokens_unprocessed", counting):
+        editor.SendScintilla(editor.SCI_INSERTTEXT, middle, b"x")
+        # Come al paint: Scintilla riparte da endStyled (la modifica).
+        start = editor.SendScintilla(editor.SCI_GETENDSTYLED)
+        editor.SendScintilla(editor.SCI_COLOURISE, start, middle + 2000)
+    assert produced, "styleText non ha ristilato la modifica"
+    assert len(produced) < full_tokens // 10
+
+    if not pygments_lexer.NATIVE_LANGUAGES:
+        return
+    # Scanner nativo: stesso vincolo, misurato sui byte richiesti.
+    lexer._native_enabled = True
+    spans = []
+    native_style = pygments_lexer._code_native.style
+
+    def recording(alias, data, span):
+        spans.append(span)
+        return native_style(alias, data, span)
+
+    with mock.patch.object(pygments_lexer, "_code_native", mock.Mock(style=recording)):
+        editor.SendScintilla(editor.SCI_INSERTTEXT, middle, b"y")
+        start = editor.SendScintilla(editor.SCI_GETENDSTYLED)
+        editor.SendScintilla(editor.SCI_COLOURISE, start, middle + 2000)
+    assert spans and sum(spans) < len(editor.text().encode()) // 5
+
+
+def test_encoding_detection_feeds_chardet_only_non_ascii_lines():
+    """chardet su 64 KB costava ~0,5 s per file non UTF-8: va campionato poco."""
+    from core.file_manager import FileManager
+
+    preamble = b"\\documentclass{article}\n% solo ASCII\n" * 3000
+    raw = preamble + "La città è più bella perché già così.\n".encode("latin-1") * 2000
+    seen = []
+    fake = mock.Mock()
+    fake.detect.side_effect = lambda sample: (seen.append(sample)
+                                              or {"encoding": "windows-1252", "confidence": 0.9})
+    with mock.patch("core.file_manager._chardet_module", return_value=fake):
+        text, encoding, _le = FileManager.decode_bytes(raw)
+    assert encoding == "WINDOWS-1252" and "città" in text
+    assert len(seen) == 1
+    sample = seen[0]
+    assert len(sample) <= FileManager._ENCODING_SAMPLE_BYTES + 100
+    assert b"documentclass" not in sample  # il preambolo ASCII non serve
+
+
+def test_csv_encoding_name_skips_chardet_for_utf8_cut_mid_character():
+    """Il campione da 1 MB del wizard CSV può tagliare un carattere UTF-8."""
+    from core.file_manager import FileManager
+
+    raw = ("nome;città\n" + "Mario;Forlì\n" * 100).encode("utf-8")
+    cut = raw[:-2]  # termina a metà di "ì"
+    with mock.patch("core.file_manager._chardet_module") as chardet:
+        assert FileManager.detect_encoding_name(cut) == "utf-8"
+        chardet.assert_not_called()
+    assert FileManager.detect_encoding_name(b"\xef\xbb\xbfa;b\n") == "utf-8-sig"
+    latin = ("nome;descrizione\n" + "Forlì;La città è più bella perché già così\n" * 50
+             ).encode("latin-1")
+    assert "città" in latin.decode(FileManager.detect_encoding_name(latin))

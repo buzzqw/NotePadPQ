@@ -15,11 +15,12 @@ block_cipher = None
 
 # ── Modalità onefile (singolo .exe, estrae in %TEMP% all'avvio) ───────────────
 ONEFILE = os.environ.get('NOTEPADPQ_ONEFILE', '0') == '1'
-native_hiddenimports = (
-    ['core._latex_native']
-    if glob.glob(os.path.join(SPECPATH, '..', 'core', '_latex_native*'))
-    else []
-)
+# Acceleratori C++ opzionali: inclusi solo se compilati (setup.py build_ext).
+native_hiddenimports = [
+    module
+    for module in ('core._latex_native', 'core._code_native')
+    if glob.glob(os.path.join(SPECPATH, '..', 'core', module.split('.')[-1] + '*'))
+]
 
 # ── Dati non-Python da includere ─────────────────────────────────────────────
 datas = [

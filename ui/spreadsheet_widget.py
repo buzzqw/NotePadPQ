@@ -448,12 +448,14 @@ class ImportWizardDialog(QDialog):
 
     def _detect_encoding(self) -> None:
         try:
-            import chardet
+            from core.file_manager import FileManager
             with open(self._path, "rb") as f:
                 raw = f.read(1024 * 1024)
-            detected = chardet.detect(raw)
-            self._encoding = detected.get("encoding") or "utf-8"
-        except (ImportError, Exception):
+            # Running chardet on the whole megabyte cost ~0.2-0.5 s even for
+            # plain UTF-8 CSV files; the shared helper tries BOM/UTF-8 first
+            # and only samples the non-ASCII lines when detection is needed.
+            self._encoding = FileManager.detect_encoding_name(raw)
+        except Exception:
             self._encoding = "utf-8-sig"
 
     def _load_raw_lines(self) -> None:

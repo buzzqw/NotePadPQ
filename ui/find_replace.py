@@ -21,8 +21,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PyQt6.Qsci import QSCINTILLA_VERSION
-from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QModelIndex, QObject, QRect, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPalette
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDockWidget,
@@ -38,7 +40,12 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QSlider,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionButton,
+    QStyleOptionViewItem,
     QTabWidget,
+    QToolTip,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -186,6 +193,110 @@ class _FindInFilesResult:
         self.col_start = col_start
         self.col_end   = col_end
 
+# Costrutti che si comportano diversamente su una riga isolata e sulla stessa
+# riga dentro il file intero: ancore di stringa (\A, \Z) e gruppi speciali
+# (lookaround, flag inline). Con questi niente prefiltro, solo il percorso
+# riga per riga.
+_PREFILTER_UNSAFE = re.compile(r"\\[AZz]|\(\?(?!:|P[<=])")
+
+
+def _whole_text_prefilter(source: str, flags: int) -> re.Pattern | None:
+    """Pattern per scartare con una sola ``search`` i file senza risultati.
+
+    Find in Files confronta il pattern riga per riga. Su un file intero, con
+    ``re.MULTILINE`` (``^``/``$`` ai bordi di riga), ogni risultato di una
+    riga è anche un risultato nel testo completo, quindi "nessun risultato
+    nel file" implica "nessun risultato in nessuna riga". Il contrario non
+    vale (``\\s+`` può attraversare un newline), per cui i file che passano
+    il filtro vengono poi esaminati riga per riga come prima.
+    """
+    if _PREFILTER_UNSAFE.search(source):
+        return None
+    try:
+        return re.compile(source, flags | re.MULTILINE)
+    except re.error:
+        return None
+
+
+# Le chiamate a ``re`` non rilasciano il GIL: una sola search su un file da
+# diversi MB bloccava la GUI per decine di ms. Lavoriamo a blocchi allineati
+# alle righe, così tra un blocco e l'altro il thread GUI può riprendere.
+_SEARCH_CHUNK_CHARS = 256 * 1024
+
+
+def _line_chunks(text: str, size: int = _SEARCH_CHUNK_CHARS):
+    """Intervalli ``(inizio, fine)`` che coprono ``text`` a righe intere."""
+    length = len(text)
+    if length == 0:
+        yield 0, 0
+        return
+    start = 0
+    while start < length:
+        end = start + size
+        if end < length:
+            newline = text.find("\n", end)
+            end = length if newline < 0 else newline + 1
+        else:
+            end = length
+        yield start, end
+        start = end
+
+
+def _search_text(text: str, pattern: re.Pattern, prefilter: re.Pattern | None,
+                 literal_lines: bool) -> tuple[int, list[tuple[int, str, int, int]]]:
+    """Cerca ``pattern`` riga per riga in ``text``.
+
+    Restituisce ``(numero_di_match, [(indice_riga, riga, inizio, fine), ...])``
+    con al più ``_MAX_FIND_ENTRIES_PER_FILE`` righe (il primo match di
+    ognuna), esattamente come il loop su ``text.split("\\n")``.
+
+    Il loop Python su ogni riga era ~75% del tempo di Find in Files. Ora:
+
+    * ``prefilter`` scarta con poche ``search`` in C i file senza match;
+    * per le ricerche letterali (``literal_lines``: niente newline nella
+      query, quindi nessun match può attraversare una riga) i match nel testo
+      intero indicano direttamente le righe da esaminare, e solo quelle
+      vengono riscandite con ``pattern`` per conteggi identici.
+
+    Entrambi lavorano a blocchi di righe intere: un match di una riga sta
+    sempre dentro un blocco, quindi il risultato non cambia.
+    """
+    if prefilter is not None and not any(
+            prefilter.search(text, start, end) for start, end in _line_chunks(text)):
+        return 0, []
+    count = 0
+    hits: list[tuple[int, str, int, int]] = []
+    if literal_lines:
+        line_index = 0
+        scanned_to = 0
+        current = -1
+        for chunk_start, chunk_end in _line_chunks(text):
+            for match in pattern.finditer(text, chunk_start, chunk_end):
+                start = match.start()
+                line_index += text.count("\n", scanned_to, start)
+                scanned_to = start
+                if line_index == current:
+                    continue  # già contato con la riga intera
+                current = line_index
+                line_start = text.rfind("\n", 0, start) + 1
+                line_end = text.find("\n", start)
+                line = text[line_start:line_end if line_end >= 0 else len(text)]
+                line_matches = list(pattern.finditer(line))
+                count += len(line_matches)
+                if line_matches and len(hits) < _MAX_FIND_ENTRIES_PER_FILE:
+                    first = line_matches[0]
+                    hits.append((line_index, line, first.start(), first.end()))
+        return count, hits
+    for i, line in enumerate(text.split("\n")):
+        line_matches = list(pattern.finditer(line))
+        if line_matches:
+            count += len(line_matches)
+            if len(hits) < _MAX_FIND_ENTRIES_PER_FILE:
+                first = line_matches[0]
+                hits.append((i, line, first.start(), first.end()))
+    return count, hits
+
+
 class _FindInFilesWorker(QObject):
     finished  = pyqtSignal()
     file_done = pyqtSignal(str, str, int, list)   # rel_path, abs_path, match_count, list[_FindInFilesResult]
@@ -218,6 +329,8 @@ class _FindInFilesWorker(QObject):
         except re.error as e:
             self.error.emit(str(e))
             return
+        prefilter = _whole_text_prefilter(source, re_flags)
+        literal_lines = not self._use_re and "\n" not in self._query
 
         walker = os.walk(self._base_dir) if self._recurse \
             else [(self._base_dir, [], os.listdir(self._base_dir))]
@@ -243,30 +356,21 @@ class _FindInFilesWorker(QObject):
                         head = probe.read(4096)
                     if FileManager.looks_binary(head):
                         continue
-                    text, _encoding, _has_bom, _source_digest = _source_file_for_replace(fpath)
+                    # Solo ricerca: niente digest SHA-256, serve solo al replace.
+                    text = FileManager.decode_bytes(fpath.read_bytes())[0]
                 except Exception:
                     continue
-                lines = text.split("\n")
-                file_match_count = 0
-                file_line_entries: list[_FindInFilesResult] = []
-                for i, line in enumerate(lines):
-                    lm = list(pattern.finditer(line))
-                    if lm:
-                        file_match_count += len(lm)
-                        if len(file_line_entries) < _MAX_FIND_ENTRIES_PER_FILE:
-                            m = lm[0]
-                            try:
-                                rel = str(fpath.relative_to(self._base_dir))
-                            except ValueError:
-                                rel = str(fpath)
-                            file_line_entries.append(
-                                _FindInFilesResult(rel, str(fpath), i + 1, line, m.start(), m.end())
-                            )
-                if file_line_entries:
+                file_match_count, hits = _search_text(
+                    text, pattern, prefilter, literal_lines)
+                if hits:
                     try:
                         rel = str(fpath.relative_to(self._base_dir))
                     except ValueError:
                         rel = str(fpath)
+                    file_line_entries = [
+                        _FindInFilesResult(rel, str(fpath), i + 1, line, start, end)
+                        for i, line, start, end in hits
+                    ]
                     self.file_done.emit(rel, str(fpath), file_match_count, file_line_entries)
 
         self.finished.emit()
@@ -474,6 +578,176 @@ class _ElasticTreeWidget(QTreeWidget):
         available = self.viewport().width() - others
         if available > 40:
             header.resizeSection(col, available)
+
+
+# ─── Delegate delle liste risultati ──────────────────────────────────────────
+#
+# Ogni riga delle liste risultati aveva come item widget una QLabel rich text
+# (lo snippet con il match evidenziato) e spesso un QPushButton "Sostituisci".
+# Creare due widget veri per riga costava 0,3-0,7 ms l'uno, con crescita
+# superlineare: 2.000 occorrenze ~0,7 s, 5.000 risultati di Find in Files
+# ~2,5 s di thread GUI bloccato. I delegate disegnano lo stesso contenuto
+# senza widget: il costo diventa quello delle sole righe visibili.
+
+_SNIPPET_HL_ROLE = Qt.ItemDataRole.UserRole + 1   # (inizio, fine) del match nel testo
+_ROW_BUTTON_ROLE = Qt.ItemDataRole.UserRole + 2   # True: la riga ha il pulsante
+
+
+class _SnippetDelegate(QStyledItemDelegate):
+    """Testo della cella con l'intervallo in ``_SNIPPET_HL_ROLE`` evidenziato."""
+
+    _HL_BG = QColor("#ffd54f")
+    _HL_FG = QColor("#1a1a1a")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._colors_sheet: str | None = None
+        self._colors: dict = {}
+
+    @staticmethod
+    def _snippet_font(base: QFont) -> QFont:
+        # Come la QLabel di prima: "font-family: monospace; font-size: 12px".
+        font = QFont(base)
+        font.setFamilies(["monospace"])
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        font.setPixelSize(12)
+        return font
+
+    def _theme_colors(self, widget) -> dict:
+        # Il foglio di stile della lista cambia con il tema: è la chiave giusta
+        # per non rileggere ThemeManager a ogni riga disegnata.
+        sheet = widget.styleSheet() if widget is not None else ""
+        if sheet != self._colors_sheet:
+            self._colors = _results_colors()
+            self._colors_sheet = sheet
+        return self._colors
+
+    def paint(self, painter, option, index) -> None:
+        span = index.data(_SNIPPET_HL_ROLE)
+        if not span:
+            super().paint(painter, option, index)
+            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        text = opt.text
+        opt.text = ""
+        widget = opt.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        # Sfondo, selezione, hover e focus come una cella normale.
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
+        rect = style.subElementRect(
+            QStyle.SubElement.SE_ItemViewItemText, opt, widget).adjusted(2, 0, -2, 0)
+        selected = bool(opt.state & QStyle.StateFlag.State_Selected)
+        sheet = widget.styleSheet() if widget is not None else ""
+        if "::item:selected" in sheet:
+            # Liste con _results_stylesheet(): stessi colori del tema.
+            colors = self._theme_colors(widget)
+            plain = QColor(colors["sel_fg" if selected else "fg"])
+        else:
+            plain = opt.palette.color(
+                QPalette.ColorRole.HighlightedText if selected else QPalette.ColorRole.Text)
+        start, end = span
+        font = self._snippet_font(opt.font)
+        metrics = QFontMetrics(font)
+        baseline = rect.y() + (rect.height() + metrics.ascent() - metrics.descent()) // 2
+        x = rect.x()
+        painter.save()
+        painter.setClipRect(rect)
+        painter.setFont(font)
+        for part, highlighted in ((text[:start], False), (text[start:end], True),
+                                  (text[end:], False)):
+            if not part:
+                continue
+            width = metrics.horizontalAdvance(part)
+            if highlighted:
+                painter.fillRect(x, rect.y() + 1, width, rect.height() - 2, self._HL_BG)
+                painter.setPen(self._HL_FG)
+            else:
+                painter.setPen(plain)
+            painter.drawText(x, baseline, part)
+            x += width
+            if x > rect.right():
+                break
+        painter.restore()
+
+
+class _RowButtonDelegate(QStyledItemDelegate):
+    """Pulsante disegnato nella cella; ``clicked`` porta l'indice della riga."""
+
+    clicked = pyqtSignal(QModelIndex)
+
+    _WIDTH = 80
+    _HEIGHT = 22
+
+    def __init__(self, text: str, tooltip: str = "", parent=None):
+        super().__init__(parent)
+        self._text = text
+        self._tooltip = tooltip
+
+    def _button_rect(self, rect: QRect) -> QRect:
+        width = min(self._WIDTH, rect.width() - 2)
+        height = min(self._HEIGHT, rect.height() - 2)
+        return QRect(rect.x() + (rect.width() - width) // 2,
+                     rect.y() + (rect.height() - height) // 2, width, height)
+
+    def paint(self, painter, option, index) -> None:
+        if not index.data(_ROW_BUTTON_ROLE):
+            super().paint(painter, option, index)
+            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        opt.text = ""
+        widget = opt.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
+        button = QStyleOptionButton()
+        button.rect = self._button_rect(option.rect)
+        button.text = self._text
+        button.palette = option.palette
+        button.state = QStyle.StateFlag.State_Enabled | QStyle.StateFlag.State_Raised
+        style.drawControl(QStyle.ControlElement.CE_PushButton, button, painter, widget)
+
+    def sizeHint(self, option, index):
+        hint = super().sizeHint(option, index)
+        if index.data(_ROW_BUTTON_ROLE):
+            hint.setHeight(max(hint.height(), self._HEIGHT))
+            hint.setWidth(max(hint.width(), self._WIDTH + 4))
+        return hint
+
+    def editorEvent(self, event, model, option, index) -> bool:
+        if not index.data(_ROW_BUTTON_ROLE):
+            return super().editorEvent(event, model, option, index)
+        kind = event.type()
+        if kind in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease,
+                    QEvent.Type.MouseButtonDblClick):
+            inside = self._button_rect(option.rect).contains(event.position().toPoint())
+            if inside and event.button() == Qt.MouseButton.LeftButton:
+                # Come il QPushButton di prima: il click non seleziona né apre
+                # la riga, esegue solo l'azione al rilascio.
+                if kind == QEvent.Type.MouseButtonRelease:
+                    self.clicked.emit(QModelIndex(index))
+                return True
+        return super().editorEvent(event, model, option, index)
+
+    def helpEvent(self, event, view, option, index) -> bool:
+        if (self._tooltip and index.data(_ROW_BUTTON_ROLE)
+                and self._button_rect(option.rect).contains(event.pos())):
+            QToolTip.showText(event.globalPos(), self._tooltip, view)
+            return True
+        return super().helpEvent(event, view, option, index)
+
+
+def _install_result_delegates(tree: QTreeWidget, snippet_column: int,
+                              button_column: int | None = None,
+                              button_text: str = "", button_tooltip: str = "",
+                              on_button=None) -> None:
+    """Snippet evidenziato (ed eventuale pulsante) disegnati senza widget."""
+    tree.setItemDelegateForColumn(snippet_column, _SnippetDelegate(tree))
+    if button_column is not None:
+        delegate = _RowButtonDelegate(button_text, button_tooltip, tree)
+        delegate.clicked.connect(
+            lambda index: on_button(tree.itemFromIndex(index)) if index.isValid() else None)
+        tree.setItemDelegateForColumn(button_column, delegate)
 
 
 class FindReplaceDialog(QWidget):
@@ -803,6 +1077,7 @@ ESEMPI
             0, self._find_occurrences.header().ResizeMode.Fixed
         )
         self._find_occurrences.setColumnWidth(0, 58)  # abbastanza per 5 cifre senza troncamento
+        _install_result_delegates(self._find_occurrences, snippet_column=1)
         self._find_occurrences.itemDoubleClicked.connect(self._goto_occurrence)
         # Click singolo: naviga ed evidenzia subito (più reattivo/user-friendly).
         self._find_occurrences.itemClicked.connect(self._goto_occurrence)
@@ -903,6 +1178,10 @@ ESEMPI
             tr("label.col_line"), tr("label.col_text"), ""])
         # 3 colonne: Riga (fissa) | Testo (elastica: occupa lo spazio residuo
         # ma resta ridimensionabile a mano) | pulsante azione (fissa).
+        _install_result_delegates(
+            self._replace_occurrences, snippet_column=1, button_column=2,
+            button_text=tr("button.replace"),
+            on_button=self._replace_single_occurrence)
         rep_hdr = self._replace_occurrences.header()
         rep_hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         rep_hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
@@ -1000,6 +1279,11 @@ ESEMPI
         self._fif_results.setAlternatingRowColors(True)
         self._fif_results.setMinimumHeight(200)
         self._fif_results.setStyleSheet(_results_stylesheet())
+        _install_result_delegates(
+            self._fif_results, snippet_column=1, button_column=2,
+            button_text=tr("button.replace"),
+            button_tooltip=tr("tooltip.fif_replace_match"),
+            on_button=self._replace_fif_single)
         self._fif_results.itemDoubleClicked.connect(self._open_fif_result)
         hdr = self._fif_results.header()
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
@@ -1810,22 +2094,15 @@ ESEMPI
         suffix = " …" if end_idx < len(words) else ""
         return prefix + snippet + suffix, local_start, local_end
 
-    def _context_snippet_label(self, line_text: str, match_start: int, match_end: int) -> QLabel:
-        """QLabel con lo snippet di contesto e il match evidenziato a colori,
-        da usare come item widget nella colonna "Testo"."""
+    def _set_context_snippet(self, item: QTreeWidgetItem, column: int,
+                             line_text: str, match_start: int, match_end: int) -> None:
+        """Snippet di contesto nella colonna "Testo", con il match evidenziato
+        da ``_SnippetDelegate`` (prima era una QLabel rich text per riga)."""
         snippet, local_start, local_end = self._context_snippet(line_text, match_start, match_end)
         local_start = max(0, min(local_start, len(snippet)))
         local_end   = max(local_start, min(local_end, len(snippet)))
-        html_text = (
-            html.escape(snippet[:local_start])
-            + (f'<span style="{self._HL_STYLE}">{html.escape(snippet[local_start:local_end])}</span>'
-               if local_end > local_start else "")
-            + html.escape(snippet[local_end:])
-        )
-        label = QLabel(html_text)
-        label.setTextFormat(Qt.TextFormat.RichText)
-        label.setStyleSheet("font-family: monospace; font-size: 12px; padding: 0 2px;")
-        return label
+        item.setText(column, snippet)
+        item.setData(column, _SNIPPET_HL_ROLE, (local_start, local_end))
 
     _MAX_OCCURRENCE_ITEMS = 2_000
     # Sotto questa soglia la scansione è abbastanza rapida da restare sincrona
@@ -1910,7 +2187,7 @@ ESEMPI
         self._occurrence_worker = None
         _ROLE = Qt.ItemDataRole.UserRole
         panel_results = []
-        items_to_add = []
+        items_to_add: list[QTreeWidgetItem] = []
         for line_idx, col, length, snippet_start, snippet in rows:
             item = QTreeWidgetItem([str(line_idx + 1), ""])
             item.setTextAlignment(
@@ -1920,11 +2197,11 @@ ESEMPI
                 "col":  col,
                 "len":  length,
             })
-            label = self._context_snippet_label(
-                snippet, col - snippet_start,
+            self._set_context_snippet(
+                item, 1, snippet, col - snippet_start,
                 col - snippet_start + length,
             )
-            items_to_add.append((item, label))
+            items_to_add.append(item)
             panel_results.append({
                 "file": file_path,
                 "line": line_idx,
@@ -1932,18 +2209,14 @@ ESEMPI
                 "col":  col,
             })
 
-        # Inserimento batch per evitare repaint per ogni riga
-        self._find_occurrences.setUpdatesEnabled(False)
-        for item, label in items_to_add:
-            self._find_occurrences.addTopLevelItem(item)
-            self._find_occurrences.setItemWidget(item, 1, label)
-        self._find_occurrences.setUpdatesEnabled(True)
+        # Inserimento batch: una sola notifica al modello invece di una per riga.
+        self._find_occurrences.addTopLevelItems(items_to_add)
         nearest_index = _nearest_result_index(
-            [item.data(0, _ROLE)["line"] - 1 for item, _ in items_to_add],
+            [item.data(0, _ROLE)["line"] - 1 for item in items_to_add],
             cursor_line,
         )
         if nearest_index is not None:
-            nearest_item = items_to_add[nearest_index][0]
+            nearest_item = items_to_add[nearest_index]
             self._find_occurrences.setCurrentItem(nearest_item)
             nearest_item.setSelected(True)
             self._find_occurrences.scrollToItem(nearest_item)
@@ -2047,16 +2320,12 @@ ESEMPI
                     "len":  m.end() - m.start(),
                     "match_text": m.group(0),
                 })
-                btn = QPushButton(tr("button.replace"))
-                btn.setFixedSize(78, 22)
-                btn.clicked.connect(lambda _checked, it=item: self._replace_single_occurrence(it))
-                self._replace_occurrences.addTopLevelItem(item)
-                self._replace_occurrences.setItemWidget(
-                    item, 1, self._context_snippet_label(line_text, m.start(), m.end()))
-                self._replace_occurrences.setItemWidget(item, 2, btn)
+                self._set_context_snippet(item, 1, line_text, m.start(), m.end())
+                item.setData(2, _ROW_BUTTON_ROLE, True)
                 items_to_add.append(item)
             if truncated:
                 break
+        self._replace_occurrences.addTopLevelItems(items_to_add)
 
         if count:
             msg = tr("msg.occurrences_n", count=count)
@@ -2349,21 +2618,19 @@ ESEMPI
         btn_f.clicked.connect(lambda _checked, fi=file_item: self._replace_fif_file(fi))
         self._fif_results.setItemWidget(file_item, 2, btn_f)
 
+        children: list[QTreeWidgetItem] = []
         for entry in entries:
             child = QTreeWidgetItem(["  " + tr("msg.row_n", n=entry.line_num), "", ""])
             child.setData(0, _ROLE, {
                 "path": entry.abs_path, "line": entry.line_num,
                 "col_start": entry.col_start, "col_end": entry.col_end,
             })
-            file_item.addChild(child)
-            self._fif_results.setItemWidget(
-                child, 1,
-                self._context_snippet_label(entry.line_text, entry.col_start, entry.col_end))
-            btn_m = QPushButton(tr("button.replace"))
-            btn_m.setFixedSize(80, 22)
-            btn_m.setToolTip(tr("tooltip.fif_replace_match"))
-            btn_m.clicked.connect(lambda _checked, ci=child: self._replace_fif_single(ci))
-            self._fif_results.setItemWidget(child, 2, btn_m)
+            self._set_context_snippet(
+                child, 1, entry.line_text, entry.col_start, entry.col_end)
+            child.setData(2, _ROW_BUTTON_ROLE, True)
+            children.append(child)
+        # Un solo inserimento: addChild riga per riga notifica il modello ogni volta.
+        file_item.addChildren(children)
         file_item.setExpanded(True)
 
     def _on_fif_finished(self) -> None:

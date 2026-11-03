@@ -213,7 +213,7 @@ _ICON_MAP: dict[str, str] = {
 class MainWindow(QMainWindow):
 
     APP_NAME    = "NotePadPQ"
-    APP_VERSION = "2.2.0"
+    APP_VERSION = "2.2.1"
 
     def __init__(self):
         super().__init__()

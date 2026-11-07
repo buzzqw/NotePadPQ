@@ -413,6 +413,8 @@ feature requests and contributions are welcome on [GitHub](https://github.com/bu
 If NotePadPQ is useful to you, you can support development through
 [PayPal](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=azanzani@gmail.com&item_name=Support+NotePadPQ+Project).
 
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20me-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/buzzqw)
+
 ## Italiano
 
 NotePadPQ è un ambiente desktop open source e multipiattaforma per sviluppo,

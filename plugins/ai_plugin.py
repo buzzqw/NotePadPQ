@@ -200,6 +200,8 @@ _IMAGE_MAX_BYTES = 5_000_000
 # Provider che supportano l'invio di immagini (vision) nei messaggi
 _VISION_PROVIDERS = ("anthropic", "gemini")
 _ORPHANED_AI_WORKERS: set[QThread] = set()
+# Intervallo di scrittura dei chunk in streaming nella vista chat (~25 fps).
+_STREAM_FLUSH_MS = 40
 
 # Prezzo stimato per 1M token (input/output) in USD
 MODEL_COST: dict[str, tuple[float, float]] = {
@@ -1476,6 +1478,15 @@ class _AIPanel(QWidget):
         self._pending_images: list[dict] = []  # immagini in coda, allegate al prossimo invio
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.timeout.connect(self._tick_elapsed)
+        # I chunk in streaming arrivano a 50-100/s: inserirli e fare
+        # ensureCursorVisible() su ognuno forza un relayout per token. Li
+        # accumuliamo e li scriviamo nella vista a ~25 fps.
+        self._stream_pending = ""
+        self._think_pending = ""
+        self._stream_flush_timer = QTimer(self)
+        self._stream_flush_timer.setSingleShot(True)
+        self._stream_flush_timer.setInterval(_STREAM_FLUSH_MS)
+        self._stream_flush_timer.timeout.connect(self._flush_stream)
         self._elapsed_start  = 0.0
         self._has_thinking   = False
         self._has_streaming  = False
@@ -2591,6 +2602,26 @@ class _AIPanel(QWidget):
         if self._gen_start == 0.0:
             self._gen_start = time.time()
         self._gen_chars += len(chunk)
+        self._stream_pending += chunk
+        if not self._stream_flush_timer.isActive():
+            self._stream_flush_timer.start()
+
+    def _flush_stream(self) -> None:
+        """Scrive nelle viste i chunk di pensiero e risposta accumulati."""
+        self._stream_flush_timer.stop()
+        think, self._think_pending = self._think_pending, ""
+        chunk, self._stream_pending = self._stream_pending, ""
+        if think:
+            self._write_think_chunk(think)
+        if chunk:
+            self._write_stream_chunk(chunk)
+
+    def _discard_stream(self) -> None:
+        self._stream_flush_timer.stop()
+        self._stream_pending = ""
+        self._think_pending = ""
+
+    def _write_stream_chunk(self, chunk: str) -> None:
         cursor = self._chat_view.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
@@ -2624,6 +2655,8 @@ class _AIPanel(QWidget):
             self._append_msg(role, str(m.get("content", "")))
 
     def _on_result(self, text: str) -> None:
+        self._stream_pending = ""  # la chat viene ricostruita dallo storico
+        self._flush_stream()
         self._history.append({"role": "assistant", "content": text})
         # Sia in streaming (testo grezzo già mostrato) sia senza streaming,
         # ricostruiamo la chat per ottenere il rendering Markdown delle risposte.
@@ -2650,6 +2683,7 @@ class _AIPanel(QWidget):
             self._apply_inline(text)
 
     def _on_error(self, msg: str) -> None:
+        self._flush_stream()
         self._append_msg("system", f"\u274c Errore: {msg}")
         self._elapsed_timer.stop()
         self._btn_send.setText("\u25b6 Invia")
@@ -2686,6 +2720,7 @@ class _AIPanel(QWidget):
             self._old_workers.append(w)
             w.finished.connect(lambda: self._old_workers.remove(w) if w in self._old_workers else None)
             self._worker = None
+        self._flush_stream()
         self._elapsed_timer.stop()
         self._btn_send.setText("▶ Invia")
         self._status.setText("⏹ Generazione interrotta")
@@ -2697,6 +2732,7 @@ class _AIPanel(QWidget):
         if self._shutting_down:
             return
         self._shutting_down = True
+        self._discard_stream()
         self._elapsed_timer.stop()
         workers = [w for w in [self._worker, *self._old_workers] if w is not None]
         self._worker = None
@@ -2773,6 +2809,14 @@ class _AIPanel(QWidget):
             self._think_start = time.time()
         self._think_chars += len(chunk)
         self._think_text_acc += chunk
+        if self._stream_pending:
+            # Mantieni l'ordine di arrivo tra risposta e pensieri.
+            self._flush_stream()
+        self._think_pending += chunk
+        if not self._stream_flush_timer.isActive():
+            self._stream_flush_timer.start()
+
+    def _write_think_chunk(self, chunk: str) -> None:
         if not self._think_widget.isVisible():
             self._think_widget.show()
         # Durante il ragionamento mostra il box espanso (il pulsante resta
@@ -2865,6 +2909,7 @@ class _AIPanel(QWidget):
         self._chat_view.ensureCursorVisible()
 
     def _clear(self) -> None:
+        self._discard_stream()
         self._history.clear()
         self._chat_view.clear()
         self._elapsed_timer.stop()

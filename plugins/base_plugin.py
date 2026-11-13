@@ -61,9 +61,23 @@ class BasePlugin:
 
     def on_unload(self) -> None:
         """Chiamato quando il plugin viene disabilitato/rimosso."""
-        # Rimuove le voci di menu aggiunte
+        # Rimuove le voci di menu aggiunte. Il parent dell'azione è la
+        # MainWindow, non il menu: va tolta da ogni widget che la mostra.
         for action in self._menu_actions:
-            action.parent().removeAction(action)
+            try:
+                for owner in action.associatedObjects():
+                    remove = getattr(owner, "removeAction", None)
+                    if remove is not None:
+                        remove(action)
+                icon_actions = getattr(self._mw, "_plugin_icon_actions", None)
+                if icon_actions:
+                    icon_actions[:] = [e for e in icon_actions if e[0] is not action]
+                # Distruggi solo le azioni create da add_menu_action (parent =
+                # MainWindow); es. menuAction() di un sottomenu appartiene al QMenu.
+                if self._mw is not None and action.parent() is self._mw:
+                    action.deleteLater()
+            except RuntimeError:
+                pass  # oggetto C++ già distrutto
         self._menu_actions.clear()
 
     def on_editor_changed(self, editor) -> None:

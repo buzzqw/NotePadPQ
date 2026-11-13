@@ -3026,6 +3026,8 @@ class _CollectionRunnerDialog(QDialog):
         self._envs = envs
         self._mw = mw
         self._abort = False
+        # Wakes the inter-request delay as soon as the user presses Stop.
+        self._abort_event = threading.Event()
         self._current_worker = None
         self._checked_items: list[int] = []
         self.setWindowTitle("Collection Runner")
@@ -3103,6 +3105,7 @@ class _CollectionRunnerDialog(QDialog):
         self._btn_stop.setEnabled(True)
         self._results.clear()
         self._abort = False
+        self._abort_event.clear()
         self._current_worker = None
 
         # I widget si leggono solo nel thread GUI: al worker passiamo una copia
@@ -3198,7 +3201,7 @@ class _CollectionRunnerDialog(QDialog):
                 self.runner_result.emit(i, {"error": "nessun risultato"})
 
             if delay > 0 and i != last_index and not self._abort:
-                time.sleep(delay)
+                self._abort_event.wait(timeout=delay)
 
         self.runner_finished.emit(passed, total, failed, aborted)
 
@@ -3259,6 +3262,7 @@ class _CollectionRunnerDialog(QDialog):
 
     def _stop(self) -> None:
         self._abort = True
+        self._abort_event.set()
         worker = self._current_worker
         if worker is not None:
             try:

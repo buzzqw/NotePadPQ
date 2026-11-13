@@ -1,7 +1,7 @@
 """Pannello dock con tabella Unicode per l'inserimento di caratteri speciali."""
 import unicodedata
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -18,6 +18,43 @@ from PyQt6.QtWidgets import (
 )
 
 from i18n.i18n import tr
+
+_SEARCH_LIMIT = 512
+_SEARCH_DEBOUNCE_MS = 200
+_name_index: list[tuple[str, str]] | None = None
+
+
+def _unicode_name_index() -> list[tuple[str, str]]:
+    """Lazily build (char, NAME) for every named code point once per process."""
+    global _name_index
+    if _name_index is None:
+        index = []
+        for cp in range(0x0020, 0x1FFFF):
+            ch = chr(cp)
+            name = unicodedata.name(ch, "")
+            if name:
+                index.append((ch, name))
+        _name_index = index
+    return _name_index
+
+
+def search_unicode_names(text: str, limit: int = _SEARCH_LIMIT) -> list[str]:
+    """Return characters whose Unicode name contains *text* (case-insensitive)."""
+    kw = text.strip().upper()
+    if not kw:
+        return []
+    if kw.startswith("U+"):
+        try:
+            return [chr(int(kw[2:], 16))]
+        except (ValueError, OverflowError):
+            return []
+    out = []
+    for ch, name in _unicode_name_index():
+        if kw in name:
+            out.append(ch)
+            if len(out) >= limit:
+                break
+    return out
 
 # Categorie Unicode con range di code point da mostrare
 # Le chiavi i18n vengono risolte a runtime in _build_categories()
@@ -108,7 +145,13 @@ class CharacterPanel(QDockWidget):
         self.setWidget(w)
 
         self._combo.currentIndexChanged.connect(self._load_category)
-        self._search.textChanged.connect(self._on_search)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(_SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(
+            lambda: self._on_search(self._search.text())
+        )
+        self._search.textChanged.connect(lambda _t: self._search_timer.start())
         self._table.cellActivated.connect(self._insert_char)
         self._table.currentCellChanged.connect(self._update_info)
 
@@ -117,6 +160,7 @@ class CharacterPanel(QDockWidget):
     # ── Caricamento dati ──────────────────────────────────────────────────────
 
     def _load_category(self, idx: int) -> None:
+        self._search_timer.stop()
         self._search.blockSignals(True)
         self._search.clear()
         self._search.blockSignals(False)
@@ -137,26 +181,7 @@ class CharacterPanel(QDockWidget):
             self._load_category(self._combo.currentIndex())
             return
 
-        chars = []
-        # Ricerca per code point U+XXXX
-        if text.upper().startswith("U+"):
-            try:
-                cp = int(text[2:], 16)
-                chars = [chr(cp)]
-            except ValueError:
-                pass
-        else:
-            kw = text.upper()
-            for cp in range(0x0020, 0x1FFFF):
-                try:
-                    ch = chr(cp)
-                    name = unicodedata.name(ch, "")
-                    if kw in name:
-                        chars.append(ch)
-                        if len(chars) >= 512:
-                            break
-                except (ValueError, TypeError):
-                    pass
+        chars = search_unicode_names(text)
         self._fill_table(chars)
 
     def _fill_table(self, chars: list) -> None:

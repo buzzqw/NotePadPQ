@@ -16,6 +16,7 @@ import html
 import itertools
 import os
 import re
+import stat
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -347,18 +348,21 @@ class _FindInFilesWorker(QObject):
                     continue
                 fpath = Path(root) / fname
                 try:
-                    if not fpath.is_file():
+                    # Un solo open: si sonda l'intestazione e, se è testo, si
+                    # prosegue la lettura dallo stesso handle (i binari si
+                    # scartano senza leggerli per intero).
+                    # stat prima di aprire: open() su una FIFO bloccherebbe.
+                    st = fpath.stat()
+                    if not stat.S_ISREG(st.st_mode) or st.st_size > _MAX_FIND_FILE_BYTES:
                         continue
-                    size = fpath.stat().st_size
-                    if size > _MAX_FIND_FILE_BYTES:
-                        continue
-                    with fpath.open("rb") as probe:
-                        head = probe.read(4096)
-                    if FileManager.looks_binary(head):
-                        continue
+                    with fpath.open("rb") as fh:
+                        head = fh.read(4096)
+                        if FileManager.looks_binary(head):
+                            continue
+                        raw = head + fh.read()
                     # Solo ricerca: niente digest SHA-256, serve solo al replace.
-                    text = FileManager.decode_bytes(fpath.read_bytes())[0]
-                except Exception:
+                    text = FileManager.decode_bytes(raw)[0]
+                except (OSError, UnicodeError, ValueError, LookupError):
                     continue
                 file_match_count, hits = _search_text(
                     text, pattern, prefilter, literal_lines)

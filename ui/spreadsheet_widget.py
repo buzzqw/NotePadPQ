@@ -19,7 +19,7 @@ from PyQt6.QtCore import (
     QTimer,
     pyqtSignal,
 )
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -49,6 +49,13 @@ from PyQt6.QtWidgets import (
 )
 
 from i18n.i18n import tr
+
+# Numeri (anche con virgola decimale) allineati a destra. Regex invece di
+# try/float(): data() viene chiamato per ogni cella visibile a ogni repaint.
+_NUMERIC_RE = _re.compile(r"\s*[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][+-]?\d+)?\s*")
+_ALIGN_NUMBER = int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+_ALIGN_TEXT = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+_FORMULA_COLOR = "#5baaff"
 
 # ─── Formula helpers ─────────────────────────────────────────────────────────
 
@@ -713,15 +720,14 @@ class SpreadsheetModel(QAbstractTableModel):
                 return self._get_engine().evaluate(raw)
             return raw
         if role == Qt.ItemDataRole.ForegroundRole and is_formula:
-            from PyQt6.QtGui import QColor
-            return QColor("#5baaff")  # formule in azzurro
+            return QColor(_FORMULA_COLOR)  # formule in azzurro
         if role == Qt.ItemDataRole.TextAlignmentRole:
             display = self._get_engine().evaluate(raw) if is_formula else raw
-            try:
-                float(str(display).replace(",", "."))
-                return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            except (ValueError, AttributeError):
-                return int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            if isinstance(display, (int, float)) and not isinstance(display, bool):
+                return _ALIGN_NUMBER
+            if _NUMERIC_RE.fullmatch(str(display)):
+                return _ALIGN_NUMBER
+            return _ALIGN_TEXT
         return None
 
     def headerData(self, section: int, orientation: Qt.Orientation,

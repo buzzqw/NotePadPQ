@@ -89,6 +89,11 @@ def _terminate_process_tree(proc: subprocess.Popen, grace_seconds: float = 1.0) 
                 proc.wait(timeout=grace_seconds)
             except subprocess.TimeoutExpired:
                 os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                # Reap the child right away so it does not linger as <defunct>.
+                try:
+                    proc.wait(timeout=grace_seconds)
+                except subprocess.TimeoutExpired:
+                    pass
     except (OSError, subprocess.SubprocessError):
         try:
             proc.terminate()
@@ -375,7 +380,9 @@ class InteractiveBuildWorker(QThread):
         self._timeout = timeout if timeout and timeout > 0 else None
         self._proc: subprocess.Popen | None = None
         self._abort   = False
-        self._input_queue: list[str] = []
+        # Thread-safe: written by the GUI thread, drained by the runner thread.
+        # ``None`` is the sentinel that stops the pipe-mode feeder thread.
+        self._input_queue: queue.Queue[str | None] = queue.Queue()
         self._outcome: tuple[str, float] | None = None
         self._state = BUILD_STATE_QUEUED
 
@@ -389,7 +396,7 @@ class InteractiveBuildWorker(QThread):
             self.state_changed.emit(state)
 
     def send_input(self, text: str) -> None:
-        self._input_queue.append(text)
+        self._input_queue.put(text)
 
     @profile_operation("build.run_interactive")
     def run(self) -> None:
@@ -464,12 +471,17 @@ class InteractiveBuildWorker(QThread):
                         )
                         break
 
-                    while self._input_queue:
-                        inp = self._input_queue.pop(0)
+                    while True:
+                        try:
+                            inp = self._input_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        if inp is None:
+                            continue
                         try:
                             master_w.write(inp)
                             master_w.flush()
-                        except Exception:
+                        except OSError:
                             pass
 
                     r, _, _ = select.select([master_fd], [], [], timeout)
@@ -546,6 +558,12 @@ class InteractiveBuildWorker(QThread):
 
     def _run_pipe(self) -> None:
         """Fallback non-PTY per Windows (pipe standard)."""
+        try:
+            self._run_pipe_inner()
+        finally:
+            self._input_queue.put(None)  # wake and stop the stdin feeder
+
+    def _run_pipe_inner(self) -> None:
         shell = get_default_shell()
         flag = get_shell_exec_flag()
         start = time.monotonic()
@@ -570,18 +588,20 @@ class InteractiveBuildWorker(QThread):
                 self._set_state(BUILD_STATE_CANCELLED)
                 self.stopped.emit()
                 return
-            import threading
+            proc = self._proc
 
             def _feed_input():
-                while self._proc and self._proc.poll() is None:
-                    while self._input_queue:
-                        inp = self._input_queue.pop(0)
-                        try:
-                            self._proc.stdin.write(inp)
-                            self._proc.stdin.flush()
-                        except Exception:
-                            return
-                    time.sleep(0.05)
+                # Blocks on the queue instead of waking up every 50 ms; the
+                # runner pushes ``None`` once the process has finished.
+                while True:
+                    inp = self._input_queue.get()
+                    if inp is None or proc.poll() is not None:
+                        return
+                    try:
+                        proc.stdin.write(inp)
+                        proc.stdin.flush()
+                    except (OSError, ValueError):
+                        return
 
             threading.Thread(target=_feed_input, daemon=True).start()
 

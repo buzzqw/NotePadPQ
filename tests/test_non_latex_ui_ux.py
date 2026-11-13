@@ -142,7 +142,7 @@ class NonLatexUiUxTests(unittest.TestCase):
         browser.deleteLater()
 
     def test_group_label_edits_update_project_data_and_mark_dirty(self):
-        manager = ProjectManager(QWidget())
+        manager = ProjectManager(None)
         manager._data = {"name": "Test", "groups": [{"name": "Old", "files": []}]}
         manager._dirty = False
         manager._rebuild_tree()
@@ -155,7 +155,7 @@ class NonLatexUiUxTests(unittest.TestCase):
         manager.deleteLater()
 
     def test_dirty_unsaved_project_cannot_be_replaced_after_cancelled_save(self):
-        manager = ProjectManager(QWidget())
+        manager = ProjectManager(None)
         manager._data = {"name": "Test", "groups": []}
         manager._dirty = True
         manager._project_path = None

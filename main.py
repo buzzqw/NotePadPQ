@@ -168,6 +168,77 @@ def check_dependencies() -> bool:
     return True
 
 
+
+_EMOJI_FALLBACK_FAMILIES = (
+    "Hack", "DejaVu Sans Mono", "Noto Mono", "Noto Sans Mono",
+    "Liberation Mono", "FreeMono", "Courier New",
+    "JetBrains Mono", "Fira Code", "Cascadia Code", "Source Code Pro",
+)
+
+
+def _emoji_fontconfig_rules() -> str:
+    return "\n".join(
+        f'  <match target="pattern">\n'
+        f'    <test qual="any" name="family"><string>{f}</string></test>\n'
+        f'    <edit name="family" mode="append" binding="weak"><string>Symbola</string></edit>\n'
+        f'  </match>'
+        for f in _EMOJI_FALLBACK_FAMILIES
+    )
+
+
+def _install_emoji_fontconfig() -> None:
+    """Point this process at a private fonts.conf adding Symbola as fallback.
+
+    The private file includes the normal system/user configuration first, so
+    every other font rule keeps working. It must run before QApplication().
+    """
+    if os.environ.get("FONTCONFIG_FILE"):
+        return  # the user/packager chose a config explicitly: respect it
+    try:
+        config_home = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+        rules = _emoji_fontconfig_rules()
+
+        # Versions <= 2.2.1 wrote the rule into the user's global conf.d,
+        # changing fonts for every desktop application. Remove that file if
+        # it is exactly what we generated.
+        legacy = os.path.join(config_home, "fontconfig", "conf.d", "99-notepadpq-emoji.conf")
+        legacy_conf = (
+            '<?xml version="1.0"?>\n'
+            '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n'
+            '<fontconfig>\n' + rules + '\n</fontconfig>\n'
+        )
+        try:
+            with open(legacy, encoding="utf-8") as fh:
+                if fh.read() == legacy_conf:
+                    os.remove(legacy)
+        except OSError:
+            pass
+
+        system_conf = "/etc/fonts/fonts.conf"
+        if not os.path.exists(system_conf):
+            return
+        conf = (
+            '<?xml version="1.0"?>\n'
+            '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n'
+            '<fontconfig>\n'
+            f'  <include ignore_missing="yes">{system_conf}</include>\n'
+            + rules + '\n'
+            '</fontconfig>\n'
+        )
+        fc_dir = os.path.join(config_home, "NotePadPQ", "fontconfig")
+        os.makedirs(fc_dir, exist_ok=True)
+        fc_path = os.path.join(fc_dir, "fonts.conf")
+        existing = ""
+        if os.path.exists(fc_path):
+            with open(fc_path, encoding="utf-8") as fh:
+                existing = fh.read()
+        if existing != conf:
+            with open(fc_path, "w", encoding="utf-8") as fh:
+                fh.write(conf)
+        os.environ["FONTCONFIG_FILE"] = fc_path
+    except OSError:
+        pass
+
 def main():
     if not check_dependencies():
         sys.exit(1)
@@ -227,43 +298,11 @@ def main():
     # Emoji fallback for QScintilla: Qt's automatic font merging doesn't
     # trigger for SMP characters (U+1F000+) without explicit fontconfig rules
     # because QScintilla reconstructs QFont from raw family-name strings.
-    # Writing a fontconfig rule before QApplication() makes Qt pick up
-    # Symbola as fallback when any monospace font lacks an emoji glyph.
+    # The rule lives in a private fonts.conf (FONTCONFIG_FILE) so it only
+    # affects this process, never the user's desktop-wide fontconfig.
     import platform as _platform
     if _platform.system() == "Linux":
-        try:
-            import os as _os
-            _fc_dir = _os.path.expanduser("~/.config/fontconfig/conf.d")
-            _os.makedirs(_fc_dir, exist_ok=True)
-            _fc_path = _os.path.join(_fc_dir, "99-notepadpq-emoji.conf")
-            _families = [
-                "Hack", "DejaVu Sans Mono", "Noto Mono", "Noto Sans Mono",
-                "Liberation Mono", "FreeMono", "Courier New",
-                "JetBrains Mono", "Fira Code", "Cascadia Code", "Source Code Pro",
-            ]
-            _rules = "\n".join(
-                f'  <match target="pattern">\n'
-                f'    <test qual="any" name="family"><string>{f}</string></test>\n'
-                f'    <edit name="family" mode="append" binding="weak"><string>Symbola</string></edit>\n'
-                f'  </match>'
-                for f in _families
-            )
-            _conf = (
-                '<?xml version="1.0"?>\n'
-                '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n'
-                '<fontconfig>\n'
-                + _rules + '\n'
-                '</fontconfig>\n'
-            )
-            _existing = ""
-            if _os.path.exists(_fc_path):
-                with open(_fc_path, encoding="utf-8") as _fh:
-                    _existing = _fh.read()
-            if _existing != _conf:
-                with open(_fc_path, "w", encoding="utf-8") as _fh:
-                    _fh.write(_conf)
-        except Exception:
-            pass
+        _install_emoji_fontconfig()
 
     # QtWebEngine esige AA_ShareOpenGLContexts impostato PRIMA di QApplication.
     # Lo impostiamo qui senza importare QtWebEngine: così il suo runtime (~31 MB)

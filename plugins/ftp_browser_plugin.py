@@ -46,6 +46,7 @@ from PyQt6.QtWidgets import (
 
 from core.file_manager import FileManager
 from core.lazy_import import LazyModule
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
 from ui.busy_indicator import BusyIndicator
@@ -69,7 +70,7 @@ if TYPE_CHECKING:
 
 # ─── Worker generico per operazioni FTP/SFTP/SMB bloccanti ───────────────────
 
-class _FtpOpWorker(QThread):
+class _FtpOpWorker(SafeQThread):
     """Esegue in background una funzione bloccante (socket I/O, subprocess).
 
     Un solo worker alla volta per pannello: connect/list/download/upload

@@ -12,9 +12,11 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QPoint, QRect, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QPoint, QRect, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QLabel, QWidget
+
+from core.qt_thread import SafeQThread
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -36,7 +38,7 @@ _RE_KEYWORD = re.compile(
 )
 
 
-class _MinimapWorker(QThread):
+class _MinimapWorker(SafeQThread):
     """Disegna la minimap su QImage in un thread separato per non bloccare la UI.
     QPainter su QImage è thread-safe; QPixmap.fromImage() viene fatto sul main thread."""
 

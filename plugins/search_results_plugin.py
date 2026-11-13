@@ -51,6 +51,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.diagnostics import profile_operation
+from core.qt_thread import SafeQThread
 from core.text_search import literal_search_source
 from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
@@ -177,7 +178,7 @@ def _tree_stylesheet(c: dict) -> str:
     """
 
 
-class _FileSearchWorker(QThread):
+class _FileSearchWorker(SafeQThread):
     """Enumera e cerca nei file senza accedere a oggetti Qt della UI."""
 
     batch_ready = pyqtSignal(list)
@@ -293,7 +294,7 @@ class _FileSearchWorker(QThread):
             })
 
 
-class _FileReplaceWorker(QThread):
+class _FileReplaceWorker(SafeQThread):
     """Sostituisce su disco con scritture atomiche e cancellazione tra file."""
 
     progress = pyqtSignal(int, int)

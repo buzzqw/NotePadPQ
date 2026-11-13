@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QSortFilterProxyModel, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QSortFilterProxyModel, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QColor,
@@ -53,6 +53,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -465,7 +466,7 @@ _MAX_FUNCTION_ITEMS = 5_000
 _MAX_EXPAND_ALL_ITEMS = 2_000
 
 
-class _ParseWorker(QThread):
+class _ParseWorker(SafeQThread):
     """Esegue parser.parse(text) in background per non bloccare la UI."""
 
     done = pyqtSignal(list, int, bool)  # (symbols, generation, is_hierarchical)

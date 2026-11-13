@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QLabel,
@@ -22,6 +22,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from core.qt_thread import SafeQThread
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -42,7 +44,7 @@ _MAX_STRUCTURE_ITEMS = 3_000
 _MAX_STRUCTURE_EXPAND = 1_000
 
 
-class _StructureWorker(QThread):
+class _StructureWorker(SafeQThread):
     """Estrae la struttura del documento LaTeX in background (regex pura, nessun Qt)."""
 
     done = pyqtSignal(list)

@@ -27,7 +27,7 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -56,6 +56,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.git_framework import GitFramework
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
 
@@ -257,7 +258,7 @@ def _load_token(service: str) -> str:
 
 # ─── Dialog credenziali ───────────────────────────────────────────────────────────
 
-class _GitInfoWorker(QThread):
+class _GitInfoWorker(SafeQThread):
     """Legge branch/config in background: erano comandi git sincroni sul GUI."""
 
     done = pyqtSignal(str, list, str, str, str)

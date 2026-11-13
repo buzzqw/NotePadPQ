@@ -36,11 +36,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal
 
 from core.diagnostics import profile_operation
 from core.latex_project import get_output_directory
 from core.platform import IS_WINDOWS, get_config_dir, get_default_shell, get_shell_exec_flag
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -233,7 +234,7 @@ def _has_pty() -> bool:
 
 # ─── BuildWorker ──────────────────────────────────────────────────────────────
 
-class BuildWorker(QThread):
+class BuildWorker(SafeQThread):
     """Thread che esegue il processo di build (non interattivo)."""
 
     output_line  = pyqtSignal(str)
@@ -361,7 +362,7 @@ class BuildWorker(QThread):
             _terminate_process_tree(self._proc)
 
 
-class InteractiveBuildWorker(QThread):
+class InteractiveBuildWorker(SafeQThread):
     """Thread per build interattive con PTY (pseudo-terminale)."""
 
     output_line  = pyqtSignal(str)

@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import Qt, QThread, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QIcon, QKeySequence, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -42,6 +42,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -223,7 +224,7 @@ def _not_included(entries: list[IncludeEntry],
 
 # ─── Worker ───────────────────────────────────────────────────────────────────
 
-class _ScanWorker(QThread):
+class _ScanWorker(SafeQThread):
     done = pyqtSignal(list, list, int)   # entries, not_included, generation
 
     def __init__(self, text: str, lang: str,

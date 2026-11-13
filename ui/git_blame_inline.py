@@ -14,14 +14,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QTimer, pyqtSignal
+
+from core.qt_thread import SafeQThread
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
     from ui.main_window import MainWindow
 
 
-class _BlameWorker(QThread):
+class _BlameWorker(SafeQThread):
     """Esegue 'git blame' in un thread separato per non bloccare la UI."""
 
     done = pyqtSignal(str)   # testo formattato (vuoto se non disponibile)

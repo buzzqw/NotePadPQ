@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -29,12 +29,13 @@ from core.latex_references import (
     LatexSection,
     analyze_latex_project,
 )
+from core.qt_thread import SafeQThread
 
 _MAX_REFERENCE_ITEMS = 5_000
 _MAX_RESIZE_ITEMS = 2_000
 
 
-class _AnalysisWorker(QThread):
+class _AnalysisWorker(SafeQThread):
     completed = pyqtSignal(int, object)
     failed = pyqtSignal(int, str)
 

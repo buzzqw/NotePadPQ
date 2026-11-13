@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 
 # Numeri (anche con virgola decimale) allineati a destra. Regex invece di
@@ -1286,7 +1287,7 @@ class SpreadsheetIO:
         return None
 
 
-class SpreadsheetLoadWorker(QThread):
+class SpreadsheetLoadWorker(SafeQThread):
     """Carica dati puri nel worker; nessun QObject/modello Qt viene creato qui."""
 
     loaded = pyqtSignal(list, list, str, list, str)

@@ -12,7 +12,6 @@ from __future__ import annotations
 import bisect
 import fnmatch
 import hashlib
-import html
 import itertools
 import os
 import re
@@ -22,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PyQt6.Qsci import QSCINTILLA_VERSION
-from PyQt6.QtCore import QEvent, QModelIndex, QObject, QRect, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QModelIndex, QObject, QRect, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPalette
 from PyQt6.QtWidgets import (
     QApplication,
@@ -54,6 +53,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.file_manager import FileManager
+from core.qt_thread import SafeQThread
 from core.text_search import literal_search_source
 from core.worker_pool import ManagedWorker
 from editor.editor_widget import (
@@ -476,7 +476,7 @@ class _ReplaceWriterWorker(QObject):
         self.finished.emit(written_matches, written_files, errors)
 
 
-class _OccurrenceScanWorker(QThread):
+class _OccurrenceScanWorker(SafeQThread):
     """Scansiona le occorrenze in background.
 
     Prima ``_populate_occurrences`` copiava e analizzava l'intero documento

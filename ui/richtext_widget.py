@@ -42,6 +42,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.qt_thread import SafeQThread
+
 try:
     from PyQt6.QtWebChannel import QWebChannel
     from PyQt6.QtWebEngineCore import (
@@ -118,7 +120,7 @@ def _keep_thread_alive(thread: QThread) -> None:
     thread.finished.connect(lambda thread=thread: _ACTIVE_THREADS.discard(thread))
 
 
-class _JoditDownloadWorker(QThread):
+class _JoditDownloadWorker(SafeQThread):
     progress = pyqtSignal(int, str)
     completed = pyqtSignal(bool, str)
 
@@ -528,7 +530,7 @@ class RichTextIO:
             return str(e)
 
 
-class _RichTextIOWorker(QThread):
+class _RichTextIOWorker(SafeQThread):
     """Esegue lettura e conversione senza accedere a oggetti UI."""
 
     completed = pyqtSignal(str, str, bool)  # result, error, cancelled

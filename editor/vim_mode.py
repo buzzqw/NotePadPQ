@@ -10,14 +10,16 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QInputDialog, QMessageBox
+
+from core.qt_thread import SafeQThread
 
 _ACTIVE_VIM_WORKERS: set = set()
 
 
-class _VimShellWorker(QThread):
+class _VimShellWorker(SafeQThread):
     """Esegue un comando shell Vim senza bloccare il thread GUI."""
 
     done = pyqtSignal(str, str, int, str)  # stdout, stderr, returncode, error

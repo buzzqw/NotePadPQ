@@ -35,7 +35,7 @@ import re
 import threading
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, QPoint, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
@@ -56,6 +56,7 @@ from config.settings import Settings
 from core.diagnostics import profile_operation
 from core.external_open import open_url as _open_url
 from core.memory import schedule_trim
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 
 _HAS_WEBENGINE = _importlib_util.find_spec("PyQt6.QtWebEngineWidgets") is not None
@@ -452,7 +453,7 @@ def _markdown_heading_count(text: str) -> int:
 
 # ─── Worker thread per rendering Markdown ────────────────────────────────────────
 
-class _MarkdownWorker(QThread):
+class _MarkdownWorker(SafeQThread):
     """
     Esegue il rendering Markdown in un thread separato.
     Il thread principale non viene mai bloccato, indipendentemente
@@ -543,7 +544,7 @@ class _MarkdownWorker(QThread):
 
 # ─── PreviewPanel ─────────────────────────────────────────────────────────────
 
-class _SyncTeXFwdWorker(QThread):
+class _SyncTeXFwdWorker(SafeQThread):
     """Esegue `synctex view` in background per non bloccare la UI."""
 
     done = pyqtSignal(int, object)  # (generation, result_dict or None)
@@ -572,7 +573,7 @@ class _SyncTeXFwdWorker(QThread):
                 self.done.emit(self._gen, None)
 
 
-class _SyncTeXBwdWorker(QThread):
+class _SyncTeXBwdWorker(SafeQThread):
     """Esegue `synctex edit` (pdf -> tex) in background: il click sul PDF
     per saltare al sorgente invocava il subprocess sul thread GUI."""
 
@@ -603,7 +604,7 @@ class _SyncTeXBwdWorker(QThread):
                 self.done.emit(self._gen, None)
 
 
-class _SyncTeXSelWorker(QThread):
+class _SyncTeXSelWorker(SafeQThread):
     """Esegue le chiamate `synctex view` per l'evidenziazione della
     selezione in background: `_do_selection_sync` veniva eseguita sul
     thread GUI e bloccava tutto l'editor (digitazione, scroll, tab)
@@ -744,7 +745,7 @@ class _PdfDocumentPool:
 _PDF_DOCUMENT_POOL = _PdfDocumentPool()
 
 
-class _PdfRenderWorker(QThread):
+class _PdfRenderWorker(SafeQThread):
     """Rasterizza una pagina PDF con fitz in background.
     Emette done(gen, page_idx, QImage_or_None, clip_rect, links)."""
 

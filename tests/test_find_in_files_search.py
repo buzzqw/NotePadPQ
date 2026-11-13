@@ -106,7 +106,7 @@ def test_worker_reports_the_same_files_and_lines(tmp_path, qtbot):
     (tmp_path / "b.txt").write_text("nessun risultato\n", encoding="utf-8")
     sub = tmp_path / "sub"
     sub.mkdir()
-    (sub / "c.tex").write_bytes("\\section{Alfa}\r\nfine\r\n".encode("utf-8"))
+    (sub / "c.tex").write_bytes(b"\\section{Alfa}\r\nfine\r\n")
     worker = _FindInFilesWorker(str(tmp_path), [], "alfa", False, False, True)
     results = {}
     worker.file_done.connect(

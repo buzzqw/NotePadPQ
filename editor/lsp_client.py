@@ -18,7 +18,9 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal
+
+from core.qt_thread import SafeQThread
 
 if TYPE_CHECKING:
     pass
@@ -155,7 +157,7 @@ class LSPProtocol:
 
 # ─── LSPWorker — thread di comunicazione ─────────────────────────────────────
 
-class LSPWorker(QThread):
+class LSPWorker(SafeQThread):
     """Thread che legge stdout del server LSP con parser corretto (Content-Length)."""
 
     response_received = pyqtSignal(dict)

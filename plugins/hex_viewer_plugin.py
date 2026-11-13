@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
 
@@ -48,7 +49,7 @@ SEARCH_CHUNK  = 4 * 1024 * 1024
 _ORPHANED_SEARCH_WORKERS: set[QThread] = set()
 
 
-class _HexSearchWorker(QThread):
+class _HexSearchWorker(SafeQThread):
     """Cerca a blocchi, con un mapping indipendente e cancellabile."""
 
     completed = pyqtSignal(int, str)

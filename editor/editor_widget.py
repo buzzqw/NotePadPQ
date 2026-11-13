@@ -32,7 +32,7 @@ from PyQt6.Qsci import (
     QsciLexerPython,  # usato solo nel test standalone
     QsciScintilla,
 )
-from PyQt6.QtCore import QEvent, QPoint, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QDragEnterEvent, QDropEvent, QFont, QKeyEvent
 from PyQt6.QtWidgets import QApplication, QListWidget, QMenu, QWidget
 
@@ -45,6 +45,7 @@ from core.latex_parser import (
     read_latex_group,
 )
 from core.platform import get_data_dir, get_preferred_monospace_font
+from core.qt_thread import SafeQThread
 from core.text_search import literal_search_pattern
 from i18n.i18n import tr
 
@@ -147,7 +148,7 @@ def extract_latex_citation_occurrences(text: str) -> list[dict]:
     return _extract_latex_citation_occurrences(text)
 
 
-class _SpellWorker(QThread):
+class _SpellWorker(SafeQThread):
     """Calcola le posizioni delle parole sconosciute in un thread separato."""
 
     done = pyqtSignal(int, list)   # (generation, list[tuple[int,int,int,int]])
@@ -230,7 +231,7 @@ _ACTIVE_SEMANTIC_WORKERS: set = set()
 _ACTIVE_HOVER_WORKERS: set = set()
 
 
-class _LatexSemanticWorker(QThread):
+class _LatexSemanticWorker(SafeQThread):
     """Risolve label/ref/citazione in background.
 
     ``analyze_label_references`` e la ricerca BibTeX leggono l'intero progetto
@@ -287,7 +288,7 @@ class _LatexSemanticWorker(QThread):
 
 # ─── Rendering asincrono dell'hover (immagini/PDF/formule) ────────────────────
 
-class _HoverRenderWorker(QThread):
+class _HoverRenderWorker(SafeQThread):
     """Prepara QImage per il tooltip senza bloccare il thread GUI."""
 
     done = pyqtSignal(int, object)  # generation, QImage | None

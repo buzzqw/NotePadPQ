@@ -55,6 +55,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.lazy_import import LazyModule
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
 
@@ -473,7 +474,7 @@ class _JetBrainsOAuth(QObject):
 
 # ─── Worker HTTP — streaming per Anthropic, batch per gli altri ───────────────
 
-class _AIWorker(QThread):
+class _AIWorker(SafeQThread):
     """Thread che chiama le API AI. Emette chunk via stream_chunk o result_ready."""
 
     stream_chunk   = pyqtSignal(str)        # testo parziale risposta

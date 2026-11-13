@@ -20,7 +20,9 @@ import re
 import subprocess
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+
+from core.qt_thread import SafeQThread
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -29,7 +31,7 @@ if TYPE_CHECKING:
 _ACTIVE_REPO_WORKERS: set = set()
 
 
-class _GitRepoCheckWorker(QThread):
+class _GitRepoCheckWorker(SafeQThread):
     """Verifica se una directory è in un repository git senza bloccare la GUI."""
 
     done = pyqtSignal(str, bool)
@@ -46,7 +48,7 @@ class _GitRepoCheckWorker(QThread):
         self.done.emit(str(self._directory), _is_git_repo(self._directory))
 
 
-class _GitDiffWorker(QThread):
+class _GitDiffWorker(SafeQThread):
     """Esegue 'git diff HEAD' in un thread separato per non bloccare la UI."""
 
     done = pyqtSignal(object, object, object)   # (added, modified, deleted) set[int]

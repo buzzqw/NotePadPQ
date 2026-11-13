@@ -6,7 +6,7 @@ import json
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QSortFilterProxyModel, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QSortFilterProxyModel, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QBrush,
@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 
 if TYPE_CHECKING:
@@ -52,7 +53,7 @@ _AUTO_REFRESH_MAX_BYTES = 1_000_000
 _MAX_TREE_NODES = 20_000
 
 
-class _JsonXmlParseWorker(QThread):
+class _JsonXmlParseWorker(SafeQThread):
     """Analizza il documento senza bloccare il thread dell'interfaccia."""
 
     done = pyqtSignal(int, str, object, object, str)

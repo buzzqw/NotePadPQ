@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
 
 from config.settings import Settings
 from core.lazy_import import LazyModule
+from core.qt_thread import SafeQThread
 from editor.editor_widget import INDICATOR_LANGUAGETOOL
 from plugins.base_plugin import BasePlugin
 
@@ -277,7 +278,7 @@ def _mask_latex(text: str) -> tuple[str, list[bool]]:
     return "".join(chars), visible
 
 
-class _LanguageToolWorker(QThread):
+class _LanguageToolWorker(SafeQThread):
     """Invia un testo a LanguageTool senza bloccare il thread Qt principale."""
 
     completed = pyqtSignal(int, object, str)  # generazione, match, errore

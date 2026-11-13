@@ -26,9 +26,10 @@ from enum import IntFlag, auto
 from typing import TYPE_CHECKING
 
 from PyQt6.Qsci import QsciAPIs, QsciScintilla
-from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor
 
+from core.qt_thread import SafeQThread
 from editor.text_access import text_before_cursor
 
 if TYPE_CHECKING:
@@ -670,7 +671,7 @@ _LANGUAGE_APIS: dict[str, list[str]] = {
 
 # ─── Worker asincrono per il rebuild delle API ────────────────────────────────
 
-class _ApiRebuildWorker(QThread):
+class _ApiRebuildWorker(SafeQThread):
     """Calcola i termini di autocompletamento in background per non bloccare la UI.
     L'I/O su disco (build_dynamic_api → multifile) e il parsing regex vengono
     eseguiti qui; solo api.prepare() rimane sul main thread."""
@@ -825,7 +826,7 @@ class _ApiRebuildWorker(QThread):
 
 # ─── AutoCompleteManager ──────────────────────────────────────────────────────
 
-class _DocumentWordsWorker(QThread):
+class _DocumentWordsWorker(SafeQThread):
     """Calcola in background le parole del documento per il completamento.
 
     Il popup veniva popolato con un ``re.findall`` sull'intero buffer a ogni

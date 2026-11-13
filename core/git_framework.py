@@ -11,10 +11,12 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+
+from core.qt_thread import SafeQThread
 
 
-class _GitThread(QThread):
+class _GitThread(SafeQThread):
     """QThread che esegue un comando git e restituisce il risultato via segnale."""
 
     result_ready = pyqtSignal(int, str, str)

@@ -63,6 +63,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 from ui.busy_indicator import BusyIndicator
 
@@ -244,7 +245,7 @@ class _SqlHighlighter(QSyntaxHighlighter):
 
 # ── Driver installer dialog ───────────────────────────────────────────────────
 
-class _PipInstallWorker(QThread):
+class _PipInstallWorker(SafeQThread):
     """Esegue 'pip install <package>' in background (può richiedere fino a 120s)."""
 
     completed = pyqtSignal(bool, str, bool, bool)  # ok, message, is_exception, cancelled
@@ -795,7 +796,7 @@ def _open_connection(info: dict):
     raise ValueError(tr("db.unsupported_type", db_type=db_type))
 
 
-class _ConnectionWorker(QThread):
+class _ConnectionWorker(SafeQThread):
     """Tests a connection in a worker and never transfers it across threads."""
 
     completed = pyqtSignal(str, bool)  # error, cancelled
@@ -960,7 +961,7 @@ def _wrap_export_limit(sql: str, limit: int, db_type: str) -> str:
     return f"SELECT * FROM ({inner}) AS _npq_export LIMIT {limit}"
 
 
-class _QueryWorker(QThread):
+class _QueryWorker(SafeQThread):
     # headers, rows, error, elapsed, has_more
     finished = pyqtSignal(list, list, str, float, bool)
 
@@ -1047,7 +1048,7 @@ class _QueryWorker(QThread):
                 self._connection = None
 
 
-class _ExportWorker(QThread):
+class _ExportWorker(SafeQThread):
     """Esegue query e serializzazione nello stesso worker, a batch limitati."""
 
     progress = pyqtSignal(int)

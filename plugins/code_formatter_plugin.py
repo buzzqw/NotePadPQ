@@ -39,7 +39,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -53,6 +53,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.qt_thread import SafeQThread
 from editor.lexers import get_language_name
 from i18n.i18n import tr
 from plugins.base_plugin import BasePlugin
@@ -406,7 +407,7 @@ class _Formatter:
 
 # ─── Worker per invocazione asincrona del formatter ──────────────────────────
 
-class _FormatWorker(QThread):
+class _FormatWorker(SafeQThread):
     """Esegue _Formatter.format_text() in background (il formatter esterno
     può richiedere fino a 30s, o 60s con fallback su formatter alternativo)."""
 

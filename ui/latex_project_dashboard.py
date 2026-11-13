@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QLabel, QVBoxLayout
 
 from core.latex_external_tools import detect_latex_auxiliary_tools
 from core.latex_project import LatexProjectContext
 from core.latex_references import analyze_latex_project
 from core.latex_toolchain import detect_latex_toolchain
+from core.qt_thread import SafeQThread
 
 # I worker di analisi possono sopravvivere alla chiusura della finestra: li
 # teniamo referenziati finché non terminano, altrimenti un QThread ancora in
@@ -18,7 +19,7 @@ from core.latex_toolchain import detect_latex_toolchain
 _ACTIVE_ANALYSIS_WORKERS: set = set()
 
 
-class _DashboardToolchainWorker(QThread):
+class _DashboardToolchainWorker(SafeQThread):
     completed = pyqtSignal(object)
 
     def __init__(self, project_path: Path) -> None:
@@ -31,7 +32,7 @@ class _DashboardToolchainWorker(QThread):
         )
 
 
-class _DashboardAnalysisWorker(QThread):
+class _DashboardAnalysisWorker(SafeQThread):
     """Analizza il progetto fuori dal thread GUI.
 
     ``analyze_latex_project`` legge tutti i file inclusi e può richiedere

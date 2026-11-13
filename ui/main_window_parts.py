@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, QObject, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QMenu
 
+from core.qt_thread import SafeQThread
 from i18n.i18n import tr
 
 
@@ -67,7 +68,7 @@ class TripleClickFilter(QObject):
         self.clicks = 0
 
 
-class _ExportAsWorker(QThread):
+class _ExportAsWorker(SafeQThread):
     """Esegue la conversione di 'Esporta come...' in background (pandoc può
     richiedere fino a 30s su documenti grandi)."""
 
@@ -105,7 +106,7 @@ class _ExportAsWorker(QThread):
         self.completed.emit(err, self._cancelled)
 
 
-class _EditorSaveWorker(QThread):
+class _EditorSaveWorker(SafeQThread):
     """Scrive uno snapshot dell'editor senza bloccare il thread GUI."""
 
     completed = pyqtSignal(bool, str)
@@ -138,7 +139,7 @@ class _EditorSaveWorker(QThread):
 _ACTIVE_UPDATE_WORKERS: set = set()
 
 
-class _UpdateCheckWorker(QThread):
+class _UpdateCheckWorker(SafeQThread):
     """Interroga l'API GitHub senza bloccare il thread GUI."""
 
     completed = pyqtSignal(object)  # dict | None

@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PyQt6.Qsci import QsciScintilla
-from PyQt6.QtCore import QObject, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor
 
 from core.diagnostics import profile_operation
@@ -37,6 +37,7 @@ from core.latex_checks import (
 from core.latex_citations import extract_latex_citation_occurrences
 from core.latex_index import get_latex_index
 from core.latex_parser import strip_latex_comments
+from core.qt_thread import SafeQThread
 
 if TYPE_CHECKING:
     from editor.editor_widget import EditorWidget
@@ -54,7 +55,7 @@ _MARKER_WARNING_SYM = QsciScintilla.MarkerSymbol.RightTriangle
 _LIVE_CHECK_MAX_BYTES = 1 * 1024 * 1024
 
 
-class _CheckWorker(QThread):
+class _CheckWorker(SafeQThread):
     """Esegue i tre controlli LaTeX in un thread separato per non bloccare la UI."""
 
     done = pyqtSignal(int, list)   # (generation, list[dict])

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QDialog,
@@ -23,9 +23,10 @@ from core.latex_external_tools import (
     run_chktex,
     run_lacheck,
 )
+from core.qt_thread import SafeQThread
 
 
-class _ExternalToolWorker(QThread):
+class _ExternalToolWorker(SafeQThread):
     completed = pyqtSignal(str, object)
 
     def __init__(self, operation: str, path: Path, text: str) -> None:

@@ -5,6 +5,7 @@
 - InteractiveBuildWorker: thread-safe input queue (PTY and pipe modes)
 - BasePlugin.on_unload really removes its actions from the menus
 - SpreadsheetModel: numeric alignment without exception-driven flow
+- SafeQThread: a worker survives its owner dropping it from a result slot
 """
 
 import os
@@ -208,6 +209,50 @@ class SpreadsheetAlignmentTests(unittest.TestCase):
             for c in range(len(values))
         ]
         self.assertEqual(got, [right, right, right, right, left, left, left, right])
+
+
+class SafeQThreadTests(unittest.TestCase):
+    """The owner's slot drops the only reference while run() is still active.
+
+    With a plain QThread this aborts the process ("QThread: Destroyed while
+    thread is still running"), which is what LaTeXChecker._on_check_done did.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = _app()
+
+    def test_dropping_worker_from_result_slot_is_safe(self):
+        import time
+
+        from PyQt6.QtCore import QEventLoop, pyqtSignal
+
+        from core.qt_thread import SafeQThread, running_thread_count
+
+        class Worker(SafeQThread):
+            done = pyqtSignal()
+
+            def run(self):
+                self.done.emit()
+                time.sleep(0.05)  # still inside run() when the slot fires
+
+        class Owner:
+            def __init__(self):
+                self.worker = Worker()
+                self.worker.done.connect(self.on_done)
+                self.worker.finished.connect(self.worker.deleteLater)
+                self.worker.start()
+
+            def on_done(self):
+                self.worker = None  # last Python reference
+
+        base = running_thread_count()
+        owners = [Owner() for _ in range(5)]
+        loop = QEventLoop()
+        QTimer.singleShot(400, loop.quit)
+        loop.exec()
+        self.assertTrue(all(o.worker is None for o in owners))
+        self.assertEqual(running_thread_count(), base)
 
 
 if __name__ == "__main__":

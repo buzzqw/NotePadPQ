@@ -28,6 +28,19 @@ class _Editor(QWidget):
     def setSelection(self, line_from, col_from, line_to, col_to):
         self.selection = (line_from, col_from, line_to, col_to)
 
+    def hasSelectedText(self):
+        return self.selection is not None
+
+    def getSelection(self):
+        return self.selection
+
+    def getCursorPosition(self):
+        return self.cursor or (0, 0)
+
+    def highlight_find_match(self, line, start_col, end_col):
+        self.selection = (line, start_col, line, end_col)
+        self.visible_line = line
+
     def ensureLineVisible(self, line):
         self.visible_line = line
 
@@ -192,6 +205,32 @@ class ToolbarQuickSearchTests(unittest.TestCase):
         self.field._run("symbol", 3)
         self.assertEqual(self.analysis.cursor, (2, 0))
         self.assertEqual(self.analysis.visible_line, 2)
+
+    def test_find_next_continues_last_quick_search_query(self):
+        self.field.setText("pass")
+        self.field._run("content", (self.analysis, 1, 4, 8))
+        self.assertEqual(self.analysis.selection, (1, 4, 1, 8))
+
+        self.assertTrue(self.field.find_next(forward=True))
+        self.assertEqual(self.analysis.selection, (3, 4, 3, 8))
+
+        # Oltre l'ultima occorrenza si riparte dall'inizio (wrap).
+        self.assertTrue(self.field.find_next(forward=True))
+        self.assertEqual(self.analysis.selection, (1, 4, 1, 8))
+
+    def test_find_prev_goes_back_and_wraps(self):
+        self.field.setText("pass")
+        self.field._run("content", (self.analysis, 1, 4, 8))
+
+        self.assertTrue(self.field.find_next(forward=False))
+        self.assertEqual(self.analysis.selection, (3, 4, 3, 8))
+
+        self.assertTrue(self.field.find_next(forward=False))
+        self.assertEqual(self.analysis.selection, (1, 4, 1, 8))
+
+    def test_find_next_without_a_previous_query_is_not_handled(self):
+        self.assertFalse(self.field.find_next(forward=True))
+        self.assertFalse(self.field.find_next(forward=False))
 
 
 if __name__ == "__main__":

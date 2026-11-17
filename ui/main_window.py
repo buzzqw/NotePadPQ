@@ -3961,10 +3961,18 @@ class MainWindow(QMainWindow):
 
     def action_find_next(self) -> None:
         from ui.find_replace import FindReplaceDialog
+        # Dopo Ctrl+F + Invio la query vive nella barra rapida: F3 deve
+        # proseguire quella ricerca, non aprire un pannello Trova vuoto.
+        quick = getattr(self, "_quick_search", None)
+        if quick is not None and quick.find_next(forward=True):
+            return
         FindReplaceDialog.find_next(self)
 
     def action_find_prev(self) -> None:
         from ui.find_replace import FindReplaceDialog
+        quick = getattr(self, "_quick_search", None)
+        if quick is not None and quick.find_next(forward=False):
+            return
         FindReplaceDialog.find_prev(self)
 
     def action_replace(self) -> None:

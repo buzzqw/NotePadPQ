@@ -1554,6 +1554,12 @@ ESEMPI
         if not text:
             return False
 
+        # Una ricerca fatta dal pannello Trova diventa la ricerca "corrente":
+        # F3/Shift+F3 devono continuare questa, non l'ultima della barra rapida.
+        quick = getattr(self._mw, "_quick_search", None)
+        if quick is not None:
+            quick.clear_last_query()
+
         flags = flags or self._get_flags()
         status_label = status_label or self._lbl_status
 

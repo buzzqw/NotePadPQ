@@ -16,6 +16,7 @@ Stessi prefissi di "Vai a..." (ui/goto_anything.py):
 
 from __future__ import annotations
 
+import bisect
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QPoint, Qt, QTimer
@@ -80,6 +81,36 @@ def _snippet(line_text: str, match_start: int) -> str:
     return f"{prefix}{stripped[begin:end]}{suffix}"
 
 
+def _line_starts(text: str) -> list[int]:
+    """Offset assoluti (in caratteri) dell'inizio di ogni riga."""
+    starts = [0]
+    position = 0
+    for line in text.split("\n"):
+        position += len(line) + 1
+        starts.append(position)
+    return starts
+
+
+def _abs_offset(starts: list[int], line: int, col: int) -> int:
+    """Converte (riga, colonna-carattere) in offset assoluto di caratteri."""
+    if line < 0:
+        return 0
+    if line >= len(starts):
+        return starts[-1]
+    return starts[line] + max(0, col)
+
+
+def _offset_line_col(starts: list[int], offset: int) -> tuple[int, int]:
+    """Converte un offset assoluto di caratteri in (riga, colonna-carattere)."""
+    offset = max(0, offset)
+    line = bisect.bisect_right(starts, offset) - 1
+    if line < 0:
+        line = 0
+    elif line > len(starts) - 2:
+        line = len(starts) - 2
+    return line, offset - starts[line]
+
+
 class ToolbarQuickSearch(QLineEdit):
     """Campo di ricerca con elenco a comparsa, da inserire nella toolbar."""
 
@@ -90,6 +121,9 @@ class ToolbarQuickSearch(QLineEdit):
         self.setClearButtonEnabled(True)
         self.setFixedWidth(250)
         self.setObjectName("ToolbarQuickSearch")
+        # Ultima query eseguita su un risultato "content": serve a F3/Shift+F3
+        # per continuare la ricerca senza riaprire il pannello Trova.
+        self._last_query = ""
         self._retranslate()
         self.textChanged.connect(self._refresh)
         self.returnPressed.connect(self._execute_current)
@@ -396,6 +430,7 @@ class ToolbarQuickSearch(QLineEdit):
             self._run(*data)
 
     def _run(self, kind: str, payload: object) -> None:
+        query = self.text().strip()
         self._popup.hide()
         self.clear()
 
@@ -406,6 +441,9 @@ class ToolbarQuickSearch(QLineEdit):
         elif kind in ("line", "symbol"):
             self._goto_line(int(payload))
         elif kind == "content":
+            # Memorizza la query: F3/Shift+F3 devono poter proseguire tra le
+            # occorrenze anche dopo che il campo è stato svuotato.
+            self._last_query = query
             self._goto_content(*payload)
 
     def _activate_editor(self, editor) -> None:
@@ -438,6 +476,83 @@ class ToolbarQuickSearch(QLineEdit):
             editor.setCursorPosition(line, col_start)
         editor.ensureLineVisible(line)
         editor.setFocus()
+
+    # ── F3 / Shift+F3 ─────────────────────────────────────────────────────────
+
+    def clear_last_query(self) -> None:
+        """Dimentica la query rapida: il pannello Trova prende il controllo."""
+        self._last_query = ""
+
+    def find_next(self, forward: bool = True) -> bool:
+        """Passa all'occorrenza successiva (o precedente) dell'ultima query.
+
+        Dopo Invio nella ricerca rapida il campo viene svuotato: senza questo
+        metodo F3 finirebbe nel pannello Trova, che ha una query propria (vuota)
+        e non troverebbe nulla. Ritorna True anche quando non c'è un match, così
+        la finestra principale non apre il pannello Trova.
+        """
+        if not self._last_query:
+            return False
+
+        # Se l'utente ha già digitato una nuova query (senza ancora premere
+        # Invio), F3 usa quella; altrimenti prosegue l'ultima ricerca eseguita.
+        query = self.text().strip() or self._last_query
+
+        editor = (self._mw._current_editor()
+                  if hasattr(self._mw, "_current_editor") else None)
+        if editor is None:
+            tm = getattr(self._mw, "_tab_manager", None)
+            editor = tm.current_editor() if tm is not None else None
+        if editor is None or not hasattr(editor, "text"):
+            return True
+
+        try:
+            document = editor.text()
+        except Exception:
+            return True
+        if not document:
+            return True
+
+        starts = _line_starts(document)
+        position = 0
+        try:
+            if editor.hasSelectedText():
+                sel_line, sel_col, sel_end_line, sel_end_col = editor.getSelection()
+                a = _abs_offset(starts, sel_line, sel_col)
+                b = _abs_offset(starts, sel_end_line, sel_end_col)
+                position = max(a, b) if forward else min(a, b)
+            else:
+                line, col = editor.getCursorPosition()
+                position = _abs_offset(starts, line, col)
+        except Exception:
+            position = 0
+
+        pattern = literal_search_pattern(query)
+        match = None
+        if forward:
+            match = pattern.search(document, position)
+            if match is None and position > 0:
+                match = pattern.search(document, 0, position)
+        else:
+            for candidate in pattern.finditer(document, 0, position):
+                match = candidate
+            if match is None:
+                for candidate in pattern.finditer(document):
+                    match = candidate
+        if match is None:
+            return True
+
+        line_s, col_s = _offset_line_col(starts, match.start())
+        line_e, col_e = _offset_line_col(starts, match.end())
+        if hasattr(editor, "highlight_find_match"):
+            editor.highlight_find_match(line_s, col_s, col_e)
+        else:
+            editor.setSelection(line_s, col_s, line_e, col_e)
+            if hasattr(editor, "ensureLineVisible"):
+                editor.ensureLineVisible(line_s)
+        if hasattr(editor, "setFocus"):
+            editor.setFocus()
+        return True
 
     # ── Eventi ────────────────────────────────────────────────────────────────
 

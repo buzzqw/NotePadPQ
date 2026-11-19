@@ -1203,13 +1203,24 @@ ESEMPI
         self._btn_find_all2.clicked.connect(self._do_find_all_replace)
         self._btn_replace.clicked.connect(self._do_replace)
         self._btn_replace_all.clicked.connect(self._do_replace_all)
-        self._btn_find_next2.clicked.connect(
-            lambda: self._do_find(
-                self._find_edit2, forward=True, flags=self._get_flags_replace(),
-                status_label=self._lbl_replace_status,
-            )
-        )
+        self._btn_find_next2.clicked.connect(self._do_find_next_replace)
         self._chk_auto_refresh_replace.toggled.connect(self._on_auto_refresh_toggled)
+
+        # Ricerca mentre si digita anche nel tab Sostituisci: senza questo la
+        # lista restava vuota finché non si premeva "Trova tutto", dando
+        # l'impressione che il pannello non trovasse nulla.
+        self._replace_search_timer = QTimer(self)
+        self._replace_search_timer.setSingleShot(True)
+        self._replace_search_timer.setInterval(350)
+        self._replace_search_timer.timeout.connect(self._refresh_replace_occurrences)
+        self._find_edit2.editTextChanged.connect(
+            lambda _text: self._replace_search_timer.start())
+        self._find_edit2.lineEdit().returnPressed.connect(
+            self._do_find_next_replace)
+        for checkbox in (self._chk_case2, self._chk_word2,
+                         self._chk_regex2, self._chk_wrap2):
+            checkbox.toggled.connect(
+                lambda _checked: self._replace_search_timer.start())
 
         return w
 
@@ -1923,6 +1934,9 @@ ESEMPI
         self._cancel_find_in_files()
         self._cancel_occurrence_worker()
         self._find_results_refresh_timer.stop()
+        replace_timer = self.__dict__.get("_replace_search_timer")
+        if replace_timer is not None:
+            replace_timer.stop()
         self._find_anchor_line = None
         if self._fif_rif_mw is not None:
             self._fif_rif_mw.worker.cancel()
@@ -2289,6 +2303,50 @@ ESEMPI
         flags = self._get_flags_replace()
         self._populate_replace_occurrences(editor, text, flags)
 
+    def _do_find_next_replace(self) -> None:
+        """Trova successivo dal tab Sostituisci (Invio o pulsante)."""
+        timer = self.__dict__.get("_replace_search_timer")
+        if timer is not None:
+            timer.stop()
+        flags = self._get_flags_replace()
+        found = self._do_find(
+            self._find_edit2, forward=True, flags=flags,
+            status_label=self._lbl_replace_status,
+        )
+        if found and not self._replace_occurrences.topLevelItemCount():
+            editor = self._current_editor()
+            if editor is not None:
+                try:
+                    small = editor.length() <= self._SYNC_OCCURRENCE_MAX_CHARS
+                except Exception:
+                    small = True
+                if small:
+                    self._populate_replace_occurrences(
+                        editor, self._find_edit2.currentText(), flags)
+
+    def _refresh_replace_occurrences(self) -> None:
+        """Popola la lista del tab Sostituisci mentre si digita.
+
+        Sui documenti molto grandi la scansione sincrona sarebbe troppo lenta:
+        in quel caso la lista si aggiorna solo con "Trova tutto".
+        """
+        if not self.isVisible():
+            return
+        editor = self._current_editor()
+        if not editor:
+            return
+        text = self._find_edit2.currentText()
+        if not text:
+            self._replace_occurrences.clear()
+            self._lbl_replace_status.setText("")
+            return
+        try:
+            if editor.length() > self._SYNC_OCCURRENCE_MAX_CHARS:
+                return
+        except Exception:
+            return
+        self._populate_replace_occurrences(editor, text, self._get_flags_replace())
+
     def _get_flags_replace(self) -> dict:
         return {
             "case_sensitive": self._chk_case2.isChecked(),
@@ -2378,33 +2436,37 @@ ESEMPI
         replace_text = self._replace_edit.currentText()
         find_text    = self._find_edit2.currentText()
         flags = self._get_flags_replace()
-        line0 = data["line"] - 1
-        char_col = data.get("col", 0)
-        char_len = data.get("len", 0)
+        compiled = self._build_pattern(find_text, flags)
+        if compiled is None:
+            if self._last_pattern_error:
+                self._lbl_replace_status.setText(
+                    tr("msg.regex_error", error=self._last_pattern_error))
+            return
 
-        # Espande backreference (\1, \g<name>) se modalità regex,
-        # coerentemente con _do_replace_all che usa re.subn.
-        if flags["regex"]:
-            try:
-                re_flags = 0 if flags["case_sensitive"] else re.IGNORECASE
-                line_text = editor.text(line0).rstrip("\n").rstrip("\r")
-                m = re.search(find_text, line_text[char_col:], re_flags)
-                if m:
-                    replace_text = m.expand(replace_text)
-            except (re.error, IndexError):
-                pass
-
-        # setSelection usa colonne in caratteri (char_col/char_len arrivano
-        # da re.finditer), non in byte.
-        editor.setSelection(line0, char_col, line0, char_col + char_len)
+        # Offset assoluto nel documento: il match viene ricalcolato lì, così
+        # backreference, lookbehind e varianti tipografiche restano coerenti
+        # con la ricerca che ha popolato la lista.
+        document = editor.text()
+        starts = self._line_starts(document)
+        start = self._abs_from_line_col(
+            starts, data["line"] - 1, data.get("col", 0))
+        match = compiled.match(document, start)
+        if match is None:
+            self._populate_replace_occurrences(editor, find_text, flags)
+            return
         try:
-            editor.replaceSelectedText(replace_text)
-        except Exception:
-            pass
+            replacement = (match.expand(replace_text) if flags["regex"]
+                           else replace_text)
+        except (IndexError, re.error) as exc:
+            self._lbl_replace_status.setText(
+                tr("msg.regex_invalid", error=str(exc)))
+            return
+
+        self._select_absolute_range(editor, match.start(), match.end())
+        editor.replaceSelectedText(replacement)
         editor.go_to_line(data["line"])
 
-        self._populate_replace_occurrences(
-            editor, self._find_edit2.currentText(), flags)
+        self._populate_replace_occurrences(editor, find_text, flags)
 
     def _highlight_all(self, editor: EditorWidget, pattern: str,
                        flags: dict, indicator: int) -> int:
@@ -2467,10 +2529,43 @@ ESEMPI
             return 0
         return len(compiled.findall(text))
 
+    def _selection_offsets(self, editor, document: str) -> tuple[int, int] | None:
+        """Offset (in caratteri) della selezione corrente, se presente."""
+        if not editor.hasSelectedText():
+            return None
+        starts = self._line_starts(document)
+        line_from, col_from, line_to, col_to = editor.getSelection()
+        a = self._abs_from_line_col(starts, line_from, col_from)
+        b = self._abs_from_line_col(starts, line_to, col_to)
+        return (a, b) if a <= b else (b, a)
+
+    def _match_at_selection(self, editor, compiled, document: str):
+        """Match che coincide esattamente con la selezione corrente.
+
+        Il match viene ricalcolato sul documento intero (non sul solo testo
+        selezionato) così anche lookbehind/ancore che dipendono dal contesto
+        restano corretti.
+        """
+        span = self._selection_offsets(editor, document)
+        if span is None:
+            return None
+        start, end = span
+        if end <= start:
+            return None
+        match = compiled.match(document, start)
+        if match is not None and match.start() == start and match.end() == end:
+            return match
+        return None
+
     def _do_replace(self) -> None:
         editor = self._current_editor()
         if not editor:
             return
+        # Un refresh automatico in coda non deve sovrascrivere il messaggio
+        # "Sostituite N occorrenze" appena mostrato.
+        timer = self.__dict__.get("_replace_search_timer")
+        if timer is not None:
+            timer.stop()
         find_text    = self._find_edit2.currentText()
         replace_text = self._replace_edit.currentText()
         flags = self._get_flags_replace()
@@ -2481,23 +2576,44 @@ ESEMPI
                     tr("msg.regex_invalid", error=self._last_pattern_error))
             return
 
-        if editor.hasSelectedText():
-            selected = editor.selectedText()
-            match = compiled.fullmatch(selected)
+        document = editor.text()
+        match = self._match_at_selection(editor, compiled, document)
+        if match is None:
+            # Nessun match selezionato: cerca la prossima occorrenza e la
+            # sostituisce subito. Prima servivano due click perché il primo si
+            # limitava a selezionare il match, senza alcun messaggio: sembrava
+            # che "Sostituisci" non facesse nulla.
+            if not self._do_find(
+                    self._find_edit2, forward=True, flags=flags,
+                    status_label=self._lbl_replace_status):
+                return
+            document = editor.text()
+            match = self._match_at_selection(editor, compiled, document)
             if match is None:
-                self._lbl_replace_status.setText(tr("msg.no_results", query=find_text))
+                # Una selezione che non corrisponde al pattern non deve
+                # bloccare la ricerca (prima mostrava "nessun risultato").
+                self._lbl_replace_status.setText(
+                    tr("msg.no_results", query=find_text))
                 return
-            try:
-                replacement = match.expand(replace_text) if flags["regex"] else replace_text
-            except (IndexError, re.error) as exc:
-                self._lbl_replace_status.setText(tr("msg.regex_invalid", error=str(exc)))
-                return
-            editor.replaceSelectedText(replacement)
 
+        try:
+            replacement = (match.expand(replace_text) if flags["regex"]
+                           else replace_text)
+        except (IndexError, re.error) as exc:
+            self._lbl_replace_status.setText(
+                tr("msg.regex_invalid", error=str(exc)))
+            return
+        editor.replaceSelectedText(replacement)
+
+        # Seleziona il match successivo e, se la lista è già visibile,
+        # aggiornala. Il messaggio finale conferma che la sostituzione è
+        # avvenuta (prima lo status veniva azzerato da _do_find).
         self._do_find(
             self._find_edit2, forward=True, flags=flags,
-            status_label=self._lbl_replace_status,
-        )
+            status_label=self._lbl_replace_status)
+        if self._replace_occurrences.topLevelItemCount():
+            self._populate_replace_occurrences(editor, find_text, flags)
+        self._lbl_replace_status.setText(tr("msg.replaced_n", count=1))
 
     def _do_replace_all(self) -> None:
         editor = self._current_editor()

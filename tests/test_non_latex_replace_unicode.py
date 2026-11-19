@@ -8,7 +8,13 @@ from types import SimpleNamespace
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QLabel, QTreeWidget, QTreeWidgetItem
+from PyQt6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QLabel,
+    QTreeWidget,
+    QTreeWidgetItem,
+)
 
 from core.safe_regex import has_catastrophic_backtracking, pattern_error
 from editor.editor_widget import INDICATOR_FIND, INDICATOR_SPELL, EditorWidget
@@ -600,6 +606,98 @@ class OccurrenceScanWorkerTest(unittest.TestCase):
 
             self.assertEqual([item[0] for item in found], ["text.txt"])
             self.assertEqual(found[0][1], 1)
+
+
+class ReplaceButtonBehaviorTest(unittest.TestCase):
+    """Il pulsante "Sostituisci" deve sostituire al primo click e dare un
+    riscontro visibile; una selezione che non corrisponde al pattern non deve
+    bloccare la ricerca."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _dialog(self, editor, flags: dict | None = None):
+        dialog = FindReplaceDialog.__new__(FindReplaceDialog)
+        dialog._mw = SimpleNamespace(
+            _tab_manager=SimpleNamespace(current_editor=lambda: editor))
+        dialog._find_edit2 = QComboBox()
+        dialog._find_edit2.setEditable(True)
+        dialog._replace_edit = QComboBox()
+        dialog._replace_edit.setEditable(True)
+        dialog._replace_occurrences = QTreeWidget()
+        dialog._lbl_replace_status = QLabel()
+        dialog._lbl_status = QLabel()
+        dialog._last_pattern_error = None
+        dialog._in_selection_range = None
+        dialog._in_selection_match = None
+        dialog._get_flags_replace = lambda: dict(flags or {
+            "case_sensitive": False,
+            "whole_word": False,
+            "regex": False,
+            "wrap": True,
+        })
+        dialog._highlight_all = lambda *_args, **_kwargs: 0
+        dialog._emphasize_find_selection = lambda *_args, **_kwargs: None
+        return dialog
+
+    def test_replaces_current_match_on_first_click(self):
+        editor = EditorWidget()
+        editor.setText("alpha beta alpha")
+        self.addCleanup(editor.deleteLater)
+        dialog = self._dialog(editor)
+        dialog._find_edit2.setCurrentText("alpha")
+        dialog._replace_edit.setCurrentText("X")
+
+        dialog._do_replace()
+
+        self.assertEqual(editor.text(), "X beta alpha")
+        # Passa al match successivo, come negli editor PRO.
+        self.assertEqual(editor.getSelection(), (0, 7, 0, 12))
+        self.assertIn("1", dialog._lbl_replace_status.text())
+
+    def test_stale_selection_does_not_report_false_no_results(self):
+        editor = EditorWidget()
+        editor.setText("alpha beta")
+        self.addCleanup(editor.deleteLater)
+        editor.setSelection(0, 0, 0, 5)  # "alpha", non il pattern cercato
+        dialog = self._dialog(editor)
+        dialog._find_edit2.setCurrentText("beta")
+        dialog._replace_edit.setCurrentText("B")
+
+        dialog._do_replace()
+
+        self.assertEqual(editor.text(), "alpha B")
+
+    def test_regex_lookbehind_is_evaluated_in_document_context(self):
+        editor = EditorWidget()
+        editor.setText("preXpost")
+        self.addCleanup(editor.deleteLater)
+        editor.setSelection(0, 3, 0, 4)  # "X"
+        dialog = self._dialog(editor, {
+            "case_sensitive": False,
+            "whole_word": False,
+            "regex": True,
+            "wrap": True,
+        })
+        dialog._find_edit2.setCurrentText(r"(?<=pre)X")
+        dialog._replace_edit.setCurrentText("Y")
+
+        dialog._do_replace()
+
+        self.assertEqual(editor.text(), "preYpost")
+
+    def test_find_next_in_replace_tab_lists_occurrences(self):
+        editor = EditorWidget()
+        editor.setText("alpha beta\nalpha")
+        self.addCleanup(editor.deleteLater)
+        dialog = self._dialog(editor)
+        dialog._find_edit2.setCurrentText("alpha")
+        dialog._replace_edit.setCurrentText("X")
+
+        dialog._do_find_next_replace()
+
+        self.assertEqual(dialog._replace_occurrences.topLevelItemCount(), 2)
 
 
 if __name__ == "__main__":

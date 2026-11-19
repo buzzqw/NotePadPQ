@@ -411,6 +411,15 @@ read -rp "$(echo -e "${BOLD}Nuova versione${RESET} [$SUGGESTED_VERSION]: ")" VER
 VERSION=${VERSION:-$SUGGESTED_VERSION}
 TAG_VERSION="v$VERSION"
 
+# Validazione: "s" (sì) digitato qui produrrebbe una release chiamata "s" e un
+# tag "vs". Accettiamo solo X.Y.Z, con eventuale suffisso -beta/-rc.
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+    err "Versione non valida: '${VERSION}'. Usa il formato X.Y.Z (es. ${SUGGESTED_VERSION})."
+fi
+if git rev-parse -q --verify "refs/tags/${TAG_VERSION}" >/dev/null; then
+    err "Il tag ${TAG_VERSION} esiste già: scegli un'altra versione o elimina prima il tag."
+fi
+
 # ── Generazione note di rilascio ─────────────────────────────────────────────
 if [[ -z "${FILTERED_COMMITS// }" ]]; then
     CHANGELOG="• nessun commit trovato"

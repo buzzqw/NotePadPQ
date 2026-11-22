@@ -144,9 +144,9 @@ class TerminalPanel(QWidget):
     Mantiene una sessione shell persistente.
     """
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, cwd: Path | None = None) -> None:
         super().__init__(parent)
-        self._cwd: Path = Path.home()
+        self._cwd: Path = Path(cwd) if cwd is not None else Path.home()
         self._process: QProcess | None = None
         self._restart_pending = False
         self._webview = None

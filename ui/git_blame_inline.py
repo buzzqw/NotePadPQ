@@ -10,6 +10,7 @@ Usa `git blame -L N,N --porcelain` — veloce anche su repo grandi.
 from __future__ import annotations
 
 import subprocess
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -49,7 +50,9 @@ class GitBlameManager:
         self._mw = main_window
         self._editor: EditorWidget | None = None
         self._enabled = False
-        self._cache: dict[tuple, str] = {}
+        # LRU limitata: il vecchio dizionario cresceva di un entry per riga
+        # visitata, per tutta la sessione.
+        self._cache: OrderedDict[tuple, str] = OrderedDict()
         self._last_line = -1
 
         self._blame_worker: _BlameWorker | None = None
@@ -98,7 +101,9 @@ class GitBlameManager:
     def _on_text_changed(self) -> None:
         if self._editor and self._editor.file_path:
             p = str(self._editor.file_path)
-            self._cache = {k: v for k, v in self._cache.items() if k[0] != p}
+            self._cache = OrderedDict(
+                (k, v) for k, v in self._cache.items() if k[0] != p
+            )
 
     # ── Aggiornamento blame ───────────────────────────────────────────────────
 
@@ -134,6 +139,8 @@ class GitBlameManager:
         key = (str(path), line1)
         text = self._cache.get(key)
         if text is not None:
+            self._cache.move_to_end(key)
+        if text is not None:
             if text:
                 self._annotate(editor, line0, text)
             return
@@ -155,9 +162,14 @@ class GitBlameManager:
         worker.finished.connect(_cleanup)
         worker.start()
 
+    _BLAME_CACHE_LIMIT = 400
+
     def _on_blame_done(self, text: str, key: tuple, line0: int,
                        line1: int, editor: EditorWidget) -> None:
         self._cache[key] = text
+        self._cache.move_to_end(key)
+        while len(self._cache) > self._BLAME_CACHE_LIMIT:
+            self._cache.popitem(last=False)
         self._blame_worker = None
         if editor is not self._editor:
             return

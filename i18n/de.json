@@ -265,6 +265,24 @@
     "lang_toolbar_export_html": "Als HTML exportieren",
     "build_analyze_ai": "Log mit KI analysieren",
     "build_analyze_ai_send": "An KI senden",
+    "build_terminal": "Terminal",
+    "file_type_plain_text": "Klartext",
+    "build_clean_aux_before_toggle": "LaTeX-Hilfsdateien vor dem Kompilieren löschen",
+    "build_clean_aux_toggle": "LaTeX-Hilfsdateien nach dem Kompilieren löschen",
+    "build_keep_synctex_toggle": "Die Datei .synctex.gz behalten",
+    "build_latex_auto_clean_retry": "Veraltete LaTeX-Hilfsdateien automatisch bereinigen und erneut versuchen",
+    "build_latex_auxiliary_auto": "LaTeX-Hilfsprogramme automatisch ausführen",
+    "build_next_error": "Nächster Fehler",
+    "build_prev_error": "Vorheriger Fehler",
+    "build_trigger_on_edit": "Beim Bearbeiten kompilieren",
+    "build_trigger_on_save": "Beim Speichern kompilieren",
+    "build_unified_errors": "Vereinheitlichte Fehler (LSP + Build)",
+    "markdown_backlinks": "Markdown-Rückverweise anzeigen",
+    "markdown_toc": "Markdown-Inhaltsverzeichnis einfügen/aktualisieren",
+    "markdown_wikilink": "Markdown-Wikilink einfügen",
+    "quick_search": "Schnellsuche...",
+    "tail_mode_toggle": "Datei folgen (tail -f)",
+    "view_quick_search": "Schnellsuche-Leiste",
     "lorem_ipsum": "Platzhaltertext einfügen (Lorem Ipsum)…",
     "view_project_manager": "Projektverwaltung",
     "context_ai": "KI fragen",
@@ -1157,6 +1175,12 @@
     "lang_toolbar_hr": "Horizontale Linie",
     "latex_insert_image": "Bild einfügen",
     "build_analyze_ai": "Kompilierungsprotokoll zur KI-Analyse senden",
+    "build_terminal": "Terminal unter der Kompilierungsausgabe öffnen",
+    "build_latex_auto_clean_retry": "Entfernt beschädigte .aux/.toc/.lot/.lof/.out-Dateien automatisch und versucht die Kompilierung einmal erneut.",
+    "build_trigger_on_edit": "LaTeX-Build nach einer kurzen Pause beim Tippen ausführen",
+    "build_trigger_on_save": "Build-Befehl beim Speichern einer Datei automatisch ausführen",
+    "build_unified_errors": "LSP-Diagnosen zusammen mit Build-Fehlern anzeigen",
+    "build_latex_auxiliary_auto": "Führt makeindex, makeglossaries und nomencl automatisch während des Builds aus",
     "table_row_above": "Zeile darüber einfügen",
     "table_row_below": "Zeile darunter einfügen",
     "table_col_left": "Spalte links einfügen",
@@ -1929,7 +1953,8 @@
     "diagnostics": "Diagnose",
     "task": "Aufgabe",
     "minimap": "Minimap",
-    "json_xml": "JSON/XML-Struktur"
+    "json_xml": "JSON/XML-Struktur",
+    "latex_references": "LaTeX-Referenzen"
   },
   "bibtex_wizard": {
     "title": "BibTeX-Assistent",
@@ -1948,5 +1973,8 @@
     "doi_searching": "Suche...",
     "doi_found": "Gefunden! Felder im Tab \"Neuer Eintrag\" ausfüllen.",
     "doi_error": "Fehler: "
+  },
+  "view": {
+    "latex_references": "Globale LaTeX-Referenzen"
   }
 }

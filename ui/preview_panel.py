@@ -1075,7 +1075,7 @@ class PreviewPanel(QWidget):
         self._latex_compile_timer.timeout.connect(self._compile_latex_preview)
         self._latex_compile_enabled = False
         self._latex_compile_run_id = ""
-        self._latex_compile_source_hash: int | None = None
+        self._latex_compile_source_hash: tuple | None = None
         try:
             from core.build_manager import BuildManager
             BuildManager.instance().build_done.connect(
@@ -1601,6 +1601,19 @@ class PreviewPanel(QWidget):
                 pass
         self._update_latex_compile_button()
 
+    @staticmethod
+    def _latex_source_stamp(editor):
+        """Identificatore economico dei contenuti dell'editor.
+
+        ``hash(editor.text())`` copiava l'intero documento due volte per
+        compilazione.  La revisione incrementale dell'editor è equivalente
+        (textChanged la aggiorna) e non copia nulla.
+        """
+        revision = getattr(editor, "document_revision", None)
+        if revision is not None:
+            return ("rev", revision)
+        return ("hash", hash(editor.text()))
+
     def _compile_latex_preview(self) -> None:
         editor = self._editor
         path = getattr(editor, "file_path", None) if editor else None
@@ -1617,7 +1630,7 @@ class PreviewPanel(QWidget):
                     self._latex_compile_timer.start(max(300, self._delay_ms))
                 return
             self._latex_compile_enabled = True
-            self._latex_compile_source_hash = hash(editor.text())
+            self._latex_compile_source_hash = self._latex_source_stamp(editor)
             run_id = f"preview_latex_{uuid4().hex[:10]}"
             self._latex_compile_run_id = run_id
             self._update_latex_compile_button()
@@ -1671,7 +1684,8 @@ class PreviewPanel(QWidget):
         # If the user edited while the compiler was running, compile the newest
         # buffer once more after the current process has fully terminated.
         try:
-            if source_hash is not None and hash(editor.text()) != source_hash:
+            if (source_hash is not None
+                    and self._latex_source_stamp(editor) != source_hash):
                 self._latex_compile_timer.start(max(500, self._delay_ms))
         except Exception:
             pass
@@ -3086,7 +3100,6 @@ class PreviewPanel(QWidget):
         visible_lo = vp_top
         visible_hi = vp_top + vp_h
         viewport_center = vp_top + vp_h / 2
-        evicted = 0
         wanted = set(self._pdf_cont_priority)
         visible = set()
         for idx, lbl in enumerate(self._pdf_cont_page_labels):
@@ -3127,7 +3140,6 @@ class PreviewPanel(QWidget):
             lbl.clear()
             lbl.setPixmap(self._null_pixmap())
             self._pdf_cont_rendered.discard(idx)
-            evicted += 1
 
         self._pdf_cont_wanted = wanted
         for worker, idx in list(self._pdf_cont_render_workers.items()):
@@ -3149,9 +3161,9 @@ class PreviewPanel(QWidget):
             ),
         )
         self._pdf_start_cont_render_workers()
-        if evicted > 10:
-            import gc
-            gc.collect()
+        # Uno gc.collect() sincrono qui bloccava la GUI per decine di ms quando
+        # si scorreva un PDF con molte pagine rasterizzate: i QPixmap evict
+        # vengono già liberati dal refcounting / deleteLater.
 
     _PDF_MAX_WORKERS = 2
     # Keep the visible pages plus a small nearby cache.  Distance-based

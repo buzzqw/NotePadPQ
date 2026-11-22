@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections import OrderedDict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -86,6 +87,9 @@ class CWLPackage:
     source: Path | None = None
     description: str = ""
     commands: dict[str, CWLCommand] = field(default_factory=dict)
+    # Tutte le firme di un comando (\sqrt{}/\sqrt[]{}, \includegraphics e *):
+    # commands[] conserva la prima variante per compatibilità delle chiavi.
+    variants: dict[str, list[CWLCommand]] = field(default_factory=dict)
     environments: dict[str, CWLEnvironment] = field(default_factory=dict)
     keyvals: dict[str, tuple[str, ...]] = field(default_factory=dict)
     includes: tuple[str, ...] = ()
@@ -102,6 +106,7 @@ class CWLModel:
 
     packages: dict[str, CWLPackage] = field(default_factory=dict)
     commands: dict[str, CWLCommand] = field(default_factory=dict)
+    variants: dict[str, list[CWLCommand]] = field(default_factory=dict)
     environments: dict[str, CWLEnvironment] = field(default_factory=dict)
 
     @property
@@ -110,24 +115,40 @@ class CWLModel:
 
     def commands_for(self, packages: Iterable[str]) -> list[CWLCommand]:
         wanted = {str(package).strip().casefold() for package in packages}
+
+        def all_variants(package: CWLPackage) -> list[CWLCommand]:
+            if package.variants:
+                return [cmd for group in package.variants.values() for cmd in group]
+            return list(package.commands.values())
+
+        model_variants = (
+            [cmd for group in self.variants.values() for cmd in group]
+            if self.variants else list(self.commands.values())
+        )
         if not wanted:
-            return list(self.commands.values())
-        commands = []
-        seen: set[tuple[str, str]] = set()
-        for package in self.packages.values():
-            if package.name.casefold() not in wanted:
-                continue
-            for command in package.commands.values():
-                key = (command.package.casefold(), command.name.casefold())
-                if key not in seen:
-                    seen.add(key)
-                    commands.append(command)
-        for command in self.commands.values():
-            key = (command.package.casefold(), command.name.casefold())
-            if command.package.casefold() in wanted and key not in seen:
+            commands = [cmd for package in self.packages.values()
+                        for cmd in all_variants(package)]
+            commands.extend(model_variants)
+        else:
+            commands = []
+            for package in self.packages.values():
+                if package.name.casefold() in wanted:
+                    commands.extend(all_variants(package))
+            commands.extend(
+                cmd for cmd in model_variants
+                if cmd.package.casefold() in wanted
+            )
+        # Dedup completo: la chiave include la firma, così \sqrt{}/sqrt[]{}
+        # e \cmd/\cmd* coesistono invece di sovrapporsi.
+        seen: set[tuple[str, str, str, bool]] = set()
+        result: list[CWLCommand] = []
+        for command in commands:
+            key = (command.package.casefold(), command.name,
+                   command.signature, command.star)
+            if key not in seen:
                 seen.add(key)
-                commands.append(command)
-        return commands
+                result.append(command)
+        return result
 
     def environments_for(self, packages: Iterable[str]) -> list[CWLEnvironment]:
         wanted = {str(package).strip().casefold() for package in packages}
@@ -353,7 +374,10 @@ def parse_cwl(text: str, package: str = "", source: Path | None = None) -> CWLPa
             package=package_name,
             star=star,
         )
-        result.commands[name.casefold()] = command
+        # Chiave esatta (case-sensitive): \cref e \Cref sono comandi diversi.
+        # casefold() qui faceva sparire la variante minuscola di ogni coppia.
+        result.commands.setdefault(name, command)
+        result.variants.setdefault(name, []).append(command)
     if keyval_contexts is not None:
         finish_keyvals()
     if not result.description:
@@ -392,7 +416,10 @@ def _iter_cwl_files(directory: Path) -> list[Path]:
 # utente/progetto popolate. La signature (path, mtime, size) costa solo
 # iterdir+stat — niente lettura di contenuto — quindi resta economica anche
 # quando invalida la cache.
-_MODEL_CACHE: dict[tuple, tuple[tuple, CWLModel]] = {}
+# Ogni progetto aperto crea una chiave diversa (directory + option signature):
+# senza limite la cache tratteneva un CWLModel completo per progetto.
+_MODEL_CACHE_LIMIT = 12
+_MODEL_CACHE: OrderedDict[tuple, tuple[tuple, CWLModel]] = OrderedDict()
 
 
 def _cwl_signature(directories: Sequence[Path]) -> tuple:
@@ -450,6 +477,7 @@ def load_cwl_directories(
     signature = _cwl_signature(resolved)
     cached = _MODEL_CACHE.get(cache_key)
     if cached is not None and cached[0] == signature:
+        _MODEL_CACHE.move_to_end(cache_key)
         return cached[1]
 
     packages: dict[str, CWLPackage] = {}
@@ -473,6 +501,7 @@ def load_cwl_directories(
 
         resolving = {*resolving, name}
         commands = dict(package.commands)
+        variants = {key: list(group) for key, group in package.variants.items()}
         environments = dict(package.environments)
         keyvals = dict(package.keyvals)
         includes = [(raw_include, ()) for raw_include in package.includes]
@@ -494,6 +523,12 @@ def load_cwl_directories(
             included = resolve_package(include_name, resolving)
             for key, command in included.commands.items():
                 commands.setdefault(key, replace(command, package=package.name))
+            for key, group in included.variants.items():
+                # Una definizione locale ha sempre la precedenza sull'include,
+                # come già accadeva per `commands` con setdefault().
+                if key in variants:
+                    continue
+                variants[key] = [replace(cmd, package=package.name) for cmd in group]
             for key, environment in included.environments.items():
                 environments.setdefault(
                     key, replace(environment, package=package.name)
@@ -506,6 +541,7 @@ def load_cwl_directories(
         effective = replace(
             package,
             commands=commands,
+            variants=variants,
             environments=environments,
             keyvals=keyvals,
         )
@@ -524,9 +560,14 @@ def load_cwl_directories(
         package = effective_packages[name]
         for key, command in package.commands.items():
             model.commands[key] = command
+        for key, group in package.variants.items():
+            model.variants.setdefault(key, []).extend(group)
         for key, environment in package.environments.items():
             model.environments[key] = environment
     _MODEL_CACHE[cache_key] = (signature, model)
+    _MODEL_CACHE.move_to_end(cache_key)
+    while len(_MODEL_CACHE) > _MODEL_CACHE_LIMIT:
+        _MODEL_CACHE.popitem(last=False)
     return model
 
 

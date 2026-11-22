@@ -277,6 +277,8 @@
     "lang_toolbar_export_html": "Export as HTML",
     "build_analyze_ai": "Analyze log with AI",
     "build_analyze_ai_send": "Send to AI",
+    "build_terminal": "Terminal",
+    "file_type_plain_text": "Plain Text",
     "build_next_error": "Next error",
     "build_prev_error": "Previous error",
     "tail_mode_toggle": "Follow file (tail -f)",
@@ -1296,6 +1298,8 @@
     "build_keep_synctex_toggle": "Keep .synctex.gz files when cleaning aux files",
     "build_latex_auto_clean_retry": "Automatically removes corrupted .aux/.toc/.lot/.lof/.out files and retries compilation once.",
     "build_interactive": "Interactive mode (PTY) — enables process input",
+    "build_terminal": "Open a terminal below the compilation output",
+    "build_latex_auxiliary_auto": "Automatically run makeindex, makeglossaries and nomencl during Build",
     "build_trigger_on_save": "Automatically run build command when saving a file",
     "build_trigger_on_edit": "Run the LaTeX build after a short pause while typing",
     "build_unified_errors": "Show LSP diagnostics together with build errors",
@@ -2145,7 +2149,8 @@
     "diagnostics": "Diagnostics",
     "task": "Task",
     "minimap": "Minimap",
-    "json_xml": "JSON/XML Structure"
+    "json_xml": "JSON/XML Structure",
+    "latex_references": "LaTeX References"
   },
   "bibtex_wizard": {
     "title": "BibTeX Wizard",
@@ -2164,5 +2169,8 @@
     "doi_searching": "Searching...",
     "doi_found": "Found! Fill in fields from the \"New Entry\" tab.",
     "doi_error": "Error: "
+  },
+  "view": {
+    "latex_references": "Global LaTeX References"
   }
 }

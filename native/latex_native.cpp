@@ -56,6 +56,8 @@ constexpr unsigned char S_MATH = 5;
 constexpr unsigned char S_BRACE = 6;
 constexpr unsigned char S_OPTION = 7;
 constexpr unsigned char S_REF_ARG = 8;
+constexpr unsigned char S_SPECIAL = 9;   // \% \$ \& \# \_ ...
+constexpr unsigned char S_VERBATIM = 10; // verbatim/lstlisting/minted bodies, \verb|...|
 constexpr std::size_t NATIVE_MAX_STYLE_BYTES = 256 * 1024;
 
 // Command/environment classification comes from core/latex_commands.py (the
@@ -70,6 +72,14 @@ bool is_command_first(unsigned char c) {
 
 bool is_command_continue(unsigned char c) {
     return is_command_first(c) || c == '*';
+}
+
+// Le tabelle di classificazione contengono solo le forme senza '*'; il nome
+// completo resta invece nel token da colorare.
+std::string base_command_name(const std::string &name) {
+    std::size_t end = name.size();
+    while (end > 0 && name[end - 1] == '*') --end;
+    return name.substr(0, end);
 }
 
 bool is_escaped(const unsigned char *text, std::size_t pos) {
@@ -114,8 +124,12 @@ bool environment_token(const unsigned char *text, std::size_t length,
     if (brace >= length || text[brace] != B_LBRACE) {
         return false;
     }
+    // Un nome di ambiente non supera qualche decina di byte: limita la ricerca
+    // della '}' su input malformati (altrimenti si scansionava fino a EOF).
+    const std::size_t available = length - brace - 1;
+    const std::size_t name_window = available < 256 ? available : 256;
     const unsigned char *close_ptr = static_cast<const unsigned char *>(
-        std::memchr(text + brace + 1, B_RBRACE, length - brace - 1));
+        std::memchr(text + brace + 1, B_RBRACE, name_window));
     if (!close_ptr) {
         return false;
     }
@@ -381,23 +395,27 @@ PyObject *native_style(PyObject *, PyObject *args) {
                 if (has_command && (command.name == "verb" || command.name == "verb*")) {
                     const std::size_t verb_end = verb_inline_end(text, length, pos, command);
                     if (verb_end) {
-                        paint(styles, safe, pos, verb_end, S_COMMAND);
+                        paint(styles, safe, pos, command.end, S_COMMAND);
+                        paint(styles, safe, command.end, verb_end, S_VERBATIM);
                         pos = verb_end;
                         last_command.clear();
                         continue;
                     }
                 }
                 if (has_command) {
-                    const unsigned char style = STRUCTURE_COMMANDS.find(command.name) != STRUCTURE_COMMANDS.end()
+                    const std::string lookup = base_command_name(command.name);
+                    const unsigned char style =
+                        STRUCTURE_COMMANDS.find(lookup) != STRUCTURE_COMMANDS.end()
                         ? S_STRUCTURE
-                        : (REFERENCE_COMMANDS.find(command.name) != REFERENCE_COMMANDS.end()
+                        : (REFERENCE_COMMANDS.find(lookup) != REFERENCE_COMMANDS.end()
                            ? S_REFERENCE : S_COMMAND);
                     paint(styles, safe, pos, command.end, style);
                     pos = command.end;
-                    last_command = command.name;
+                    last_command = lookup;  // \\ref*{...}: serve la forma senza '*'
                     continue;
                 }
-                paint(styles, safe, pos, std::min(pos + 2, length), S_COMMAND);
+                // Backslash + non-lettera: \% \$ \& \# \_ .
+                paint(styles, safe, pos, std::min(pos + 2, length), S_SPECIAL);
                 pos += (pos + 1 < length) ? 2 : 1;
                 last_command.clear();
                 continue;
@@ -408,7 +426,11 @@ PyObject *native_style(PyObject *, PyObject *args) {
                 if (REFERENCE_COMMANDS.find(last_command) != REFERENCE_COMMANDS.end()) {
                     std::size_t i = pos;
                     int depth = 1;
-                    while (i < length && depth) {
+                    // Same guard as the Python fallback: never scan the rest of
+                    // a large document for an unclosed reference argument.
+                    const std::size_t arg_limit =
+                        std::min(length, pos + 64 * 1024);
+                    while (i < arg_limit && depth) {
                         if (text[i] == B_BACKSLASH && i + 1 < length) {
                             i += 2;
                             continue;
@@ -494,6 +516,7 @@ PyObject *native_style(PyObject *, PyObject *args) {
             if (newline) stop = std::min(stop, static_cast<std::size_t>(newline - text));
             if (backslash) stop = std::min(stop, static_cast<std::size_t>(backslash - text));
             if (stop > pos) {
+                paint(styles, safe, pos, stop, S_VERBATIM);
                 pos = stop;
                 continue;
             }

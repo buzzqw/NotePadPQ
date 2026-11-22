@@ -200,10 +200,11 @@ class CompareDialog(QDialog):
 
     def _refresh_diff(self):
         matcher = difflib.SequenceMatcher(None, self._lines_a, self._lines_b)
-        # Salviamo gli opcode che non sono uguali per la navigazione
-        self._opcodes = [op for op in matcher.get_opcodes() if op[0] != 'equal']
-
+        # Calcolare gli opcode una sola volta: get_opcodes() rifà l'intero diff.
         all_opcodes = matcher.get_opcodes()
+        # Salviamo gli opcode che non sono uguali per la navigazione
+        self._opcodes = [op for op in all_opcodes if op[0] != 'equal']
+
         la_out, lb_out = [], []
         self._diff_positions = []
 

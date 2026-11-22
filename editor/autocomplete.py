@@ -879,13 +879,19 @@ class _CompletionIndex:
         self.order = array("I", (entry[1] for entry in entries))
         self.labels = [entry[2] for entry in entries]
 
-    def matches(self, prefix_key: str) -> list[tuple[str, str]]:
-        """Le coppie (chiave, etichetta) col prefisso, nell'ordine originale."""
+    def matches(self, prefix_key: str,
+                limit: int | None = None) -> list[tuple[str, str]]:
+        """Le coppie (chiave, etichetta) col prefisso, nell'ordine originale.
+
+        ``limit`` evita di scorrere e ordinare decine di migliaia di voci
+        quando il popup ne mostra al massimo 80.
+        """
         keys = self.keys
         start = bisect_left(keys, prefix_key)
         stop = start
         total = len(keys)
-        while stop < total and keys[stop].startswith(prefix_key):
+        while (stop < total and keys[stop].startswith(prefix_key)
+               and (limit is None or stop - start < limit)):
             stop += 1
         hits = sorted(range(start, stop), key=self.order.__getitem__)
         return [(keys[i], self.labels[i]) for i in hits]
@@ -1308,7 +1314,9 @@ class AutoCompleteManager(QObject):
         )
         can_cache = all(revision[1] is not None for revision in revisions)
         if can_cache and revisions == self._all_docs_words_key:
-            return list(self._all_docs_words_cache)
+            # The cached list is immutable for our purposes (only iterated):
+            # copying up to 50k strings on every keystroke was pure overhead.
+            return self._all_docs_words_cache
         seen:  set[str]  = set()
         words: list[str] = []
         for editor in self._tab_manager_ref.all_editors():
@@ -1484,7 +1492,10 @@ class AutoCompleteManager(QObject):
 
     def _completion_index(self, slot: str, terms: list[str]) -> _CompletionIndex:
         index = self._completion_indexes.get(slot)
-        if index is None or (index.source is not terms and index.source != terms):
+        # Identity is the version token: producers always assign a fresh list
+        # when the terms change.  ``index.source != terms`` forced a full
+        # O(n) list equality (up to 50k items) on every keystroke.
+        if index is None or index.source is not terms:
             index = _CompletionIndex(terms)
             self._completion_indexes[slot] = index
         return index
@@ -1520,7 +1531,7 @@ class AutoCompleteManager(QObject):
         # variante lunga e Invio inserirebbe quella senza possibilità di scelta.
         exact_label: str | None = None
         for slot, terms in sources:
-            for key, label in self._completion_index(slot, terms).matches(prefix_key):
+            for key, label in self._completion_index(slot, terms).matches(prefix_key, limit=400):
                 if key in seen:
                     continue
                 if key == prefix_key:
@@ -1782,13 +1793,18 @@ class AutoCompleteManager(QObject):
             return self.handle_latex_special("{")
 
         # 4) Altri argomenti contestuali: \cite{, \ref{, \usepackage{…
-        brace = re.search(r'\\(\w+)\*?\{([^{}]*)$', line_text)
+        brace = re.search(
+            r'\\(\w+)\*?(?:\[[^\]\n]*\])?\{([^{}]*)$', line_text
+        )
         if brace:
             key = ("brace", brace.group(1))
+            # \cite{key1,key2: il prefisso è solo l'ultima chiave, altrimenti
+            # la ricerca fuzzy fallisce e non appare nessun suggerimento.
+            brace_prefix = brace.group(2).rsplit(",", 1)[-1].strip()
             cached = self._context_popup
             if cached is not None and cached[0] == key:
                 filtered = self._filter_items(
-                    cached[2], brace.group(2), fuzzy=(cached[1] == 2)
+                    cached[2], brace_prefix, fuzzy=(cached[1] == 2)
                 )
                 if filtered:
                     return self._display_context_items(cached[1], filtered)
@@ -2111,12 +2127,17 @@ class AutoCompleteManager(QObject):
                 _code_language_terms(), listings_lang.group(1),
             )
 
-        match = re.search(r'\\(\w+)\*?\{([^{}]*)$', line_text)
+        # Può esserci un argomento opzionale fra comando e graffa:
+        # \includegraphics[width=...]{, \cite[postnote]{, \usepackage[opts]{
+        match = re.search(
+            r'\\(\w+)\*?(\[[^\]\n]*\])?\{([^{}]*)$', line_text
+        )
         if not match:
             return False
 
         cmd = match.group(1)
-        partial = match.group(2)
+        optional_arg = match.group(2)
+        partial = match.group(3)
         key = ("brace", cmd)
 
         if cmd in ("ref", "eqref", "pageref", "autoref",
@@ -2125,9 +2146,10 @@ class AutoCompleteManager(QObject):
                    "vref", "vpageref", "cpageref", "labelcref"):
             self._complete_labels(partial, key)
             return True
-        elif cmd == "hyperref":
-            # \hyperref[label]{text} — il label va fra [ ], non { }
-            # ma intercettiamo anche \hyperref{ come fallback
+        elif cmd == "hyperref" and optional_arg is None:
+            # \hyperref[label]{text}: il label va fra [ ], non fra { }.
+            # Con l'argomento opzionale già presente lasciamo il completamento
+            # generico al testo del link.
             self._complete_labels(partial, key)
             return True
         elif cmd in ("hyperlink",):

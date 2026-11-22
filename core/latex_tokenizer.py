@@ -113,6 +113,9 @@ def iter_command_calls(code: str, names, n_optional: int = 0, n_mandatory: int =
     """
     names = frozenset(names)
     for match in _COMMAND_RE.finditer(code):
+        # Comandi escaped (\\ref, \\section) sono testo letterale.
+        if is_latex_escaped(code, match.start()):
+            continue
         name = match.group(1)
         if name not in names:
             continue
@@ -188,6 +191,10 @@ def scan_document(code: str) -> DocumentSpans:
     bibliography: list[str] = []
 
     for match in _COMMAND_RE.finditer(code):
+        # \\section{...} è testo letterale, non una sezione: senza questo
+        # controllo Function List e completamenti mostravano voci fantasma.
+        if is_latex_escaped(code, match.start()):
+            continue
         name = match.group(1)
         if name in _SECTION_COMMANDS:
             optionals, mandatories = _read_arguments(code, match.end(), 1, 1)

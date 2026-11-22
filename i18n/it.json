@@ -277,6 +277,8 @@
     "lang_toolbar_export_html": "Esporta come HTML",
     "build_analyze_ai": "Analizza log con AI",
     "build_analyze_ai_send": "Invia all'AI",
+    "build_terminal": "Terminale",
+    "file_type_plain_text": "Testo normale",
     "build_next_error": "Errore successivo",
     "build_prev_error": "Errore precedente",
     "tail_mode_toggle": "Segui il file (tail -f)",
@@ -1296,6 +1298,8 @@
     "build_keep_synctex_toggle": "Mantieni i file .synctex.gz durante la pulizia",
     "build_latex_auto_clean_retry": "Rimuove automaticamente gli ausiliari .aux/.toc/.lot/.lof/.out corrotti e rilancia la compilazione una sola volta.",
     "build_interactive": "Modalit\u00e0 interattiva (PTY) \u2014 abilita l'input del processo",
+    "build_terminal": "Apri un terminale sotto l'output di compilazione",
+    "build_latex_auxiliary_auto": "Esegue automaticamente makeindex, makeglossaries e nomencl durante Build",
     "build_trigger_on_save": "Esegui automaticamente il build al salvataggio del file",
     "build_trigger_on_edit": "Esegui il build LaTeX dopo una breve pausa nella digitazione",
     "build_unified_errors": "Mostra le diagnostiche LSP insieme agli errori di build",
@@ -2143,7 +2147,8 @@
     "diagnostics": "Diagnostica",
     "task": "Task",
     "minimap": "Minimappa",
-    "json_xml": "Struttura JSON/XML"
+    "json_xml": "Struttura JSON/XML",
+    "latex_references": "Riferimenti LaTeX"
   },
   "bibtex_wizard": {
     "title": "BibTeX Wizard",
@@ -2162,5 +2167,8 @@
     "doi_searching": "Ricerca in corso...",
     "doi_found": "Trovato! Compila i campi dalla scheda \"Nuova voce\".",
     "doi_error": "Errore: "
+  },
+  "view": {
+    "latex_references": "Riferimenti LaTeX globali"
   }
 }

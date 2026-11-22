@@ -29,6 +29,7 @@ Fallback a cascata: lingua scelta → "en" → chiave grezza
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -37,6 +38,10 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 # Directory dei file JSON — relativa a questo file
 _I18N_DIR = Path(__file__).parent
+
+# Il blocco "meta" è all'inizio di ogni file: leggere solo l'header evita di
+# parsare ~630 KB di traduzioni all'avvio solo per conoscere i nomi delle lingue.
+_META_BLOCK_RE = re.compile(r'"meta"\s*:\s*\{(.*?)\}', re.DOTALL)
 
 
 class I18n(QObject):
@@ -75,12 +80,16 @@ class I18n(QObject):
         for f in sorted(_I18N_DIR.glob("*.json")):
             try:
                 with f.open(encoding="utf-8") as fp:
-                    data = json.load(fp)
-                meta = data.get("meta", {})
+                    head = fp.read(1024)
+                block = _META_BLOCK_RE.search(head)
+                if block is not None:
+                    meta = json.loads("{" + block.group(1) + "}")
+                else:
+                    meta = self._load_file(f.stem).get("meta", {})
                 code = meta.get("language", f.stem)
                 name = meta.get("name", code)
                 self._available[code] = name
-            except Exception:
+            except (OSError, ValueError, TypeError):
                 pass
 
     def available_languages(self) -> dict[str, str]:

@@ -46,6 +46,8 @@ S_MATH      = 5
 S_BRACE     = 6
 S_OPTION    = 7
 S_REF_ARG   = 8
+S_SPECIAL   = 9    # \% \$ \& \# \_ ...
+S_VERBATIM  = 10   # corpo di verbatim/lstlisting/minted e di \verb|...|
 
 _STYLE_NAMES = {
     S_DEFAULT:   "Default",
@@ -57,6 +59,8 @@ _STYLE_NAMES = {
     S_BRACE:     "Brace",
     S_OPTION:    "Option",
     S_REF_ARG:   "RefArg",
+    S_SPECIAL:   "SpecialChar",
+    S_VERBATIM:  "Verbatim",
 }
 
 # Mappa stile → chiave token nel dizionario tema
@@ -70,6 +74,8 @@ STYLE_TOKEN = {
     S_BRACE:     "operator",
     S_OPTION:    "string2",
     S_REF_ARG:   "identifier",
+    S_SPECIAL:   "special_char",
+    S_VERBATIM:  "string",
 }
 
 # ── Insiemi di comandi ────────────────────────────────────────────────────────
@@ -77,6 +83,7 @@ STYLE_TOKEN = {
 # allineato; tests/test_latex_commands.py verifica la corrispondenza.
 
 from core.latex_commands import (  # noqa: E402
+    MATH_ENVIRONMENTS as _MATH_ENVS,
     REFERENCE_COMMANDS as _REFERENCE_CMDS,
     STRUCTURE_COMMANDS as _STRUCTURE_CMDS,
     VERBATIM_ENVIRONMENTS as _VERBATIM_ENVS,
@@ -109,6 +116,14 @@ _B_RBRACKET  = ord(']')
 _B_NEWLINE   = ord('\n')
 
 _RE_SPECIAL_BYTES = re.compile(rb'[%\\${}[\]]')
+
+# Un argomento di \ref/\cite non può realisticamente superare questa finestra:
+# senza limite, una graffa non chiusa faceva scansionare l'intero documento
+# a ogni occorrenza evidenziata.
+_MAX_REF_ARG_LOOKAHEAD = 64 * 1024
+# Un nome di ambiente non supera realisticamente qualche decina di byte:
+# limita la ricerca della '}' di chiusura su input malformati.
+_MAX_ENV_NAME_BYTES = 256
 
 # Bytes massimi per ogni singola chiamata styleText.
 # Con SC_IDLESTYLING_TOVISIBLE, Scintilla chiama styleText per la zona visibile
@@ -271,7 +286,7 @@ class LaTeXLexer(QsciLexerCustom):
         end, kind = command
         if end >= len(text_b) or text_b[end] != _B_LBRACE:
             return None
-        close = text_b.find(b'}', end + 1)
+        close = text_b.find(b'}', end + 1, min(len(text_b), end + 1 + _MAX_ENV_NAME_BYTES))
         if close < 0:
             return None
         name = text_b[end + 1:close].decode('ascii', 'ignore')
@@ -314,14 +329,13 @@ class LaTeXLexer(QsciLexerCustom):
         end, kind = command
         if end >= len(text_b) or text_b[end] != _B_LBRACE:
             return None
-        close = text_b.find(b'}', end + 1)
+        close = text_b.find(b'}', end + 1, min(len(text_b), end + 1 + _MAX_ENV_NAME_BYTES))
         if close < 0:
             return None
         name = text_b[end + 1:close].decode('ascii', 'ignore').rstrip('*')
-        if name not in {
-            'equation', 'align', 'gather', 'multline', 'math', 'displaymath',
-            'split', 'cases', 'alignat', 'flalign', 'subequations',
-        }:
+        # Usa la tabella condivisa (native e parser la leggono dalla stessa
+        # fonte): il set hardcoded qui si era già disallineato in passato.
+        if name not in _MATH_ENVS:
             return None
         return close + 1, kind, name
 
@@ -569,18 +583,28 @@ class LaTeXLexer(QsciLexerCustom):
                         else None
                     )
                     if verb_end is not None:
-                        paint(pos, verb_end, S_COMMAND)
+                        # Il nome del comando resta S_COMMAND, il contenuto
+                        # letterale ha uno stile dedicato (come gli ambienti
+                        # verbatim).
+                        name_end = command[0] if command is not None else pos
+                        paint(pos, min(name_end, verb_end), S_COMMAND)
+                        paint(name_end, verb_end, S_VERBATIM)
                         pos = verb_end
                         last_cmd = ''
                         continue
                     if command is not None:
-                        stop, last_cmd = command
+                        stop, cmd_name = command
+                        # _command() include la '*' nel nome (serve per dipingere
+                        # il token completo), ma le tabelle di classificazione
+                        # contengono solo le forme senza stella.
+                        last_cmd = cmd_name.rstrip('*')
                         style = (S_STRUCTURE if last_cmd in _STRUCTURE_CMDS else
                                  S_REFERENCE if last_cmd in _REFERENCE_CMDS else S_COMMAND)
                         paint(pos, stop, style)
                         pos = stop
                         continue
-                    paint(pos, pos + 2, S_COMMAND)
+                    # Backslash seguito da un non-lettera: \% \$ \& \# \_ ...
+                    paint(pos, min(pos + 2, end), S_SPECIAL)
                     pos += 2 if pos + 1 < end else 1
                     last_cmd = ''
                     continue
@@ -589,8 +613,9 @@ class LaTeXLexer(QsciLexerCustom):
                     pos += 1
                     if last_cmd in _REFERENCE_CMDS:
                         i, depth = pos, 1
-                        while i < tlen and depth:
-                            if text_b[i] == _B_BACKSLASH and i + 1 < tlen:
+                        arg_limit = min(tlen, pos + _MAX_REF_ARG_LOOKAHEAD)
+                        while i < arg_limit and depth:
+                            if text_b[i] == _B_BACKSLASH and i + 1 < arg_limit:
                                 i += 2
                                 continue
                             if text_b[i] == _B_LBRACE:
@@ -648,6 +673,9 @@ class LaTeXLexer(QsciLexerCustom):
                 candidates = [p for p in (newline, backslash) if p >= 0]
                 stop = min(candidates) if candidates else end
                 if stop > pos:
+                    # Il corpo verbatim ha uno stile dedicato: prima restava
+                    # S_DEFAULT, indistinguibile dal testo normale.
+                    paint(pos, stop, S_VERBATIM)
                     pos = stop
                     continue
                 command = self._command(text_b, pos)
@@ -754,7 +782,7 @@ class LaTeXLexer(QsciLexerCustom):
         # Qui inviamo SCI_STYLESETFORE/BACK/FONT/SIZE/BOLD/ITALIC per ogni stile
         # direttamente, poi un solo SCI_COLOURISE alla fine.
 
-        for sn in range(16):
+        for sn in range(len(_STYLE_NAMES)):
             p.SendScintilla(p.SCI_STYLESETFORE,   sn, editor_fg)
             p.SendScintilla(p.SCI_STYLESETBACK,   sn, editor_bg)
             p.SendScintilla(p.SCI_STYLESETFONT,   sn, font_b)

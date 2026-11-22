@@ -68,11 +68,12 @@ class _PdfPageLabel(QLabel):
     text_selected = pyqtSignal(str)
 
     def __init__(self, fitz_page, zoom: float, show_links: bool,
-                 parent: QWidget | None = None):
+                 parent: QWidget | None = None, render: bool = True):
         super().__init__(parent)
         self._fitz_page  = fitz_page
         self._zoom       = zoom
         self._show_links = show_links
+        self._pixmap_released = False
         self._links: list[dict] = fitz_page.get_links() if fitz_page else []
         self._hovered_link: dict | None = None
 
@@ -86,6 +87,28 @@ class _PdfPageLabel(QLabel):
 
         self.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         self.setMouseTracking(True)
+        if render:
+            self._render()
+        else:
+            # Placeholder senza pixmap: la geometria resta identica a quella che
+            # avrebbe il pixmap rasterizzato, così lo scroll non salta.
+            rect = fitz_page.rect if fitz_page else None
+            if rect is not None:
+                self.setFixedSize(int(rect.width * zoom), int(rect.height * zoom))
+            self._pixmap_released = True
+
+    def release_pixmap(self) -> None:
+        """Libera il pixmap di una pagina fuori schermo (mantiene il fixedSize)."""
+        if self._pixmap_released:
+            return
+        self.clear()
+        self._pixmap_released = True
+
+    def ensure_pixmap(self) -> None:
+        """Rasterizza la pagina quando rientra nel viewport."""
+        if not self._pixmap_released:
+            return
+        self._pixmap_released = False
         self._render()
 
     def _render(self) -> None:
@@ -139,6 +162,7 @@ class _PdfPageLabel(QLabel):
 
         self.setPixmap(pm)
         self.setFixedSize(pm.size())
+        self._pixmap_released = False
 
     def _link_rect_px(self, lnk: dict) -> QRect:
         r = lnk["from"]
@@ -206,7 +230,10 @@ class _PdfPageLabel(QLabel):
 
     def update_show_links(self, show: bool) -> None:
         self._show_links = show
-        self._render()
+        # Le pagine fuori schermo non vengono rasterizzate: il flag
+        # sarà letto dal prossimo _render() quando rientrano nel viewport.
+        if not self._pixmap_released:
+            self._render()
 
 
 def _link_label(lnk: dict) -> str:
@@ -229,6 +256,9 @@ class _SidePanel(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setMinimumWidth(80)
+        # Generazione per le miniature: invalida i closure dei QTimer pendenti
+        # se il documento viene ricaricato prima che finiscano.
+        self._thumb_gen = 0
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -261,13 +291,17 @@ class _SidePanel(QWidget):
         """Carica le miniature una alla volta con QTimer.singleShot per
         non bloccare il thread UI durante l'apertura del documento."""
         self._thumb_list.clear()
+        self._thumb_gen += 1
+        thumb_gen = self._thumb_gen
         n = len(doc)
         if n == 0:
             return
         zoom = _THUMB_W / max(doc[0].rect.width, 1)
 
         def _add_thumb(i: int) -> None:
-            if i >= n:
+            # Un reload prima che i timer pendenti scadano altrimenti appende
+            # miniature del documento vecchio alla lista appena svuotata.
+            if thumb_gen != self._thumb_gen or i >= n:
                 return
             pg  = doc.load_page(i)
             mat = _fitz.Matrix(zoom, zoom)
@@ -351,6 +385,12 @@ class PdfViewerWidget(QWidget):
         self._scroll_timer.setSingleShot(True)
         self._scroll_timer.setInterval(120)
         self._scroll_timer.timeout.connect(self._update_current_page)
+
+        # Ricerca: search_for() gira su tutte le pagine, quindi va debounced.
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(250)
+        self._search_timer.timeout.connect(self._on_search_timeout)
 
         self._build_ui()
         if path:
@@ -590,7 +630,7 @@ class PdfViewerWidget(QWidget):
         self._find_edit.setPlaceholderText(tr("label.find"))
         self._find_edit.setClearButtonEnabled(True)
         self._find_edit.setFixedWidth(260)
-        self._find_edit.textChanged.connect(self._on_search_changed)
+        self._find_edit.textChanged.connect(self._search_timer.start)
         self._find_edit.returnPressed.connect(self._on_search_next)
         h.addWidget(self._find_edit)
 
@@ -639,6 +679,9 @@ class PdfViewerWidget(QWidget):
             self._search_bar.show()
             self._find_edit.setFocus()
             self._find_edit.selectAll()
+
+    def _on_search_timeout(self) -> None:
+        self._on_search_changed(self._find_edit.text())
 
     def _on_search_changed(self, text: str):
         if not self._doc or not FITZ_OK:
@@ -730,6 +773,13 @@ class PdfViewerWidget(QWidget):
             self._auto_fit()
         else:
             self._rebuild_pages()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Dopo il primo show le posizioni delle label sono valide: solo ora
+        # ha senso decidere quali pagine rasterizzare.
+        if FITZ_OK and self._doc and self._continuous:
+            QTimer.singleShot(0, self._render_visible_pages)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -823,6 +873,9 @@ class PdfViewerWidget(QWidget):
             w = item.widget()
             if w:
                 w.setParent(None)
+                # Rilascia subito il QPixmap C++ della pagina (setParent(None)
+                # da solo si affidava al refcounting di Python).
+                w.deleteLater()
         self._page_labels.clear()
 
         n = len(self._doc)
@@ -842,11 +895,14 @@ class PdfViewerWidget(QWidget):
                 if self._page_labels:
                     self._pages_container.setMinimumWidth(
                         max(lbl.width() for lbl in self._page_labels) + 24)
-                # Aggiorna l'indicatore di pagina corrente dopo il caricamento
+                # Solo le pagine vicine al viewport vengono rasterizzate:
+                # le altre restano placeholder con fixedSize identico.
+                self._render_visible_pages()
                 QTimer.singleShot(50, self._update_current_page)
                 return
             pg  = self._doc.load_page(i)
-            lbl = _PdfPageLabel(pg, self._zoom, self._show_links, self._pages_container)
+            lbl = _PdfPageLabel(pg, self._zoom, self._show_links,
+                                self._pages_container, render=False)
             lbl.link_activated.connect(self._on_link_activated)
             if i > 0:
                 sep = QFrame(self._pages_container)
@@ -985,12 +1041,40 @@ class PdfViewerWidget(QWidget):
         if not self._scroll_timer.isActive():
             self._scroll_timer.start()
 
+    def _render_visible_pages(self) -> None:
+        """Rasterizza solo le pagine vicine al viewport e libera le altre.
+
+        Senza questo, lo scroll continuo creava un QPixmap a piena risoluzione
+        per ogni pagina del PDF (~1.7 GB su 500 pagine A4 a 1.5x).  Il
+        fixedSize dei label resta impostato anche quando il pixmap è rilasciato,
+        quindi la geometria dello scroll non cambia.
+        """
+        if not self._page_labels or not getattr(self, "_scroll", None):
+            return
+        if not self._scroll.isVisible():
+            # Come in preview_panel: prima del primo show il layout non ha
+            # posizioni reali e tutte le label sembrerebbero sovrapposte.
+            return
+        viewport = self._scroll.viewport()
+        vp_top = self._scroll.verticalScrollBar().value()
+        vp_h = viewport.height()
+        container = self._pages_container
+        for lbl in self._page_labels:
+            top = lbl.mapTo(container, QPoint(0, 0)).y()
+            bottom = top + lbl.height()
+            visible = bottom >= vp_top - 2 * vp_h and top <= vp_top + 3 * vp_h
+            if visible:
+                lbl.ensure_pixmap()
+            else:
+                lbl.release_pixmap()
+
     def _update_current_page(self) -> None:
         """Determina quale pagina è maggiormente visibile nel viewport e
         aggiorna l'etichetta della pagina corrente e la selezione del pannello.
         Attivo solo in modalità scroll continuo."""
         if not self._page_labels or not self._continuous:
             return
+        self._render_visible_pages()
         viewport = self._scroll.viewport()
         vp_top    = self._scroll.verticalScrollBar().value()
         vp_bottom = vp_top + viewport.height()
@@ -1040,6 +1124,9 @@ class PdfViewerWidget(QWidget):
             w = item.widget()
             if w:
                 w.setParent(None)
+                # Rilascia subito il QPixmap C++ della pagina (setParent(None)
+                # da solo si affidava al refcounting di Python).
+                w.deleteLater()
         self._page_labels.clear()
         self._page_gen += 1
 

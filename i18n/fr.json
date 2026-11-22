@@ -265,6 +265,24 @@
     "lang_toolbar_export_html": "Exporter en HTML",
     "build_analyze_ai": "Analyser le journal avec l'IA",
     "build_analyze_ai_send": "Envoyer à l'IA",
+    "build_terminal": "Terminal",
+    "file_type_plain_text": "Texte brut",
+    "build_clean_aux_before_toggle": "Nettoyer les fichiers auxiliaires LaTeX avant la compilation",
+    "build_clean_aux_toggle": "Nettoyer les fichiers auxiliaires LaTeX après la compilation",
+    "build_keep_synctex_toggle": "Conserver le fichier .synctex.gz",
+    "build_latex_auto_clean_retry": "Nettoyer automatiquement les fichiers auxiliaires LaTeX obsolètes et réessayer",
+    "build_latex_auxiliary_auto": "Exécuter automatiquement les outils auxiliaires LaTeX",
+    "build_next_error": "Erreur suivante",
+    "build_prev_error": "Erreur précédente",
+    "build_trigger_on_edit": "Compiler pendant la saisie",
+    "build_trigger_on_save": "Compiler à la sauvegarde",
+    "build_unified_errors": "Erreurs unifiées (LSP + Build)",
+    "markdown_backlinks": "Afficher les liens retour Markdown",
+    "markdown_toc": "Insérer/mettre à jour la table des matières Markdown",
+    "markdown_wikilink": "Insérer un wikilink Markdown",
+    "quick_search": "Recherche rapide...",
+    "tail_mode_toggle": "Suivre le fichier (tail -f)",
+    "view_quick_search": "Barre de recherche rapide",
     "lorem_ipsum": "Insérer un texte de remplacement (Lorem Ipsum)…",
     "view_project_manager": "Gestionnaire de projets",
     "context_ai": "Demander à l'IA",
@@ -1157,6 +1175,12 @@
     "lang_toolbar_hr": "Règle horizontale",
     "latex_insert_image": "Insérer une image",
     "build_analyze_ai": "Envoyer le journal de compilation à l'IA pour analyse",
+    "build_terminal": "Ouvrir un terminal sous la sortie de compilation",
+    "build_latex_auto_clean_retry": "Supprime automatiquement les fichiers .aux/.toc/.lot/.lof/.out corrompus et relance une fois la compilation.",
+    "build_trigger_on_edit": "Lancer la compilation LaTeX après une courte pause pendant la saisie",
+    "build_trigger_on_save": "Exécuter automatiquement la commande de build lors de la sauvegarde d'un fichier",
+    "build_unified_errors": "Afficher les diagnostics LSP avec les erreurs de build",
+    "build_latex_auxiliary_auto": "Exécuter automatiquement makeindex, makeglossaries et nomencl pendant la compilation",
     "table_row_above": "Insérer une ligne au-dessus",
     "table_row_below": "Insérer une ligne en dessous",
     "table_col_left": "Insérer une colonne à gauche",
@@ -1929,7 +1953,8 @@
     "diagnostics": "Diagnostics",
     "task": "Tâche",
     "minimap": "Minicarte",
-    "json_xml": "Structure JSON/XML"
+    "json_xml": "Structure JSON/XML",
+    "latex_references": "Références LaTeX"
   },
   "bibtex_wizard": {
     "title": "Assistant BibTeX",
@@ -1948,5 +1973,8 @@
     "doi_searching": "Recherche...",
     "doi_found": "Trouvé ! Remplissez les champs dans \"Nouvelle entrée\".",
     "doi_error": "Erreur : "
+  },
+  "view": {
+    "latex_references": "Références LaTeX globales"
   }
 }

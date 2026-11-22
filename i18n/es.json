@@ -265,6 +265,24 @@
     "lang_toolbar_export_html": "Exportar como HTML",
     "build_analyze_ai": "Analizar registro con IA",
     "build_analyze_ai_send": "Enviar a IA",
+    "build_terminal": "Terminal",
+    "file_type_plain_text": "Texto plano",
+    "build_clean_aux_before_toggle": "Limpiar archivos auxiliares LaTeX antes de compilar",
+    "build_clean_aux_toggle": "Limpiar archivos auxiliares LaTeX después de compilar",
+    "build_keep_synctex_toggle": "Conservar el archivo .synctex.gz",
+    "build_latex_auto_clean_retry": "Limpiar automáticamente archivos auxiliares LaTeX obsoletos y reintentar",
+    "build_latex_auxiliary_auto": "Ejecutar automáticamente herramientas auxiliares LaTeX",
+    "build_next_error": "Error siguiente",
+    "build_prev_error": "Error anterior",
+    "build_trigger_on_edit": "Compilar mientras se edita",
+    "build_trigger_on_save": "Compilar al guardar",
+    "build_unified_errors": "Errores unificados (LSP + Build)",
+    "markdown_backlinks": "Mostrar vínculos inversos de Markdown",
+    "markdown_toc": "Insertar/actualizar tabla de contenidos Markdown",
+    "markdown_wikilink": "Insertar wikilink de Markdown",
+    "quick_search": "Búsqueda rápida...",
+    "tail_mode_toggle": "Seguir el archivo (tail -f)",
+    "view_quick_search": "Barra de búsqueda rápida",
     "lorem_ipsum": "Insertar texto de marcador de posición (Lorem Ipsum)…",
     "view_project_manager": "Gestor de proyectos",
     "context_ai": "Preguntar a IA",
@@ -1157,6 +1175,12 @@
     "lang_toolbar_hr": "Regla horizontal",
     "latex_insert_image": "Insertar imagen",
     "build_analyze_ai": "Enviar registro de compilación a la IA para análisis",
+    "build_terminal": "Abrir una terminal debajo de la salida de compilación",
+    "build_latex_auto_clean_retry": "Elimina automáticamente los archivos .aux/.toc/.lot/.lof/.out dañados y reintenta la compilación una vez.",
+    "build_trigger_on_edit": "Ejecutar la compilación LaTeX tras una breve pausa al escribir",
+    "build_trigger_on_save": "Ejecutar automáticamente el comando de compilación al guardar un archivo",
+    "build_unified_errors": "Mostrar los diagnósticos LSP junto con los errores de compilación",
+    "build_latex_auxiliary_auto": "Ejecutar automáticamente makeindex, makeglossaries y nomencl durante la compilación",
     "table_row_above": "Insertar fila arriba",
     "table_row_below": "Insertar fila abajo",
     "table_col_left": "Insertar columna a la izquierda",
@@ -1929,7 +1953,8 @@
     "diagnostics": "Diagnóstico",
     "task": "Tarea",
     "minimap": "Minimapa",
-    "json_xml": "Estructura JSON/XML"
+    "json_xml": "Estructura JSON/XML",
+    "latex_references": "Referencias LaTeX"
   },
   "bibtex_wizard": {
     "title": "Asistente BibTeX",
@@ -1948,5 +1973,8 @@
     "doi_searching": "Buscando...",
     "doi_found": "¡Encontrado! Completa los campos en \"Nueva entrada\".",
     "doi_error": "Error: "
+  },
+  "view": {
+    "latex_references": "Referencias LaTeX globales"
   }
 }

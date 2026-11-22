@@ -546,9 +546,12 @@ class LSPClient(QObject):
 
     @staticmethod
     def _offset_to_position(text: str, offset: int) -> dict[str, int]:
-        before = text[:offset]
-        line = before.count("\n")
-        column = before.rsplit("\n", 1)[-1]
+        # ``text[:offset]`` + ``rsplit`` copied up to the whole document at
+        # every didChange (twice per keystroke).  Count and locate in place.
+        offset = max(0, min(offset, len(text)))
+        line_start = text.rfind("\n", 0, offset) + 1
+        line = text.count("\n", 0, offset)
+        column = text[line_start:offset]
         return {"line": line, "character": len(column.encode("utf-16-le")) // 2}
 
     @property
@@ -561,10 +564,23 @@ class LSPClient(QObject):
         opened = self._open_files.get(uri)
         content = opened[1] if opened is not None else None
         character = max(0, col)
-        if isinstance(content, str):
-            lines = content.split("\n")
-            if 0 <= line < len(lines):
-                character = len(lines[line][:character].encode("utf-16-le")) // 2
+        if isinstance(content, str) and line >= 0:
+            # ``content.split("\n")`` allocated a list of every line of the
+            # document just to read one prefix.  Walk only to the target line.
+            line_start = 0
+            found = True
+            for _ in range(line):
+                newline = content.find("\n", line_start)
+                if newline < 0:
+                    found = False
+                    break
+                line_start = newline + 1
+            if found:
+                line_end = content.find("\n", line_start)
+                if line_end < 0:
+                    line_end = len(content)
+                prefix = content[line_start:min(line_start + character, line_end)]
+                character = len(prefix.encode("utf-16-le")) // 2
         return {"line": line, "character": character}
 
     def close_file(self, path: Path) -> None:

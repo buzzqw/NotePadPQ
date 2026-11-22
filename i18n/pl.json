@@ -267,6 +267,24 @@
     "lang_toolbar_export_html": "Eksportuj jako HTML",
     "build_analyze_ai": "Analizuj log z AI",
     "build_analyze_ai_send": "Wyślij do AI",
+    "build_terminal": "Terminal",
+    "file_type_plain_text": "Zwykły tekst",
+    "build_clean_aux_before_toggle": "Usuwaj pliki pomocnicze LaTeX przed kompilacją",
+    "build_clean_aux_toggle": "Usuwaj pliki pomocnicze LaTeX po kompilacji",
+    "build_keep_synctex_toggle": "Zachowaj plik .synctex.gz",
+    "build_latex_auto_clean_retry": "Automatycznie czyść nieaktualne pliki pomocnicze LaTeX i spróbuj ponownie",
+    "build_latex_auxiliary_auto": "Uruchamiaj automatycznie narzędzia pomocnicze LaTeX",
+    "build_next_error": "Następny błąd",
+    "build_prev_error": "Poprzedni błąd",
+    "build_trigger_on_edit": "Kompiluj podczas edycji",
+    "build_trigger_on_save": "Kompiluj przy zapisie",
+    "build_unified_errors": "Ujednolicone błędy (LSP + Build)",
+    "markdown_backlinks": "Pokaż odnośniki zwrotne Markdown",
+    "markdown_toc": "Wstaw/zaktualizuj spis treści Markdown",
+    "markdown_wikilink": "Wstaw wikilink Markdown",
+    "quick_search": "Szybkie wyszukiwanie...",
+    "tail_mode_toggle": "Śledź plik (tail -f)",
+    "view_quick_search": "Pasek szybkiego wyszukiwania",
     "context_ai": "Zapytaj AI",
     "context_ai_ask_file": "Zapytaj o bieżący plik",
     "context_ai_ask_sel": "Zapytaj o zaznaczenie",
@@ -1157,6 +1175,12 @@
     "lang_toolbar_hr": "Linia pozioma",
     "latex_insert_image": "Wstaw obraz",
     "build_analyze_ai": "Wyślij log kompilacji do AI w celu analizy",
+    "build_terminal": "Otwórz terminal pod wynikiem kompilacji",
+    "build_latex_auto_clean_retry": "Automatycznie usuwa uszkodzone pliki .aux/.toc/.lot/.lof/.out i ponawia kompilację raz.",
+    "build_trigger_on_edit": "Uruchom kompilację LaTeX po krótkiej pauzie podczas pisania",
+    "build_trigger_on_save": "Automatycznie uruchamiaj polecenie build podczas zapisywania pliku",
+    "build_unified_errors": "Wyświetlaj diagnostykę LSP razem z błędami builda",
+    "build_latex_auxiliary_auto": "Automatycznie uruchamiaj makeindex, makeglossaries i nomencl podczas builda",
     "table_row_above": "Wstaw wiersz powyżej",
     "table_row_below": "Wstaw wiersz poniżej",
     "table_col_left": "Wstaw kolumnę z lewej",
@@ -1929,7 +1953,8 @@
     "diagnostics": "Diagnostyka",
     "task": "Zadanie",
     "minimap": "Minimapa",
-    "json_xml": "Struktura JSON/XML"
+    "json_xml": "Struktura JSON/XML",
+    "latex_references": "Odwołania LaTeX"
   },
   "bibtex_wizard": {
     "title": "Asystent BibTeX",
@@ -1948,5 +1973,8 @@
     "doi_searching": "Szukanie...",
     "doi_found": "Znaleziono! Wypełnij pola w zakładce \"Nowy wpis\".",
     "doi_error": "Błąd: "
+  },
+  "view": {
+    "latex_references": "Globalne odwołania LaTeX"
   }
 }

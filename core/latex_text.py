@@ -20,6 +20,12 @@ from core.latex_parser import (
 
 _MATH_ENV_NAMES = MATH_ENVIRONMENTS
 
+# Compiled once: ``Pattern.match(text, pos, endpos)`` scans in place without
+# copying the remainder of the document at every iteration (the previous
+# ``text[i:limit]`` slices made this function O(n^2) in time and allocations).
+_RE_BEGIN_END_MATH = re.compile(r'\\(begin|end)\{([^}]+)\}')
+_RE_BEGIN_MATH = re.compile(r'\\begin\{([^}]+)\}')
+
 
 def find_open_environments(text: str, line: int, col: int) -> list[str]:
     """Environments still open just before ``(line, col)``, innermost first.
@@ -91,7 +97,7 @@ def is_in_math_mode(text: str, pos: int) -> bool:
             continue
 
         if env_stack:
-            match = re.match(r'\\(begin|end)\{([^}]+)\}', text[i:limit])
+            match = _RE_BEGIN_END_MATH.match(text, i, limit)
             if match:
                 name = match.group(2).rstrip("*")
                 if match.group(1) == "begin" and name in _MATH_ENV_NAMES:
@@ -99,7 +105,7 @@ def is_in_math_mode(text: str, pos: int) -> bool:
                 elif (match.group(1) == "end" and
                       env_stack[-1] == name):
                     env_stack.pop()
-                i += match.end()
+                i = match.end()
                 continue
             i += 1
             continue
@@ -132,10 +138,10 @@ def is_in_math_mode(text: str, pos: int) -> bool:
             dollar_delim = "$"
             i += 1
             continue
-        match = re.match(r'\\begin\{([^}]+)\}', text[i:limit])
+        match = _RE_BEGIN_MATH.match(text, i, limit)
         if match and match.group(1).rstrip("*") in _MATH_ENV_NAMES:
             env_stack.append(match.group(1).rstrip("*"))
-            i += match.end()
+            i = match.end()
             continue
         i += 2 if text[i] == "\\" and i + 1 < limit else 1
 

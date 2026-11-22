@@ -262,7 +262,9 @@ class TabManager(QTabWidget):
 
         # --- MONITORAGGIO FILE ESTERNO ---
         # Creiamo una "sentinella" per questo file
-        editor._watcher = QFileSystemWatcher(self)
+        # Parentare all'editor (non al TabManager): un watcher per tab chiuso
+        # restava figlio del manager per tutta la sessione (inotify leak).
+        editor._watcher = QFileSystemWatcher(editor)
         if path:
             # Diciamo alla sentinella di guardare il percorso del file
             editor._watcher.addPath(str(path))
@@ -551,6 +553,11 @@ class TabManager(QTabWidget):
             if callable(cleanup):
                 cleanup()
             container.close()
+        else:
+            # QTabWidget.removeTab() does NOT delete the page widget: without
+            # this every closed editor (lexers, autocomplete, LSP timers,
+            # signal lambdas) stayed alive until the main window was destroyed.
+            container.deleteLater()
         if self.count() == 0:
             self.new_tab()
 

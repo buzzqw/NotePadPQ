@@ -20,6 +20,7 @@ Profili configurabili per linguaggio con:
 
 from __future__ import annotations
 
+import bisect
 import json
 import os
 import queue
@@ -54,6 +55,10 @@ def _log_warn(msg: str) -> None:
 
 
 BuildCommand = str | list[str]
+
+# Storico degli stati di build: unbounded cresceva di un entry per ogni
+# esecuzione (run_id UUID) per tutta la sessione.
+_MAX_BUILD_STATES = 256
 
 BUILD_STATE_QUEUED = "queued"
 BUILD_STATE_RUNNING = "running"
@@ -223,6 +228,7 @@ _RE_LATEX_BANG  = re.compile(r'!\s*(.+)')
 _RE_LATEX_LNUM  = re.compile(r'^l\.(\d+)')
 _RE_LATEX_MODERN = re.compile(r'([^\s:]+\.(?:tex|ltx|latex|sty|cls|aux)):(\d+):\s*(.+)')
 _RE_LATEX_WARN  = re.compile(r'(?:LaTeX|Package|Class)[\w\s]*Warning:\s*(.+)')
+_RE_LATEX_LREF  = re.compile(r'l\.(\d+)')
 
 
 # ─── PTY helper ───────────────────────────────────────────────────────────────
@@ -1158,7 +1164,6 @@ class BuildManager(QObject):
                  interactive: bool = False) -> bool:
         if not run_id:
             run_id = f"task_{uuid4().hex[:8]}"
-        env = {**os.environ}
         from core.external_open import clean_subprocess_env
         env = clean_subprocess_env()
 
@@ -1672,7 +1677,6 @@ class BuildManager(QObject):
             )
             self.build_output.emit(run_id, tr("build.post_hook", cmd=hook_cmd,
                 default="Post-hook: {cmd}"))
-            env = {**os.environ}
             from core.external_open import clean_subprocess_env
             env = clean_subprocess_env()
             hook_rid = run_id + "_post"
@@ -1717,6 +1721,10 @@ class BuildManager(QObject):
 
     def _set_build_state(self, run_id: str, state: str) -> None:
         if self._build_states.get(run_id) != state:
+            if (run_id not in self._build_states
+                    and len(self._build_states) >= _MAX_BUILD_STATES):
+                # I dict mantengono l'ordine di inserimento: eviction FIFO.
+                self._build_states.pop(next(iter(self._build_states)), None)
             self._build_states[run_id] = state
             self.build_state_changed.emit(run_id, state)
 
@@ -1980,14 +1988,15 @@ class BuildManager(QObject):
 
             i += 1
 
+        # Resolve the last ``l.<num>`` preceding each warning with one linear
+        # pass + binary search.  The previous code copied ``output[:pos]`` and
+        # rescanned it for *every* warning: O(warnings x log size).
+        line_refs = list(_RE_LATEX_LREF.finditer(output))
+        ref_starts = [ref.start() for ref in line_refs]
         for m in _RE_LATEX_WARN.finditer(output):
             msg = m.group(1).strip()
-            pos = m.start()
-            before = output[:pos]
-            lm = None
-            for lm_match in re.finditer(r'l\.(\d+)', before):
-                lm = lm_match
-            line_num = int(lm.group(1)) if lm else 0
+            idx = bisect.bisect_right(ref_starts, m.start()) - 1
+            line_num = int(line_refs[idx].group(1)) if idx >= 0 else 0
             eff_file = current_file or main_file or fallback_file
             key = (eff_file, line_num, msg[:120])
             if key not in seen:

@@ -93,7 +93,9 @@ def format_balance_issue(
 
 # ── Tabular column checks ─────────────────────────────────────────────────────
 
-_COL_CHARS = frozenset("lcrpLCRX")
+# lcr p/m/b (paragraph) X (tabularx) + colonne dei pacchetti moderni:
+# S (siunitx), J (tabulary), Q/Y (tabularray).
+_COL_CHARS = frozenset("lcrpmbLCRXJQYS")
 
 # tabularray environments: their column specification lives in the
 # ``colspec=...`` key of the mandatory argument instead of a positional group.

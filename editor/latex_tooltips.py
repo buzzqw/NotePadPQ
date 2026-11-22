@@ -1316,7 +1316,7 @@ LATEX_CMD_DOCS: dict[str, tuple[str, str, str, str]] = {
     "only": (
         r"\only<overlay>{contenuto}",
         "Mostra il contenuto solo negli overlay specificati, senza riservare spazio negli altri. "
-        "Sintassi overlay: <2>, <1-3>, <2,4>, <3->.",
+        "Sintassi overlay: &lt;2&gt;, &lt;1-3&gt;, &lt;2,4&gt;, &lt;3-&gt;.",
         "beamer",
         r"\only<2>{Questo appare solo al secondo click.}",
     ),
@@ -2350,6 +2350,43 @@ LATEX_CMD_DOCS: dict[str, tuple[str, str, str, str]] = {
         r"La formattazione è gestita tramite \gls{latex}.",
     ),
 }
+
+# Simboli matematici frequenti: il dizionario statico non li copriva, quindi
+# passare il mouse su \alpha o \leq non mostrava nulla.  Vengono generati qui
+# per evitare due dozzine di voci quasi identiche scritte a mano.
+_MATH_SYMBOL_DOCS: tuple[tuple[str, str, str], ...] = (
+    (r"\alpha", "Lettera greca alfa (minuscola).", "LaTeX base"),
+    (r"\beta", "Lettera greca beta (minuscola).", "LaTeX base"),
+    (r"\gamma", "Lettera greca gamma (minuscola).", "LaTeX base"),
+    (r"\delta", "Lettera greca delta (minuscola).", "LaTeX base"),
+    (r"\pi", "Lettera greca pi (minuscola).", "LaTeX base"),
+    (r"\Delta", "Lettera greca Delta (maiuscola), spesso usata per gli incrementi.", "LaTeX base"),
+    (r"\leq", "Relazione 'minore o uguale' (≤).", "LaTeX base"),
+    (r"\geq", "Relazione 'maggiore o uguale' (≥).", "LaTeX base"),
+    (r"\neq", "Relazione 'diverso da' (≠).", "LaTeX base"),
+    (r"\times", "Operatore di moltiplicazione (×).", "LaTeX base"),
+    (r"\cdot", "Prodotto con punto (·), usato anche per i prodotti scalari.", "LaTeX base"),
+    (r"\pm", "Segno più o meno (±).", "LaTeX base"),
+    (r"\to", "Freccia di implicazione / tendenza (→).", "LaTeX base"),
+    (r"\in", "Appartenenza a un insieme (∈).", "LaTeX base"),
+    (r"\subset", "Sottoinsieme (⊂).", "LaTeX base"),
+    (r"\cup", "Unione di insiemi (∪).", "LaTeX base"),
+    (r"\cap", "Intersezione di insiemi (∩).", "LaTeX base"),
+    (r"\emptyset", "Insieme vuoto (∅).", "LaTeX base"),
+    (r"\prime", "Apostrofo matematico (′), usato per derivate.", "LaTeX base"),
+    (r"\angle", "Simbolo di angolo (∠).", "LaTeX base"),
+    (r"\infty", "Infinito (∞).", "LaTeX base"),
+    (r"\sin", "Funzione seno, scritta in carattere romano.", "LaTeX base"),
+    (r"\cos", "Funzione coseno, scritta in carattere romano.", "LaTeX base"),
+    (r"\log", "Logaritmo, scritto in carattere romano.", "LaTeX base"),
+)
+for _symbol, _meaning, _package in _MATH_SYMBOL_DOCS:
+    LATEX_CMD_DOCS.setdefault(_symbol.lstrip("\\"), (
+        _symbol,
+        _meaning,
+        _package,
+        _symbol,
+    ))
 
 
 _BG     = "#fdf6d8"   # crema gialla, come i tooltip classici

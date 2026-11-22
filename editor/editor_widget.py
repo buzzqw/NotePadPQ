@@ -61,12 +61,12 @@ _MATH_PATTERNS: tuple[tuple[re.Pattern, int], ...] = (
     # Display formulas.  The environment patterns are single-line friendly;
     # multi-line content is reduced to its first row below.
     (re.compile(r"\\begin\{(equation|displaymath|math)\*?\}(.*?)"
-                r"\\end\{\1\*?\}"), 2),
+                r"\\end\{\1\*?\}", re.DOTALL), 2),
     (re.compile(r"\\begin\{(align|gather|multline|alignat|flalign)\*?\}"
-                r"(.*?)\\end\{\1\*?\}"), 2),
-    (re.compile(r"(?<!\\)\$\$(.+?)(?<!\\)\$\$"), 1),
-    (re.compile(r"\\\[(.*?)\\\]"), 1),
-    (re.compile(r"\\\((.*?)\\\)"), 1),
+                r"(.*?)\\end\{\1\*?\}", re.DOTALL), 2),
+    (re.compile(r"(?<!\\)\$\$(.+?)(?<!\\)\$\$", re.DOTALL), 1),
+    (re.compile(r"\\\[(.*?)\\\]", re.DOTALL), 1),
+    (re.compile(r"\\\((.*?)\\\)", re.DOTALL), 1),
     (re.compile(r"(?<!\$)(?<!\\)\$([^$\n]+?)(?<!\\)\$(?!\$)"), 1),
 )
 
@@ -2812,10 +2812,11 @@ class EditorWidget(QsciScintilla):
             start, end = self._spell_check_range
             self.clearIndicatorRange(start, 0, end, 0, INDICATOR_SPELL)
             self._spell_marked_range = self._spell_check_range
+        if positions:
+            self.SendScintilla(QsciScintilla.SCI_SETINDICATORCURRENT, INDICATOR_SPELL)
         for line_s, col_s, line_e, col_e in positions:
             start = self.positionFromLineIndex(line_s, col_s)
             end = self.positionFromLineIndex(line_e, col_e)
-            self.SendScintilla(QsciScintilla.SCI_SETINDICATORCURRENT, INDICATOR_SPELL)
             self.SendScintilla(QsciScintilla.SCI_INDICATORFILLRANGE, start, end - start)
 
     def contextMenuEvent(self, event) -> None:
@@ -3156,9 +3157,19 @@ class EditorWidget(QsciScintilla):
             return None
         line, column = self.lineIndexFromPosition(position)
         text = self.text(line)
-        for match in re.finditer(r"\\usepackage(?:\[[^]]*\])?\{([^}]+)\}", text):
+        for match in re.finditer(
+                r"\\(?:usepackage|RequirePackage|documentclass)(?:\[[^]]*\])?\{([^}]+)\}",
+                text):
             if match.start(1) <= column <= match.end(1):
-                package = match.group(1).split(",", 1)[0].strip()
+                # \usepackage{foo,bar}: apre la documentazione del pacchetto
+                # effettivamente sotto il cursore, non sempre il primo.
+                names = match.group(1)
+                base = match.start(1)
+                for package_match in re.finditer(r"[^,\s]+", names):
+                    if base + package_match.start() <= column <= base + package_match.end():
+                        package = package_match.group(0)
+                        return package, package
+                package = names.split(",", 1)[0].strip()
                 return package, package
         for match in re.finditer(r"\\([A-Za-z@]+)", text):
             if match.start() <= column <= match.end():
@@ -3582,12 +3593,17 @@ class EditorWidget(QsciScintilla):
         # PARTE 4: DOCUMENTAZIONE COMANDI LaTeX
         # ---------------------------------------------------------
         if "latex" in lang or "tex" in lang:
+            from core.latex_parser import mask_latex_comments
             from editor.latex_tooltips import get_latex_tooltip_html
+
+            # Un comando dentro un commento o in \verb|...| non deve mostrare
+            # il tooltip: maschera prima di cercare i token.
+            doc_text = mask_latex_comments(text)
 
             # Cerca \cmd sotto il cursore
             cmd_match = None
-            for m in re.finditer(r'\\([a-zA-Z@]+\*?)', text):
-                if m.start() <= relative_pos <= m.end():
+            for m in re.finditer(r'\\([a-zA-Z@]+\*?)', doc_text):
+                if m.start() <= relative_pos < m.end():
                     cmd_match = m
                     break
             if cmd_match:
@@ -3600,7 +3616,7 @@ class EditorWidget(QsciScintilla):
                     return
 
             # Cerca nome ambiente dentro \begin{...} o \end{...}
-            for m in re.finditer(r'\\(?:begin|end)\{([a-zA-Z@*]+)\}', text):
+            for m in re.finditer(r'\\(?:begin|end)\{([a-zA-Z@*]+)\}', doc_text):
                 if m.start(1) <= relative_pos <= m.end(1):
                     html = get_latex_tooltip_html(m.group(1))
                     if html:

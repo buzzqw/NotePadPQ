@@ -12,6 +12,8 @@ import re
 from dataclasses import dataclass
 from typing import TypedDict
 
+from core.latex_commands import VERBATIM_ENVIRONMENTS
+
 
 class LatexToken(TypedDict):
     """Source span produced by one of the LaTeX token scanners."""
@@ -45,6 +47,103 @@ def is_latex_escaped(text: str, position: int) -> bool:
     return bool(slashes % 2)
 
 
+# Comandi il cui argomento è letterale: un '%' al suo interno NON apre un
+# commento (\url{http://x/%20y}, \verb|50%|, ...).
+_LITERAL_ARG_COMMANDS = frozenset({"url", "path", "href"})
+_CMD_NAME_RE = re.compile(r"\\([A-Za-z@]+)")
+
+
+def _literal_group_end(text: str, start: int) -> int | None:
+    """Indice della '}' che chiude il gruppo, con '%' trattato alla lettera."""
+    if start >= len(text) or text[start] != "{":
+        return None
+    depth = 0
+    index = start
+    while index < len(text):
+        if text[index] == "\\" and index + 1 < len(text):
+            index += 2
+            continue
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def _opaque_spans(text: str) -> list[tuple[int, int]]:
+    r"""Intervalli di testo in cui '%' non è un commento.
+
+    Copre gli ambienti verbatim-like, i comandi inline (\verb, \lstinline,
+    \mintinline) e gli argomenti di \url/\path/\href.  Gli offset dei token
+    restano invariati: i chiamanti mappano le posizioni sul documento reale.
+    """
+    spans: list[tuple[int, int]] = []
+    index = 0
+    length = len(text)
+    while True:
+        match = _CMD_NAME_RE.search(text, index)
+        if match is None:
+            break
+        start = match.start()
+        if is_latex_escaped(text, start):
+            index = match.end()
+            continue
+        name = match.group(1)
+        cursor = match.end()
+        if cursor < length and text[cursor] == "*":
+            cursor += 1
+
+        if name in {"verb", "verb*", "lstinline", "mintinline"}:
+            if cursor < length:
+                delimiter = text[cursor]
+                if (not delimiter.isspace() and not delimiter.isalpha()
+                        and delimiter != "\\"):
+                    close = text.find(delimiter, cursor + 1)
+                    newline = text.find("\n", cursor + 1)
+                    if close >= 0 and (newline < 0 or close < newline):
+                        spans.append((start, close + 1))
+                        index = close + 1
+                        continue
+            index = cursor
+            continue
+
+        if name in {"begin", "end"}:
+            env_match = BEGIN_END_RE.match(text, start)
+            if env_match is not None and name == "begin":
+                env = env_match.group(2).rstrip("*")
+                if env in VERBATIM_ENVIRONMENTS:
+                    close_match = re.search(
+                        r"\\end\{" + re.escape(env) + r"\*?\}",
+                        text[env_match.end():],
+                    )
+                    end = (env_match.end() + close_match.end()
+                           if close_match else length)
+                    spans.append((start, end))
+                    index = max(index + 1, end)
+                    continue
+            index = match.end()
+            continue
+
+        if name in _LITERAL_ARG_COMMANDS:
+            # Qui '%' è letterale (es. %20 in un URL), quindi non si può usare
+            # read_latex_group(), che lo tratterebbe come inizio commento.
+            group_end = _literal_group_end(text, cursor) if cursor < length else None
+            if group_end is not None:
+                end = group_end + 1
+                if name == "href":
+                    second = _literal_group_end(text, end)
+                    if second is not None:
+                        end = second + 1
+                spans.append((start, end))
+                index = end
+                continue
+        index = match.end()
+    return spans
+
+
 def _transform_comments(text: str, replacement: str | None) -> str:
     """Apply TeX comment rules, optionally preserving source length.
 
@@ -55,6 +154,8 @@ def _transform_comments(text: str, replacement: str | None) -> str:
     """
     if "%" not in text:
         return text
+    opaque = _opaque_spans(text)
+    opaque_starts = [span[0] for span in opaque]
     output: list[str] = []
     index = 0
     length = len(text)
@@ -63,6 +164,13 @@ def _transform_comments(text: str, replacement: str | None) -> str:
         if pct < 0:
             output.append(text[index:])
             break
+        span_idx = bisect.bisect_right(opaque_starts, pct) - 1
+        if span_idx >= 0 and pct < opaque[span_idx][1]:
+            # '%' dentro \verb|...|, \url{...%20...} o ambiente verbatim:
+            # è testo letterale, non apre un commento.
+            output.append(text[index:pct + 1])
+            index = pct + 1
+            continue
         if is_latex_escaped(text, pct):
             # Percentuale escapata (\%): non apre un commento.
             output.append(text[index:pct + 1])

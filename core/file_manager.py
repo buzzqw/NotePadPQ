@@ -197,8 +197,13 @@ class FileManager:
             details["size_bytes"] = atomic_write_text(
                 path, content, encoding=enc_clean, prefix=bom, return_size=True
             )
+            from core.latex_index import invalidate_latex_index
             from core.latex_project import invalidate_cached_text
             invalidate_cached_text(path.resolve())
+            # I dati derivati (label, cite, ambienti) living in the shared
+            # index must be dropped too: the signature alone cannot detect
+            # same-size/mtime-preserving rewrites.
+            invalidate_latex_index(path.resolve())
 
     @staticmethod
     def _detect_bom(raw: bytes) -> tuple[str | None, int]:
@@ -233,15 +238,21 @@ class FileManager:
         """
         if raw.isascii():
             return raw[:limit]
+        # Incremental scan: ``raw.split(b"\n")`` materialised one bytes object
+        # per line of the whole file (millions of temporaries on a multi-MB
+        # non-UTF-8 source) even though only the first ~8 KB are needed.
         lines: list[bytes] = []
         size = 0
-        for line in raw.split(b"\n"):
-            if line.isascii():
-                continue
-            lines.append(line)
-            size += len(line) + 1
-            if size >= limit:
-                break
+        pos = 0
+        total = len(raw)
+        while pos < total and size < limit:
+            newline = raw.find(b"\n", pos)
+            end = total if newline < 0 else newline
+            line = raw[pos:end]
+            if not line.isascii():
+                lines.append(line)
+                size += len(line) + 1
+            pos = end + 1
         return b"\n".join(lines)
 
     @staticmethod
@@ -266,7 +277,9 @@ class FileManager:
             return "utf-8"
         except UnicodeDecodeError:
             pass
-        detected = FileManager._chardet_detect(raw)
+        # chardet su un buffer multi-MB è 5-10x più lento e non dà risultati
+        # migliori: decode_bytes() usa già lo stesso campione mirato.
+        detected = FileManager._chardet_detect(FileManager._encoding_sample(raw))
         for enc in ([detected] if detected else []) + _FALLBACK_ENCODINGS:
             try:
                 head.decode(enc)
@@ -391,8 +404,10 @@ class FileWatcher(QObject):
     def _on_file_changed(self, path: str) -> None:
         from pathlib import Path as P
         changed_path = P(path).resolve()
+        from core.latex_index import invalidate_latex_index
         from core.latex_project import invalidate_cached_text
         invalidate_cached_text(changed_path)
+        invalidate_latex_index(changed_path)
         if changed_path.exists():
             self.file_changed.emit(path)
             # Re-aggiunge il file (alcuni OS rimuovono il watch dopo modifica)

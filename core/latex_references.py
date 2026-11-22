@@ -176,9 +176,10 @@ def _source_texts(
     sources: list[tuple[Path, str]] = []
     for path in paths:
         try:
-            source = content if path == current and content is not None else path.read_text(
-                encoding="utf-8", errors="replace",
-            )
+            # Use the shared mtime-keyed LRU like the rest of core: repeated
+            # project-wide analyses no longer re-read and re-decode unchanged
+            # files from disk on every debounced tick.
+            source = content if path == current and content is not None else read_cached_text(path)
         except OSError:
             continue
         sources.append((path.resolve(), source))

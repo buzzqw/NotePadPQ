@@ -5,7 +5,42 @@ from __future__ import annotations
 import re
 
 _ENTRY_HEADER_RE = re.compile(r"@([A-Za-z][\w-]*)\s*([{(])")
-_BIB_COMMENT_RE = re.compile(r"(?<!\\)%[^\r\n]*")
+
+
+def _strip_bib_comments(text: str) -> str:
+    """Rimuove i commenti '%' fuori da campi graffati e stringhe tra virgolette.
+
+    La vecchia regex tagliava tutto fino a fine riga: un normale
+    ``title={50% coverage}`` rendeva l'entry incompleta e il titolo spariva
+    dai suggerimenti di citazione.
+    """
+    if not text:
+        return ""
+    out: list[str] = []
+    depth = 0
+    in_quote = False
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char == "\\" and index + 1 < length:
+            out.append(text[index:index + 2])
+            index += 2
+            continue
+        if char == '"':
+            in_quote = not in_quote
+        elif not in_quote:
+            if char == "{":
+                depth += 1
+            elif char == "}" and depth:
+                depth -= 1
+            elif char == "%" and depth == 0:
+                newline = text.find("\n", index)
+                index = length if newline < 0 else newline
+                continue
+        out.append(char)
+        index += 1
+    return "".join(out)
 
 
 def split_bibtex_items(text: str) -> list[str]:
@@ -64,23 +99,25 @@ def find_bibtex_entry_end(
 
 def find_bibtex_keys(text: str) -> list[str]:
     """Extract ordinary entry keys, excluding comments and metadata entries."""
-    uncommented = _BIB_COMMENT_RE.sub("", text or "")
+    uncommented = _strip_bib_comments(text)
     ignored = {"comment", "preamble", "string"}
     keys: list[str] = []
-    index = 0
-    while index < len(uncommented):
-        match = _ENTRY_HEADER_RE.match(uncommented, index)
-        if not match:
-            index += 1
-            continue
+    # C-level ``search`` jumps straight to the next entry header instead of
+    # issuing one regex call per byte.  Advancing past the whole entry (rather
+    # than a plain ``finditer``) still avoids matching '@' inside field values.
+    pos = 0
+    while True:
+        match = _ENTRY_HEADER_RE.search(uncommented, pos)
+        if match is None:
+            break
         end = find_bibtex_entry_end(uncommented, match.end() - 1, match.group(2))
         if end is None:
-            index = match.end()
+            pos = match.end()
             continue
         parts = split_bibtex_items(uncommented[match.end():end])
         if match.group(1).lower() not in ignored and parts and parts[0].strip():
             keys.append(parts[0].strip())
-        index = end + 1
+        pos = end + 1
     return keys
 
 
@@ -111,24 +148,23 @@ def parse_bibtex_entries(text: str) -> dict[str, dict[str, str]]:
     popup: first author surname, year and title.  The parser is deliberately
     forgiving; malformed entries are skipped instead of raising.
     """
-    uncommented = _BIB_COMMENT_RE.sub("", text or "")
+    uncommented = _strip_bib_comments(text)
     ignored = {"comment", "preamble", "string"}
     entries: dict[str, dict[str, str]] = {}
-    index = 0
-    while index < len(uncommented):
-        match = _ENTRY_HEADER_RE.match(uncommented, index)
-        if not match:
-            index += 1
-            continue
+    pos = 0
+    while True:
+        match = _ENTRY_HEADER_RE.search(uncommented, pos)
+        if match is None:
+            break
         end = find_bibtex_entry_end(
             uncommented, match.end() - 1, match.group(2)
         )
         if end is None:
-            index = match.end()
+            pos = match.end()
             continue
         entry_type = match.group(1).lower()
         parts = split_bibtex_items(uncommented[match.end():end])
-        index = end + 1
+        pos = end + 1
         if entry_type in ignored or not parts:
             continue
         key = parts[0].strip()

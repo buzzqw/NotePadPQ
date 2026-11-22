@@ -269,9 +269,14 @@ def invalidate_cached_text(path: Path) -> None:
 def _tex_candidate(base_dir: Path, reference: str | Path) -> Path:
     """Restituisce il candidato esistente più probabile per un riferimento TeX."""
     path = resolve_relative_path(base_dir, reference)
-    candidates: Iterable[Path] = (path,)
-    if path.suffix == "":
-        candidates = (path, *(path.with_suffix(ext) for ext in _TEX_EXTENSIONS))
+    # Un nome con un punto (chapters/intro.v2, sec.1) ha un .suffix ma in
+    # LaTeX è comunque un riferimento senza estensione: prova ad aggiungere
+    # quelle TeX senza sostituire l'ultimo pezzo del nome.
+    extensions = _TEX_EXTENSIONS if path.suffix.lower() not in _TEX_EXTENSIONS else ()
+    candidates: Iterable[Path] = (
+        path,
+        *(Path(str(path) + ext) for ext in extensions),
+    )
     for candidate in candidates:
         if candidate.is_file():
             return candidate

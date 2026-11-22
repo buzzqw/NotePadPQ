@@ -42,6 +42,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QScrollArea,
+    QSplitter,
     QSpinBox,
     QTextEdit,
     QToolBar,
@@ -290,6 +291,8 @@ class BuildPanel(QWidget):
         self._bound_checker = None
         self._bound_editor = None
         self._bound_language_handler = None
+        # Terminale embedded (creato solo quando l'utente lo apre: WebEngine è pesante)
+        self._terminal_panel = None
 
         self._build_ui()
         self._connect_signals()
@@ -358,10 +361,19 @@ class BuildPanel(QWidget):
         self._btn_interactive.setToolTip(tr("tooltip.build_interactive"))
         self._btn_interactive.setCheckable(True)
 
+        self._btn_terminal = QAction(
+            tr("action.build_terminal", default="Terminale"), self)
+        self._btn_terminal.setToolTip(
+            tr("tooltip.build_terminal",
+               default="Apri un terminale sotto l'output di compilazione"))
+        self._btn_terminal.setCheckable(True)
+        self._set_terminal_icon()
+
         tb.addAction(self._btn_prev_error)
         tb.addAction(self._btn_next_error)
         tb.addAction(self._btn_analyze_ai)
         tb.addAction(self._btn_interactive)
+        tb.addAction(self._btn_terminal)
 
         layout.addWidget(tb)
 
@@ -386,7 +398,22 @@ class BuildPanel(QWidget):
                 selection-background-color: #264f78;
             }
         """)
-        layout.addWidget(self._output, 1)
+
+        # Output di compilazione e terminale integrato convivono in uno
+        # splitter verticale: il terminale compare esattamente sotto il log.
+        self._output_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._output_splitter.setChildrenCollapsible(False)
+        self._output_splitter.addWidget(self._output)
+        self._output_splitter.setStretchFactor(0, 1)
+
+        self._terminal_host = QWidget()
+        self._terminal_host_layout = QVBoxLayout(self._terminal_host)
+        self._terminal_host_layout.setContentsMargins(0, 0, 0, 0)
+        self._terminal_host_layout.setSpacing(0)
+        self._terminal_host.setVisible(False)
+        self._output_splitter.addWidget(self._terminal_host)
+        self._output_splitter.setStretchFactor(1, 0)
+        layout.addWidget(self._output_splitter, 1)
 
         self._input_row = QHBoxLayout()
         self._input_row.setContentsMargins(4, 2, 4, 4)
@@ -459,6 +486,7 @@ class BuildPanel(QWidget):
         self._btn_stop.clicked.connect(self._stop_current)
         self._btn_clear.clicked.connect(self._clear_output)
         self._btn_analyze_ai.triggered.connect(self._analyze_with_ai)
+        self._btn_terminal.triggered.connect(self._toggle_terminal)
         self._btn_next_error.triggered.connect(self.goto_next_error)
         self._btn_prev_error.triggered.connect(self.goto_prev_error)
 
@@ -496,6 +524,27 @@ class BuildPanel(QWidget):
             sc = action.shortcut().toString() if action else ""
             btn.setToolTip(f"{tip}  ({sc})" if sc else tip)
 
+        # Il pannello non viene ricostruito al cambio lingua: aggiorna qui
+        # anche le etichette dei pulsanti non mappati sopra.
+        self._btn_analyze_ai.setText(tr("action.build_analyze_ai"))
+        self._btn_analyze_ai.setToolTip(tr("tooltip.build_analyze_ai"))
+        self._btn_interactive.setToolTip(tr("tooltip.build_interactive"))
+        self._btn_terminal.setText(tr("action.build_terminal", default="Terminale"))
+        self._btn_terminal.setToolTip(
+            tr("tooltip.build_terminal",
+               default="Apri un terminale sotto l'output di compilazione"))
+
+        self._profile_combo.setItemText(0, tr("build_panel.auto_profile"))
+        self._error_tree.setHeaderLabels([
+            tr("label.file", default="File"),
+            tr("label.line", default="Riga"),
+            tr("label.message", default="Messaggio"),
+            tr("label.source", default="Origine"),
+        ])
+        self._input_edit.setPlaceholderText(
+            tr("build_panel.task_input_placeholder",
+               default="Scrivi input per il processo..."))
+
     def _set_analyze_ai_icon(self) -> None:
         from pathlib import Path
 
@@ -510,6 +559,62 @@ class BuildPanel(QWidget):
             pm = QPixmap()
             if pm.loadFromData(svg_data, "SVG") and not pm.isNull():
                 self._btn_analyze_ai.setIcon(QIcon(pm))
+        except Exception:
+            pass
+
+    def _set_terminal_icon(self) -> None:
+        from PyQt6.QtGui import QIcon, QPalette, QPixmap
+
+        icon_path = Path(__file__).parent.parent / "icons" / "lucide" / "terminal.svg"
+        if not icon_path.exists():
+            return
+        color = self.palette().color(QPalette.ColorRole.WindowText).name()
+        try:
+            svg_data = icon_path.read_bytes().replace(b"currentColor", color.encode())
+            pm = QPixmap()
+            if pm.loadFromData(svg_data, "SVG") and not pm.isNull():
+                self._btn_terminal.setIcon(QIcon(pm))
+        except Exception:
+            pass
+
+    def _current_file_dir(self) -> Path | None:
+        """Cartella del file corrente, usata come cwd iniziale del terminale."""
+        editor = self._mw._tab_manager.current_editor()
+        if editor is None:
+            return None
+        path = getattr(editor, "file_path", None) or getattr(editor, "_file_path", None)
+        if path is None:
+            return None
+        try:
+            return Path(path).parent
+        except (TypeError, ValueError):
+            return None
+
+    def _toggle_terminal(self, checked: bool) -> None:
+        """Mostra/nascondi il terminale integrato sotto l'output di compilazione."""
+        if not checked:
+            self._terminal_host.setVisible(False)
+            return
+
+        if self._terminal_panel is None:
+            from ui.terminal_panel import TerminalPanel
+
+            cwd = self._current_file_dir() or Path.home()
+            self._terminal_panel = TerminalPanel(self._terminal_host, cwd=cwd)
+            self._terminal_host_layout.addWidget(self._terminal_panel)
+
+        self._terminal_host.setVisible(True)
+
+        # Ridimensiona lo splitter (e, se serve, il dock) per dare al terminale
+        # uno spazio utilizzabile fin dal primo click.
+        total = max(self._output_splitter.height(), 340)
+        out_h = max(120, int(total * 0.55))
+        term_h = max(160, total - out_h)
+        self._output_splitter.setSizes([out_h, term_h])
+        try:
+            dock = getattr(self._mw, "_build_dock", None)
+            if dock is not None and dock.height() < total:
+                self._mw.resizeDocks([dock], [total], Qt.Orientation.Vertical)
         except Exception:
             pass
 

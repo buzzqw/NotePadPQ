@@ -821,23 +821,37 @@ class MainWindow(QMainWindow):
                 pass
             client.hover_ready.connect(self._on_lsp_hover_text)
 
-            # Hover widget → richiesta
-            try:
-                editor.lsp_hover_requested.disconnect()
-            except Exception:
-                pass
-            editor.lsp_hover_requested.connect(
-                lambda line, col, _e=editor, _c=client: self._lsp_request_hover(_e, _c, line, col)
-            )
+            # Hover widget → richiesta.  disconnect() senza arg staccava anche
+            # gli handler degli altri tab: teniamo una lambda per editor.
+            old_hover = getattr(editor, "_lsp_hover_request_handler", None)
+            if old_hover is not None:
+                try:
+                    editor.lsp_hover_requested.disconnect(old_hover)
+                except Exception:
+                    pass
+            def hover_handler(line, col, _e=editor, _c=client):
+                self._lsp_request_hover(_e, _c, line, col)
 
-            # Formatting → applica edits (usa disconnect() senza arg: il vecchio slot è una lambda)
-            try:
-                client.formatting_ready.disconnect()
-            except Exception:
-                pass
-            client.formatting_ready.connect(
-                lambda edits, _e=editor: self._on_lsp_formatting(edits, _e)
-            )
+            editor._lsp_hover_request_handler = hover_handler
+            editor.lsp_hover_requested.connect(hover_handler)
+
+            # Formatting → applica edits.  Il client LSP è condiviso tra i tab
+            # della stessa workspace: disconnect() senza arg rimuoveva gli slot
+            # di tutti gli altri editor, consegnando i risultati al tab sbagliato.
+            old_format = getattr(editor, "_lsp_formatting_handler", None)
+            if old_format is not None:
+                for old_client_obj in (old_client, client):
+                    if old_client_obj is None:
+                        continue
+                    try:
+                        old_client_obj.formatting_ready.disconnect(old_format)
+                    except Exception:
+                        pass
+            def format_handler(edits, _e=editor):
+                self._on_lsp_formatting(edits, _e)
+
+            editor._lsp_formatting_handler = format_handler
+            client.formatting_ready.connect(format_handler)
 
             # Rename → applica workspace edit
             try:
@@ -1156,9 +1170,40 @@ class MainWindow(QMainWindow):
             _a.setIconVisibleInMenu(True)
         if hasattr(self, "_build_panel") and self._build_panel:
             self._build_panel._refresh_button_labels()
+
+        # I dock e le tab inferiori non vengono ricostruiti: aggiorna qui i
+        # loro titoli, altrimenti resterebbero nella lingua precedente.
+        for attr, key in (
+            ("_file_browser_dock", "dock.file_browser"),
+            ("_project_dock", "dock.projects"),
+            ("_build_dock", "label.build_output"),
+            ("_latex_references_dock", "dock.latex_references"),
+        ):
+            dock = getattr(self, attr, None)
+            if dock is not None:
+                dock.setWindowTitle(tr(key))
+        preview = getattr(self, "_preview_dock", None)
+        if preview is not None:
+            preview.setWindowTitle(f"👁  {tr('label.preview_panel')}")
+
+        tabs = getattr(self, "_bottom_tabs", None)
+        if tabs is not None:
+            for idx, key in enumerate(("dock.log", "dock.build_errors",
+                                       "dock.diagnostics", "dock.task")):
+                if idx < tabs.count():
+                    tabs.setTabText(idx, tr(key))
+            bp = getattr(self, "_build_panel", None)
+            if bp is not None:
+                n = (len(getattr(bp, "_build_errors", [])) +
+                     len(getattr(bp, "_checker_errors", [])))
+                self._on_build_errors_changed(n)
+
         # Re-aggancia i menu dinamici dopo il mb.clear() di _build_menus
         if hasattr(self, "_latex_menu_mgr"):
-            self._latex_menu_mgr._attach()
+            mgr = self._latex_menu_mgr
+            mgr._menu.setTitle(tr("latex_menu.title", default="La&TeX"))
+            mgr._build_menu()
+            mgr._attach()
 
     def _act(self, key: str, shortcut: str = "",
                  slot=None, checkable: bool = False,
@@ -1740,7 +1785,10 @@ class MainWindow(QMainWindow):
         grp.setExclusive(True)
         self._file_type_actions: dict[str, QAction] = {}
         for t in types:
-            action = QAction(t, self)
+            # La chiave interna resta invariata (usata da _update_file_type_menu),
+            # solo l'etichetta visible viene tradotta.
+            label = tr("action.file_type_plain_text") if t == "Testo normale" else t
+            action = QAction(label, self)
             action.setCheckable(True)
             action.triggered.connect(
                 lambda checked, lang=t: self.action_set_language(lang)
@@ -1882,9 +1930,7 @@ class MainWindow(QMainWindow):
             "build_latex_auxiliary_auto", "", self._toggle_latex_auxiliary_auto,
             checkable=True, checked=auxiliary_checked,
         )
-        auxiliary_act.setToolTip(
-            "Esegue automaticamente makeindex, makeglossaries e nomencl durante Build"
-        )
+        auxiliary_act.setToolTip(tr("tooltip.build_latex_auxiliary_auto"))
         m.addAction(auxiliary_act)
         retry_checked = Settings.instance().get("build/latex_auto_clean_retry", True)
         retry_act = self._act(

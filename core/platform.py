@@ -15,6 +15,7 @@ Uso:
 import os
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 from PyQt6.QtCore import QStandardPaths
@@ -36,7 +37,10 @@ PLATFORM_NAME = (
 )
 
 # ─── Directory di configurazione e dati ──────────────────────────────────────
+# I percorsi non cambiano durante il processo: evitiamo QStandardPaths + mkdir
+# a ogni chiamata (usata in hot path come profili di build e sessioni).
 
+@lru_cache(maxsize=1)
 def get_config_dir() -> Path:
     """
     Restituisce la directory di configurazione dell'applicazione.
@@ -53,6 +57,7 @@ def get_config_dir() -> Path:
     return path
 
 
+@lru_cache(maxsize=1)
 def get_data_dir() -> Path:
     """
     Restituisce la directory dati dell'applicazione (sessioni, plugin, ecc.).
@@ -68,6 +73,7 @@ def get_data_dir() -> Path:
     return path
 
 
+@lru_cache(maxsize=1)
 def get_cache_dir() -> Path:
     """
     Restituisce la directory cache (file temporanei, indici autocomplete).
@@ -105,6 +111,7 @@ _MONOSPACE_PREFERENCES = {
 }
 
 
+@lru_cache(maxsize=1)
 def get_preferred_monospace_font() -> str:
     """
     Restituisce il primo font monospace disponibile nel sistema,

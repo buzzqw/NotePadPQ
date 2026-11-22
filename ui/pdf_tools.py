@@ -45,6 +45,8 @@ class PdfSearchManager:
         self._rebuild = rebuild_fn
         self._query = ""
         self._matches: list[dict] = []
+        # Indice page -> match, evita lo scan O(pagine x match) in draw_matches.
+        self._matches_by_page: dict[int, list[dict]] = {}
         self._current_idx = -1
         self._pages_with_matches: set = set()
         self._visible_ranges = {}
@@ -64,6 +66,7 @@ class PdfSearchManager:
     def search(self, query: str) -> int:
         self._query = query.strip()
         self._matches.clear()
+        self._matches_by_page.clear()
         self._current_idx = -1
         self._pages_with_matches.clear()
         if not self._query or not self._doc or not FITZ_OK:
@@ -73,7 +76,9 @@ class PdfSearchManager:
             page = self._doc.load_page(page_idx)
             rects = page.search_for(self._query)
             for r in rects:
-                self._matches.append({"page": page_idx, "rect": r, "rect_px": r})
+                match = {"page": page_idx, "rect": r, "rect_px": r}
+                self._matches.append(match)
+                self._matches_by_page.setdefault(page_idx, []).append(match)
                 self._pages_with_matches.add(page_idx)
         if self._matches:
             self._current_idx = 0
@@ -81,11 +86,14 @@ class PdfSearchManager:
 
     def _clear_highlights(self):
         for lbl in self._page_labels:
-            if hasattr(lbl, '_search_matches'):
-                lbl._search_matches = []
-            if hasattr(lbl, '_search_current'):
-                lbl._search_current = -1
-            lbl.update()
+            if not getattr(lbl, '_search_matches', None):
+                continue
+            lbl._search_matches = []
+            lbl._search_current = -1
+            # Gli highlight sono disegnati dentro _render(): lbl.update() da
+            # solo ripittura del pixmap esistente e non li rimuoveva.
+            if not getattr(lbl, '_pixmap_released', False):
+                lbl._render()
 
     def next_match(self) -> int:
         if not self._matches:
@@ -108,10 +116,9 @@ class PdfSearchManager:
         self._scroll_to(m["page"], m["rect"])
 
     def draw_matches(self):
-        """Applica gli highlight alle page label visibili."""
+        """Applica gli highlight alle page label (solo a quelle che cambiano)."""
         for i, lbl in enumerate(self._page_labels):
-            page_matches = [m for m in self._matches if m["page"] == i]
-            lbl._search_matches = page_matches
+            page_matches = self._matches_by_page.get(i, [])
             cur_local = -1
             if 0 <= self._current_idx < len(self._matches):
                 cur_match = self._matches[self._current_idx]
@@ -120,8 +127,15 @@ class PdfSearchManager:
                         cur_local = page_matches.index(cur_match)
                     except ValueError:
                         pass
+            if (getattr(lbl, '_search_matches', None) == page_matches
+                    and getattr(lbl, '_search_current', -1) == cur_local):
+                continue
+            lbl._search_matches = page_matches
             lbl._search_current = cur_local
-            lbl.update()
+            # Le pagine fuori schermo non hanno pixmap: lo stato viene
+            # applicato quando rientrano nel viewport (ensure_pixmap -> _render).
+            if not getattr(lbl, '_pixmap_released', False):
+                lbl._render()
 
     def on_zoom_changed(self):
         """Ricalcola i rect in pixel dopo un cambio zoom, poi riesegue la ricerca."""

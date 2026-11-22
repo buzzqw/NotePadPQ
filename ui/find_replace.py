@@ -1934,6 +1934,11 @@ ESEMPI
         self._cancel_find_in_files()
         self._cancel_occurrence_worker()
         self._find_results_refresh_timer.stop()
+        # Senza questo, nascondere il dock entro 400 ms da una digitazione
+        # eseguiva comunque un full-text scan + highlight su un pannello invisibile.
+        search_timer = self.__dict__.get("_search_timer")
+        if search_timer is not None:
+            search_timer.stop()
         replace_timer = self.__dict__.get("_replace_search_timer")
         if replace_timer is not None:
             replace_timer.stop()
@@ -1958,6 +1963,8 @@ ESEMPI
 
     def _do_incremental(self) -> None:
         """Cerca mentre si digita e aggiorna la lista occorrenze."""
+        if not self.isVisible():
+            return
         editor = self._current_editor()
         if not editor:
             return
@@ -2501,11 +2508,19 @@ ESEMPI
         if not matches:
             return 0
 
-        # Costruisce la tabella degli offset di inizio riga (in caratteri)
+        # Tabella degli offset di inizio riga (in caratteri).  Il vecchio
+        # ``for i, ch in enumerate(text)`` eseguiva un iteration Python per
+        # ogni carattere del documento a ogni digitazione; ``str.find`` è uno
+        # scan C e qui si ferma all'ultima occorrenza evidenziata.
         line_starts = [0]
-        for i, ch in enumerate(text):
-            if ch == '\n':
-                line_starts.append(i + 1)
+        last_match_end = matches[-1].end()
+        pos = 0
+        while True:
+            newline = text.find('\n', pos, last_match_end)
+            if newline < 0:
+                break
+            line_starts.append(newline + 1)
+            pos = newline + 1
 
         def char_to_line_col(char_off: int) -> tuple[int, int]:
             char_off = max(0, min(char_off, len(text)))

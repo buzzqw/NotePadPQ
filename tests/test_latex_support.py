@@ -15,7 +15,7 @@ from editor.autocomplete import AutoCompleteManager
 from editor.editor_widget import EditorWidget
 from editor.latex_checker import _CheckWorker
 from editor.latex_support import LaTeXSupport, strip_latex_comments
-from editor.lexer_latex_custom import S_DEFAULT, S_MATH, LaTeXLexer
+from editor.lexer_latex_custom import S_MATH, S_VERBATIM, LaTeXLexer
 
 
 class _DollarEditor:
@@ -511,8 +511,10 @@ class LaTeXLexerVerbatimTest(unittest.TestCase):
                 b"50% not a comment, $not math$\n"
                 b"\\end{verbatim}\n")
         lexer, styles = self._style(text)
-        self.assertEqual(styles[text.index(b"%")], S_DEFAULT)
-        self.assertEqual(styles[text.index(b"$")], S_DEFAULT)
+        # Il contenuto verbatim ha uno stile dedicato: l'importante è che non
+        # sia S_COMMENT né S_MATH (era S_DEFAULT, indistinguibile dal testo).
+        self.assertEqual(styles[text.index(b"%")], S_VERBATIM)
+        self.assertEqual(styles[text.index(b"$")], S_VERBATIM)
         self.assertEqual(lexer._state_at(text, len(text))[0], "default")
 
     def test_percent_at_start_of_verbatim_line_is_not_a_comment(self):
@@ -524,7 +526,7 @@ class LaTeXLexerVerbatimTest(unittest.TestCase):
         # è l'unica cosa che impedisce di colorarlo come inizio commento.
         text = b"\\begin{verbatim}\n%starts with percent\n\\end{verbatim}\n"
         lexer, styles = self._style(text)
-        self.assertEqual(styles[text.index(b"%")], S_DEFAULT)
+        self.assertEqual(styles[text.index(b"%")], S_VERBATIM)
 
     def test_state_inside_verbatim_block_is_verbatim(self):
         text = b"\\begin{verbatim}\nhello\n\\end{verbatim}\n"
